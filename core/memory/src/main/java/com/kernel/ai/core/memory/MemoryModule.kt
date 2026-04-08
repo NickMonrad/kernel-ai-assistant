@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Room
 import com.kernel.ai.core.memory.dao.ConversationDao
 import com.kernel.ai.core.memory.dao.MessageDao
+import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
+import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.vector.SqliteVecStore
 import com.kernel.ai.core.memory.vector.VectorStore
 import dagger.Binds
@@ -36,5 +38,11 @@ abstract class MemoryModule {
 
         @Provides
         fun provideMessageDao(db: KernelDatabase): MessageDao = db.messageDao()
+
+        @Provides
+        fun provideMessageEmbeddingDao(db: KernelDatabase): MessageEmbeddingDao = db.messageEmbeddingDao()
+
+        @Provides
+        fun provideUserProfileDao(db: KernelDatabase): UserProfileDao = db.userProfileDao()
     }
 }

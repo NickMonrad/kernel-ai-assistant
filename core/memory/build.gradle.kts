@@ -48,6 +48,7 @@ room {
 }
 
 dependencies {
+    implementation(project(":core:inference"))
     implementation(libs.core.ktx)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
