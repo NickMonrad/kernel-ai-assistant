@@ -2,6 +2,9 @@ package com.kernel.ai.core.inference
 
 import android.content.Context
 import android.util.Log
+import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
+import com.kernel.ai.core.inference.hardware.QuantizationVerifier
+import java.io.File
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
@@ -40,6 +43,7 @@ private const val TAG = "LiteRtInferenceEngine"
 @Singleton
 class LiteRtInferenceEngine @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val hardwareProfileDetector: HardwareProfileDetector,
 ) : InferenceEngine {
 
     private val _isReady = MutableStateFlow(false)
@@ -62,16 +66,33 @@ class LiteRtInferenceEngine @Inject constructor(
     override suspend fun initialize(config: ModelConfig) {
         withContext(LlmDispatcher) {
             _isReady.value = false
-            Log.i(TAG, "Initializing engine for model: ${config.modelPath}")
 
-            val (eng, backendType) = createEngineWithFallback(config)
+            // Apply hardware-aware defaults when AUTO is specified.
+            val profile = hardwareProfileDetector.profile
+            val resolvedConfig = if (config.backendType == BackendType.AUTO) {
+                config.copy(
+                    backendType = profile.recommendedBackend,
+                    maxTokens = config.maxTokens.coerceAtMost(profile.recommendedMaxTokens),
+                )
+            } else config
+
+            Log.i(TAG, "Initializing engine — model: ${resolvedConfig.modelPath}, " +
+                "backend: ${resolvedConfig.backendType}, tier: ${profile.tier}")
+
+            // Sanity-check quantization before spending 10-30s initializing.
+            QuantizationVerifier.verify(
+                modelFile = File(resolvedConfig.modelPath),
+                expectedBytes = estimateExpectedBytes(resolvedConfig.modelPath),
+            )
+
+            val (eng, backendType) = createEngineWithFallback(resolvedConfig)
             engine = eng
-            conversation = eng.createConversation(buildConversationConfig(backendType, config.systemPrompt))
-            currentConfig = config
+            conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig.systemPrompt))
+            currentConfig = resolvedConfig
             _activeBackend.value = backendType
             _isReady.value = true
 
-            Log.i(TAG, "Engine ready — backend: $backendType, maxTokens: ${config.maxTokens}")
+            Log.i(TAG, "Engine ready — backend: $backendType, maxTokens: ${resolvedConfig.maxTokens}")
         }
     }
 
@@ -225,5 +246,16 @@ class LiteRtInferenceEngine @Inject constructor(
 
     private fun safeClose(closeable: AutoCloseable?, label: String) {
         try { closeable?.close() } catch (e: Exception) { Log.w(TAG, "close $label: ${e.message}") }
+    }
+
+    /**
+     * Returns a rough expected byte count for the given model path.
+     * Falls back to 0 (skips quantization check) if the model isn't in [KernelModel].
+     */
+    private fun estimateExpectedBytes(modelPath: String): Long {
+        val fileName = File(modelPath).name
+        return com.kernel.ai.core.inference.download.KernelModel.entries
+            .firstOrNull { it.fileName == fileName }
+            ?.approxSizeBytes ?: 0L
     }
 }
