@@ -52,7 +52,9 @@ enum class KernelModel(
         fileName = "mobile_actions_q8_ekv1024.litertlm",
         downloadUrl = "https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions/resolve/main/mobile_actions_q8_ekv1024.litertlm",
         approxSizeBytes = 303_000_000L, // ~289 MB
-        isRequired = true,
+        // Not required for Phase 1 (basic chat). Needed for Phase 2 intent routing.
+        // Note: this HuggingFace repo is currently gated — public URL needed before enabling.
+        isRequired = false,
         preferredForTier = null,
     ),
 }

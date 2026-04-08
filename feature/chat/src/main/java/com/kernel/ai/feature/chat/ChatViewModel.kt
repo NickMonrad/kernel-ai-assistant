@@ -12,6 +12,7 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
+import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -68,7 +69,15 @@ class ChatViewModel @Inject constructor(
         when {
             !allDownloaded -> {
                 val anyDownloading = allRequired.any { downloadStates[it] is DownloadState.Downloading }
-                ChatUiState.ModelsNotReady(isDownloading = anyDownloading)
+                val progress = allRequired.map { model ->
+                    ModelDownloadProgress(
+                        model = model,
+                        displayName = model.displayName,
+                        sizeLabel = formatBytes(model.approxSizeBytes),
+                        state = downloadStates[model] ?: DownloadState.NotDownloaded,
+                    )
+                }
+                ChatUiState.ModelsNotReady(isDownloading = anyDownloading, modelProgress = progress)
             }
             !engine.isReady -> ChatUiState.Loading
             else -> ChatUiState.Ready(
@@ -117,6 +126,10 @@ class ChatViewModel @Inject constructor(
                 _error.value = "Failed to load model: ${e.message}"
             }
         }
+    }
+
+    fun retryDownload(model: KernelModel) {
+        downloadManager.startDownload(model, force = false)
     }
 
     fun onInputChanged(text: String) {
@@ -240,4 +253,10 @@ class ChatViewModel @Inject constructor(
         super.onCleared()
         viewModelScope.launch { inferenceEngine.shutdown() }
     }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
+    bytes >= 1_048_576L -> "%.0f MB".format(bytes / 1_048_576.0)
+    else -> "$bytes B"
 }

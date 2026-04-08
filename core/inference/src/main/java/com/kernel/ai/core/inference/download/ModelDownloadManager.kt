@@ -63,6 +63,13 @@ class ModelDownloadManager @Inject constructor(
         KernelModel.entries.forEach { model ->
             scope.launch { observeWorkInfo(model) }
         }
+        // Auto-queue all required models that aren't yet downloaded
+        KernelModel.entries
+            .filter { it.isRequired && !it.isDownloaded(context) }
+            .forEach { model ->
+                Log.i(TAG, "Auto-queuing required model: ${model.displayName}")
+                startDownload(model)
+            }
         // Auto-queue tier-specific optional models (e.g. E-4B on FLAGSHIP)
         val tier = hardwareProfileDetector.profile.tier
         KernelModel.entries
