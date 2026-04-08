@@ -4,56 +4,100 @@
 
 An Android-native, **local-first AI assistant** with zero cloud dependencies. All inference runs on-device via Google AI Edge (LiteRT). The architecture follows a **Brain–Memory–Action** triad, orchestrated centrally in Kotlin.
 
-## Dev Environment Prerequisites
+**Repo:** `NickMonrad/kernel-ai-assistant`
+**Test device:** Samsung Galaxy S23 Ultra (Snapdragon 8 Gen 2, 12GB RAM, Android 16 / One UI 8.0)
+
+## Dev Environment
 
 - **Android Studio:** Ladybug (2024.2.1) or newer
-- **Android NDK:** Required for SQLite-VSS and Wasm JNI bridges
+- **Android NDK:** Required for sqlite-vec JNI bridge
+- **Min SDK:** API 35 (Android 15), target SDK 36
 - **RAM:** 32GB minimum (LiteRT builds + Android Emulator)
-- **Test device:** Physical hardware with 8–12GB RAM and Snapdragon 8 Gen 2/3 (or NPU-equivalent)
+- **Physical device required** for NPU/GPU testing — emulator cannot test hardware delegates
+
+## Gradle Module Structure
+
+```
+:app                  Entry point, Hilt DI setup, navigation, splash screen
+:core:inference       LiteRT-LM engine wrapper, model manager, hardware tier detection
+:core:memory          sqlite-vec integration, EmbeddingGemma, RAG pipeline
+:core:wasm            Chicory Wasm host runtime, bridge functions, resource limiting
+:core:ui              Shared Compose components, Material 3 theme
+:core:skills          Skill interface, SkillRegistry, JSON schema generation
+:feature:chat         Chat screen, conversation list, ChatViewModel
+:feature:settings     Memory management, skill store, model info, persona config
+:feature:onboarding   First-launch model download flow
+```
 
 ## Architecture
 
-### Brain — LiteRT Inference Engine
+### Brain — Model Cascade
 
-Two hardware tiers, selected at runtime by the **Model Manager**:
+Three models with a cascading strategy:
 
-| Tier | RAM | Reasoning Model | Embedding Model |
-|---|---|---|---|
-| Performance | 12GB+ | Gemma-4 E-4B | EmbeddingGemma-300M |
-| Compatibility | 8GB | Gemma-4 E-2B | Gecko-110m-en |
+| Model | Role | Size | Loading |
+|-------|------|------|---------|
+| FunctionGemma-270M-FT-Mobile-Actions | Intent router (always-hot) | 289MB | Loaded at splash screen (~1-2s) |
+| Gemma-4 E-4B (Performance) / E-2B (Compat) | Reasoning | ~1.5-2.5GB | Lazy-loaded on first complex query |
+| EmbeddingGemma-300M | Semantic embeddings | <200MB | Loaded when RAG pipeline activates |
 
-- All models use **INT4 (4-bit) quantization** via LiteRT with GPU + NPU delegates (AICore).
-- The Model Manager handles dynamic weight warm-up/teardown to control peak RAM.
-- A shared **FunctionGemma-270M** acts as the "Intent Router" for tool/skill dispatch across both tiers.
+- All models use **quantized weights** (INT4/INT8) via LiteRT with GPU + NPU delegates
+- FunctionGemma runs on **CPU via XNNPACK** (4 threads, ~154 tk/s) — always ready
+- **Model Manager** handles warm-up/teardown: never hold EmbeddingGemma + Gemma-4 simultaneously on 8GB devices
+- Backend fallback chain: NPU → GPU → CPU
 
 ### Memory — Local RAG
 
 **Short-term (session):** LiteRT-LM KV Cache — 4,096 tokens (Performance) / 2,048 tokens (Compatibility). At 80% capacity, the reasoning model generates a recursive summary injected back into the prompt.
 
-**Long-term (semantic):** SQLite + VSS (Vector Similarity Search) extension. Every user query triggers a cosine-similarity search; the top 3–5 fragments are prepended to the system prompt. Embeddings run in a background thread via Gecko-110m or EmbeddingGemma-300M.
+**Long-term (semantic):** sqlite-vec (compiled via NDK for arm64-v8a) with Room entities. Every user query triggers cosine-similarity search via `vec_distance_cosine()`; top 3–5 memory fragments prepended to system prompt. EmbeddingGemma-300M generates 768-dim vectors (256-dim on 8GB tier via Matryoshka reduction).
 
 ### Action — Skill Framework
 
 **Native Skills (Kotlin/JVM)** — high-privilege OS integrations:
 - Device controls: Flashlight, DND, Bluetooth, Alarm/Timer
 - Communication: Email (`ACTION_SEND`), background SMS (`SEND_SMS`)
-- Productivity: Google Keep via Android Intents
-- Media: MediaSession API (e.g., Plexamp)
+- Productivity: Local notes in Room database (future: Nextcloud Notes)
+- Media: Generic MediaSession controller via NotificationListenerService
 
-**Extensible Skills (WebAssembly)** — sandboxed, community-extensible:
-- Runtime: Extism or Wasmtime via JNI bridge
-- No direct OS access; data exchange via JSON or Protobuf
-- A **"Fuel" system** caps CPU cycles per Wasm plugin (prevents battery drain/infinite loops)
-- Sideloaded skills require user "Accept Risk" acknowledgement and a permission audit of the Wasm import section
+**Extensible Skills (WebAssembly)** — sandboxed via **Chicory** (pure JVM, v1.0+):
+- No direct OS access; data exchange via JSON through shared linear memory
+- Resource limiting via coroutine timeouts (5s wall-clock), memory caps (16MB), output limits (1MB)
+- Wasm skills authored in **Rust** (via wasm-pack / cargo-component)
+- Sideloaded skills require permission audit of Wasm import section + user "Accept Risk" dialog
 
 ## Key Conventions
 
+### Architecture
 - **Kotlin is the host language.** All orchestration, OS integration, and JNI bridges are Kotlin/JVM. Wasm is guest-only.
 - **No external LLM APIs.** Never introduce network calls to cloud inference endpoints; all model inference must go through LiteRT.
-- **Skill registry is decoupled.** Skills are not hardcoded into the main app flow — they are registered and dispatched through the central skill registry.
-- **Skill Store source of truth:** A curated GitHub repo with a `manifest.json` containing verified skill hashes and Wasm binaries. Sideloading (ZIP or URL) is also supported and hot-swappable at runtime.
-- **Context window is managed, not truncated.** When approaching the token limit, trigger recursive summarization via the 2B/4B model — do not simply drop history.
-- **Wasm sandboxing is non-negotiable.** Wasm modules must never receive direct OS capabilities; capabilities are granted only via explicit Kotlin host bridge functions.
+- **Contract-first skill development.** Define the JSON schema for every skill before writing logic. The schema is the source of truth for both FunctionGemma (routing) and the Kotlin/Wasm implementation (execution). Any skill change starts with a version bump in the manifest.
+- **Context window is managed, not truncated.** When approaching the token limit, trigger recursive summarization — do not simply drop history.
+
+### Performance & Safety
+- **Dedicated LLM Dispatcher.** All inference runs on a custom coroutine dispatcher (dedicated thread pool), never `Dispatchers.Main`. Keep UI responsive while NPU is saturated.
+- **Hallucination guardrails.** Always validate FunctionGemma's output against the skill registry schema. If malformed, retry once with the error fed back to the model. If still invalid, fall back to a text response from Gemma-4.
+- **Verify quantization.** Use LiteRT Metadata Extractor to confirm models are actually running at the expected bit-depth. An accidental FP32 model will OOM on 8GB devices.
+- **LeakCanary from day one.** Integrate early to catch model weight leaks — weights that linger after a conversation closes.
+
+### Security
+- **Explicit Intents only.** When triggering native Android actions (SMS, email, etc.), never use implicit intents that could be intercepted by other apps.
+- **Wasm sandboxing is non-negotiable.** Wasm modules never receive direct OS capabilities. All capabilities granted via explicit Kotlin host bridge functions.
+- **Domain-scoped network access.** Wasm skills needing HTTP get domain-specific bridge functions (e.g., `fetchHomeAssistant(path)`) with URL validation against an allowlist — never a generic `fetch()`.
+
+### Cold Start Strategy
+- Splash screen loads FunctionGemma (~1-2s) — simple commands work immediately
+- Gemma-4 lazy-loads on first complex query ("Thinking..." indicator shown)
+- EmbeddingGemma loads on first RAG-triggering query
+
+## UI/UX
+
+- **Jetpack Compose** with Material 3 Dynamic Color, dark default (AMOLED-friendly)
+- **Chat-centric:** conversations list as home, chat screen as primary interaction
+- **Multiple conversations** with Room-persisted history (create/delete/rename)
+- **Voice:** tap-to-toggle with auto-stop on silence (future: wake word)
+- **Skill results:** inline rich cards in the conversation stream
+- **Persona:** friendly, concise, slightly playful default (future: configurable)
 
 ## Agent Working Model
 
@@ -102,10 +146,85 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
 - Close issues in PR body with `Closes #N`
 - When a feature request is raised mid-session, create a GitHub issue for it
 
-## Implementation Phases (Roadmap)
+## Development Workflow
 
-1. Core LiteRT-LM integration with GPU acceleration for Gemma-4
-2. SQLite-VSS + Gecko for local semantic search
-3. FunctionGemma Intent Router + initial Native Skills
-4. Wasm Runtime + GitHub-based Skill Store
+### Build Commands
+
+```bash
+./gradlew assembleDebug          # Build debug APK
+./gradlew test                   # Run all unit tests (JUnit 5 + MockK)
+./gradlew testDebugUnitTest      # Unit tests for debug variant only
+./gradlew connectedDebugAndroidTest  # Compose UI tests (requires connected device)
+./gradlew lint                   # Android lint
+./gradlew installDebug           # Build + install on connected device via ADB
+./gradlew :core:inference:test   # Run tests for a single module
+```
+
+### Testing Strategy
+
+- **Unit tests:** JUnit 5 + MockK for all non-UI logic (inference engine, skill registry, RAG pipeline, model manager)
+- **Compose UI tests:** `androidx.compose.ui:ui-test-junit4` for chat screen, conversation list, settings
+- **Test location:** `src/test/` for unit tests, `src/androidTest/` for Compose/instrumented tests
+- **Mocking LiteRT:** The inference engine is behind an interface (`InferenceEngine`) — mock it in tests, never load real models in CI
+
+### Model Files
+
+Models are **gitignored** (1-3GB each). After cloning:
+```bash
+./scripts/download-models.sh     # Downloads all models from HuggingFace to app/src/main/assets/models/
+./scripts/download-models.sh functiongemma   # Download a single model
+```
+The script verifies SHA256 hashes after download. Models directory: `models/` (gitignored).
+
+### Device Deployment
+
+- **USB wired ADB** is the standard deployment method
+- `adb devices` to verify S23 Ultra is connected
+- `./gradlew installDebug` to build and deploy
+- `adb logcat -s KernelAI` to tail app logs (all app logging uses the `KernelAI` tag)
+
+### Dev Loop (typical feature)
+
+```
+1. Branch from main: git checkout -b feature/<name>
+2. Implement changes (or delegate to codex-developer)
+3. ./gradlew test                              # Unit tests pass
+4. ./gradlew connectedDebugAndroidTest         # UI tests pass (if device connected)
+5. ./gradlew lint                              # No new warnings
+6. ./gradlew installDebug                      # Deploy to S23 Ultra
+7. Manual smoke test on device
+8. git commit with conventional format
+9. git push, raise PR with Closes #N
+10. CI runs Build & Test job
+11. Owner reviews and merges
+```
+
+### Before Raising a PR
+
+1. `./gradlew test` passes (all unit tests)
+2. `./gradlew lint` passes (no new warnings)
+3. `./gradlew assembleDebug` succeeds (builds clean)
+4. If UI changes: `./gradlew connectedDebugAndroidTest` passes
+5. Manual smoke test on device for inference-related changes
+6. Commit messages follow `type(#issue): description` format
+
+### CI Notes
+
+- CI cannot run real model inference (no GPU/NPU, models too large)
+- CI runs: lint, unit tests, debug build
+- Inference tests use mocked `InferenceEngine` — never download models in CI
+- Compose UI tests run on CI via Android Emulator (API 35 system image)
+
+## Benchmarking
+
+- Maintain a `benchmarks/` folder with standard test queries
+- Track Time-to-First-Token (TTFT) and tokens/sec across builds using Android Macrobenchmark
+- Standard queries: simple device action, conversational question, RAG-augmented query
+
+## Implementation Phases
+
+1. Core LiteRT-LM integration with GPU/NPU acceleration for Gemma-4
+2. sqlite-vec + EmbeddingGemma for local semantic search (RAG)
+3. FunctionGemma Intent Router + initial Native Skills + Voice I/O
+4. Chicory Wasm Runtime + GitHub-based Skill Store
 5. 8GB device optimization (dynamic weight loading/unloading)
