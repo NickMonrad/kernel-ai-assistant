@@ -47,6 +47,8 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // LiteRT-LM (transitive) uses internal Kotlin 2.3.x build (metadata 2.3.0)
+        freeCompilerArgs += "-Xskip-metadata-version-check"
     }
 }
 
@@ -79,6 +81,7 @@ dependencies {
     // Hilt
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)
+    implementation(libs.hilt.work)
     ksp(libs.hilt.compiler)
 
     // Debug

@@ -33,6 +33,8 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.datastore.preferences)
     implementation(libs.coroutines.android)
+    implementation(libs.work.runtime.ktx)
+    implementation(libs.hilt.work)
 
     // LiteRT-LM on-device inference
     implementation(libs.litertlm.android)
