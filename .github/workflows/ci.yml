@@ -20,37 +20,37 @@ jobs:
           test -f README.md || (echo "README.md missing" && exit 1)
           echo "Repo structure OK"
 
-      # ── Android build steps (uncomment when Gradle project is initialised) ──
-      # - name: Set up JDK 17
-      #   uses: actions/setup-java@v4
-      #   with:
-      #     java-version: '17'
-      #     distribution: 'temurin'
-      #
-      # - name: Set up Android SDK
-      #   uses: android-actions/setup-android@v3
-      #
-      # - name: Cache Gradle packages
-      #   uses: actions/cache@v4
-      #   with:
-      #     path: |
-      #       ~/.gradle/caches
-      #       ~/.gradle/wrapper
-      #     key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-      #     restore-keys: gradle-${{ runner.os }}-
-      #
-      # - name: Grant execute permission for gradlew
-      #   run: chmod +x gradlew
-      #
+      # ── Android build ──────────────────────────────────────────────
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build (debug)
+        run: ./gradlew assembleDebug
+
       # - name: Lint
       #   run: ./gradlew lint
-      #
+
       # - name: Unit tests
       #   run: ./gradlew test
-      #
-      # - name: Build (debug)
-      #   run: ./gradlew assembleDebug
-      #
+
       # - name: Upload test results
       #   if: always()
       #   uses: actions/upload-artifact@v4
@@ -58,11 +58,11 @@ jobs:
       #     name: test-results-${{ github.sha }}
       #     path: '**/build/reports/tests/'
       #     retention-days: 14
-      #
-      # - name: Upload APK
-      #   if: success()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: apk-${{ github.sha }}
-      #     path: app/build/outputs/apk/debug/
-      #     retention-days: 14
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ github.sha }}
+          path: app/build/outputs/apk/debug/
+          retention-days: 14
