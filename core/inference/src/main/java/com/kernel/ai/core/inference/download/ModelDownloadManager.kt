@@ -40,6 +40,7 @@ private const val TAG = "ModelDownloadManager"
 @Singleton
 class ModelDownloadManager @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val hardwareProfileDetector: com.kernel.ai.core.inference.hardware.HardwareProfileDetector,
 ) {
     private val workManager = WorkManager.getInstance(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -62,6 +63,14 @@ class ModelDownloadManager @Inject constructor(
         KernelModel.entries.forEach { model ->
             scope.launch { observeWorkInfo(model) }
         }
+        // Auto-queue tier-specific optional models (e.g. E-4B on FLAGSHIP)
+        val tier = hardwareProfileDetector.profile.tier
+        KernelModel.entries
+            .filter { !it.isRequired && it.preferredForTier == tier && !it.isDownloaded(context) }
+            .forEach { model ->
+                Log.i(TAG, "Auto-queuing ${model.displayName} for tier ${tier.name}")
+                startDownload(model)
+            }
     }
 
     // -------------------------------------------------------------------------
@@ -127,6 +136,19 @@ class ModelDownloadManager @Inject constructor(
         KernelModel.entries
             .filter { it.isRequired }
             .all { it.isDownloaded(context) }
+
+    /**
+     * Returns the best available conversation model for the current hardware tier.
+     *
+     * Prefers a tier-specific model (e.g. E-4B on FLAGSHIP) if it is already downloaded.
+     * Falls back to [KernelModel.GEMMA_4_E2B] which is always the baseline.
+     */
+    fun preferredConversationModel(): KernelModel {
+        val tier = hardwareProfileDetector.profile.tier
+        val tierModel = KernelModel.entries
+            .firstOrNull { it.preferredForTier == tier && it.isDownloaded(context) }
+        return tierModel ?: KernelModel.GEMMA_4_E2B
+    }
 
     // -------------------------------------------------------------------------
     // Private helpers
