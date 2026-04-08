@@ -71,6 +71,7 @@ class ChatViewModel @Inject constructor(
                 val anyDownloading = allRequired.any { downloadStates[it] is DownloadState.Downloading }
                 val progress = allRequired.map { model ->
                     ModelDownloadProgress(
+                        model = model,
                         displayName = model.displayName,
                         sizeLabel = formatBytes(model.approxSizeBytes),
                         state = downloadStates[model] ?: DownloadState.NotDownloaded,
@@ -125,6 +126,10 @@ class ChatViewModel @Inject constructor(
                 _error.value = "Failed to load model: ${e.message}"
             }
         }
+    }
+
+    fun retryDownload(model: KernelModel) {
+        downloadManager.startDownload(model, force = false)
     }
 
     fun onInputChanged(text: String) {

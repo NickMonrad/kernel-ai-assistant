@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.chat.model
 
 import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.KernelModel
 
 sealed interface ChatUiState {
     data object Loading : ChatUiState
@@ -21,6 +22,7 @@ sealed interface ChatUiState {
     ) : ChatUiState
 
     data class ModelDownloadProgress(
+        val model: KernelModel,
         val displayName: String,
         val sizeLabel: String,
         val state: DownloadState,

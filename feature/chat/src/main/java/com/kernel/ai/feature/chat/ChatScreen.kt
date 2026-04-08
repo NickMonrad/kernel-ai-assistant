@@ -3,7 +3,6 @@ package com.kernel.ai.feature.chat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,10 +12,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.ui.text.style.TextAlign
-import com.kernel.ai.core.inference.download.DownloadState
-import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -33,10 +28,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -53,11 +50,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
+import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +75,7 @@ fun ChatScreen(
         is ChatUiState.ModelsNotReady -> OnboardingContent(
             isDownloading = state.isDownloading,
             modelProgress = state.modelProgress,
+            onRetry = viewModel::retryDownload,
         )
         is ChatUiState.Ready -> ChatContent(
             state = state,
@@ -302,6 +304,7 @@ private fun LoadingContent() {
 private fun OnboardingContent(
     isDownloading: Boolean,
     modelProgress: List<ModelDownloadProgress>,
+    onRetry: (KernelModel) -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
@@ -334,7 +337,7 @@ private fun OnboardingContent(
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     modelProgress.forEach { item ->
-                        ModelProgressRow(item)
+                        ModelProgressRow(item, onRetry = onRetry)
                     }
                 }
             } else if (isDownloading) {
@@ -345,7 +348,7 @@ private fun OnboardingContent(
 }
 
 @Composable
-private fun ModelProgressRow(item: ModelDownloadProgress) {
+private fun ModelProgressRow(item: ModelDownloadProgress, onRetry: (KernelModel) -> Unit) {
     val state = item.state
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -404,11 +407,23 @@ private fun ModelProgressRow(item: ModelDownloadProgress) {
                 )
             }
             is DownloadState.Error -> {
-                Text(
-                    text = state.message,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Download failed",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        onClick = { onRetry(item.model) },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    ) {
+                        Text("Retry", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             }
             is DownloadState.NotDownloaded -> {
                 Text(
