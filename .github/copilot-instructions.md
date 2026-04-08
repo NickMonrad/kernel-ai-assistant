@@ -101,19 +101,36 @@ Three models with a cascading strategy:
 
 ## Agent Working Model
 
-This project uses a **Sonnet-orchestrates, Codex-implements** pattern:
+This project uses a **Sonnet-orchestrates, specialists-implement** pattern with 7 agents:
 
-| Role | Agent | Responsibility |
-|------|-------|----------------|
-| **Orchestrator** | Sonnet (this session) | Analysis, planning, coordination, decisions, PR descriptions |
-| **Implementor** | `codex-developer` | All code changes — features, bug fixes, refactors |
-| **Test writer** | `playwright-test-engineer` | All Playwright/instrumented E2E test creation and fixes |
+| Agent | Role | Domain |
+|-------|------|--------|
+| **coordinator** | Orchestrator | Decomposes multi-domain tasks, routes to specialists, synthesises results |
+| **android-developer** | Implementor | Kotlin/Compose/Gradle, native skills, UI, app plumbing |
+| **llm-engineer** | AI specialist | LiteRT integration, model cascade, RAG pipeline, prompt engineering |
+| **test-writer** | Test specialist | JUnit 5 + MockK unit tests, Compose UI tests (independent of implementation) |
+| **spec-writer** | Documentation | README, specification.md, copilot-instructions.md, skill schemas |
+| **code-reviewer** | Reviewer | Security, memory safety, LiteRT anti-patterns, correctness |
+| **wasm-skill-author** | Wasm specialist | Rust → Wasm skills, Chicory bridge, Skill Store (Phase 4+) |
 
 ### Rules
-- **Sonnet never writes code directly** — all implementation is delegated to `codex-developer`
-- **Both agents can run in parallel** when a task requires code changes AND new tests
-- Sonnet reviews agent output, spot-checks critical changes, and raises PRs
-- If an agent fails twice, Sonnet may attempt the task directly as a fallback
+- **test-writer works independently** — never sees the implementation agent's prompt; tests based on interfaces and contracts only
+- **code-reviewer runs before every PR merge** — at minimum a quick pass
+- **Agents can run in parallel** when work is independent (e.g., android-developer + test-writer)
+- **Owner reviews and tests on S23 Ultra before merging** — every feature delivery includes manual testing steps and ADB commands
+- If an agent fails twice, escalate or attempt the task directly as a fallback
+
+### Typical workflow for a feature
+```
+1. Sonnet/coordinator: analyse issue, explore codebase, form plan
+2. Dispatch: android-developer or llm-engineer (implementation)
+3. Parallel: test-writer (tests based on interfaces)
+4. Parallel: spec-writer (update docs if needed)
+5. code-reviewer: review the changes
+6. Owner: manual test on S23 Ultra via ADB
+7. Sonnet: commit, push, raise PR with Closes #N
+8. Owner: final review and merge
+```
 
 ## Branching & PR Standards
 
