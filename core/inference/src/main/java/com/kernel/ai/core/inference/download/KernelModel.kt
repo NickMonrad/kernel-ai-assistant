@@ -57,6 +57,20 @@ enum class KernelModel(
         isRequired = false,
         preferredForTier = null,
     ),
+
+    /**
+     * Universal Sentence Encoder — 512-dim text embeddings for RAG memory.
+     * Public model (~6 MB) served from Google's MediaPipe CDN.
+     * Not required for basic chat, but enables semantic memory in Phase 2.
+     */
+    UNIVERSAL_SENTENCE_ENCODER(
+        displayName = "Universal Sentence Encoder",
+        fileName = "universal_sentence_encoder.tflite",
+        downloadUrl = "https://storage.googleapis.com/mediapipe-models/text_embedder/universal_sentence_encoder/float32/latest/universal_sentence_encoder.tflite",
+        approxSizeBytes = 6_120_274L,
+        isRequired = false,
+        preferredForTier = null,
+    ),
 }
 
 /** Absolute path to this model's file on internal storage. */

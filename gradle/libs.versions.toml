@@ -32,6 +32,7 @@ coroutinesTest = "1.10.1"
 
 # LiteRT
 litertlm = "0.10.0"
+mediapipeTasksText = "0.10.33"
 
 # WorkManager + Hilt Work
 workManager = "2.11.2"
@@ -73,6 +74,9 @@ hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-com
 
 # LiteRT-LM
 litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
+
+# MediaPipe Tasks Text (TextEmbedder)
+mediapipe-tasks-text = { group = "com.google.mediapipe", name = "tasks-text", version.ref = "mediapipeTasksText" }
 
 # WorkManager
 work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
