@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -45,6 +46,7 @@ import java.util.Locale
 fun ConversationListScreen(
     onOpenConversation: (String) -> Unit,
     onNewConversation: () -> Unit,
+    onNavigateToSettings: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel(),
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
@@ -52,7 +54,14 @@ fun ConversationListScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Kernel") })
+            TopAppBar(
+                title = { Text("Kernel") },
+                actions = {
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
+                },
+            )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = onNewConversation) {

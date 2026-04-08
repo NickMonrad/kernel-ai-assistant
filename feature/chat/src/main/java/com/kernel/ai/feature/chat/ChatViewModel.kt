@@ -3,13 +3,16 @@ package com.kernel.ai.feature.chat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
+import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
@@ -30,6 +33,8 @@ class ChatViewModel @Inject constructor(
     private val inferenceEngine: InferenceEngine,
     private val downloadManager: ModelDownloadManager,
     private val conversationRepository: ConversationRepository,
+    private val ragRepository: RagRepository,
+    private val userProfileRepository: UserProfileRepository,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -121,7 +126,11 @@ class ChatViewModel @Inject constructor(
         val modelState = downloadManager.downloadStates.value[preferred]
         if (modelState is DownloadState.Downloaded && !inferenceEngine.isReady.value) {
             try {
-                inferenceEngine.initialize(ModelConfig(modelPath = modelState.localPath))
+                val profile = userProfileRepository.get()
+                val systemPrompt = if (profile.isNotBlank())
+                    "$DEFAULT_SYSTEM_PROMPT\n\n[User Profile]\n$profile"
+                else DEFAULT_SYSTEM_PROMPT
+                inferenceEngine.initialize(ModelConfig(modelPath = modelState.localPath, systemPrompt = systemPrompt))
             } catch (e: Exception) {
                 _error.value = "Failed to load model: ${e.message}"
             }
@@ -153,6 +162,7 @@ class ChatViewModel @Inject constructor(
             )
             _messages.update { it + userMessage }
             conversationRepository.addMessage(convId, "user", text)
+            ragRepository.indexMessage(userMsgId, convId, text)
 
             // Placeholder for the streaming assistant reply.
             val assistantMsgId = UUID.randomUUID().toString()
@@ -167,8 +177,11 @@ class ChatViewModel @Inject constructor(
             var accumulatedContent = StringBuilder()
             var accumulatedThinking = StringBuilder()
 
+            val ragContext = ragRepository.getRelevantContext(text)
+            val prompt = if (ragContext.isNotBlank()) "$ragContext\n\n$text" else text
+
             try {
-                inferenceEngine.generate(text).collect { result ->
+                inferenceEngine.generate(prompt).collect { result ->
                     when (result) {
                         is GenerationResult.Token -> {
                             accumulatedContent.append(result.text)
@@ -200,6 +213,7 @@ class ChatViewModel @Inject constructor(
                             }
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                             conversationRepository.addMessage(convId, "assistant", accumulatedContent.toString(), thinking)
+                            ragRepository.indexMessage(assistantMsgId, convId, accumulatedContent.toString())
                             autoTitleConversation(convId, text)
                         }
 
