@@ -32,6 +32,8 @@ coroutinesTest = "1.10.1"
 
 # LiteRT
 litertlm = "0.10.0"
+mediapipeTasksText = "0.10.33"
+tflite = "2.17.0"
 
 # WorkManager + Hilt Work
 workManager = "2.11.2"
@@ -73,6 +75,13 @@ hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-com
 
 # LiteRT-LM
 litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
+
+# MediaPipe Tasks Text (TextEmbedder — USE fallback)
+mediapipe-tasks-text = { group = "com.google.mediapipe", name = "tasks-text", version.ref = "mediapipeTasksText" }
+
+# TFLite Interpreter (for EmbeddingGemma / MiniLM raw .tflite models)
+tflite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tflite" }
+tflite-gpu = { group = "org.tensorflow", name = "tensorflow-lite-gpu", version.ref = "tflite" }
 
 # WorkManager
 work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }

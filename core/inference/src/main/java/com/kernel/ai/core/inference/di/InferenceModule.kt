@@ -1,6 +1,8 @@
 package com.kernel.ai.core.inference.di
 
+import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.LiteRtEmbeddingEngine
 import com.kernel.ai.core.inference.LiteRtInferenceEngine
 import dagger.Binds
 import dagger.Module
@@ -15,4 +17,8 @@ abstract class InferenceModule {
     @Binds
     @Singleton
     abstract fun bindInferenceEngine(impl: LiteRtInferenceEngine): InferenceEngine
+
+    @Binds
+    @Singleton
+    abstract fun bindEmbeddingEngine(impl: LiteRtEmbeddingEngine): EmbeddingEngine
 }
