@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.room.Room
 import com.kernel.ai.core.memory.dao.ConversationDao
 import com.kernel.ai.core.memory.dao.MessageDao
+import com.kernel.ai.core.memory.vector.SqliteVecStore
+import com.kernel.ai.core.memory.vector.VectorStore
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -13,18 +16,25 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
-object MemoryModule {
+abstract class MemoryModule {
 
-    @Provides
+    @Binds
     @Singleton
-    fun provideKernelDatabase(@ApplicationContext context: Context): KernelDatabase =
-        Room.databaseBuilder(context, KernelDatabase::class.java, "kernel_db")
-            .fallbackToDestructiveMigration(dropAllTables = false)
-            .build()
+    abstract fun bindVectorStore(impl: SqliteVecStore): VectorStore
 
-    @Provides
-    fun provideConversationDao(db: KernelDatabase): ConversationDao = db.conversationDao()
+    companion object {
 
-    @Provides
-    fun provideMessageDao(db: KernelDatabase): MessageDao = db.messageDao()
+        @Provides
+        @Singleton
+        fun provideKernelDatabase(@ApplicationContext context: Context): KernelDatabase =
+            Room.databaseBuilder(context, KernelDatabase::class.java, "kernel_db")
+                .fallbackToDestructiveMigration(dropAllTables = false)
+                .build()
+
+        @Provides
+        fun provideConversationDao(db: KernelDatabase): ConversationDao = db.conversationDao()
+
+        @Provides
+        fun provideMessageDao(db: KernelDatabase): MessageDao = db.messageDao()
+    }
 }
