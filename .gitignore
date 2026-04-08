@@ -19,6 +19,9 @@ local.properties
 *.ap_
 *.dex
 
+# NDK / CMake build cache
+.cxx/
+
 # Kotlin
 *.class
 
