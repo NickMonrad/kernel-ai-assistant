@@ -1,10 +1,17 @@
 package com.kernel.ai.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.kernel.ai.feature.chat.ChatScreen
+import com.kernel.ai.feature.chat.ConversationListScreen
+
+private const val ROUTE_LIST = "conversation_list"
+private const val ROUTE_CHAT = "chat"
+private const val ARG_CONVERSATION_ID = "conversationId"
 
 @Composable
 fun KernelNavHost() {
@@ -12,16 +19,51 @@ fun KernelNavHost() {
 
     NavHost(
         navController = navController,
-        startDestination = "chat"
+        startDestination = ROUTE_LIST,
     ) {
-        composable("chat") {
-            ChatScreen()
+        composable(ROUTE_LIST) {
+            ConversationListScreen(
+                onOpenConversation = { id ->
+                    navController.navigate("$ROUTE_CHAT/$id")
+                },
+                onNewConversation = {
+                    navController.navigate(ROUTE_CHAT)
+                },
+            )
         }
-        composable("settings") {
-            // SettingsScreen — implemented in Phase 2+
+
+        // New conversation (no conversationId arg)
+        composable(ROUTE_CHAT) {
+            ChatScreen(
+                conversationId = null,
+                onNewConversation = {
+                    navController.navigate(ROUTE_CHAT) {
+                        popUpTo(ROUTE_CHAT) { inclusive = true }
+                    }
+                },
+                onNavigateToList = {
+                    navController.navigate(ROUTE_LIST) {
+                        popUpTo(ROUTE_LIST) { inclusive = true }
+                    }
+                },
+            )
         }
-        composable("onboarding") {
-            // OnboardingScreen — implemented in Phase 1.3
+
+        // Existing conversation
+        composable(
+            route = "$ROUTE_CHAT/{$ARG_CONVERSATION_ID}",
+            arguments = listOf(navArgument(ARG_CONVERSATION_ID) { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val conversationId = backStackEntry.arguments?.getString(ARG_CONVERSATION_ID)
+            ChatScreen(
+                conversationId = conversationId,
+                onNewConversation = {
+                    navController.navigate(ROUTE_CHAT)
+                },
+                onNavigateToList = {
+                    navController.popBackStack()
+                },
+            )
         }
     }
 }
