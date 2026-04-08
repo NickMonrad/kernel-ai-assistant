@@ -1,0 +1,29 @@
+package com.kernel.ai.core.inference
+
+import com.google.ai.edge.litertlm.SamplerConfig
+
+/** Kernel's default system prompt. Injected into every new conversation. */
+const val DEFAULT_SYSTEM_PROMPT =
+    "You are Kernel, a helpful and concise AI assistant running entirely on-device. " +
+        "Be friendly, direct, and slightly playful. Keep responses short unless asked for detail."
+
+/** Maximum context window tokens (KV-cache size). */
+const val DEFAULT_MAX_TOKENS = 2048
+
+/** Sampler defaults for CPU/GPU backends. NPU requires null samplerConfig. */
+val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7)
+
+/**
+ * Configuration used when loading a model into [InferenceEngine].
+ *
+ * @param modelPath Absolute path to the `.litertlm` model file on-device storage.
+ * @param backendType Preferred hardware backend; defaults to [BackendType.AUTO].
+ * @param maxTokens KV-cache capacity. Higher values use more RAM.
+ * @param systemPrompt Optional system instruction prepended to every conversation.
+ */
+data class ModelConfig(
+    val modelPath: String,
+    val backendType: BackendType = BackendType.AUTO,
+    val maxTokens: Int = DEFAULT_MAX_TOKENS,
+    val systemPrompt: String? = DEFAULT_SYSTEM_PROMPT,
+)
