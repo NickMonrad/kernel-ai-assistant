@@ -137,6 +137,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
         _isGenerating.value = true
         val start = System.currentTimeMillis()
+        var firstTokenMs: Long = -1
 
         conv.sendMessageAsync(
             Contents.of(Content.Text(userMessage)),
@@ -150,13 +151,17 @@ class LiteRtInferenceEngine @Inject constructor(
 
                     val text = message.toString()
                     if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
+                        if (firstTokenMs < 0) {
+                            firstTokenMs = System.currentTimeMillis() - start
+                            Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                        }
                         trySend(GenerationResult.Token(text))
                     }
                 }
 
                 override fun onDone() {
                     val durationMs = System.currentTimeMillis() - start
-                    Log.d(TAG, "Generation complete in ${durationMs}ms")
+                    Log.i(TAG, "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms [backend=${_activeBackend.value}]")
                     _isGenerating.value = false
                     trySend(GenerationResult.Complete(durationMs = durationMs))
                     close()
