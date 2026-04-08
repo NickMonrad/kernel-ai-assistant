@@ -108,11 +108,11 @@ class ChatViewModel @Inject constructor(
         }
 
         // Initialize the inference engine if not already ready.
-        val states = downloadManager.downloadStates.value
-        val mainModel = states[KernelModel.GEMMA_4_E2B]
-        if (mainModel is DownloadState.Downloaded && !inferenceEngine.isReady.value) {
+        val preferred = downloadManager.preferredConversationModel()
+        val modelState = downloadManager.downloadStates.value[preferred]
+        if (modelState is DownloadState.Downloaded && !inferenceEngine.isReady.value) {
             try {
-                inferenceEngine.initialize(ModelConfig(modelPath = mainModel.localPath))
+                inferenceEngine.initialize(ModelConfig(modelPath = modelState.localPath))
             } catch (e: Exception) {
                 _error.value = "Failed to load model: ${e.message}"
             }
