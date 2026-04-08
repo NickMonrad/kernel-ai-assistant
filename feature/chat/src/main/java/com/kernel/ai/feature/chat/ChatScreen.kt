@@ -411,9 +411,11 @@ private fun ModelProgressRow(item: ModelDownloadProgress) {
                 )
             }
             is DownloadState.NotDownloaded -> {
-                LinearProgressIndicator(
-                    progress = { 0f },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                Text(
+                    text = "Queued",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
         }
