@@ -1,0 +1,16 @@
+Kernel AI Assistant
+Copyright 2026 Nicholas Monrad
+
+This product includes software adapted from the following projects:
+
+Google AI Edge Gallery
+  Copyright 2024 Google LLC
+  Licensed under the Apache License, Version 2.0
+  https://github.com/google-ai-edge/gallery
+  Adapted: LiteRT-LM inference patterns, model download patterns, chat streaming patterns
+
+Google LiteRT-LM
+  Copyright 2024 Google LLC
+  Licensed under the Apache License, Version 2.0
+  https://github.com/google-ai-edge/LiteRT-LM
+  Used: LiteRT-LM Android library (com.google.ai.edge.litertlm:litertlm-android)
