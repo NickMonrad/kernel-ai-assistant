@@ -71,8 +71,9 @@ class ModelDownloadWorker(
         val outputFile = File(modelsDir, fileName)
         val tmpFile = File(modelsDir, "$fileName$TMP_SUFFIX")
 
-        // Show initial foreground notification
-        setForeground(buildForegroundInfo(displayName, 0))
+        // Show initial foreground notification (best-effort — may fail if app is backgrounded
+        // before notification permission is granted; download continues regardless)
+        trySetForeground(buildForegroundInfo(displayName, 0))
 
         try {
             downloadFile(
@@ -161,7 +162,7 @@ class ModelDownloadWorker(
                                 .putLong(KEY_REMAINING_MS, remainingMs)
                                 .build()
                         )
-                        setForeground(buildForegroundInfo(displayName, progressPct))
+                        trySetForeground(buildForegroundInfo(displayName, progressPct))
                         lastProgressTs = now
                     }
                 }
@@ -172,6 +173,14 @@ class ModelDownloadWorker(
         if (outputFile.exists()) outputFile.delete()
         if (!tmpFile.renameTo(outputFile)) {
             throw IOException("Failed to rename temp file to ${outputFile.name}")
+        }
+    }
+
+    private suspend fun trySetForeground(info: ForegroundInfo) {
+        try {
+            setForeground(info)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not promote to foreground service (notification permission may be missing): ${e.message}")
         }
     }
 
