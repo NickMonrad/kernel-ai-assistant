@@ -71,3 +71,9 @@ Open in Android Studio, connect your device via USB, and run.
 * **Extensibility:** GitHub-indexed Skill Store (Rust → Wasm) + Native Kotlin skills
 * **Context:** Recursive context window management with semantic summarization
 * **Privacy:** 100% offline-capable; no telemetry or external LLM API dependencies
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
+
+This project adapts code from [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery) and uses the [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) library. See [NOTICE](NOTICE) for attribution.
