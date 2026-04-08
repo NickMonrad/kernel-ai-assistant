@@ -39,8 +39,12 @@ dependencies {
     // LiteRT-LM on-device inference
     implementation(libs.litertlm.android)
 
-    // MediaPipe TextEmbedder (for Universal Sentence Encoder / EmbeddingGemma)
+    // MediaPipe TextEmbedder (USE fallback)
     implementation(libs.mediapipe.tasks.text)
+
+    // TFLite Interpreter (EmbeddingGemma / MiniLM raw .tflite models)
+    implementation(libs.tflite)
+    implementation(libs.tflite.gpu)
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)

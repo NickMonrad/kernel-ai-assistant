@@ -78,11 +78,8 @@ class ModelDownloadManager @Inject constructor(
                 Log.i(TAG, "Auto-queuing ${model.displayName} for tier ${tier.name}")
                 startDownload(model)
             }
-        // Auto-queue small utility models that are always useful (e.g. embedding model for RAG)
-        if (!KernelModel.UNIVERSAL_SENTENCE_ENCODER.isDownloaded(context)) {
-            Log.i(TAG, "Auto-queuing ${KernelModel.UNIVERSAL_SENTENCE_ENCODER.displayName}")
-            startDownload(KernelModel.UNIVERSAL_SENTENCE_ENCODER)
-        }
+        // EmbeddingGemma and its SentencePiece model are gated on HuggingFace — user must push
+        // them manually via ADB. Do not auto-queue them here.
     }
 
     // -------------------------------------------------------------------------

@@ -71,6 +71,46 @@ enum class KernelModel(
         isRequired = false,
         preferredForTier = null,
     ),
+
+    /**
+     * EmbeddingGemma-300M — high-quality 1024-dim embeddings for RAG memory.
+     * Generic build (CPU/GPU, all devices). Gated on HuggingFace — push manually via ADB.
+     * seq512 variant: balanced context window vs. inference speed.
+     */
+    EMBEDDING_GEMMA_300M(
+        displayName = "EmbeddingGemma 300M",
+        fileName = "embeddinggemma-300M_seq512_mixed-precision.tflite",
+        downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq512_mixed-precision.tflite",
+        approxSizeBytes = 350_000_000L,
+        isRequired = false,
+        preferredForTier = null,
+    ),
+
+    /**
+     * EmbeddingGemma-300M — Qualcomm SM8550 (Snapdragon 8 Gen 2 / S23 Ultra) optimised build.
+     * Uses Hexagon NPU for faster embedding inference. Push manually via ADB.
+     */
+    EMBEDDING_GEMMA_300M_SM8550(
+        displayName = "EmbeddingGemma 300M (SM8550)",
+        fileName = "embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite",
+        downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite",
+        approxSizeBytes = 350_000_000L,
+        isRequired = false,
+        preferredForTier = null,
+    ),
+
+    /**
+     * SentencePiece tokeniser vocabulary required by all EmbeddingGemma variants.
+     * Push manually alongside the embedding model via ADB.
+     */
+    EMBEDDING_GEMMA_SP_MODEL(
+        displayName = "EmbeddingGemma SentencePiece model",
+        fileName = "sentencepiece.model",
+        downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/sentencepiece.model",
+        approxSizeBytes = 4_500_000L,
+        isRequired = false,
+        preferredForTier = null,
+    ),
 }
 
 /** Absolute path to this model's file on internal storage. */

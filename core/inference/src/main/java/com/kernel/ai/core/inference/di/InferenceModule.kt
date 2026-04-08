@@ -2,8 +2,8 @@ package com.kernel.ai.core.inference.di
 
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.LiteRtEmbeddingEngine
 import com.kernel.ai.core.inference.LiteRtInferenceEngine
-import com.kernel.ai.core.inference.MediaPipeEmbeddingEngine
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -20,5 +20,5 @@ abstract class InferenceModule {
 
     @Binds
     @Singleton
-    abstract fun bindEmbeddingEngine(impl: MediaPipeEmbeddingEngine): EmbeddingEngine
+    abstract fun bindEmbeddingEngine(impl: LiteRtEmbeddingEngine): EmbeddingEngine
 }
