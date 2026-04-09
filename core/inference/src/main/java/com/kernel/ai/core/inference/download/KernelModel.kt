@@ -113,9 +113,13 @@ enum class KernelModel(
     ),
 }
 
-/** Absolute path to this model's file on internal storage. */
-fun KernelModel.localFile(context: Context): File =
-    File(context.filesDir, "models/$fileName")
+/** Absolute path to this model's file on external app storage (survives reinstall). */
+fun KernelModel.localFile(context: Context): File {
+    val modelsDir = context.getExternalFilesDir("models")
+        ?: File(context.filesDir, "models") // fallback if external storage unavailable
+    modelsDir.mkdirs()
+    return File(modelsDir, fileName)
+}
 
 /** True if the model file exists and is non-empty. */
 fun KernelModel.isDownloaded(context: Context): Boolean {
