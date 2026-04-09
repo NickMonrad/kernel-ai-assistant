@@ -52,50 +52,51 @@ class LiteRtEmbeddingEngine @Inject constructor(
         synchronized(lock) {
             _state?.let { return it }
 
-            val modelFile = selectModelFile() ?: return null
             val spFile = KernelModel.EMBEDDING_GEMMA_SP_MODEL.localFile(context)
             if (!spFile.exists()) {
                 Log.w(TAG, "sentencepiece.model not found at ${spFile.absolutePath}")
                 return null
             }
 
-            return try {
-                val tokenizer = SentencePieceTokenizer(spFile)
-
-                val options = Interpreter.Options().apply {
-                    numThreads = 4
-                }
-
-                val buffer = mapModelFile(modelFile)
-                val interpreter = Interpreter(buffer, options)
-
-                val inputShape = interpreter.getInputTensor(0).shape()
-                val outputShape = interpreter.getOutputTensor(0).shape()
-                val seqLen = inputShape.getOrElse(1) { 512 }
-                val dim = outputShape.last()
-
-                Log.i(TAG, "EmbeddingGemma ready: model=${modelFile.name}, dim=$dim, seq=$seqLen")
-                State(interpreter, tokenizer, seqLen, dim).also { _state = it }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to initialise EmbeddingGemma", e)
-                null
-            }
+            return buildInterpreter(spFile, candidates = modelFileCandidates())
         }
     }
 
-    /** Prefer SM8550 hardware model on matching device, fall back to generic. */
-    private fun selectModelFile(): File? {
-        if (isSm8550()) {
-            val sm8550 = KernelModel.EMBEDDING_GEMMA_300M_SM8550.localFile(context)
-            if (sm8550.exists()) {
-                Log.i(TAG, "Using SM8550-optimised EmbeddingGemma model")
-                return sm8550
+    /** Ordered list of model files to try — SM8550 first, generic fallback. */
+    private fun modelFileCandidates(): List<File> = buildList {
+        if (isSm8550()) add(KernelModel.EMBEDDING_GEMMA_300M_SM8550.localFile(context))
+        add(KernelModel.EMBEDDING_GEMMA_300M.localFile(context))
+    }.filter { it.exists() }
+
+    /**
+     * Try each candidate in order, returning the first that initialises successfully.
+     * The SM8550 model uses DISPATCH_OP (Qualcomm custom op) which fails without the
+     * Qualcomm AI Engine delegate — we catch that and fall back to the generic model.
+     */
+    private fun buildInterpreter(spFile: File, candidates: List<File>): State? {
+        if (candidates.isEmpty()) {
+            Log.w(TAG, "No EmbeddingGemma model files found")
+            return null
+        }
+        val tokenizer = try {
+            SentencePieceTokenizer(spFile)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load SentencePiece tokenizer", e)
+            return null
+        }
+        val options = Interpreter.Options().apply { numThreads = 4 }
+        for (modelFile in candidates) {
+            try {
+                val interpreter = Interpreter(mapModelFile(modelFile), options)
+                val seqLen = interpreter.getInputTensor(0).shape().getOrElse(1) { 512 }
+                val dim = interpreter.getOutputTensor(0).shape().last()
+                Log.i(TAG, "EmbeddingGemma ready: model=${modelFile.name}, dim=$dim, seq=$seqLen")
+                return State(interpreter, tokenizer, seqLen, dim).also { _state = it }
+            } catch (e: Exception) {
+                Log.w(TAG, "Model ${modelFile.name} failed to load (${e.message}), trying next")
             }
         }
-        val generic = KernelModel.EMBEDDING_GEMMA_300M.localFile(context)
-        if (generic.exists()) return generic
-
-        Log.w(TAG, "EmbeddingGemma model files not found — embeddings unavailable")
+        Log.e(TAG, "All EmbeddingGemma model candidates failed")
         return null
     }
 
