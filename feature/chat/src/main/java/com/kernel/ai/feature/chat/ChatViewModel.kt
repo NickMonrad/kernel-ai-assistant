@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import javax.inject.Inject
 
@@ -127,9 +129,13 @@ class ChatViewModel @Inject constructor(
         if (modelState is DownloadState.Downloaded && !inferenceEngine.isReady.value) {
             try {
                 val profile = userProfileRepository.get()
-                val systemPrompt = if (profile.isNotBlank())
-                    "$DEFAULT_SYSTEM_PROMPT\n\n[User Profile]\n$profile"
-                else DEFAULT_SYSTEM_PROMPT
+                val dateTime = LocalDateTime.now()
+                    .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm"))
+                val systemPrompt = buildString {
+                    append(DEFAULT_SYSTEM_PROMPT)
+                    append("\n\n[Current date and time]\n$dateTime")
+                    if (profile.isNotBlank()) append("\n\n[User Profile]\n$profile")
+                }
                 inferenceEngine.initialize(ModelConfig(modelPath = modelState.localPath, systemPrompt = systemPrompt))
             } catch (e: Exception) {
                 _error.value = "Failed to load model: ${e.message}"
