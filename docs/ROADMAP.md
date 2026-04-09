@@ -88,7 +88,9 @@ tri-tiered memory architecture inspired by the
 | Dreaming Engine | ⬜ Pending | — | WorkManager: Light Sleep → REM Sleep → Deep Sleep consolidation |
 | Smart chat titles ([#15](https://github.com/NickMonrad/kernel-ai-assistant/issues/15)) | ⬜ Pending | — | LLM-generated summaries, periodic re-titling, manual override |
 | Fun loading screens ([#13](https://github.com/NickMonrad/kernel-ai-assistant/issues/13)) | ⬜ Pending | — | Multi-step narrative sequences tied to loading phases |
-| UI polish pass ([#22](https://github.com/NickMonrad/kernel-ai-assistant/issues/22), [#25](https://github.com/NickMonrad/kernel-ai-assistant/issues/25), [#26](https://github.com/NickMonrad/kernel-ai-assistant/issues/26), [#27](https://github.com/NickMonrad/kernel-ai-assistant/issues/27)) | ⬜ Pending | — | Back/home button, last message persistence, URL rendering, keyboard gap |
+| UI polish pass ([#22](https://github.com/NickMonrad/kernel-ai-assistant/issues/22), [#25](https://github.com/NickMonrad/kernel-ai-assistant/issues/25), [#26](https://github.com/NickMonrad/kernel-ai-assistant/issues/26), [#27](https://github.com/NickMonrad/kernel-ai-assistant/issues/27), [#36](https://github.com/NickMonrad/kernel-ai-assistant/issues/36)) | ⬜ Pending | — | Back/home button, last message persistence, URL rendering, keyboard gap, markdown/code blocks |
+| Self-Healing Identity System ([#47](https://github.com/NickMonrad/kernel-ai-assistant/issues/47)) | ⬜ Pending | — | Replace free-text profile with structured YAML identity (name, role, env, rules, sandbox). Dreaming Engine promotes sandbox → Core Identity or Core Memories overnight. |
+| SM8550 Qualcomm AI Engine delegate ([#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44)) | ⬜ Pending | — | Bundle QNN TFLite delegate so SM8550-optimised EmbeddingGemma model uses Hexagon NPU |
 
 ### Key Design Decisions
 
@@ -110,7 +112,8 @@ Brand refresh to Jandal AI, model management improvements, then FunctionGemma fo
 |------|--------|-------|
 | Brand pass: Jandal AI ([#21](https://github.com/NickMonrad/kernel-ai-assistant/issues/21)) | ⬜ Pending | App name, package rename `com.kernel.ai` → `com.jandal.ai`, Kiwi persona, Fern Green palette |
 | Model persistence (survive reinstall) ([#20](https://github.com/NickMonrad/kernel-ai-assistant/issues/20)) | ⬜ Pending | Store models on external/shared storage instead of `filesDir` |
-| Model selection in Settings ([#18](https://github.com/NickMonrad/kernel-ai-assistant/issues/18)) | ⬜ Pending | Let user choose E-2B vs E-4B |
+| Model selection in Settings ([#18](https://github.com/NickMonrad/kernel-ai-assistant/issues/18), [#46](https://github.com/NickMonrad/kernel-ai-assistant/issues/46)) | ⬜ Pending | Let user choose E-2B vs E-4B, full model management UI |
+| Gated model download handling ([#38](https://github.com/NickMonrad/kernel-ai-assistant/issues/38)) | ⬜ Pending | HuggingFace token flow, graceful error for 401/403 gated models |
 
 ### Phase 3 continued: FunctionGemma Intent Router + Native Skills
 
@@ -162,6 +165,7 @@ Community-extensible skills running in sandboxed Wasm via Chicory.
 | Sideloading + permission audit | ⬜ Pending | Import from local storage or URL, risk dialog |
 | Skill management UI | ⬜ Pending | Install/update/uninstall, per-skill permissions |
 | Skill building & baseline skills ([#34](https://github.com/NickMonrad/kernel-ai-assistant/issues/34)) | ⬜ Pending | Home Assistant, common tasks inspired by Google Edge Gallery |
+| Recipe skill + regional produce data ([#43](https://github.com/NickMonrad/kernel-ai-assistant/issues/43)) | ⬜ Pending | Recipe Wasm skill with regional/seasonal produce datasources |
 | Multimodal capabilities ([#32](https://github.com/NickMonrad/kernel-ai-assistant/issues/32)) | ⬜ Pending | Image/camera input using a multimodal model variant |
 | LiteRT-LM auto-update mechanism ([#31](https://github.com/NickMonrad/kernel-ai-assistant/issues/31)) | ⬜ Pending | App picks up new LiteRT-LM library releases automatically |
 
@@ -202,6 +206,12 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#31](https://github.com/NickMonrad/kernel-ai-assistant/issues/31) | LiteRT-LM auto-update mechanism | Phase 4 |
 | [#32](https://github.com/NickMonrad/kernel-ai-assistant/issues/32) | Multimodal capabilities | Phase 4 |
 | [#34](https://github.com/NickMonrad/kernel-ai-assistant/issues/34) | Skill building & baseline skills | Phase 4 |
+| [#36](https://github.com/NickMonrad/kernel-ai-assistant/issues/36) | Markdown/code blocks not rendering | Phase 2 UI polish |
+| [#38](https://github.com/NickMonrad/kernel-ai-assistant/issues/38) | Handle gated model downloads | Phase 3 |
+| [#43](https://github.com/NickMonrad/kernel-ai-assistant/issues/43) | Recipe skill datasources & regional produce | Phase 4 |
+| [#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44) | SM8550 Qualcomm AI Engine delegate for EmbeddingGemma | Phase 2 |
+| [#46](https://github.com/NickMonrad/kernel-ai-assistant/issues/46) | Model Settings UI | Phase 3 |
+| [#47](https://github.com/NickMonrad/kernel-ai-assistant/issues/47) | Self-Healing Identity System | Phase 2 |
 
 ---
 
