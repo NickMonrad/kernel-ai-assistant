@@ -66,7 +66,7 @@ class LiteRtEmbeddingEngine @Inject constructor(
 
                 val gpuDelegate = try {
                     GpuDelegate()
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.w(TAG, "GPU delegate unavailable — using CPU", e)
                     null
                 }
