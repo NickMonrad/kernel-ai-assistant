@@ -42,9 +42,8 @@ dependencies {
     // MediaPipe TextEmbedder (USE fallback)
     implementation(libs.mediapipe.tasks.text)
 
-    // TFLite Interpreter (EmbeddingGemma / MiniLM raw .tflite models)
+    // TFLite Interpreter (EmbeddingGemma raw .tflite models, CPU-only)
     implementation(libs.tflite)
-    implementation(libs.tflite.gpu)
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)
