@@ -253,6 +253,20 @@ class ChatViewModel @Inject constructor(
 
     fun cancelGeneration() {
         inferenceEngine.cancelGeneration()
+        // Clear any message stuck in streaming state
+        _messages.update { msgs ->
+            msgs.map { msg ->
+                if (msg.isStreaming) msg.copy(
+                    isStreaming = false,
+                    content = msg.content.ifBlank { "Generation cancelled." },
+                ) else msg
+            }
+        }
+        // Reset LiteRT conversation — cancelProcess() leaves it in a partial state
+        // which causes the next message to receive corrupted context (e.g. raw system prompt)
+        viewModelScope.launch {
+            inferenceEngine.resetConversation()
+        }
     }
 
     fun startNewConversation() {
