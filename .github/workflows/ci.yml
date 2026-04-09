@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-and-test:
     name: Build & Test
@@ -66,3 +69,20 @@ jobs:
           name: apk-${{ github.sha }}
           path: app/build/outputs/apk/debug/
           retention-days: 14
+
+      - name: Publish debug release
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          SHORT_SHA=${GITHUB_SHA::7}
+          # Delete existing debug-latest tag/release if present
+          gh release delete debug-latest --repo $GITHUB_REPOSITORY --yes 2>/dev/null || true
+          git tag -f debug-latest
+          git push -f origin debug-latest
+          gh release create debug-latest "$APK" \
+            --repo $GITHUB_REPOSITORY \
+            --title "Debug build (${SHORT_SHA})" \
+            --notes "Latest debug APK from commit ${GITHUB_SHA}" \
+            --prerelease
