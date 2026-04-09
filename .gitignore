@@ -35,4 +35,5 @@ models/
 # Secrets
 *.jks
 *.keystore
+!keystore/debug.keystore
 google-services.json
