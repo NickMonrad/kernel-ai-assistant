@@ -109,6 +109,20 @@ class LiteRtInferenceEngine @Inject constructor(
         }
     }
 
+    override suspend fun updateSystemPrompt(systemPrompt: String) {
+        withContext(LlmDispatcher) {
+            val eng = engine ?: return@withContext
+            val config = currentConfig ?: return@withContext
+            val backend = _activeBackend.value ?: BackendType.CPU
+
+            currentConfig = config.copy(systemPrompt = systemPrompt)
+            safeClose(conversation, "conversation")
+            conversation = eng.createConversation(buildConversationConfig(backend, systemPrompt))
+            _isGenerating.value = false
+            Log.i(TAG, "System prompt updated and conversation reset")
+        }
+    }
+
     override suspend fun shutdown() {
         withContext(LlmDispatcher) {
             _isReady.value = false

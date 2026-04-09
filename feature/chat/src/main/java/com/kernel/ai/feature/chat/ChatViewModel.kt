@@ -126,17 +126,21 @@ class ChatViewModel @Inject constructor(
         // Initialize the inference engine if not already ready.
         val preferred = downloadManager.preferredConversationModel()
         val modelState = downloadManager.downloadStates.value[preferred]
-        if (modelState is DownloadState.Downloaded && !inferenceEngine.isReady.value) {
+        if (modelState is DownloadState.Downloaded) {
+            val profile = userProfileRepository.get()
+            val dateTime = LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm"))
+            val systemPrompt = buildString {
+                append(DEFAULT_SYSTEM_PROMPT)
+                append("\n\n[Current date and time]\n$dateTime")
+                if (profile.isNotBlank()) append("\n\n[User Profile]\n$profile")
+            }
             try {
-                val profile = userProfileRepository.get()
-                val dateTime = LocalDateTime.now()
-                    .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm"))
-                val systemPrompt = buildString {
-                    append(DEFAULT_SYSTEM_PROMPT)
-                    append("\n\n[Current date and time]\n$dateTime")
-                    if (profile.isNotBlank()) append("\n\n[User Profile]\n$profile")
+                if (!inferenceEngine.isReady.value) {
+                    inferenceEngine.initialize(ModelConfig(modelPath = modelState.localPath, systemPrompt = systemPrompt))
+                } else {
+                    inferenceEngine.updateSystemPrompt(systemPrompt)
                 }
-                inferenceEngine.initialize(ModelConfig(modelPath = modelState.localPath, systemPrompt = systemPrompt))
             } catch (e: Exception) {
                 _error.value = "Failed to load model: ${e.message}"
             }
