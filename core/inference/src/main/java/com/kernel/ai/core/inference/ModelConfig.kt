@@ -7,8 +7,8 @@ const val DEFAULT_SYSTEM_PROMPT =
     "You are Kernel, a helpful and concise AI assistant running entirely on-device. " +
         "Be friendly, direct, and slightly playful. Keep responses short unless asked for detail."
 
-/** Maximum context window tokens (KV-cache size). */
-const val DEFAULT_MAX_TOKENS = 2048
+/** Maximum context window tokens (KV-cache size). Set high — hardware profile caps it per tier. */
+const val DEFAULT_MAX_TOKENS = 8192
 
 /** Sampler defaults for CPU/GPU backends. NPU requires null samplerConfig. */
 val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7)
