@@ -80,13 +80,15 @@ tri-tiered memory architecture inspired by the
 | sqlite-vec NDK integration | ✅ Done | #11 | Bundled SQLite + sqlite-vec as `libkernelvec.so` |
 | EmbeddingGemma-300M integration | ✅ Done | #12 | LiteRT Interpreter + SentencePiece tokenizer, SM8550 NPU model |
 | RAG pipeline (basic) | ✅ Done | #13 | `RagRepository`: index + retrieve + inject context. Cross-conversation recall working! |
-| User profile (Tier 3 foundation) | ⬜ Next | — | Singleton profile entity, injected into every prompt, manually editable |
-| Structured prompt assembly + context window | ⬜ Pending | — | Layered prompt (system→profile→core→episodic→window→user). Token budgeting. |
+| User profile (Tier 3 foundation) | ✅ Done | #23 | Singleton profile entity, injected into every prompt, manually editable |
+| Cancel generation fix | ✅ Done | #28 | Clears stuck spinner + resets LiteRT conversation state |
+| Structured prompt assembly + context window | ⬜ Next | — | Layered prompt (system→profile→core→episodic→window→user). Token budgeting. |
 | Episodic + Core memory tiers | ⬜ Pending | — | Split flat index into episodic (volatile) + core (permanent). Separate vec0 tables. |
 | Memory management UI | ⬜ Pending | — | Profile editor, core memories CRUD, episodic browser, stats |
 | Dreaming Engine | ⬜ Pending | — | WorkManager: Light Sleep → REM Sleep → Deep Sleep consolidation |
 | Smart chat titles ([#15](https://github.com/NickMonrad/kernel-ai-assistant/issues/15)) | ⬜ Pending | — | LLM-generated summaries, periodic re-titling, manual override |
 | Fun loading screens ([#13](https://github.com/NickMonrad/kernel-ai-assistant/issues/13)) | ⬜ Pending | — | Multi-step narrative sequences tied to loading phases |
+| UI polish pass ([#22](https://github.com/NickMonrad/kernel-ai-assistant/issues/22), [#25](https://github.com/NickMonrad/kernel-ai-assistant/issues/25), [#26](https://github.com/NickMonrad/kernel-ai-assistant/issues/26), [#27](https://github.com/NickMonrad/kernel-ai-assistant/issues/27)) | ⬜ Pending | — | Back/home button, last message persistence, URL rendering, keyboard gap |
 
 ### Key Design Decisions
 
@@ -100,7 +102,17 @@ tri-tiered memory architecture inspired by the
 
 ---
 
-## Phase 3: FunctionGemma Intent Router + Native Skills
+## Phase 3: Brand + Model Management + FunctionGemma Intent Router + Native Skills
+
+Brand refresh to Jandal AI, model management improvements, then FunctionGemma for fast intent routing.
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Brand pass: Jandal AI ([#21](https://github.com/NickMonrad/kernel-ai-assistant/issues/21)) | ⬜ Pending | App name, package rename `com.kernel.ai` → `com.jandal.ai`, Kiwi persona, Fern Green palette |
+| Model persistence (survive reinstall) ([#20](https://github.com/NickMonrad/kernel-ai-assistant/issues/20)) | ⬜ Pending | Store models on external/shared storage instead of `filesDir` |
+| Model selection in Settings ([#18](https://github.com/NickMonrad/kernel-ai-assistant/issues/18)) | ⬜ Pending | Let user choose E-2B vs E-4B |
+
+### Phase 3 continued: FunctionGemma Intent Router + Native Skills
 
 FunctionGemma routes user intents to native Android actions without loading the large model.
 
@@ -149,6 +161,9 @@ Community-extensible skills running in sandboxed Wasm via Chicory.
 | Example Wasm skills | ⬜ Pending | Recipe parser, unit converter |
 | Sideloading + permission audit | ⬜ Pending | Import from local storage or URL, risk dialog |
 | Skill management UI | ⬜ Pending | Install/update/uninstall, per-skill permissions |
+| Skill building & baseline skills ([#34](https://github.com/NickMonrad/kernel-ai-assistant/issues/34)) | ⬜ Pending | Home Assistant, common tasks inspired by Google Edge Gallery |
+| Multimodal capabilities ([#32](https://github.com/NickMonrad/kernel-ai-assistant/issues/32)) | ⬜ Pending | Image/camera input using a multimodal model variant |
+| LiteRT-LM auto-update mechanism ([#31](https://github.com/NickMonrad/kernel-ai-assistant/issues/31)) | ⬜ Pending | App picks up new LiteRT-LM library releases automatically |
 
 ---
 
@@ -176,6 +191,17 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#13](https://github.com/NickMonrad/kernel-ai-assistant/issues/13) | Fun loading screens | Phase 2 |
 | [#14](https://github.com/NickMonrad/kernel-ai-assistant/issues/14) | Memory Blueprint (tri-tiered architecture) | Phase 2 (adopted) |
 | [#15](https://github.com/NickMonrad/kernel-ai-assistant/issues/15) | Smart chat titles with override | Phase 2 |
+| [#18](https://github.com/NickMonrad/kernel-ai-assistant/issues/18) | Model selection in Settings | Phase 3 |
+| [#20](https://github.com/NickMonrad/kernel-ai-assistant/issues/20) | Model persistence (survive reinstall) | Phase 3 |
+| [#21](https://github.com/NickMonrad/kernel-ai-assistant/issues/21) | Brand Strategy: Jandal AI | Phase 3 |
+| [#22](https://github.com/NickMonrad/kernel-ai-assistant/issues/22) | Missing Home/back button | Phase 2 UI polish |
+| [#25](https://github.com/NickMonrad/kernel-ai-assistant/issues/25) | Last streaming message lost on nav away | Phase 2 UI polish |
+| [#26](https://github.com/NickMonrad/kernel-ai-assistant/issues/26) | URL/markdown links not clickable | Phase 2 UI polish |
+| [#27](https://github.com/NickMonrad/kernel-ai-assistant/issues/27) | Keyboard gap at bottom of chat | Phase 2 UI polish |
+| [#29](https://github.com/NickMonrad/kernel-ai-assistant/issues/29) | WASM Plugin/Skill Storefront | Phase 4 |
+| [#31](https://github.com/NickMonrad/kernel-ai-assistant/issues/31) | LiteRT-LM auto-update mechanism | Phase 4 |
+| [#32](https://github.com/NickMonrad/kernel-ai-assistant/issues/32) | Multimodal capabilities | Phase 4 |
+| [#34](https://github.com/NickMonrad/kernel-ai-assistant/issues/34) | Skill building & baseline skills | Phase 4 |
 
 ---
 
