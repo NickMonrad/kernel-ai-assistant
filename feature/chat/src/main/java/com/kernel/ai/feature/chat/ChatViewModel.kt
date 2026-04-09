@@ -3,6 +3,7 @@ package com.kernel.ai.feature.chat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
@@ -46,6 +47,13 @@ class ChatViewModel @Inject constructor(
     private val _inputText = MutableStateFlow("")
     private val _error = MutableStateFlow<String?>(null)
     private var conversationId: String? = null
+    private val contextWindowManager = ContextWindowManager()
+
+    /**
+     * When true, the next [sendMessage] will prepend a history block to restore
+     * context after a conversation reset (cancel, session restore, or new load).
+     */
+    private var needsHistoryReplay = false
 
     private data class EngineState(val isReady: Boolean, val isGenerating: Boolean)
     private data class InputState(
@@ -121,6 +129,8 @@ class ChatViewModel @Inject constructor(
                     thinkingText = entity.thinkingText,
                 )
             }
+            // History is in Room but not in LiteRT's KV cache — replay on next send.
+            needsHistoryReplay = true
         }
 
         // Initialize the inference engine if not already ready.
@@ -188,7 +198,24 @@ class ChatViewModel @Inject constructor(
             var accumulatedThinking = StringBuilder()
 
             val ragContext = ragRepository.getRelevantContext(text)
-            val prompt = if (ragContext.isNotBlank()) "$ragContext\n\n$text" else text
+
+            // If the LiteRT conversation was reset (after cancel or session restore),
+            // prepend a history block so the model has context for this reply.
+            val historyPrefix = if (needsHistoryReplay) {
+                needsHistoryReplay = false
+                val allMessages = _messages.value.dropLast(2) // exclude the just-added user + placeholder
+                val turns = contextWindowManager.extractTurns(
+                    allMessages.map { it.content to (it.role == ChatMessage.Role.USER) }
+                )
+                val selected = contextWindowManager.selectHistory(turns)
+                contextWindowManager.formatHistoryBlock(selected)
+            } else ""
+
+            val prompt = buildString {
+                if (historyPrefix.isNotBlank()) append(historyPrefix)
+                if (ragContext.isNotBlank()) append("$ragContext\n\n")
+                append(text)
+            }
 
             try {
                 inferenceEngine.generate(prompt).collect { result ->
@@ -262,8 +289,9 @@ class ChatViewModel @Inject constructor(
                 ) else msg
             }
         }
-        // Reset LiteRT conversation — cancelProcess() leaves it in a partial state
-        // which causes the next message to receive corrupted context (e.g. raw system prompt)
+        // Reset LiteRT conversation — cancelProcess() leaves it in a partial state.
+        // Mark needsHistoryReplay so the next message re-injects prior context.
+        needsHistoryReplay = true
         viewModelScope.launch {
             inferenceEngine.resetConversation()
         }
