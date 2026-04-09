@@ -10,7 +10,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.GpuDelegate
 import java.io.File
 import java.io.FileInputStream
 import java.nio.MappedByteBuffer
@@ -37,7 +36,6 @@ class LiteRtEmbeddingEngine @Inject constructor(
     private data class State(
         val interpreter: Interpreter,
         val tokenizer: SentencePieceTokenizer,
-        val gpuDelegate: GpuDelegate?,
         val seqLen: Int,
         override val dimensions: Int,
     ) : EmbeddingEngine {
@@ -64,29 +62,20 @@ class LiteRtEmbeddingEngine @Inject constructor(
             return try {
                 val tokenizer = SentencePieceTokenizer(spFile)
 
-                val gpuDelegate = try {
-                    GpuDelegate()
-                } catch (e: Throwable) {
-                    Log.w(TAG, "GPU delegate unavailable — using CPU", e)
-                    null
-                }
-
                 val options = Interpreter.Options().apply {
-                    gpuDelegate?.let { addDelegate(it) }
                     numThreads = 4
                 }
 
                 val buffer = mapModelFile(modelFile)
                 val interpreter = Interpreter(buffer, options)
 
-                // Read actual sequence length and embedding dimension from the model.
-                val inputShape = interpreter.getInputTensor(0).shape()   // [1, seqLen]
-                val outputShape = interpreter.getOutputTensor(0).shape() // [1, dim] or [1, seqLen, dim]
+                val inputShape = interpreter.getInputTensor(0).shape()
+                val outputShape = interpreter.getOutputTensor(0).shape()
                 val seqLen = inputShape.getOrElse(1) { 512 }
                 val dim = outputShape.last()
 
                 Log.i(TAG, "EmbeddingGemma ready: model=${modelFile.name}, dim=$dim, seq=$seqLen")
-                State(interpreter, tokenizer, gpuDelegate, seqLen, dim).also { _state = it }
+                State(interpreter, tokenizer, seqLen, dim).also { _state = it }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to initialise EmbeddingGemma", e)
                 null
@@ -147,7 +136,6 @@ class LiteRtEmbeddingEngine @Inject constructor(
     override fun close() {
         synchronized(lock) {
             _state?.interpreter?.close()
-            _state?.gpuDelegate?.close()
             _state = null
         }
     }
