@@ -50,10 +50,13 @@ class ChatViewModel @Inject constructor(
     private val contextWindowManager = ContextWindowManager()
 
     /**
-     * When true, the next [sendMessage] will prepend a history block to restore
-     * context after a conversation reset (cancel, session restore, or new load).
+     * When true, the next [sendMessage] will re-inject conversation history into the
+     * system prompt before sending, restoring context after a reset (cancel or session restore).
      */
     private var needsHistoryReplay = false
+
+    /** Estimated tokens consumed in the current LiteRT conversation (system prompt not counted). */
+    private var estimatedTokensUsed = 0
 
     private data class EngineState(val isReady: Boolean, val isGenerating: Boolean)
     private data class InputState(
@@ -115,6 +118,24 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
+        val profile = userProfileRepository.get()
+        val dateTime = LocalDateTime.now()
+            .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm"))
+        return buildString {
+            append(DEFAULT_SYSTEM_PROMPT)
+            append("\n\n[Current date and time]\n$dateTime")
+            if (profile.isNotBlank()) append("\n\n[User Profile]\n$profile")
+            if (historyTurns.isNotEmpty()) {
+                append("\n\n[Previous conversation context]\n")
+                for ((user, assistant) in historyTurns) {
+                    append("User: $user\nAssistant: $assistant\n")
+                }
+                append("[End of previous conversation context]")
+            }
+        }
+    }
+
     private suspend fun initializeConversation() {
         val id = navConversationId ?: conversationRepository.createConversation()
         conversationId = id
@@ -137,20 +158,14 @@ class ChatViewModel @Inject constructor(
         val preferred = downloadManager.preferredConversationModel()
         val modelState = downloadManager.downloadStates.value[preferred]
         if (modelState is DownloadState.Downloaded) {
-            val profile = userProfileRepository.get()
-            val dateTime = LocalDateTime.now()
-                .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm"))
-            val systemPrompt = buildString {
-                append(DEFAULT_SYSTEM_PROMPT)
-                append("\n\n[Current date and time]\n$dateTime")
-                if (profile.isNotBlank()) append("\n\n[User Profile]\n$profile")
-            }
+            val systemPrompt = buildSystemPrompt()
             try {
                 if (!inferenceEngine.isReady.value) {
                     inferenceEngine.initialize(ModelConfig(modelPath = modelState.localPath, systemPrompt = systemPrompt))
                 } else {
                     inferenceEngine.updateSystemPrompt(systemPrompt)
                 }
+                estimatedTokensUsed = 0
             } catch (e: Exception) {
                 _error.value = "Failed to load model: ${e.message}"
             }
@@ -199,23 +214,27 @@ class ChatViewModel @Inject constructor(
 
             val ragContext = ragRepository.getRelevantContext(text)
 
-            // If the LiteRT conversation was reset (after cancel or session restore),
-            // prepend a history block so the model has context for this reply.
-            val historyPrefix = if (needsHistoryReplay) {
+            // Proactive context reset: if we're at ~75% of the token budget, reset
+            // the conversation and replay history to avoid LiteRT locking up.
+            val tokenBudget = ContextWindowManager.MAX_CONTEXT_TOKENS
+            val proactiveReset = estimatedTokensUsed > (tokenBudget * 0.75).toInt()
+
+            if (needsHistoryReplay || proactiveReset) {
                 needsHistoryReplay = false
-                val allMessages = _messages.value.dropLast(2) // exclude the just-added user + placeholder
+                val allMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
                 val turns = contextWindowManager.extractTurns(
                     allMessages.map { it.content to (it.role == ChatMessage.Role.USER) }
                 )
                 val selected = contextWindowManager.selectHistory(turns)
-                contextWindowManager.formatHistoryBlock(selected)
-            } else ""
-
-            val prompt = buildString {
-                if (historyPrefix.isNotBlank()) append(historyPrefix)
-                if (ragContext.isNotBlank()) append("$ragContext\n\n")
-                append(text)
+                // Inject history into the system prompt so Gemma treats it as background context.
+                val systemPromptWithHistory = buildSystemPrompt(selected)
+                inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
+                estimatedTokensUsed = selected.sumOf {
+                    contextWindowManager.estimateTokens(it.first) + contextWindowManager.estimateTokens(it.second)
+                }
             }
+
+            val prompt = if (ragContext.isNotBlank()) "$ragContext\n\n$text" else text
 
             try {
                 inferenceEngine.generate(prompt).collect { result ->
@@ -251,6 +270,9 @@ class ChatViewModel @Inject constructor(
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                             conversationRepository.addMessage(convId, "assistant", accumulatedContent.toString(), thinking)
                             ragRepository.indexMessage(assistantMsgId, convId, accumulatedContent.toString())
+                            // Track cumulative token usage for proactive context window management.
+                            estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
+                                contextWindowManager.estimateTokens(accumulatedContent.toString())
                             autoTitleConversation(convId, text)
                         }
 
@@ -292,6 +314,7 @@ class ChatViewModel @Inject constructor(
         // Reset LiteRT conversation — cancelProcess() leaves it in a partial state.
         // Mark needsHistoryReplay so the next message re-injects prior context.
         needsHistoryReplay = true
+        estimatedTokensUsed = 0
         viewModelScope.launch {
             inferenceEngine.resetConversation()
         }
@@ -302,6 +325,8 @@ class ChatViewModel @Inject constructor(
             val id = conversationRepository.createConversation()
             conversationId = id
             _messages.value = emptyList()
+            estimatedTokensUsed = 0
+            needsHistoryReplay = false
             inferenceEngine.resetConversation()
         }
     }
