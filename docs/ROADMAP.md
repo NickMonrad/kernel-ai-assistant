@@ -122,6 +122,7 @@ FunctionGemma routes user intents to native Android actions without loading the 
 | Task | Status | Notes |
 |------|--------|-------|
 | FunctionGemma integration | ⬜ Pending | Pre-fine-tuned LiteRT model, ~154 tk/s on CPU |
+| Semantic Caching ([#49](https://github.com/NickMonrad/kernel-ai-assistant/issues/49)) | ⬜ Pending | sqlite-vec `semantic_cache` table; bypass Gemma-4 for repeated knowledge queries (0.95 cosine threshold); parallel FunctionGemma intent check + cache lookup; 7-day LRU pruning in Dreaming Light Sleep |
 | Skill registry + JSON schema generation | ⬜ Pending | Uses LiteRT-LM's `@Tool`/`@ToolParam` annotations |
 | Native skills (8+ Kotlin skills) | ⬜ Pending | Flashlight, DND, Bluetooth, Alarms, SMS, Notes, Media |
 | Model cascade orchestrator | ⬜ Pending | FunctionGemma → skill exec OR escalate to Gemma-4 |
@@ -212,6 +213,7 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44) | SM8550 Qualcomm AI Engine delegate for EmbeddingGemma | Phase 2 |
 | [#46](https://github.com/NickMonrad/kernel-ai-assistant/issues/46) | Model Settings UI | Phase 3 |
 | [#47](https://github.com/NickMonrad/kernel-ai-assistant/issues/47) | Self-Healing Identity System | Phase 2 |
+| [#49](https://github.com/NickMonrad/kernel-ai-assistant/issues/49) | Semantic Caching via sqlite-vec | Phase 3 |
 
 ---
 
