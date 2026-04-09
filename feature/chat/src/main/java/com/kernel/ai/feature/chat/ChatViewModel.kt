@@ -196,8 +196,8 @@ class ChatViewModel @Inject constructor(
                 content = text,
             )
             _messages.update { it + userMessage }
-            conversationRepository.addMessage(convId, "user", text)
-            ragRepository.indexMessage(userMsgId, convId, text)
+            val savedUserMsgId = conversationRepository.addMessage(convId, "user", text)
+            ragRepository.indexMessage(savedUserMsgId, convId, text)
 
             // Placeholder for the streaming assistant reply.
             val assistantMsgId = UUID.randomUUID().toString()
@@ -268,8 +268,8 @@ class ChatViewModel @Inject constructor(
                                 }
                             }
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
-                            conversationRepository.addMessage(convId, "assistant", accumulatedContent.toString(), thinking)
-                            ragRepository.indexMessage(assistantMsgId, convId, accumulatedContent.toString())
+                            val savedAssistantMsgId = conversationRepository.addMessage(convId, "assistant", accumulatedContent.toString(), thinking)
+                            ragRepository.indexMessage(savedAssistantMsgId, convId, accumulatedContent.toString())
                             // Track cumulative token usage for proactive context window management.
                             estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
                                 contextWindowManager.estimateTokens(accumulatedContent.toString())
