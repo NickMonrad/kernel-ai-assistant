@@ -50,6 +50,12 @@ interface InferenceEngine {
      */
     suspend fun resetConversation()
 
+    /**
+     * Update the system prompt and reset the conversation with the new prompt.
+     * The engine stays warm — no model reload required.
+     */
+    suspend fun updateSystemPrompt(systemPrompt: String)
+
     /** Release the engine and all native resources. Safe to call multiple times. */
     suspend fun shutdown()
 }
