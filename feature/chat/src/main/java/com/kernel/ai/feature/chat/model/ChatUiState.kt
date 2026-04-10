@@ -8,6 +8,7 @@ sealed interface ChatUiState {
 
     data class Ready(
         val conversationId: String,
+        val conversationTitle: String?,
         val messages: List<ChatMessage>,
         val isGenerating: Boolean,
         val inputText: String,

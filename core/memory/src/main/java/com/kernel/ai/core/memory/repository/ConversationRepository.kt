@@ -64,6 +64,9 @@ class ConversationRepository @Inject constructor(
         conversationDao.delete(conversation)
     }
 
+    suspend fun getConversation(id: String): ConversationEntity? =
+        conversationDao.getById(id)
+
     suspend fun getMessagesOnce(conversationId: String): List<MessageEntity> =
         messageDao.getByConversation(conversationId)
 }

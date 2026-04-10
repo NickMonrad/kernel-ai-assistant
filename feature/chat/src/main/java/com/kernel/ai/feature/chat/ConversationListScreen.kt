@@ -14,6 +14,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -21,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,6 +54,8 @@ fun ConversationListScreen(
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
+    var pendingRename by remember { mutableStateOf<ConversationEntity?>(null) }
+    var contextMenuTarget by remember { mutableStateOf<ConversationEntity?>(null) }
 
     Scaffold(
         topBar = {
@@ -98,38 +103,62 @@ fun ConversationListScreen(
                     .padding(innerPadding),
             ) {
                 items(conversations, key = { it.id }) { conversation ->
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                text = conversation.title ?: "New conversation",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                    Box {
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    text = conversation.title ?: "New conversation",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            supportingContent = {
+                                Text(
+                                    text = formatTimestamp(conversation.updatedAt),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                )
+                            },
+                            trailingContent = {
+                                IconButton(onClick = { pendingDelete = conversation }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete")
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .combinedClickable(
+                                    onClick = { onOpenConversation(conversation.id) },
+                                    onLongClick = { contextMenuTarget = conversation },
+                                ),
+                        )
+                        // Long-press context menu
+                        DropdownMenu(
+                            expanded = contextMenuTarget?.id == conversation.id,
+                            onDismissRequest = { contextMenuTarget = null },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Rename") },
+                                onClick = {
+                                    pendingRename = conversation
+                                    contextMenuTarget = null
+                                },
                             )
-                        },
-                        supportingContent = {
-                            Text(
-                                text = formatTimestamp(conversation.updatedAt),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline,
+                            DropdownMenuItem(
+                                text = { Text("Delete") },
+                                onClick = {
+                                    pendingDelete = conversation
+                                    contextMenuTarget = null
+                                },
                             )
-                        },
-                        trailingContent = {
-                            IconButton(onClick = { pendingDelete = conversation }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete")
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .combinedClickable(
-                                onClick = { onOpenConversation(conversation.id) },
-                            ),
-                    )
+                        }
+                    }
                     HorizontalDivider()
                 }
             }
         }
     }
 
+    // Delete confirmation dialog
     pendingDelete?.let { conversation ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
@@ -147,6 +176,39 @@ fun ConversationListScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // Rename dialog
+    pendingRename?.let { conversation ->
+        var renameText by remember(conversation.id) {
+            mutableStateOf(conversation.title ?: "")
+        }
+        AlertDialog(
+            onDismissRequest = { pendingRename = null },
+            title = { Text("Rename conversation") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    placeholder = { Text("Enter a title…") },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val trimmed = renameText.trim()
+                        if (trimmed.isNotBlank()) {
+                            viewModel.renameConversation(conversation.id, trimmed)
+                        }
+                        pendingRename = null
+                    }
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRename = null }) { Text("Cancel") }
             },
         )
     }
