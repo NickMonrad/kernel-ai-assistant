@@ -1,8 +1,13 @@
 package com.kernel.ai.feature.chat
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,9 +59,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -175,12 +182,20 @@ private fun ChatContent(
 
             AnimatedVisibility(visible = state.error != null) {
                 state.error?.let { err ->
-                    Text(
-                        text = err,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
+                    val errorQuip = remember(err) { LoadingMessages.randomError() }
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Text(
+                            text = err,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            text = errorQuip,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall.copy(fontStyle = FontStyle.Italic),
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
                 }
             }
 
@@ -279,12 +294,24 @@ private fun MessageBubble(message: ChatMessage) {
                         style = MaterialTheme.typography.bodyMedium.copy(color = contentColor),
                     )
                     if (message.isStreaming) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(top = 6.dp)
-                                .size(12.dp),
-                            strokeWidth = 2.dp,
-                        )
+                        val generatingMessage = remember { LoadingMessages.randomGenerating() }
+                        Row(
+                            modifier = Modifier.padding(top = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Text(
+                                text = generatingMessage,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontStyle = FontStyle.Italic,
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -365,13 +392,45 @@ private fun EmptyConversationHint(modifier: Modifier = Modifier) {
 
 @Composable
 private fun LoadingContent() {
+    val theme = remember { LoadingMessages.randomTheme() }
+    val steps = listOf(theme.first, theme.second, theme.third)
+    var step by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        repeat(steps.size - 1) { i ->
+            delay(2_500L)
+            step = i + 1
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 32.dp),
+        ) {
             CircularProgressIndicator()
-            Text(
-                text = "Loading model…",
-                style = MaterialTheme.typography.bodyMedium,
+            AnimatedContent(
+                targetState = step,
+                transitionSpec = {
+                    (fadeIn(animationSpec = tween(400)) +
+                        slideInVertically(animationSpec = tween(400)) { it / 2 }) togetherWith
+                        (fadeOut(animationSpec = tween(200)) +
+                            slideOutVertically(animationSpec = tween(200)) { -it / 2 })
+                },
                 modifier = Modifier.padding(top = 12.dp),
+                label = "loadingStep",
+            ) { currentStep ->
+                Text(
+                    text = steps[currentStep],
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            Text(
+                text = "${step + 1} / ${steps.size}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
             )
         }
     }
