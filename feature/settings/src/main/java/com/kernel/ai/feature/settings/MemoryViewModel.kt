@@ -33,6 +33,9 @@ class MemoryViewModel @Inject constructor(
     )
     private val _isSubmitting = MutableStateFlow(false)
 
+    /** ID of the core memory awaiting delete confirmation; null when no dialog is shown. */
+    val pendingDeleteId = MutableStateFlow<String?>(null)
+
     val uiState: StateFlow<MemoryUiState> = combine(
         memoryRepository.observeCoreMemories(),
         memoryRepository.observeEpisodicCount(),
@@ -82,7 +85,16 @@ class MemoryViewModel @Inject constructor(
         }
     }
 
+    fun requestDeleteCoreMemory(id: String) {
+        pendingDeleteId.value = id
+    }
+
+    fun dismissDeleteConfirmation() {
+        pendingDeleteId.value = null
+    }
+
     fun deleteCoreMemory(id: String) {
+        pendingDeleteId.value = null
         viewModelScope.launch { memoryRepository.deleteCoreMemory(id) }
     }
 
