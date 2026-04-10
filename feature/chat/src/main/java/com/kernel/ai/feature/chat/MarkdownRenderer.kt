@@ -732,6 +732,16 @@ private fun renderInlineSpans(
 
 // ── Block composables ──────────────────────────────────────────────────────────
 
+/** Opens [url] safely — prepends https:// if no scheme present, swallows unresolvable URIs. */
+private fun openUrlSafely(uriHandler: androidx.compose.ui.platform.UriHandler, url: String) {
+    val safeUrl = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
+    try {
+        uriHandler.openUri(safeUrl)
+    } catch (e: Exception) {
+        android.util.Log.w("MarkdownRenderer", "Could not open URL: $safeUrl — ${e.message}")
+    }
+}
+
 @Suppress("DEPRECATION") // ClickableText: BasicText.onClick not available in this Compose version
 @Composable
 private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
@@ -752,7 +762,7 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
                 style    = baseStyle,
                 onClick  = { offset ->
                     annotated.getStringAnnotations("URL", offset, offset)
-                        .firstOrNull()?.let { uriHandler.openUri(it.item) }
+                        .firstOrNull()?.let { openUrlSafely(uriHandler, it.item) }
                 },
             )
         }
@@ -775,7 +785,7 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
                 style   = headingStyle,
                 onClick = { offset ->
                     annotated.getStringAnnotations("URL", offset, offset)
-                        .firstOrNull()?.let { uriHandler.openUri(it.item) }
+                        .firstOrNull()?.let { openUrlSafely(uriHandler, it.item) }
                 },
             )
         }
@@ -804,7 +814,7 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                     onClick  = { offset ->
                         annotated.getStringAnnotations("URL", offset, offset)
-                            .firstOrNull()?.let { uriHandler.openUri(it.item) }
+                            .firstOrNull()?.let { openUrlSafely(uriHandler, it.item) }
                     },
                 )
             }
@@ -822,7 +832,7 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
                         style   = baseStyle,
                         onClick = { offset ->
                             annotated.getStringAnnotations("URL", offset, offset)
-                                .firstOrNull()?.let { uriHandler.openUri(it.item) }
+                                .firstOrNull()?.let { openUrlSafely(uriHandler, it.item) }
                         },
                     )
                 }
@@ -841,7 +851,7 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
                         style   = baseStyle,
                         onClick = { offset ->
                             annotated.getStringAnnotations("URL", offset, offset)
-                                .firstOrNull()?.let { uriHandler.openUri(it.item) }
+                                .firstOrNull()?.let { openUrlSafely(uriHandler, it.item) }
                         },
                     )
                 }
