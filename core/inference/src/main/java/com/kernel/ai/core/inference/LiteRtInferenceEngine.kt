@@ -228,8 +228,15 @@ class LiteRtInferenceEngine @Inject constructor(
      * is currently generating, this suspends until the active generation completes.
      */
     override suspend fun generateOnce(prompt: String, systemPrompt: String?): String = withContext(LlmDispatcher) {
-        // Use tryLock + retry loop to avoid potential deadlock with the single-threaded dispatcher.
-        // The generate() flow's awaitClose needs to run on this same dispatcher to unlock the mutex.
+        // LiteRT only supports one session at a time — reuse the existing conversation
+        // rather than calling createConversation() (which throws FAILED_PRECONDITION if
+        // a session already exists). The title prompt is self-contained so it works
+        // correctly within the existing session context.
+        val conv = conversation ?: return@withContext ""
+
+        // Use tryLock + retry loop to avoid potential deadlock with the single-threaded
+        // dispatcher. The generate() flow's awaitClose needs to run on this same
+        // dispatcher to unlock the mutex.
         var acquired = false
         repeat(20) { attempt ->
             if (generationMutex.tryLock()) {
@@ -245,31 +252,22 @@ class LiteRtInferenceEngine @Inject constructor(
         }
 
         try {
-            val eng = engine ?: return@withContext ""
-            if (currentConfig == null) return@withContext ""
-            val backend = _activeBackend.value ?: BackendType.CPU
-            val isolatedConv = eng.createConversation(buildConversationConfig(backend, systemPrompt))
             val sb = StringBuilder()
             val latch = CompletableDeferred<Unit>()
-            try {
-                isolatedConv.sendMessageAsync(
-                    Contents.of(Content.Text(prompt)),
-                    object : MessageCallback {
-                        override fun onMessage(message: Message) {
-                            val text = message.toString()
-                            if (text.isNotEmpty() && !text.startsWith("<ctrl")) sb.append(text)
-                        }
-                        override fun onDone() { latch.complete(Unit) }
-                        override fun onError(throwable: Throwable) {
-                            latch.completeExceptionally(throwable)
-                        }
-                    },
-                )
-                latch.await()
-            } finally {
-                safeCancel(isolatedConv)
-                safeClose(isolatedConv, "title-conv")
-            }
+            conv.sendMessageAsync(
+                Contents.of(Content.Text(prompt)),
+                object : MessageCallback {
+                    override fun onMessage(message: Message) {
+                        val text = message.toString()
+                        if (text.isNotEmpty() && !text.startsWith("<ctrl")) sb.append(text)
+                    }
+                    override fun onDone() { latch.complete(Unit) }
+                    override fun onError(throwable: Throwable) {
+                        latch.completeExceptionally(throwable)
+                    }
+                },
+            )
+            latch.await()
             sb.toString()
         } finally {
             generationMutex.unlock()
