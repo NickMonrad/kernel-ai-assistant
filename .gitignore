@@ -38,5 +38,6 @@ models/
 !keystore/debug.keystore
 google-services.json
 .kotlin/
-docs/testing/
+# docs/testing/ intentionally excluded — local test notes only
+# docs/testing/
 local.properties
