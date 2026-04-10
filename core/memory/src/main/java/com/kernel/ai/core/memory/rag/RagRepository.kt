@@ -38,8 +38,11 @@ class RagRepository @Inject constructor(
         private const val TABLE = "message_embeddings"
         private const val DEFAULT_TOP_K = 5
 
-        /** Maximum cosine distance to include a result (0 = identical, 2 = opposite). */
-        private const val MAX_DISTANCE = 1.0f
+        /** Maximum cosine distance to include a result (0 = identical, 2 = opposite).
+         *  0.4 ≈ cosine similarity 0.6 — filters out unrelated memories while keeping
+         *  genuinely relevant context. Without this, top-K always returns results even
+         *  when nothing in memory is actually related to the current query. */
+        private const val MAX_DISTANCE = 0.4f
     }
 
     private var tableCreated = false

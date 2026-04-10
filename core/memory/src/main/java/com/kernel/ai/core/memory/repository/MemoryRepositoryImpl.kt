@@ -28,6 +28,8 @@ class MemoryRepositoryImpl @Inject constructor(
         private const val EPISODIC_MAX = 500
         private const val CORE_MAX = 200
         private const val EPISODIC_TTL_MS = 30L * 24 * 60 * 60 * 1000  // 30 days
+        /** Mirror of RagRepository.MAX_DISTANCE — filter out low-relevance results. */
+        private const val MAX_SEARCH_DISTANCE = 0.4f
     }
 
     // AtomicBoolean + Mutex for thread-safe lazy table creation
@@ -90,6 +92,7 @@ class MemoryRepositoryImpl @Inject constructor(
 
         runCatching {
             val coreResults = vectorStore.search(CORE_VEC_TABLE, queryVector, topK)
+                .filter { it.distance <= MAX_SEARCH_DISTANCE }
             val rowIds = coreResults.map { it.rowId }
             if (rowIds.isNotEmpty()) {
                 val entities = coreDao.getAll().filter { it.rowId in rowIds }
@@ -104,11 +107,16 @@ class MemoryRepositoryImpl @Inject constructor(
                         )
                     )
                 }
+                // Update access stats independently — failure must not truncate search results
+                runCatching {
+                    coreDao.updateAccessStatsBatch(entities.map { it.id }, System.currentTimeMillis())
+                }.onFailure { Log.w(TAG, "updateAccessStatsBatch failed: ${it.message}") }
             }
         }.onFailure { Log.w(TAG, "Core memory search failed: ${it.message}") }
 
         runCatching {
             val episodicResults = vectorStore.search(EPISODIC_VEC_TABLE, queryVector, topK)
+                .filter { it.distance <= MAX_SEARCH_DISTANCE }
             val rowIds = episodicResults.map { it.rowId }
             if (rowIds.isNotEmpty()) {
                 val entities = episodicDao.getAll().filter { it.rowId in rowIds }

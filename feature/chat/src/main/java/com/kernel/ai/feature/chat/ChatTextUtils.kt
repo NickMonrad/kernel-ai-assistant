@@ -1,6 +1,13 @@
 package com.kernel.ai.feature.chat
 
 /**
+ * Converts LaTeX expressions to Unicode and strips Markdown syntax,
+ * producing clean plain text suitable for clipboard output.
+ */
+internal fun stripMarkdownForClipboard(text: String): String =
+    stripMarkdown(convertLatexToUnicode(text))
+
+/**
  * Strips common Markdown syntax from text for plain-text clipboard output.
  */
 internal fun stripMarkdown(text: String): String {
