@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -113,9 +115,8 @@ class ChatViewModel @Inject constructor(
     )
 
     init {
-        viewModelScope.launch {
-            initializeConversation()
-        }
+        viewModelScope.launch { initializeConversation() }
+        viewModelScope.launch { initEngineWhenReady() }
     }
 
     private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
@@ -154,21 +155,43 @@ class ChatViewModel @Inject constructor(
             needsHistoryReplay = true
         }
 
-        // Initialize the inference engine if not already ready.
-        val preferred = downloadManager.preferredConversationModel()
-        val modelState = downloadManager.downloadStates.value[preferred]
-        if (modelState is DownloadState.Downloaded) {
-            val systemPrompt = buildSystemPrompt()
-            try {
-                if (!inferenceEngine.isReady.value) {
-                    inferenceEngine.initialize(ModelConfig(modelPath = modelState.localPath, systemPrompt = systemPrompt))
-                } else {
-                    inferenceEngine.updateSystemPrompt(systemPrompt)
-                }
-                estimatedTokensUsed = 0
-            } catch (e: Exception) {
-                _error.value = "Failed to load model: ${e.message}"
+        // Engine init is handled reactively by initEngineWhenReady().
+    }
+
+    /**
+     * Waits until all required models are present on disk, then initialises the inference
+     * engine with the preferred conversation model.
+     *
+     * Uses [ModelDownloadManager.getModelPath] (file-existence check) rather than the
+     * [ModelDownloadManager.downloadStates] StateFlow so that models pushed manually via ADB
+     * are recognised immediately, independent of WorkManager task state.
+     *
+     * Terminates after the first successful initialisation — the engine stays loaded for the
+     * lifetime of the ViewModel.
+     */
+    private suspend fun initEngineWhenReady() {
+        // Wait until the StateFlow reports all required models as Downloaded.
+        // The initial value of downloadStates already reflects file existence, so this
+        // fires immediately when models are already on disk.
+        downloadManager.downloadStates
+            .filter { states ->
+                KernelModel.entries.filter { it.isRequired }
+                    .all { states[it] is DownloadState.Downloaded }
             }
+            .first()
+
+        if (inferenceEngine.isReady.value) return
+
+        val preferred = downloadManager.preferredConversationModel()
+        // Use getModelPath (file-existence) — WorkManager state may disagree with reality
+        // e.g. a worker is RUNNING for a model that was already pushed via ADB.
+        val modelPath = downloadManager.getModelPath(preferred) ?: return
+        val systemPrompt = buildSystemPrompt()
+        try {
+            inferenceEngine.initialize(ModelConfig(modelPath = modelPath, systemPrompt = systemPrompt))
+            estimatedTokensUsed = 0
+        } catch (e: Exception) {
+            _error.value = "Failed to load model: ${e.message}"
         }
     }
 
