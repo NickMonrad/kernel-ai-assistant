@@ -367,7 +367,7 @@ private fun ModelProgressRow(item: ModelDownloadProgress, onRetry: (KernelModel)
                         val pct = (state.progress * 100).toInt()
                         if (state.bytesPerSecond > 0) {
                             val mbps = state.bytesPerSecond / 1_048_576.0
-                            "$pct% · %.1f MB/s".format(mbps)
+                            "$pct% · ${"%.1f".format(mbps)} MB/s"
                         } else "$pct%"
                     }
                     is DownloadState.Error -> "Error"
