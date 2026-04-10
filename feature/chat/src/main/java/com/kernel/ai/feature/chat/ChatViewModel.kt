@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat
 
+import android.os.Build
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -68,6 +69,9 @@ class ChatViewModel @Inject constructor(
     /** Estimated tokens consumed in the current LiteRT conversation (system prompt not counted). */
     private var estimatedTokensUsed = 0
 
+    /** The model currently loaded into the inference engine; used for the [Runtime] context block. */
+    private var activeModel: KernelModel? = null
+
     private data class EngineState(val isReady: Boolean, val isGenerating: Boolean)
     private data class InputState(
         val messages: List<ChatMessage>,
@@ -134,9 +138,13 @@ class ChatViewModel @Inject constructor(
         val profile = userProfileRepository.get()
         val dateTime = LocalDateTime.now()
             .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm"))
+        val backend = inferenceEngine.activeBackend.value?.name ?: "CPU"
+        val model = activeModel?.displayName ?: "Gemma 4"
+        val device = "${Build.MANUFACTURER} ${Build.MODEL}"
         return buildString {
             append(DEFAULT_SYSTEM_PROMPT)
             append("\n\n[Current date and time]\n$dateTime")
+            append("\n\n[Runtime]\nModel: $model | Backend: $backend | Device: $device")
             if (profile.isNotBlank()) append("\n\n[User Profile]\n$profile")
             // TODO p2-memory-tiers: add [Core Memories] section here
             if (historyTurns.isNotEmpty()) {
@@ -201,6 +209,7 @@ class ChatViewModel @Inject constructor(
         // Use getModelPath (file-existence) — WorkManager state may disagree with reality
         // e.g. a worker is RUNNING for a model that was already pushed via ADB.
         val modelPath = downloadManager.getModelPath(preferred) ?: return
+        activeModel = preferred
         val systemPrompt = buildSystemPrompt()
         try {
             inferenceEngine.initialize(ModelConfig(modelPath = modelPath, systemPrompt = systemPrompt))
