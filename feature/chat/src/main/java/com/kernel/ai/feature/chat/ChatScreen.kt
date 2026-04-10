@@ -33,6 +33,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -218,9 +219,10 @@ private fun MessageBubble(message: ChatMessage) {
             } else {
                 // Assistant messages: render full Markdown with inline + block support.
                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    val contentColor = LocalContentColor.current
                     MarkdownContent(
                         text  = message.content,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodyMedium.copy(color = contentColor),
                     )
                     if (message.isStreaming) {
                         CircularProgressIndicator(

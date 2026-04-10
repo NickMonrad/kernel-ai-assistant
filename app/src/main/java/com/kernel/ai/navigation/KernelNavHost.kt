@@ -77,6 +77,7 @@ fun KernelNavHost() {
 
         composable(ROUTE_SETTINGS) {
             SettingsScreen(
+                onBack = { navController.popBackStack() },
                 onNavigateToUserProfile = {
                     navController.navigate(ROUTE_USER_PROFILE)
                 },

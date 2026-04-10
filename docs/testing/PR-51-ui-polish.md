@@ -59,7 +59,7 @@ adb -s 192.168.31.54:5555 logcat -s KernelAI:D AndroidRuntime:E --pid=$(adb -s 1
 | 4 | Dismiss keyboard | — |
 | 5 | Observe bottom of screen | **No excess space at the bottom** |
 
-**Result:** ⏳
+**Result:** ❌ Gap still present. Root cause: `windowSoftInputMode` not set in manifest — `imePadding()` unreliable on Samsung One UI without `adjustResize`. Fixed in PR #67.
 
 ---
 
@@ -77,7 +77,7 @@ adb -s 192.168.31.54:5555 logcat -s KernelAI:D AndroidRuntime:E --pid=$(adb -s 1
 | 8 | Observe User Profile TopAppBar | **← arrow visible** |
 | 9 | Tap ← | **Returns to Settings** |
 
-**Result:** ⏳
+**Result:** ⚠️ Back arrow visible in conversations ✅ and User Profile ✅. Missing in Settings screen ❌. Fixed in PR #67.
 
 ---
 
@@ -91,7 +91,7 @@ adb -s 192.168.31.54:5555 logcat -s KernelAI:D AndroidRuntime:E --pid=$(adb -s 1
 | 4 | Send another long message, tap **✕ stop button** mid-stream | — |
 | 5 | Observe the assistant bubble | **Partial response shown (not "Generation cancelled.")** |
 
-**Result:** ⏳
+**Result:** ❌ Partial response disappeared on nav away and stop. Root cause: `viewModelScope` already cancelled when `onCleared()` runs — `withContext(NonCancellable)` inside dead scope never executed. Fixed with `runBlocking` in PR #67.
 
 ---
 
@@ -103,7 +103,7 @@ adb -s 192.168.31.54:5555 logcat -s KernelAI:D AndroidRuntime:E --pid=$(adb -s 1
 | 2 | Observe response | **URL renders as a tappable hyperlink (underlined/coloured)** |
 | 3 | Tap the link | **Opens in system browser** |
 
-**Result:** ⏳
+**Result:** ❌ Links appeared during streaming then reverted. All chat text rendered black (dark theme regression). Root cause: `ClickableText` doesn't inherit `LocalContentColor` — `Color.Unspecified` renders black. Fixed by passing `LocalContentColor.current` explicitly in PR #67.
 
 ---
 
@@ -116,7 +116,7 @@ adb -s 192.168.31.54:5555 logcat -s KernelAI:D AndroidRuntime:E --pid=$(adb -s 1
 | 3 | Send: *"Give me a one-liner bash command to list all running processes"* | — |
 | 4 | Observe inline code | **Inline code styled distinctly — no raw backticks** |
 
-**Result:** ⏳
+**Result:** ⚠️ Code block rendered with copy button ✅. No visual separation between code block and surrounding commentary ❌. Fixed in PR #67 — added vertical padding and language label above block.
 
 ---
 
@@ -128,23 +128,23 @@ adb -s 192.168.31.54:5555 logcat -s KernelAI:D AndroidRuntime:E --pid=$(adb -s 1
 | 2 | Tap + to create a new conversation | **Works** |
 | 3 | Navigate: List → Chat → Back → Settings → Back | **No stack weirdness** |
 
-**Result:** ⏳
+**Result:** ✅ No regressions. Streaming, new conversations, and navigation all stable.
 
 ---
 
 ## Results Summary
 
-**Build:** ⏳ TBD
+**Build:** PR #62 + PR #63 (CI runs #82, #84)
 **Tested by:** NickMonrad
-**Test date:** ⏳ TBD
+**Test date:** 2026-04-10
 
 | Test | Result | Notes |
 |------|--------|-------|
-| TC-1 Keyboard gap | ⏳ | |
-| TC-2 Back navigation | ⏳ | |
-| TC-3 Partial message persistence | ⏳ | |
-| TC-4 Clickable links | ⏳ | |
-| TC-5 Code block rendering | ⏳ | |
-| TC-6 Regression | ⏳ | |
+| TC-1 Keyboard gap | ❌ | `adjustResize` missing in manifest — fixed PR #67 |
+| TC-2 Back navigation | ⚠️ | Chat ✅ UserProfile ✅ Settings ❌ — fixed PR #67 |
+| TC-3 Partial message persistence | ❌ | `onCleared()` flush never ran — fixed PR #67 |
+| TC-4 Clickable links | ❌ | Black text regression + links reverting — fixed PR #67 |
+| TC-5 Code block rendering | ⚠️ | Copy works, no visual separator — fixed PR #67 |
+| TC-6 Regression | ✅ | No regressions found |
 
-**Overall:** ⏳ Pending
+**Overall:** ❌ Fixes pending in PR #67 — re-test required after merge.
