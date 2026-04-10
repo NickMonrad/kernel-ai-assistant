@@ -291,7 +291,9 @@ private fun processFractions(text: String): String {
         i = braceStart
     }
     val result = sb.toString()
-    return if (result.contains("\\frac")) processFractions(result) else result
+    // Guard against infinite recursion: if the string didn't change, no further
+    // progress is possible (malformed input like \frac{a}b — bail out).
+    return if (result != text && result.contains("\\frac")) processFractions(result) else result
 }
 
 /**
@@ -334,12 +336,19 @@ private fun processStructuralLatex(text: String): String =
 
 // ── \left / \right removal ─────────────────────────────────────────────────────
 
+private val LEFT_DELIM_REGEX  = Regex("""\\left(?![A-Za-z])""")
+private val RIGHT_DELIM_REGEX = Regex("""\\right(?![A-Za-z])""")
+
 /** Removes `\left` and `\right` delimiters, leaving the delimiter character intact. */
 private fun processLeftRight(text: String): String =
-    text.replace(Regex("""\\left(?![A-Za-z])"""), "")
-        .replace(Regex("""\\right(?![A-Za-z])"""), "")
+    text.replace(LEFT_DELIM_REGEX, "").replace(RIGHT_DELIM_REGEX, "")
 
 // ── Subscript / superscript Unicode conversion ─────────────────────────────────
+
+private val BRACED_SUPERSCRIPT_REGEX = Regex("""\^\{([^}]*)\}""")
+private val SINGLE_SUPERSCRIPT_REGEX = Regex("""\^([A-Za-z0-9])""")
+private val BRACED_SUBSCRIPT_REGEX   = Regex("""_\{([^}]*)\}""")
+private val SINGLE_SUBSCRIPT_REGEX   = Regex("""_(\d)(?!\w)""")
 
 private val SUPERSCRIPT_MAP = mapOf(
     '0' to '⁰', '1' to '¹', '2' to '²', '3' to '³', '4' to '⁴',
@@ -381,22 +390,18 @@ private fun toSubscript(text: String): String? {
  */
 private fun processSubSuperscripts(text: String): String {
     var result = text
-    // Braced superscript: ^{content}
-    result = Regex("""\^\{([^}]*)\}""").replace(result) { m ->
+    result = BRACED_SUPERSCRIPT_REGEX.replace(result) { m ->
         val content = m.groupValues[1]
         toSuperscript(content) ?: "^(${content})"
     }
-    // Single-char superscript: ^c (letter or digit)
-    result = Regex("""\^([A-Za-z0-9])""").replace(result) { m ->
+    result = SINGLE_SUPERSCRIPT_REGEX.replace(result) { m ->
         toSuperscript(m.groupValues[1]) ?: m.value
     }
-    // Braced subscript: _{content}
-    result = Regex("""_\{([^}]*)\}""").replace(result) { m ->
+    result = BRACED_SUBSCRIPT_REGEX.replace(result) { m ->
         val content = m.groupValues[1]
         toSubscript(content) ?: "_(${content})"
     }
-    // Single-digit subscript only: _0 … _9 (avoid breaking variable_name patterns)
-    result = Regex("""_(\d)(?!\w)""").replace(result) { m ->
+    result = SINGLE_SUBSCRIPT_REGEX.replace(result) { m ->
         toSubscript(m.groupValues[1]) ?: m.value
     }
     return result
@@ -404,23 +409,33 @@ private fun processSubSuperscripts(text: String): String {
 
 // ── Math delimiter stripping ───────────────────────────────────────────────────
 
+private val DISPLAY_MATH_REGEX = Regex("""\$\$(.+?)\$\$""")
+private val INLINE_MATH_REGEX  = Regex("""\$(.+?)\$""")
+
 /**
  * Strips `$$…$$` (display math) and `$…$` (inline math) delimiters, keeping their
  * content. `$$` is processed first so it isn't mistakenly split into two `$` pairs.
  */
 private fun stripMathDelimiters(text: String): String {
     var result = text
-    result = Regex("""\$\$(.+?)\$\$""").replace(result) { it.groupValues[1].trim() }
-    result = Regex("""\$(.+?)\$""").replace(result) { it.groupValues[1] }
+    result = DISPLAY_MATH_REGEX.replace(result) { it.groupValues[1].trim() }
+    result = INLINE_MATH_REGEX.replace(result) { it.groupValues[1] }
     return result
 }
 
 // ── LaTeX brace cleanup ────────────────────────────────────────────────────────
 
-/** Removes remaining bare LaTeX grouping braces `{content}` → `content`. */
+private val BARE_BRACE_REGEX = Regex("""\{([^{}]*)\}""")
+
+/** Removes remaining bare LaTeX grouping braces `{content}` → `content`. Loops
+ *  until stable to handle nested braces left by partial structural parsing. */
 private fun cleanupLatexArtifacts(text: String): String {
     var result = text
-    result = result.replace(Regex("""\{([^{}]*)\}""")) { it.groupValues[1] }
+    var previous: String
+    do {
+        previous = result
+        result = BARE_BRACE_REGEX.replace(result) { it.groupValues[1] }
+    } while (result != previous)
     result = result.replace("\\\\", "\n")
     return result
 }
