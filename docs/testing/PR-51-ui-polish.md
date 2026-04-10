@@ -9,9 +9,36 @@
 ## Setup
 
 ```bash
-adb -s 192.168.31.54:5555 install -r app-debug.apk
-adb -s 192.168.31.54:5555 shell am start -n com.kernel.ai.debug/.MainActivity
+# 1. Connect device
+adb connect 192.168.31.54:5555
+adb devices
+
+# 2. Download latest debug APK from CI
+cd ~ && gh release download debug-latest --repo NickMonrad/kernel-ai-assistant --pattern "*.apk" --clobber
+
+# 3. Install (upgrade in-place — no uninstall needed since PR #53)
+adb -s 192.168.31.54:5555 install -r ~/app-debug.apk
+
+# 4. Launch
+adb -s 192.168.31.54:5555 shell am start -n com.kernel.ai.debug/com.kernel.ai.MainActivity
 ```
+
+> **If a clean reinstall is unavoidable** (back-compat break etc.), back up BOTH databases first:
+> ```bash
+> # Backup
+> adb -s 192.168.31.54:5555 shell "run-as com.kernel.ai.debug cat /data/data/com.kernel.ai.debug/databases/kernel_db" > ~/kernel_db_backup.db
+> adb -s 192.168.31.54:5555 shell "run-as com.kernel.ai.debug cat /data/data/com.kernel.ai.debug/files/kernel_vectors.db" > ~/kernel_vectors_backup.db
+> # Uninstall + reinstall
+> adb -s 192.168.31.54:5555 uninstall com.kernel.ai.debug
+> adb -s 192.168.31.54:5555 install ~/app-debug.apk
+> # Restore
+> adb -s 192.168.31.54:5555 push ~/kernel_db_backup.db /data/local/tmp/kernel_db
+> adb -s 192.168.31.54:5555 shell "run-as com.kernel.ai.debug cp /data/local/tmp/kernel_db /data/data/com.kernel.ai.debug/databases/kernel_db"
+> adb -s 192.168.31.54:5555 push ~/kernel_vectors_backup.db /data/local/tmp/kernel_vectors.db
+> adb -s 192.168.31.54:5555 shell "run-as com.kernel.ai.debug cp /data/local/tmp/kernel_vectors.db /data/data/com.kernel.ai.debug/files/kernel_vectors.db"
+> ```
+> Note: models are in scoped external storage and **will be wiped** on uninstall.
+> Push them back with: `adb -s 192.168.31.54:5555 push <model> /sdcard/Android/data/com.kernel.ai.debug/files/models/`
 
 Logcat to watch for errors:
 ```bash
