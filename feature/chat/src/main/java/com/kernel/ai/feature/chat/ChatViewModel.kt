@@ -72,6 +72,9 @@ class ChatViewModel @Inject constructor(
     /** The model currently loaded into the inference engine; used for the [Runtime] context block. */
     private var activeModel: KernelModel? = null
 
+    /** Set synchronously when title generation is launched to prevent duplicate coroutines. */
+    private var titleGenerationStarted = false
+
     private data class EngineState(val isReady: Boolean, val isGenerating: Boolean)
     private data class InputState(
         val messages: List<ChatMessage>,
@@ -163,6 +166,7 @@ class ChatViewModel @Inject constructor(
 
         // Load persisted title immediately so UI shows it on back-navigation.
         _conversationTitle.value = conversationRepository.getConversation(id)?.title
+        titleGenerationStarted = conversationRepository.getConversation(id)?.title != null
 
         val persisted = conversationRepository.getMessagesOnce(id)
         if (persisted.isNotEmpty()) {
@@ -356,7 +360,8 @@ class ChatViewModel @Inject constructor(
                             // Small delay lets the generate() flow fully release the
                             // single-threaded LlmDispatcher before generateOnce() claims it.
                             val messageCount = _messages.value.size
-                            if (messageCount >= 4 && _conversationTitle.value == null) {
+                            if (messageCount >= 4 && _conversationTitle.value == null && !titleGenerationStarted) {
+                                titleGenerationStarted = true
                                 viewModelScope.launch {
                                     kotlinx.coroutines.delay(500L)
                                     generateTitle()
@@ -435,6 +440,7 @@ class ChatViewModel @Inject constructor(
             conversationId = id
             _messages.value = emptyList()
             _conversationTitle.value = null
+            titleGenerationStarted = false
             estimatedTokensUsed = 0
             needsHistoryReplay = false
             inferenceEngine.resetConversation()

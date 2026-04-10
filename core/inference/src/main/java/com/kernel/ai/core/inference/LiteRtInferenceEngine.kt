@@ -267,6 +267,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 )
                 latch.await()
             } finally {
+                safeCancel(isolatedConv)
                 safeClose(isolatedConv, "title-conv")
             }
             sb.toString()
