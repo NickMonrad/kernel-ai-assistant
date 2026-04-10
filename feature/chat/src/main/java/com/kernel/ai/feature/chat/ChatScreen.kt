@@ -10,9 +10,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -81,6 +80,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -282,7 +282,6 @@ private fun ChatContent(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
     message: ChatMessage,
@@ -310,7 +309,9 @@ private fun MessageBubble(
             )
         }
 
-        Box {
+        Box(modifier = Modifier.pointerInput(Unit) {
+            detectTapGestures(onLongPress = { showMenu = true })
+        }) {
             Surface(
                 color = bubbleColor,
                 shape = RoundedCornerShape(
@@ -320,11 +321,7 @@ private fun MessageBubble(
                     bottomEnd = 18.dp,
                 ),
                 modifier = Modifier
-                    .widthIn(max = 300.dp)
-                    .combinedClickable(
-                        onClick = {},
-                        onLongClick = { showMenu = true },
-                    ),
+                    .widthIn(max = 300.dp),
             ) {
                 if (isUser) {
                     // User messages: plain text, no link/code parsing needed.
