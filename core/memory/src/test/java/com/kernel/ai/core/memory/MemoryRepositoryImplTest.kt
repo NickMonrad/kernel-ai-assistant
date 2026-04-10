@@ -156,12 +156,12 @@ class MemoryRepositoryImplTest {
     fun `clearEpisodicMemories — fetches rowIds then deletes Room rows and vec entries`() = runTest {
         val existingRowIds = listOf(1L, 2L, 3L)
         coEvery { episodicDao.getRowIdsOlderThan(Long.MAX_VALUE) } returns existingRowIds
-        coEvery { episodicDao.deleteOlderThan(0L) } just Runs
+        coEvery { episodicDao.deleteOlderThan(Long.MAX_VALUE) } just Runs
         every { vectorStore.delete(any(), any()) } just Runs
 
         repository.clearEpisodicMemories()
 
-        coVerify(exactly = 1) { episodicDao.deleteOlderThan(0L) }
+        coVerify(exactly = 1) { episodicDao.deleteOlderThan(Long.MAX_VALUE) }
         verify(exactly = 3) { vectorStore.delete(any(), any()) }
     }
 

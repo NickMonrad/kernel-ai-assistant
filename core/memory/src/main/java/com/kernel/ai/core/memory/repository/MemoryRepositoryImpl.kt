@@ -140,7 +140,7 @@ class MemoryRepositoryImpl @Inject constructor(
     override suspend fun clearEpisodicMemories() {
         // Fetch rowIds first so we can remove orphaned vec entries
         val rowIds = episodicDao.getRowIdsOlderThan(Long.MAX_VALUE)
-        episodicDao.deleteOlderThan(0L)
+        episodicDao.deleteOlderThan(Long.MAX_VALUE)
         rowIds.forEach { vectorStore.delete(EPISODIC_VEC_TABLE, it) }
         Log.d(TAG, "Cleared all episodic memories (${rowIds.size} vec entries removed)")
     }
