@@ -12,6 +12,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -50,6 +51,7 @@ class MemoryViewModelTest {
         Dispatchers.resetMain()
     }
 
+    @Suppress("unused")
     private fun coreMemory(id: String, content: String) = CoreMemoryEntity(
         id = id,
         content = content,
@@ -96,19 +98,31 @@ class MemoryViewModelTest {
     fun `clearEpisodicMemories calls repository and dismisses confirmation`() = runTest {
         coEvery { memoryRepository.clearEpisodicMemories() } just Runs
 
+        // Subscribe to uiState so WhileSubscribed upstream starts emitting
+        val states = mutableListOf<MemoryViewModel.MemoryUiState>()
+        val collectJob = launch { viewModel.uiState.collect { states.add(it) } }
+        testDispatcher.scheduler.advanceUntilIdle()
+
         viewModel.showClearEpisodicConfirmation()
         testDispatcher.scheduler.advanceUntilIdle()
-        assertTrue(viewModel.uiState.value.showClearConfirmation)
+        assertTrue(states.last().showClearConfirmation)
 
         viewModel.clearEpisodicMemories()
         testDispatcher.scheduler.advanceUntilIdle()
 
         coVerify(exactly = 1) { memoryRepository.clearEpisodicMemories() }
-        assertFalse(viewModel.uiState.value.showClearConfirmation)
+        assertFalse(states.last().showClearConfirmation)
+
+        collectJob.cancel()
     }
 
     @Test
     fun `dismissAddDialog clears dialog text`() = runTest {
+        // Subscribe to uiState so WhileSubscribed upstream starts emitting
+        val states = mutableListOf<MemoryViewModel.MemoryUiState>()
+        val collectJob = launch { viewModel.uiState.collect { states.add(it) } }
+        testDispatcher.scheduler.advanceUntilIdle()
+
         viewModel.openAddDialog()
         viewModel.onAddDialogTextChange("some text")
         testDispatcher.scheduler.advanceUntilIdle()
@@ -116,8 +130,10 @@ class MemoryViewModelTest {
         viewModel.dismissAddDialog()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        val state = viewModel.uiState.value
+        val state = states.last()
         assertFalse(state.isAddDialogOpen)
         assertEquals("", state.addDialogText)
+
+        collectJob.cancel()
     }
 }

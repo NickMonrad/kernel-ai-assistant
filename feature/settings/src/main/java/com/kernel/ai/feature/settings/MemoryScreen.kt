@@ -57,7 +57,9 @@ fun MemoryScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = viewModel::openAddDialog) {
+            FloatingActionButton(
+                onClick = { if (!uiState.isSubmitting) viewModel.openAddDialog() },
+            ) {
                 Icon(Icons.Default.Add, contentDescription = "Add core memory")
             }
         },
@@ -164,7 +166,7 @@ fun MemoryScreen(
             confirmButton = {
                 TextButton(
                     onClick = viewModel::addCoreMemory,
-                    enabled = uiState.addDialogText.isNotBlank(),
+                    enabled = uiState.addDialogText.isNotBlank() && !uiState.isSubmitting,
                 ) {
                     Text("Add")
                 }

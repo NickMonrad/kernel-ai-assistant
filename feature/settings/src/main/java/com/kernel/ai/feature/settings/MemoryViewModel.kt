@@ -25,23 +25,27 @@ class MemoryViewModel @Inject constructor(
         val isAddDialogOpen: Boolean = false,
         val addDialogText: String = "",
         val showClearConfirmation: Boolean = false,
+        val isSubmitting: Boolean = false,
     )
 
     private val _dialogState = MutableStateFlow(
         Triple(/* isAddDialogOpen */ false, /* addDialogText */ "", /* showClearConfirmation */ false)
     )
+    private val _isSubmitting = MutableStateFlow(false)
 
     val uiState: StateFlow<MemoryUiState> = combine(
         memoryRepository.observeCoreMemories(),
         memoryRepository.observeEpisodicCount(),
         _dialogState,
-    ) { coreMemories, episodicCount, (isAddDialogOpen, addDialogText, showClearConfirmation) ->
+        _isSubmitting,
+    ) { coreMemories, episodicCount, (isAddDialogOpen, addDialogText, showClearConfirmation), isSubmitting ->
         MemoryUiState(
             coreMemories = coreMemories,
             episodicCount = episodicCount,
             isAddDialogOpen = isAddDialogOpen,
             addDialogText = addDialogText,
             showClearConfirmation = showClearConfirmation,
+            isSubmitting = isSubmitting,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -62,11 +66,19 @@ class MemoryViewModel @Inject constructor(
     }
 
     fun addCoreMemory() {
+        if (!_isSubmitting.compareAndSet(expect = false, update = true)) return
         val text = _dialogState.value.second.trim()
-        if (text.isBlank()) return
+        if (text.isBlank()) {
+            _isSubmitting.value = false
+            return
+        }
         viewModelScope.launch {
-            memoryRepository.addCoreMemory(content = text, source = "user")
-            dismissAddDialog()
+            try {
+                memoryRepository.addCoreMemory(content = text, source = "user")
+                dismissAddDialog()
+            } finally {
+                _isSubmitting.value = false
+            }
         }
     }
 
@@ -84,8 +96,11 @@ class MemoryViewModel @Inject constructor(
 
     fun clearEpisodicMemories() {
         viewModelScope.launch {
-            memoryRepository.clearEpisodicMemories()
-            _dialogState.update { it.copy(third = false) }
+            try {
+                memoryRepository.clearEpisodicMemories()
+            } finally {
+                _dialogState.update { it.copy(third = false) }
+            }
         }
     }
 }
