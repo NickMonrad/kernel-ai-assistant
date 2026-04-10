@@ -15,6 +15,7 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
+import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
@@ -43,6 +44,7 @@ class ChatViewModel @Inject constructor(
     private val conversationRepository: ConversationRepository,
     private val ragRepository: RagRepository,
     private val userProfileRepository: UserProfileRepository,
+    private val memoryRepository: MemoryRepository,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -149,7 +151,15 @@ class ChatViewModel @Inject constructor(
             append("\n\n[Current date and time]\n$dateTime")
             append("\n\n[Runtime]\nModel: $model | Backend: $backend | Device: $device")
             if (profile.isNotBlank()) append("\n\n[User Profile]\n$profile")
-            // TODO p2-memory-tiers: add [Core Memories] section here
+            // Inject top core memories into system prompt
+            val coreMemories = runCatching {
+                memoryRepository.observeCoreMemories().first().take(10)
+            }.getOrDefault(emptyList())
+            if (coreMemories.isNotEmpty()) {
+                append("\n\n[Core Memories]\n")
+                coreMemories.forEach { append("- ${it.content}\n") }
+                append("[End of core memories]")
+            }
             if (historyTurns.isNotEmpty()) {
                 append("\n\n[Previous conversation context]\n")
                 for ((user, assistant) in historyTurns) {

@@ -1,11 +1,12 @@
 package com.kernel.ai.core.memory.rag
 
 import android.util.Log
+import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
-import com.kernel.ai.core.inference.ContextWindowManager
+import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.vector.VectorStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,7 +19,8 @@ import javax.inject.Singleton
  * Responsibilities:
  * - Index each message into the sqlite-vec vector store after it is saved.
  * - Retrieve the most semantically relevant past messages for a given query.
- * - Format retrieved context into a prefix that can be prepended to the user prompt.
+ * - Format retrieved context into a prefix that can be prepended to the user prompt,
+ *   merging both core memories and episodic (message) memories.
  *
  * The embedding table is created lazily on first use, once the [EmbeddingEngine] has
  * loaded its model and the embedding dimensions are known.
@@ -29,6 +31,7 @@ class RagRepository @Inject constructor(
     private val vectorStore: VectorStore,
     private val messageDao: MessageDao,
     private val embeddingDao: MessageEmbeddingDao,
+    private val memoryRepository: MemoryRepository,
 ) {
     companion object {
         private const val TAG = "RagRepository"
@@ -71,13 +74,13 @@ class RagRepository @Inject constructor(
     }
 
     /**
-     * Find the [topK] most semantically relevant past messages for [query].
+     * Find the [topK] most semantically relevant past messages and core memories for [query].
      * Returns a formatted context block ready to prepend to a prompt, or an
      * empty string when no relevant context is available.
      *
      * @param excludeMessageIds Message IDs to exclude (e.g. the current turn's user message).
      * @param maxTokens Maximum token budget for the returned context block (estimated at chars/3).
-     *   Results are truncated to fit within the budget. Defaults to [Int.MAX_VALUE] (no limit).
+     *   Results are truncated to fit within the budget. Defaults to [ContextWindowManager.EPISODIC_BUDGET].
      */
     suspend fun getRelevantContext(
         query: String,
@@ -85,59 +88,84 @@ class RagRepository @Inject constructor(
         excludeMessageIds: Set<String> = emptySet(),
         maxTokens: Int = ContextWindowManager.EPISODIC_BUDGET,
     ): String = withContext(Dispatchers.IO) {
-        if (!tableCreated) return@withContext ""
-
         val queryVector = embeddingEngine.embed(query)
         if (queryVector.isEmpty()) return@withContext ""
 
-        val results = vectorStore.search(TABLE, queryVector, topK + excludeMessageIds.size)
-        if (results.isEmpty()) return@withContext ""
+        val charsPerToken = 3
+        var tokenBudgetRemaining = maxTokens
 
-        val candidateRowIds = results
-            .filter { it.distance <= MAX_DISTANCE }
-            .map { it.rowId }
+        // --- Core Memories ---
+        val coreMemoryLines = mutableListOf<String>()
+        runCatching {
+            val coreResults = memoryRepository.searchMemories(queryVector, topK = 5)
+            val coreHeader = "[Core Memories]\n"
+            val coreFooter = "[End of core memories]"
+            val coreOverhead = (coreHeader.length + coreFooter.length + charsPerToken - 1) / charsPerToken
+            var coreBudget = tokenBudgetRemaining - coreOverhead
+            for (result in coreResults.filter { it.source == "core" }) {
+                val line = result.content.take(300)
+                val cost = (line.length + 1 + charsPerToken - 1) / charsPerToken
+                if (coreBudget - cost < 0) break
+                coreMemoryLines.add(line)
+                coreBudget -= cost
+            }
+            if (coreMemoryLines.isNotEmpty()) {
+                tokenBudgetRemaining = coreBudget
+            }
+        }.onFailure { Log.w(TAG, "Core memory retrieval failed: ${it.message}") }
 
-        if (candidateRowIds.isEmpty()) return@withContext ""
+        // --- Episodic (message) Memories ---
+        val episodicLines = mutableListOf<String>()
+        if (tableCreated) {
+            runCatching {
+                val results = vectorStore.search(TABLE, queryVector, topK + excludeMessageIds.size)
+                val candidates = results
+                    .filter { it.distance <= MAX_DISTANCE }
+                    .map { it.rowId }
 
-        val embeddingEntities = embeddingDao.getByRowIds(candidateRowIds)
-        val filteredEntities = embeddingEntities
-            .filter { it.messageId !in excludeMessageIds }
-            .sortedBy { candidateRowIds.indexOf(it.rowId) }
-            .take(topK)
+                if (candidates.isNotEmpty()) {
+                    val embeddingEntities = embeddingDao.getByRowIds(candidates)
+                    val filteredEntities = embeddingEntities
+                        .filter { it.messageId !in excludeMessageIds }
+                        .sortedBy { candidates.indexOf(it.rowId) }
+                        .take(topK)
 
-        if (filteredEntities.isEmpty()) return@withContext ""
+                    val messages = filteredEntities.mapNotNull { entity ->
+                        messageDao.getByConversation(entity.conversationId)
+                            .firstOrNull { it.id == entity.messageId }
+                    }
 
-        // Fetch full message content, preserving relevance order.
-        val messages = filteredEntities.mapNotNull { entity ->
-            messageDao.getByConversation(entity.conversationId)
-                .firstOrNull { it.id == entity.messageId }
+                    val episodicHeader = "[Episodic Memories]\n"
+                    val episodicFooter = "[End of episodic memories]"
+                    val episodicOverhead = (episodicHeader.length + episodicFooter.length + charsPerToken - 1) / charsPerToken
+                    var episodicBudget = tokenBudgetRemaining - episodicOverhead
+
+                    for (msg in messages) {
+                        val role = if (msg.role == "user") "User" else "Assistant"
+                        val line = "$role: ${msg.content.take(300)}"
+                        val cost = (line.length + 1 + charsPerToken - 1) / charsPerToken
+                        if (episodicBudget - cost < 0) break
+                        episodicLines.add(line)
+                        episodicBudget -= cost
+                    }
+                }
+            }.onFailure { Log.w(TAG, "Episodic retrieval failed: ${it.message}") }
         }
 
-        if (messages.isEmpty()) return@withContext ""
+        if (coreMemoryLines.isEmpty() && episodicLines.isEmpty()) return@withContext ""
 
         buildString {
-            // Estimate token cost of all lines before committing to include them.
-            val charsPerToken = 3
-            var tokenBudgetRemaining = maxTokens
-            val header = "[Episodic Memories]\n"
-            val footer = "[End of episodic memories]"
-            tokenBudgetRemaining -= (header.length + footer.length + charsPerToken - 1) / charsPerToken
-
-            val lines = mutableListOf<String>()
-            for (msg in messages) {
-                val role = if (msg.role == "user") "User" else "Assistant"
-                val line = "$role: ${msg.content.take(300)}"
-                val lineCost = (line.length + 1) / charsPerToken // +1 for newline
-                if (tokenBudgetRemaining - lineCost < 0) break
-                lines.add(line)
-                tokenBudgetRemaining -= lineCost
+            if (coreMemoryLines.isNotEmpty()) {
+                append("[Core Memories]\n")
+                coreMemoryLines.forEach { appendLine(it) }
+                append("[End of core memories]")
             }
-
-            if (lines.isEmpty()) return@withContext ""
-
-            append(header)
-            lines.forEach { appendLine(it) }
-            append(footer)
+            if (episodicLines.isNotEmpty()) {
+                if (coreMemoryLines.isNotEmpty()) append("\n\n")
+                append("[Episodic Memories]\n")
+                episodicLines.forEach { appendLine(it) }
+                append("[End of episodic memories]")
+            }
         }
     }
 
