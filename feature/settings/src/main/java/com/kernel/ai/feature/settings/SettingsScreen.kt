@@ -77,8 +77,9 @@ fun SettingsScreen(
                 ListItem(
                     headlineContent = { Text("Preferred model") },
                     supportingContent = {
+                        val label = uiState.preferredModel?.displayName ?: "Auto"
                         Text(
-                            text = "${uiState.activeModelLabel} · ${uiState.activeBackend} · ${uiState.activeTier} (takes effect on next launch)",
+                            text = "$label · ${uiState.activeBackend} · ${uiState.activeTier} (takes effect on next launch)",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
