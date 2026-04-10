@@ -19,8 +19,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -58,6 +61,9 @@ class LiteRtInferenceEngine @Inject constructor(
     private var engine: Engine? = null
     private var conversation: com.google.ai.edge.litertlm.Conversation? = null
     private var currentConfig: ModelConfig? = null
+
+    /** Ensures only one generation (chat or isolated) runs at a time. */
+    private val generationMutex = Mutex()
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -143,8 +149,10 @@ class LiteRtInferenceEngine @Inject constructor(
     // -------------------------------------------------------------------------
 
     override fun generate(userMessage: String): Flow<GenerationResult> = callbackFlow {
+        generationMutex.lock()
         val conv = conversation
         if (conv == null) {
+            generationMutex.unlock()
             close(InferenceException("Engine not initialized — call initialize() first"))
             return@callbackFlow
         }
@@ -198,12 +206,48 @@ class LiteRtInferenceEngine @Inject constructor(
         awaitClose {
             _isGenerating.value = false
             conv.cancelProcess()
+            generationMutex.unlock()
         }
     }.flowOn(LlmDispatcher)
 
     override fun cancelGeneration() {
         conversation?.cancelProcess()
         _isGenerating.value = false
+    }
+
+    /**
+     * Generate a response using an **isolated conversation** that does not share KV
+     * cache state with the active chat. Acquires [generationMutex] — if the engine
+     * is currently generating, this suspends until the active generation completes.
+     */
+    override suspend fun generateOnce(prompt: String): String = withContext(LlmDispatcher) {
+        generationMutex.withLock {
+            val eng = engine ?: return@withLock ""
+            val config = currentConfig ?: return@withLock ""
+            val backend = _activeBackend.value ?: BackendType.CPU
+            val isolatedConv = eng.createConversation(buildConversationConfig(backend, null))
+            val sb = StringBuilder()
+            val latch = CompletableDeferred<Unit>()
+            try {
+                isolatedConv.sendMessageAsync(
+                    Contents.of(Content.Text(prompt)),
+                    object : MessageCallback {
+                        override fun onMessage(message: Message) {
+                            val text = message.toString()
+                            if (text.isNotEmpty() && !text.startsWith("<ctrl")) sb.append(text)
+                        }
+                        override fun onDone() { latch.complete(Unit) }
+                        override fun onError(throwable: Throwable) {
+                            latch.completeExceptionally(throwable)
+                        }
+                    },
+                )
+                latch.await()
+            } finally {
+                safeClose(isolatedConv, "title-conv")
+            }
+            sb.toString()
+        }
     }
 
     // -------------------------------------------------------------------------

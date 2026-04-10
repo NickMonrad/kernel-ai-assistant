@@ -31,6 +31,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,7 +55,9 @@ fun ConversationListScreen(
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
-    var pendingRename by remember { mutableStateOf<ConversationEntity?>(null) }
+    // Store ID only (String is Parcelable-safe) to survive configuration changes.
+    var pendingRenameId by rememberSaveable { mutableStateOf<String?>(null) }
+    val pendingRename = pendingRenameId?.let { id -> conversations.find { it.id == id } }
     var contextMenuTarget by remember { mutableStateOf<ConversationEntity?>(null) }
 
     Scaffold(
@@ -139,7 +142,7 @@ fun ConversationListScreen(
                             DropdownMenuItem(
                                 text = { Text("Rename") },
                                 onClick = {
-                                    pendingRename = conversation
+                                    pendingRenameId = conversation.id
                                     contextMenuTarget = null
                                 },
                             )
@@ -186,7 +189,7 @@ fun ConversationListScreen(
             mutableStateOf(conversation.title ?: "")
         }
         AlertDialog(
-            onDismissRequest = { pendingRename = null },
+            onDismissRequest = { pendingRenameId = null },
             title = { Text("Rename conversation") },
             text = {
                 OutlinedTextField(
@@ -203,12 +206,12 @@ fun ConversationListScreen(
                         if (trimmed.isNotBlank()) {
                             viewModel.renameConversation(conversation.id, trimmed)
                         }
-                        pendingRename = null
+                        pendingRenameId = null
                     }
                 ) { Text("Save") }
             },
             dismissButton = {
-                TextButton(onClick = { pendingRename = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingRenameId = null }) { Text("Cancel") }
             },
         )
     }

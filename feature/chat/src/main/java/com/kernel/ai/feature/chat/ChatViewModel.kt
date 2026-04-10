@@ -434,12 +434,6 @@ class ChatViewModel @Inject constructor(
     private suspend fun generateTitle() {
         val id = conversationId ?: return
 
-        // Skip if the engine is still busy (e.g. called right at the edge of a generation).
-        if (inferenceEngine.isGenerating.value) {
-            Log.w("KernelAI", "Auto-title skipped: engine is still generating")
-            return
-        }
-
         // Double-check the title is still null (may have been set manually in the meantime).
         if (conversationRepository.getConversation(id)?.title != null) return
 
@@ -450,16 +444,11 @@ class ChatViewModel @Inject constructor(
 
         val titlePrompt = "Generate a short, descriptive title (4-6 words max, no quotes) for a conversation that starts with: $userMessages"
 
-        val sb = StringBuilder()
         try {
-            inferenceEngine.generate(titlePrompt).collect { result ->
-                when (result) {
-                    is GenerationResult.Token -> sb.append(result.text)
-                    is GenerationResult.Complete -> return@collect
-                    else -> {}
-                }
-            }
-            val title = sb.toString()
+            // generateOnce() uses an isolated conversation — the chat KV cache is untouched.
+            // It also acquires generationMutex, so it waits politely if the engine is busy.
+            val raw = inferenceEngine.generateOnce(titlePrompt)
+            val title = raw
                 .trim()
                 .trimStart('"', '\'')
                 .trimEnd('"', '\'', '.')

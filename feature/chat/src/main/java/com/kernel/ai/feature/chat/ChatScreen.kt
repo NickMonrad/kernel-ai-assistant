@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -117,7 +118,7 @@ private fun ChatContent(
     onRenameConversation: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
-    var showRenameDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) {
@@ -196,7 +197,7 @@ private fun ChatContent(
 
     // Rename dialog triggered by tapping the title in the top bar.
     if (showRenameDialog) {
-        var renameText by remember { mutableStateOf(state.conversationTitle ?: "") }
+        var renameText by rememberSaveable(state.conversationTitle) { mutableStateOf(state.conversationTitle ?: "") }
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
             title = { Text("Rename conversation") },
