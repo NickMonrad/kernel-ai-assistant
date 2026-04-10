@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -194,6 +195,15 @@ class ModelDownloadManager @Inject constructor(
 
                 val newState: DownloadState = when (info.state) {
                     WorkInfo.State.RUNNING, WorkInfo.State.ENQUEUED -> {
+                        // Guard: a stale ENQUEUED job from a previous session must not
+                        // overwrite a file that is already present on disk.
+                        val localFile = withContext(Dispatchers.IO) { model.localFile(context) }
+                        val alreadyPresent = withContext(Dispatchers.IO) { localFile.exists() && localFile.length() > 0 }
+                        if (alreadyPresent) {
+                            Log.i(TAG, "Stale enqueued/running worker but file present — cancelling: ${model.displayName}")
+                            workManager.cancelUniqueWork(model.workerTag)
+                            return@collect
+                        }
                         val progress = info.progress
                         val totalBytes = model.approxSizeBytes
                         val downloadedBytes = progress.getLong(KEY_PROGRESS_BYTES, 0L)
@@ -209,7 +219,7 @@ class ModelDownloadManager @Inject constructor(
                     }
 
                     WorkInfo.State.SUCCEEDED -> {
-                        val path = model.localFile(context).absolutePath
+                        val path = withContext(Dispatchers.IO) { model.localFile(context).absolutePath }
                         Log.i(TAG, "Download succeeded: $path")
                         DownloadState.Downloaded(localPath = path)
                     }
@@ -217,10 +227,13 @@ class ModelDownloadManager @Inject constructor(
                     WorkInfo.State.FAILED -> {
                         // Stale WorkManager jobs from a previous session can fire FAILED
                         // after the file was already pushed manually (e.g. via ADB). Trust
-                        // the file system over the worker state.
-                        if (model.isDownloaded(context)) {
+                        // the file system over the worker state. Materialise the File once
+                        // to avoid a TOCTOU race between the existence check and path use.
+                        val localFile = withContext(Dispatchers.IO) { model.localFile(context) }
+                        val isPresent = withContext(Dispatchers.IO) { localFile.exists() && localFile.length() > 0 }
+                        if (isPresent) {
                             Log.i(TAG, "Worker failed but file present — treating as Downloaded: ${model.displayName}")
-                            DownloadState.Downloaded(localPath = model.localFile(context).absolutePath)
+                            DownloadState.Downloaded(localPath = localFile.absolutePath)
                         } else {
                             val errorMsg = info.outputData.getString(KEY_ERROR_MESSAGE)
                                 ?: "Download failed"
@@ -230,9 +243,11 @@ class ModelDownloadManager @Inject constructor(
                     }
 
                     WorkInfo.State.CANCELLED -> {
-                        if (model.isDownloaded(context)) {
+                        val localFile = withContext(Dispatchers.IO) { model.localFile(context) }
+                        val isPresent = withContext(Dispatchers.IO) { localFile.exists() && localFile.length() > 0 }
+                        if (isPresent) {
                             Log.i(TAG, "Worker cancelled but file present — treating as Downloaded: ${model.displayName}")
-                            DownloadState.Downloaded(localPath = model.localFile(context).absolutePath)
+                            DownloadState.Downloaded(localPath = localFile.absolutePath)
                         } else {
                             Log.i(TAG, "Download cancelled for ${model.displayName}")
                             DownloadState.NotDownloaded
