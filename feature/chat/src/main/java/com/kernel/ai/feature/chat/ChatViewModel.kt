@@ -251,7 +251,7 @@ class ChatViewModel @Inject constructor(
                 query = text,
                 maxTokens = ContextWindowManager.EPISODIC_BUDGET,
             )
-            estimatedTokensUsed += contextWindowManager.estimateTokens(ragContext)
+            val ragTokenCost = contextWindowManager.estimateTokens(ragContext)
 
             // Proactive context reset: if we're at ~75% of the token budget, reset
             // the conversation and replay history to avoid LiteRT locking up.
@@ -268,9 +268,12 @@ class ChatViewModel @Inject constructor(
                 // Inject history into the system prompt so Gemma treats it as background context.
                 val systemPromptWithHistory = buildSystemPrompt(selected)
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
+                // Re-baseline from selected history, then add the RAG cost for this turn.
                 estimatedTokensUsed = selected.sumOf {
                     contextWindowManager.estimateTokens(it.first) + contextWindowManager.estimateTokens(it.second)
-                }
+                } + ragTokenCost
+            } else {
+                estimatedTokensUsed += ragTokenCost
             }
 
             val prompt = if (ragContext.isNotBlank()) "$ragContext\n\n$text" else text
