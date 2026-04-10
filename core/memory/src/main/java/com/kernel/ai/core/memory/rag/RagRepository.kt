@@ -75,11 +75,14 @@ class RagRepository @Inject constructor(
      * empty string when no relevant context is available.
      *
      * @param excludeMessageIds Message IDs to exclude (e.g. the current turn's user message).
+     * @param maxTokens Maximum token budget for the returned context block (estimated at chars/3).
+     *   Results are truncated to fit within the budget. Defaults to [Int.MAX_VALUE] (no limit).
      */
     suspend fun getRelevantContext(
         query: String,
         topK: Int = DEFAULT_TOP_K,
         excludeMessageIds: Set<String> = emptySet(),
+        maxTokens: Int = Int.MAX_VALUE,
     ): String = withContext(Dispatchers.IO) {
         if (!tableCreated) return@withContext ""
 
@@ -112,12 +115,28 @@ class RagRepository @Inject constructor(
         if (messages.isEmpty()) return@withContext ""
 
         buildString {
-            appendLine("[Relevant context from memory:]")
-            messages.forEach { msg ->
+            // Estimate token cost of all lines before committing to include them.
+            val charsPerToken = 3
+            var tokenBudgetRemaining = maxTokens
+            val header = "[Episodic Memories]\n"
+            val footer = "[End of episodic memories]"
+            tokenBudgetRemaining -= (header.length + footer.length) / charsPerToken
+
+            val lines = mutableListOf<String>()
+            for (msg in messages) {
                 val role = if (msg.role == "user") "User" else "Assistant"
-                appendLine("$role: ${msg.content.take(300)}")
+                val line = "$role: ${msg.content.take(300)}"
+                val lineCost = (line.length + 1) / charsPerToken // +1 for newline
+                if (tokenBudgetRemaining - lineCost < 0) break
+                lines.add(line)
+                tokenBudgetRemaining -= lineCost
             }
-            append("---")
+
+            if (lines.isEmpty()) return@withContext ""
+
+            append(header)
+            lines.forEach { appendLine(it) }
+            append(footer)
         }
     }
 
