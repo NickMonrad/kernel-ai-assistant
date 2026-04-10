@@ -54,6 +54,12 @@ fun SettingsScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        viewModel.saveSuccess.collect { message ->
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -79,7 +85,7 @@ fun SettingsScreen(
                     supportingContent = {
                         val label = uiState.preferredModel?.displayName ?: "Auto"
                         Text(
-                            text = "$label · ${uiState.activeBackend} · ${uiState.activeTier} (takes effect on next launch)",
+                            text = "$label · ${uiState.activeBackend} · ${uiState.activeTier}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -214,7 +220,7 @@ private fun SettingsScreenPreview() {
             ) {
                 ListItem(
                     headlineContent = { Text("Preferred model") },
-                    supportingContent = { Text("Gemma 4 E-4B · GPU · FLAGSHIP (takes effect on next launch)") },
+                    supportingContent = { Text("Gemma 4 E-4B · GPU · FLAGSHIP") },
                     leadingContent = { Icon(Icons.Default.SmartToy, contentDescription = null) },
                 )
                 HorizontalDivider()
