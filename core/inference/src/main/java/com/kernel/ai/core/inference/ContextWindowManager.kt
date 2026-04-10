@@ -23,6 +23,13 @@ class ContextWindowManager {
         /** Reserved for system prompt + datetime + user profile + RAG context. */
         const val SYSTEM_OVERHEAD = 2048
 
+        /**
+         * Token budget allocated for episodic RAG context within [SYSTEM_OVERHEAD].
+         * Passed to [com.kernel.ai.core.memory.rag.RagRepository.getRelevantContext] as
+         * `maxTokens` to keep retrieved memories within a predictable slice of the budget.
+         */
+        const val EPISODIC_BUDGET = 400
+
         /** Tokens available for conversation history replay. */
         const val HISTORY_BUDGET = MAX_CONTEXT_TOKENS - RESPONSE_RESERVE - SYSTEM_OVERHEAD // 5120
 

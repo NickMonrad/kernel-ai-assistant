@@ -133,6 +133,7 @@ class ChatViewModel @Inject constructor(
             append(DEFAULT_SYSTEM_PROMPT)
             append("\n\n[Current date and time]\n$dateTime")
             if (profile.isNotBlank()) append("\n\n[User Profile]\n$profile")
+            // TODO p2-memory-tiers: add [Core Memories] section here
             if (historyTurns.isNotEmpty()) {
                 append("\n\n[Previous conversation context]\n")
                 for ((user, assistant) in historyTurns) {
@@ -246,7 +247,11 @@ class ChatViewModel @Inject constructor(
             activeStreamingContent = accumulatedContent
             activeStreamingThinking = accumulatedThinking
 
-            val ragContext = ragRepository.getRelevantContext(text)
+            val ragContext = ragRepository.getRelevantContext(
+                query = text,
+                maxTokens = ContextWindowManager.EPISODIC_BUDGET,
+            )
+            estimatedTokensUsed += contextWindowManager.estimateTokens(ragContext)
 
             // Proactive context reset: if we're at ~75% of the token budget, reset
             // the conversation and replay history to avoid LiteRT locking up.
