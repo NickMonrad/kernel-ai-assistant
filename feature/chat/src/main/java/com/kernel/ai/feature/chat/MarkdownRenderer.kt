@@ -469,6 +469,7 @@ private fun FencedCodeBlock(language: String = "", code: String, modifier: Modif
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
                 .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
