@@ -1,0 +1,46 @@
+package com.kernel.ai.core.memory.dao
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface EpisodicMemoryDao {
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(entity: EpisodicMemoryEntity): Long
+
+    @Query("SELECT * FROM episodic_memories ORDER BY createdAt DESC")
+    suspend fun getAll(): List<EpisodicMemoryEntity>
+
+    @Query("SELECT * FROM episodic_memories WHERE conversationId = :conversationId ORDER BY createdAt DESC")
+    suspend fun getByConversation(conversationId: String): List<EpisodicMemoryEntity>
+
+    @Query("DELETE FROM episodic_memories WHERE id = :id")
+    suspend fun delete(id: String)
+
+    @Query("SELECT COUNT(*) FROM episodic_memories")
+    suspend fun count(): Int
+
+    @Query("SELECT COUNT(*) FROM episodic_memories")
+    fun observeCount(): Flow<Int>
+
+    @Query("SELECT rowId FROM episodic_memories WHERE createdAt < :cutoffMs")
+    suspend fun getRowIdsOlderThan(cutoffMs: Long): List<Long>
+
+    @Query("DELETE FROM episodic_memories WHERE createdAt < :cutoffMs")
+    suspend fun deleteOlderThan(cutoffMs: Long)
+
+    @Query("SELECT rowId FROM episodic_memories ORDER BY createdAt ASC LIMIT :count")
+    suspend fun getOldestRowIds(count: Int): List<Long>
+
+    @Query("""
+        DELETE FROM episodic_memories WHERE rowId IN (
+            SELECT rowId FROM episodic_memories ORDER BY createdAt ASC LIMIT :count
+        )
+    """)
+    suspend fun deleteOldestBeyondLimit(count: Int)
+}

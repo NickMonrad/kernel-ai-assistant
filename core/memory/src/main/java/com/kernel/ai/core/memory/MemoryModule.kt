@@ -3,9 +3,13 @@ package com.kernel.ai.core.memory
 import android.content.Context
 import androidx.room.Room
 import com.kernel.ai.core.memory.dao.ConversationDao
+import com.kernel.ai.core.memory.dao.CoreMemoryDao
+import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
+import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.memory.repository.MemoryRepositoryImpl
 import com.kernel.ai.core.memory.vector.SqliteVecStore
 import com.kernel.ai.core.memory.vector.VectorStore
 import dagger.Binds
@@ -24,13 +28,16 @@ abstract class MemoryModule {
     @Singleton
     abstract fun bindVectorStore(impl: SqliteVecStore): VectorStore
 
+    @Binds
+    @Singleton
+    abstract fun bindMemoryRepository(impl: MemoryRepositoryImpl): MemoryRepository
+
     companion object {
 
         @Provides
         @Singleton
         fun provideKernelDatabase(@ApplicationContext context: Context): KernelDatabase =
             Room.databaseBuilder(context, KernelDatabase::class.java, "kernel_db")
-                .fallbackToDestructiveMigration(dropAllTables = false)
                 .build()
 
         @Provides
@@ -44,5 +51,11 @@ abstract class MemoryModule {
 
         @Provides
         fun provideUserProfileDao(db: KernelDatabase): UserProfileDao = db.userProfileDao()
+
+        @Provides
+        fun provideEpisodicMemoryDao(db: KernelDatabase): EpisodicMemoryDao = db.episodicMemoryDao()
+
+        @Provides
+        fun provideCoreMemoryDao(db: KernelDatabase): CoreMemoryDao = db.coreMemoryDao()
     }
 }
