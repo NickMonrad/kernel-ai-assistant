@@ -182,6 +182,37 @@ private val LATEX_TO_UNICODE = mapOf(
     "\\cdots" to "⋯",
     "\\checkmark" to "✓",
     "\\dagger" to "†",
+
+    // Math function names (rendered as plain text)
+    "\\arccos" to "arccos",
+    "\\arcsin" to "arcsin",
+    "\\arctan" to "arctan",
+    "\\cos" to "cos",
+    "\\cosh" to "cosh",
+    "\\cot" to "cot",
+    "\\csc" to "csc",
+    "\\deg" to "deg",
+    "\\det" to "det",
+    "\\exp" to "exp",
+    "\\gcd" to "gcd",
+    "\\inf" to "inf",
+    "\\lim" to "lim",
+    "\\liminf" to "lim inf",
+    "\\limsup" to "lim sup",
+    "\\ln" to "ln",
+    "\\log" to "log",
+    "\\max" to "max",
+    "\\min" to "min",
+    "\\sec" to "sec",
+    "\\sin" to "sin",
+    "\\sinh" to "sinh",
+    "\\sup" to "sup",
+    "\\tan" to "tan",
+    "\\tanh" to "tanh",
+
+    // Spacing
+    "\\quad" to "  ",
+    "\\qquad" to "    ",
 )
 
 // Pre-compiled regexes for $\cmd$ wrappers — zero runtime compilation cost.
@@ -200,30 +231,231 @@ private val BARE_LATEX_REPLACEMENTS: List<Pair<Regex, String>> =
             Regex(Regex.escape(latex) + """(?![A-Za-z])""") to unicode
         }
 
+// ── Structural LaTeX handling ──────────────────────────────────────────────────
+
+/**
+ * Finds the index of the closing brace `}` that matches the opening brace `{`
+ * at [openIndex]. Returns -1 if [openIndex] doesn't point to `{` or no match is found.
+ */
+private fun findMatchingBrace(text: String, openIndex: Int): Int {
+    if (openIndex >= text.length || text[openIndex] != '{') return -1
+    var depth = 0
+    for (i in openIndex until text.length) {
+        when (text[i]) {
+            '{' -> depth++
+            '}' -> {
+                depth--
+                if (depth == 0) return i
+            }
+        }
+    }
+    return -1
+}
+
+/**
+ * Returns true when [expr] contains operators that would be ambiguous without
+ * parentheses in a fraction representation like `a/b`.
+ */
+private fun needsParens(expr: String): Boolean =
+    expr.contains('+') || expr.contains('-') || expr.contains('/') || expr.contains(' ')
+
+/**
+ * Converts `\frac{numerator}{denominator}` into `numerator/denominator` (or
+ * `(numerator)/(denominator)` when either part contains operators). Supports
+ * nested braces; processes recursively until stable.
+ */
+private fun processFractions(text: String): String {
+    val sb = StringBuilder()
+    var i = 0
+    while (i < text.length) {
+        val idx = text.indexOf("\\frac", i)
+        if (idx == -1) { sb.append(text, i, text.length); break }
+        sb.append(text, i, idx)
+        val braceStart = idx + 5
+        if (braceStart < text.length && text[braceStart] == '{') {
+            val numEnd = findMatchingBrace(text, braceStart)
+            if (numEnd != -1 && numEnd + 1 < text.length && text[numEnd + 1] == '{') {
+                val denEnd = findMatchingBrace(text, numEnd + 1)
+                if (denEnd != -1) {
+                    val num = text.substring(braceStart + 1, numEnd)
+                    val den = text.substring(numEnd + 2, denEnd)
+                    val numStr = if (needsParens(num)) "($num)" else num
+                    val denStr = if (needsParens(den)) "($den)" else den
+                    sb.append("$numStr/$denStr")
+                    i = denEnd + 1
+                    continue
+                }
+            }
+        }
+        sb.append("\\frac")
+        i = braceStart
+    }
+    val result = sb.toString()
+    return if (result.contains("\\frac")) processFractions(result) else result
+}
+
+/**
+ * Converts `\sqrt{content}` into `√(content)`.
+ * Bare `\sqrt` (without braces) is handled by the simple replacement map.
+ */
+private fun processSqrtBraces(text: String): String {
+    val sb = StringBuilder()
+    var i = 0
+    while (i < text.length) {
+        val idx = text.indexOf("\\sqrt", i)
+        if (idx == -1) { sb.append(text, i, text.length); break }
+        sb.append(text, i, idx)
+        val braceStart = idx + 5
+        if (braceStart < text.length && text[braceStart] == '{') {
+            val braceEnd = findMatchingBrace(text, braceStart)
+            if (braceEnd != -1) {
+                sb.append("√(${text.substring(braceStart + 1, braceEnd)})")
+                i = braceEnd + 1
+                continue
+            }
+        }
+        sb.append("\\sqrt")
+        i = braceStart
+    }
+    return sb.toString()
+}
+
+/** Strips `\text{…}`, `\mathrm{…}`, `\mathbb{…}`, `\operatorname{…}` etc. to plain content. */
+private val EXTRACT_CONTENT_REGEX = Regex(
+    """\\(?:text|mathrm|mathbb|mathcal|mathbf|mathit|textbf|textit|operatorname|overline|underline|hat|bar|vec|dot|tilde)\{([^}]*)\}""",
+)
+
+private fun processTextCommands(text: String): String =
+    EXTRACT_CONTENT_REGEX.replace(text) { it.groupValues[1] }
+
+/** Runs all structural LaTeX transformations (fractions, sqrt, text commands). */
+private fun processStructuralLatex(text: String): String =
+    processTextCommands(processSqrtBraces(processFractions(text)))
+
+// ── \left / \right removal ─────────────────────────────────────────────────────
+
+/** Removes `\left` and `\right` delimiters, leaving the delimiter character intact. */
+private fun processLeftRight(text: String): String =
+    text.replace(Regex("""\\left(?![A-Za-z])"""), "")
+        .replace(Regex("""\\right(?![A-Za-z])"""), "")
+
+// ── Subscript / superscript Unicode conversion ─────────────────────────────────
+
+private val SUPERSCRIPT_MAP = mapOf(
+    '0' to '⁰', '1' to '¹', '2' to '²', '3' to '³', '4' to '⁴',
+    '5' to '⁵', '6' to '⁶', '7' to '⁷', '8' to '⁸', '9' to '⁹',
+    '+' to '⁺', '-' to '⁻', '=' to '⁼', '(' to '⁽', ')' to '⁾',
+    'a' to 'ᵃ', 'b' to 'ᵇ', 'c' to 'ᶜ', 'd' to 'ᵈ', 'e' to 'ᵉ',
+    'f' to 'ᶠ', 'g' to 'ᵍ', 'h' to 'ʰ', 'i' to 'ⁱ', 'j' to 'ʲ',
+    'k' to 'ᵏ', 'l' to 'ˡ', 'm' to 'ᵐ', 'n' to 'ⁿ', 'o' to 'ᵒ',
+    'p' to 'ᵖ', 'r' to 'ʳ', 's' to 'ˢ', 't' to 'ᵗ', 'u' to 'ᵘ',
+    'v' to 'ᵛ', 'w' to 'ʷ', 'x' to 'ˣ', 'y' to 'ʸ', 'z' to 'ᶻ',
+)
+
+private val SUBSCRIPT_MAP = mapOf(
+    '0' to '₀', '1' to '₁', '2' to '₂', '3' to '₃', '4' to '₄',
+    '5' to '₅', '6' to '₆', '7' to '₇', '8' to '₈', '9' to '₉',
+    '+' to '₊', '-' to '₋', '=' to '₌', '(' to '₍', ')' to '₎',
+    'a' to 'ₐ', 'e' to 'ₑ', 'h' to 'ₕ', 'i' to 'ᵢ', 'j' to 'ⱼ',
+    'k' to 'ₖ', 'l' to 'ₗ', 'm' to 'ₘ', 'n' to 'ₙ', 'o' to 'ₒ',
+    'p' to 'ₚ', 'r' to 'ᵣ', 's' to 'ₛ', 't' to 'ₜ', 'u' to 'ᵤ',
+    'v' to 'ᵥ', 'x' to 'ₓ',
+)
+
+/** Converts every character to its Unicode superscript form, or returns null if any character lacks one. */
+private fun toSuperscript(text: String): String? {
+    val mapped = text.map { SUPERSCRIPT_MAP[it] ?: return null }
+    return mapped.joinToString("")
+}
+
+/** Converts every character to its Unicode subscript form, or returns null if any character lacks one. */
+private fun toSubscript(text: String): String? {
+    val mapped = text.map { SUBSCRIPT_MAP[it] ?: return null }
+    return mapped.joinToString("")
+}
+
+/**
+ * Converts `^{content}` and `_{content}` to Unicode super-/subscripts where possible.
+ * Falls back to `^(content)` / `_(content)` when Unicode equivalents aren't available
+ * for every character. Single-character `^c` is also handled for superscripts.
+ */
+private fun processSubSuperscripts(text: String): String {
+    var result = text
+    // Braced superscript: ^{content}
+    result = Regex("""\^\{([^}]*)\}""").replace(result) { m ->
+        val content = m.groupValues[1]
+        toSuperscript(content) ?: "^($content)"
+    }
+    // Single-char superscript: ^c (letter or digit)
+    result = Regex("""\^([A-Za-z0-9])""").replace(result) { m ->
+        toSuperscript(m.groupValues[1]) ?: m.value
+    }
+    // Braced subscript: _{content}
+    result = Regex("""_\{([^}]*)\}""").replace(result) { m ->
+        val content = m.groupValues[1]
+        toSubscript(content) ?: "_(${content})"
+    }
+    // Single-digit subscript only: _0 … _9 (avoid breaking variable_name patterns)
+    result = Regex("""_(\d)(?!\w)""").replace(result) { m ->
+        toSubscript(m.groupValues[1]) ?: m.value
+    }
+    return result
+}
+
+// ── Math delimiter stripping ───────────────────────────────────────────────────
+
+/**
+ * Strips `$$…$$` (display math) and `$…$` (inline math) delimiters, keeping their
+ * content. `$$` is processed first so it isn't mistakenly split into two `$` pairs.
+ */
+private fun stripMathDelimiters(text: String): String {
+    var result = text
+    result = Regex("""\$\$(.+?)\$\$""").replace(result) { it.groupValues[1].trim() }
+    result = Regex("""\$(.+?)\$""").replace(result) { it.groupValues[1] }
+    return result
+}
+
+// ── LaTeX brace cleanup ────────────────────────────────────────────────────────
+
+/** Removes remaining bare LaTeX grouping braces `{content}` → `content`. */
+private fun cleanupLatexArtifacts(text: String): String {
+    var result = text
+    result = result.replace(Regex("""\{([^{}]*)\}""")) { it.groupValues[1] }
+    result = result.replace("\\\\", "\n")
+    return result
+}
+
+// ── Core conversion ────────────────────────────────────────────────────────────
+
 /**
  * Replaces LaTeX commands with Unicode equivalents, skipping code fences.
  *
- * Handles:
- * - Inline math wrappers: `$\rightarrow$` → `→`
- * - Bare commands: `\rightarrow` → `→` (with word-boundary guard to avoid
- *   corrupting `\left`, `\top`, `\input`, etc.)
+ * Processing pipeline per non-code line:
+ *  1. Structural LaTeX: `\frac{a}{b}` → `a/b`, `\sqrt{x}` → `√(x)`, `\text{…}` → content
+ *  2. Dollar-wrapped symbol replacements: `$\rightarrow$` → `→`
+ *  3. Bare symbol replacements: `\rightarrow` → `→` (word-boundary guarded)
+ *  4. `\left` / `\right` removal
+ *  5. Subscript / superscript Unicode conversion
+ *  6. `$` / `$$` math delimiter stripping
+ *  7. Remaining brace cleanup
  *
- * Lines inside fenced code blocks (``` ... ```) are left untouched.
- *
- * Does NOT handle complex LaTeX (fractions, superscripts, etc.) — those remain as-is
- * since they can't be meaningfully rendered as plain Unicode text.
+ * Lines inside fenced code blocks (``` … ```) are left untouched.
+ * Standalone `$$` lines (display-math delimiters) are removed entirely.
  */
-private fun convertLatexToUnicode(text: String): String {
+internal fun convertLatexToUnicode(text: String): String {
     val lines = text.lines()
     var inCodeFence = false
-    val processed = lines.map { line ->
+    val processed = mutableListOf<String>()
+    for (line in lines) {
         if (line.trimStart().startsWith("```")) {
             inCodeFence = !inCodeFence
-            line
+            processed.add(line)
         } else if (inCodeFence) {
-            line
+            processed.add(line)
+        } else if (line.trim() == "$$") {
+            // Display-math delimiter line — drop it
         } else {
-            convertLatexLine(line)
+            processed.add(convertLatexLine(line))
         }
     }
     return processed.joinToString("\n")
@@ -231,12 +463,32 @@ private fun convertLatexToUnicode(text: String): String {
 
 private fun convertLatexLine(line: String): String {
     var result = line
+
+    // 1. Structural patterns (must run before simple replacements consume commands)
+    result = processStructuralLatex(result)
+
+    // 2. Dollar-wrapped single-command replacements: $\cmd$ → unicode
     for ((regex, unicode) in DOLLAR_WRAPPED_REPLACEMENTS) {
         result = regex.replace(result, Regex.escapeReplacement(unicode))
     }
+
+    // 3. Bare command replacements: \cmd → unicode (longest-first, word-boundary guarded)
     for ((regex, unicode) in BARE_LATEX_REPLACEMENTS) {
         result = regex.replace(result, Regex.escapeReplacement(unicode))
     }
+
+    // 4. \left / \right delimiter removal
+    result = processLeftRight(result)
+
+    // 5. Subscript / superscript → Unicode
+    result = processSubSuperscripts(result)
+
+    // 6. Strip remaining $…$ and $$…$$ math delimiters
+    result = stripMathDelimiters(result)
+
+    // 7. Clean up leftover LaTeX braces
+    result = cleanupLatexArtifacts(result)
+
     return result
 }
 
@@ -827,15 +1079,15 @@ private fun MarkdownLatexPreview() {
             text = """
                 ## LaTeX Symbol Conversion
 
-                Arrows: A ${'$'}\rightarrow${'$'} B ${'$'}\leftarrow${'$'} C ${'$'}\Rightarrow${'$'} D
+                Limit: ${'$'}\lim_{x \to 0} \frac{\sin(x)}{x} = 1${'$'}
 
-                Math: 2 ${'$'}\times${'$'} 3 = 6, ${'$'}\pi${'$'} ${'$'}\approx${'$'} 3.14
-
-                Logic: ${'$'}\forall${'$'} x ${'$'}\in${'$'} S, x ${'$'}\geq${'$'} 0
+                Quadratic: ${'$'}x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}${'$'}
 
                 Greek: ${'$'}\alpha${'$'}, ${'$'}\beta${'$'}, ${'$'}\gamma${'$'}, ${'$'}\Delta${'$'}
 
-                Bare: \rightarrow works too, and \infty
+                Arrows: A ${'$'}\rightarrow${'$'} B ${'$'}\Rightarrow${'$'} C
+
+                Superscript: x^2 + y^2 = z^2
             """.trimIndent(),
         )
     }
