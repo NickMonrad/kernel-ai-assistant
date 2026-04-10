@@ -48,7 +48,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build (debug)
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug -PversionCode=${{ github.run_number }}
 
       # - name: Lint
       #   run: ./gradlew lint
