@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -49,6 +50,7 @@ class ChatViewModel @Inject constructor(
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     private val _inputText = MutableStateFlow("")
     private val _error = MutableStateFlow<String?>(null)
+    private val _conversationTitle = MutableStateFlow<String?>(null)
     private var conversationId: String? = null
     private val contextWindowManager = ContextWindowManager()
 
@@ -71,6 +73,7 @@ class ChatViewModel @Inject constructor(
         val messages: List<ChatMessage>,
         val inputText: String,
         val error: String?,
+        val conversationTitle: String?,
     )
 
     private val engineState = combine(
@@ -82,7 +85,8 @@ class ChatViewModel @Inject constructor(
         _messages,
         _inputText,
         _error,
-    ) { messages, inputText, error -> InputState(messages, inputText, error) }
+        _conversationTitle,
+    ) { messages, inputText, error, title -> InputState(messages, inputText, error, title) }
 
     val uiState: StateFlow<ChatUiState> = combine(
         engineState,
@@ -108,6 +112,7 @@ class ChatViewModel @Inject constructor(
             !engine.isReady -> ChatUiState.Loading
             else -> ChatUiState.Ready(
                 conversationId = conversationId ?: "",
+                conversationTitle = input.conversationTitle,
                 messages = input.messages,
                 isGenerating = engine.isGenerating,
                 inputText = input.inputText,
@@ -147,6 +152,9 @@ class ChatViewModel @Inject constructor(
     private suspend fun initializeConversation() {
         val id = navConversationId ?: conversationRepository.createConversation()
         conversationId = id
+
+        // Load persisted title immediately so UI shows it on back-navigation.
+        _conversationTitle.value = conversationRepository.getConversation(id)?.title
 
         val persisted = conversationRepository.getMessagesOnce(id)
         if (persisted.isNotEmpty()) {
@@ -209,6 +217,16 @@ class ChatViewModel @Inject constructor(
     fun onInputChanged(text: String) {
         _inputText.value = text
         if (_error.value != null) _error.value = null
+    }
+
+    fun renameConversation(newTitle: String) {
+        val id = conversationId ?: return
+        val trimmed = newTitle.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            conversationRepository.renameConversation(id, trimmed)
+            _conversationTitle.value = trimmed
+        }
     }
 
     fun sendMessage() {
@@ -319,7 +337,14 @@ class ChatViewModel @Inject constructor(
                             activeStreamingMsgId = null
                             activeStreamingContent = StringBuilder()
                             activeStreamingThinking = StringBuilder()
-                            autoTitleConversation(convId, text)
+
+                            // Auto-title after the 2nd complete exchange (4 messages: 2 user + 2 assistant),
+                            // but only if the conversation is still untitled. Launched in a separate
+                            // coroutine so it never blocks or delays the chat UI.
+                            val messageCount = _messages.value.size
+                            if (messageCount == 4 && _conversationTitle.value == null) {
+                                viewModelScope.launch { generateTitle() }
+                            }
                         }
 
                         is GenerationResult.Error -> {
@@ -392,19 +417,51 @@ class ChatViewModel @Inject constructor(
             val id = conversationRepository.createConversation()
             conversationId = id
             _messages.value = emptyList()
+            _conversationTitle.value = null
             estimatedTokensUsed = 0
             needsHistoryReplay = false
             inferenceEngine.resetConversation()
         }
     }
 
-    /** Auto-generate a short title from the user's first message. */
-    private suspend fun autoTitleConversation(convId: String, firstUserMessage: String) {
-        val maxLen = 40
-        val title = firstUserMessage.trim().take(maxLen).let { t ->
-            if (firstUserMessage.length > maxLen) "$t…" else t
+    /**
+     * Generates a short AI title for the current conversation using the first two user messages
+     * as context. Only called after the 2nd complete exchange when the conversation is untitled.
+     *
+     * Runs in its own coroutine — never blocks the chat UI. Silent failure: if generation
+     * fails or the engine is busy, the title stays null and the user can rename manually.
+     */
+    private suspend fun generateTitle() {
+        val id = conversationId ?: return
+
+        // Double-check the title is still null (may have been set manually in the meantime).
+        if (conversationRepository.getConversation(id)?.title != null) return
+
+        val userMessages = _messages.value
+            .filter { it.role == ChatMessage.Role.USER }
+            .take(2)
+            .joinToString(" / ") { it.content.take(100) }
+
+        val titlePrompt = "Generate a short, descriptive title (4-6 words max, no quotes) for a conversation that starts with: $userMessages"
+
+        try {
+            // generateOnce() uses an isolated conversation — the chat KV cache is untouched.
+            // It also acquires generationMutex, so it waits politely if the engine is busy.
+            val raw = inferenceEngine.generateOnce(titlePrompt)
+            val title = raw
+                .trim()
+                .trimStart('"', '\'')
+                .trimEnd('"', '\'', '.')
+                .take(60)
+            if (title.isNotBlank()) {
+                conversationRepository.renameConversation(id, title)
+                _conversationTitle.value = title
+                Log.i("KernelAI", "Auto-titled conversation $id: $title")
+            }
+        } catch (e: Exception) {
+            Log.w("KernelAI", "Auto-title generation failed: ${e.message}")
+            // Silent failure — title stays null, user can rename manually.
         }
-        conversationRepository.renameConversation(convId, title)
     }
 
     override fun onCleared() {

@@ -45,6 +45,15 @@ interface InferenceEngine {
     fun cancelGeneration()
 
     /**
+     * Generate a response for [prompt] using an **isolated conversation** that does
+     * not share KV cache state with the active chat. Safe to call for side tasks such
+     * as title generation — the chat context is not affected.
+     *
+     * Blocks until generation completes. Returns an empty string on error.
+     */
+    suspend fun generateOnce(prompt: String): String
+
+    /**
      * Clear the conversation context window and start fresh.
      * The engine stays warm — no model reload required.
      */
