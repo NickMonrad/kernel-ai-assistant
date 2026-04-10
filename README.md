@@ -40,9 +40,9 @@ The app operates on a **Brain–Memory–Action** triad:
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1 | Core LiteRT-LM integration + GPU/NPU acceleration + Chat UI | 🚧 |
+| 1 | Core LiteRT-LM integration + GPU/NPU acceleration + Chat UI (+ #59 active model display, #60 model selection) | 🚧 |
 | 2 | sqlite-vec + EmbeddingGemma for local RAG | ⬜ |
-| 3 | FunctionGemma intent router + Native Skills + Voice I/O | ⬜ |
+| 3 | FunctionGemma intent router + Native Skills + Voice I/O (Live Mode #64, "Hey Jandal" wake word #65) | ⬜ |
 | 4 | Chicory Wasm runtime + GitHub Skill Store | ⬜ |
 | 5 | 8GB device optimization (dynamic weight loading) | ⬜ |
 
