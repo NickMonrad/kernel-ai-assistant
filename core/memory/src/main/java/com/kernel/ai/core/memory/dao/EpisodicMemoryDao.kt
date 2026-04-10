@@ -28,8 +28,14 @@ interface EpisodicMemoryDao {
     @Query("SELECT COUNT(*) FROM episodic_memories")
     fun observeCount(): Flow<Int>
 
+    @Query("SELECT rowId FROM episodic_memories WHERE createdAt < :cutoffMs")
+    suspend fun getRowIdsOlderThan(cutoffMs: Long): List<Long>
+
     @Query("DELETE FROM episodic_memories WHERE createdAt < :cutoffMs")
     suspend fun deleteOlderThan(cutoffMs: Long)
+
+    @Query("SELECT rowId FROM episodic_memories ORDER BY createdAt ASC LIMIT :count")
+    suspend fun getOldestRowIds(count: Int): List<Long>
 
     @Query("""
         DELETE FROM episodic_memories WHERE rowId IN (

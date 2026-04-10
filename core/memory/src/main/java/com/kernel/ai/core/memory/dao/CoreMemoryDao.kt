@@ -32,6 +32,9 @@ interface CoreMemoryDao {
     """)
     suspend fun deleteOldestBeyondLimit(count: Int)
 
+    @Query("SELECT rowId FROM core_memories ORDER BY lastAccessedAt ASC, accessCount ASC LIMIT :count")
+    suspend fun getOldestRowIds(count: Int): List<Long>
+
     @Query("UPDATE core_memories SET accessCount = :accessCount, lastAccessedAt = :lastAccessedAt WHERE id = :id")
     suspend fun updateAccess(id: String, accessCount: Int, lastAccessedAt: Long)
 }
