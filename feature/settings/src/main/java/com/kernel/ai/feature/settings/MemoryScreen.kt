@@ -148,8 +148,7 @@ fun MemoryScreen(
     }
 
     // ── Delete Core Memory Confirmation Dialog ─────────────────────────────
-    val pendingDeleteId by viewModel.pendingDeleteId.collectAsStateWithLifecycle()
-    pendingDeleteId?.let { pendingId ->
+    uiState.pendingDeleteId?.let { pendingId ->
         AlertDialog(
             onDismissRequest = viewModel::dismissDeleteConfirmation,
             title = { Text("Delete memory?") },

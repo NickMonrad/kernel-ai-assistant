@@ -26,30 +26,34 @@ class MemoryViewModel @Inject constructor(
         val addDialogText: String = "",
         val showClearConfirmation: Boolean = false,
         val isSubmitting: Boolean = false,
+        val pendingDeleteId: String? = null,
     )
 
     private val _dialogState = MutableStateFlow(
         Triple(/* isAddDialogOpen */ false, /* addDialogText */ "", /* showClearConfirmation */ false)
     )
     private val _isSubmitting = MutableStateFlow(false)
-
-    /** ID of the core memory awaiting delete confirmation; null when no dialog is shown. */
-    val pendingDeleteId = MutableStateFlow<String?>(null)
+    private val _pendingDeleteId = MutableStateFlow<String?>(null)
 
     val uiState: StateFlow<MemoryUiState> = combine(
-        memoryRepository.observeCoreMemories(),
-        memoryRepository.observeEpisodicCount(),
-        _dialogState,
-        _isSubmitting,
-    ) { coreMemories, episodicCount, (isAddDialogOpen, addDialogText, showClearConfirmation), isSubmitting ->
-        MemoryUiState(
-            coreMemories = coreMemories,
-            episodicCount = episodicCount,
-            isAddDialogOpen = isAddDialogOpen,
-            addDialogText = addDialogText,
-            showClearConfirmation = showClearConfirmation,
-            isSubmitting = isSubmitting,
-        )
+        combine(
+            memoryRepository.observeCoreMemories(),
+            memoryRepository.observeEpisodicCount(),
+            _dialogState,
+            _isSubmitting,
+        ) { coreMemories, episodicCount, (isAddDialogOpen, addDialogText, showClearConfirmation), isSubmitting ->
+            MemoryUiState(
+                coreMemories = coreMemories,
+                episodicCount = episodicCount,
+                isAddDialogOpen = isAddDialogOpen,
+                addDialogText = addDialogText,
+                showClearConfirmation = showClearConfirmation,
+                isSubmitting = isSubmitting,
+            )
+        },
+        _pendingDeleteId,
+    ) { base, pendingDeleteId ->
+        base.copy(pendingDeleteId = pendingDeleteId)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -86,15 +90,15 @@ class MemoryViewModel @Inject constructor(
     }
 
     fun requestDeleteCoreMemory(id: String) {
-        pendingDeleteId.value = id
+        _pendingDeleteId.value = id
     }
 
     fun dismissDeleteConfirmation() {
-        pendingDeleteId.value = null
+        _pendingDeleteId.value = null
     }
 
     fun deleteCoreMemory(id: String) {
-        pendingDeleteId.value = null
+        _pendingDeleteId.value = null
         viewModelScope.launch { memoryRepository.deleteCoreMemory(id) }
     }
 
