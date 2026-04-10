@@ -10,7 +10,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,9 +43,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -52,6 +57,8 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,8 +71,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -92,6 +103,9 @@ fun ChatScreen(
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val clipboardManager = LocalClipboardManager.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     when (val state = uiState) {
         is ChatUiState.Loading -> LoadingContent()
@@ -111,6 +125,16 @@ fun ChatScreen(
                 onNewConversation()
             },
             onRenameConversation = viewModel::renameConversation,
+            snackbarHostState = snackbarHostState,
+            onCopyMessage = { content ->
+                clipboardManager.setText(AnnotatedString(stripMarkdown(content)))
+                scope.launch { snackbarHostState.showSnackbar("Message copied") }
+            },
+            onCopyAll = {
+                val text = stripMarkdown(viewModel.getConversationAsText())
+                clipboardManager.setText(AnnotatedString(text))
+                scope.launch { snackbarHostState.showSnackbar("Conversation copied") }
+            },
         )
     }
 }
@@ -125,6 +149,9 @@ private fun ChatContent(
     onBack: () -> Unit,
     onNewConversation: () -> Unit,
     onRenameConversation: (String) -> Unit,
+    snackbarHostState: SnackbarHostState,
+    onCopyMessage: (String) -> Unit,
+    onCopyAll: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
@@ -137,6 +164,7 @@ private fun ChatContent(
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -154,6 +182,9 @@ private fun ChatContent(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onCopyAll) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy conversation")
+                    }
                     IconButton(onClick = onNewConversation) {
                         Icon(Icons.Default.Add, contentDescription = "New conversation")
                     }
@@ -177,7 +208,10 @@ private fun ChatContent(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(state.messages, key = { it.id }) { message ->
-                        MessageBubble(message = message)
+                        MessageBubble(
+                            message = message,
+                            onCopy = { content -> onCopyMessage(content) },
+                        )
                     }
                 }
             }
@@ -242,14 +276,19 @@ private fun ChatContent(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(message: ChatMessage) {
+private fun MessageBubble(
+    message: ChatMessage,
+    onCopy: (String) -> Unit,
+) {
     val isUser = message.role == ChatMessage.Role.USER
     val bubbleColor = if (isUser) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
         MaterialTheme.colorScheme.surfaceVariant
     }
+    var showMenu by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -265,57 +304,80 @@ private fun MessageBubble(message: ChatMessage) {
             )
         }
 
-        Surface(
-            color = bubbleColor,
-            shape = RoundedCornerShape(
-                topStart = if (isUser) 18.dp else 4.dp,
-                topEnd = if (isUser) 4.dp else 18.dp,
-                bottomStart = 18.dp,
-                bottomEnd = 18.dp,
-            ),
-            modifier = Modifier.widthIn(max = 300.dp),
-        ) {
-            if (isUser) {
-                // User messages: plain text, no link/code parsing needed.
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = message.content,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                }
-            } else {
-                // Assistant messages: render full Markdown with inline + block support.
-                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                    val contentColor = LocalContentColor.current
-                    MarkdownContent(
-                        text  = message.content,
-                        style = MaterialTheme.typography.bodyMedium.copy(color = contentColor),
-                    )
-                    if (message.isStreaming) {
-                        val generatingMessage = remember { LoadingMessages.randomGenerating() }
-                        Row(
-                            modifier = Modifier.padding(top = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(12.dp),
-                                strokeWidth = 2.dp,
-                            )
-                            Text(
-                                text = generatingMessage,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontStyle = FontStyle.Italic,
-                                ),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+        Box {
+            Surface(
+                color = bubbleColor,
+                shape = RoundedCornerShape(
+                    topStart = if (isUser) 18.dp else 4.dp,
+                    topEnd = if (isUser) 4.dp else 18.dp,
+                    bottomStart = 18.dp,
+                    bottomEnd = 18.dp,
+                ),
+                modifier = Modifier
+                    .widthIn(max = 300.dp)
+                    .combinedClickable(
+                        onClick = {},
+                        onLongClick = { showMenu = true },
+                    ),
+            ) {
+                if (isUser) {
+                    // User messages: plain text, no link/code parsing needed.
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = message.content,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                } else {
+                    // Assistant messages: render full Markdown with inline + block support.
+                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        val contentColor = LocalContentColor.current
+                        MarkdownContent(
+                            text  = message.content,
+                            style = MaterialTheme.typography.bodyMedium.copy(color = contentColor),
+                        )
+                        if (message.isStreaming) {
+                            val generatingMessage = remember { LoadingMessages.randomGenerating() }
+                            Row(
+                                modifier = Modifier.padding(top = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                                Text(
+                                    text = generatingMessage,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontStyle = FontStyle.Italic,
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
+            }
+
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Copy message") },
+                    onClick = {
+                        showMenu = false
+                        onCopy(message.content)
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null)
+                    },
+                )
             }
         }
     }

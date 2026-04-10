@@ -39,3 +39,4 @@ models/
 google-services.json
 .kotlin/
 docs/testing/
+local.properties
