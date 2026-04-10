@@ -67,7 +67,8 @@ class ModelDownloadWorker(
         val displayName = inputData.getString(KEY_MODEL_DISPLAY_NAME) ?: fileName
         val totalBytes = inputData.getLong(KEY_TOTAL_BYTES, 0L)
 
-        val modelsDir = File(applicationContext.filesDir, "models").also { it.mkdirs() }
+        val modelsDir = (applicationContext.getExternalFilesDir("models")
+            ?: File(applicationContext.filesDir, "models")).also { it.mkdirs() }
         val outputFile = File(modelsDir, fileName)
         val tmpFile = File(modelsDir, "$fileName$TMP_SUFFIX")
 
