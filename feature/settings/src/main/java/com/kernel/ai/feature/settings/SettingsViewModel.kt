@@ -69,10 +69,17 @@ class SettingsViewModel @Inject constructor(
     private val _saveError = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val saveError: SharedFlow<String> = _saveError.asSharedFlow()
 
+    private val _saveSuccess = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val saveSuccess: SharedFlow<String> = _saveSuccess.asSharedFlow()
+
     fun setPreferredModel(model: KernelModel?) {
         viewModelScope.launch {
+            val current = uiState.value.preferredModel
+            if (model == current) return@launch  // no change — don't show toast
             try {
                 modelPreferences.setPreferredModel(model)
+                val label = model?.displayName ?: "Auto"
+                _saveSuccess.tryEmit("Preference set to $label — takes effect on next launch")
             } catch (e: IOException) {
                 Log.e("KernelAI", "SettingsViewModel: failed to save model preference", e)
                 _saveError.tryEmit("Couldn't save preference — please try again")
