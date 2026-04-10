@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
@@ -380,12 +382,14 @@ private fun EmptyConversationHint(modifier: Modifier = Modifier) {
 
 @Composable
 private fun LoadingContent() {
-    var messageIndex by remember { mutableIntStateOf(0) }
+    val theme = remember { LoadingMessages.randomTheme() }
+    val steps = remember(theme) { listOf(theme.first, theme.second, theme.third) }
+    var step by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
-        while (true) {
-            delay(3_000L)
-            messageIndex = (messageIndex + 1) % LoadingMessages.modelLoading.size
+        repeat(2) {
+            delay(2_500L)
+            step++
         }
     }
 
@@ -393,19 +397,26 @@ private fun LoadingContent() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             CircularProgressIndicator()
             AnimatedContent(
-                targetState = messageIndex,
+                targetState = step,
                 transitionSpec = {
-                    fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
+                    (fadeIn(animationSpec = tween(400)) + slideInVertically { it / 2 }) togetherWith
+                        (fadeOut(animationSpec = tween(400)) + slideOutVertically { -it / 2 })
                 },
-                modifier = Modifier.padding(top = 12.dp),
-                label = "loadingMessage",
-            ) { index ->
+                modifier = Modifier.padding(top = 12.dp).widthIn(max = 280.dp),
+                label = "loadingStep",
+            ) { s ->
                 Text(
-                    text = LoadingMessages.modelLoading[index],
+                    text = steps[s],
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                 )
             }
+            Text(
+                text = "${step + 1} / 3",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
         }
     }
 }
