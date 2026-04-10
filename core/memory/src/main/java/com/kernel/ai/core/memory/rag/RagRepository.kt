@@ -5,6 +5,7 @@ import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
+import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.memory.vector.VectorStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -82,7 +83,7 @@ class RagRepository @Inject constructor(
         query: String,
         topK: Int = DEFAULT_TOP_K,
         excludeMessageIds: Set<String> = emptySet(),
-        maxTokens: Int = Int.MAX_VALUE,
+        maxTokens: Int = ContextWindowManager.EPISODIC_BUDGET,
     ): String = withContext(Dispatchers.IO) {
         if (!tableCreated) return@withContext ""
 
@@ -120,7 +121,7 @@ class RagRepository @Inject constructor(
             var tokenBudgetRemaining = maxTokens
             val header = "[Episodic Memories]\n"
             val footer = "[End of episodic memories]"
-            tokenBudgetRemaining -= (header.length + footer.length) / charsPerToken
+            tokenBudgetRemaining -= (header.length + footer.length + charsPerToken - 1) / charsPerToken
 
             val lines = mutableListOf<String>()
             for (msg in messages) {
