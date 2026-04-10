@@ -134,9 +134,8 @@ adb -s 192.168.31.54:5555 logcat -s KernelAI:D AndroidRuntime:E --pid=$(adb -s 1
 
 ## Results Summary
 
-**Build:** PR #62 + PR #63 (CI runs #82, #84)
-**Tested by:** NickMonrad
-**Test date:** 2026-04-10
+### Round 1 — PR #62 + #63 (CI runs #82, #84)
+**Tested by:** NickMonrad | **Date:** 2026-04-10
 
 | Test | Result | Notes |
 |------|--------|-------|
@@ -147,4 +146,28 @@ adb -s 192.168.31.54:5555 logcat -s KernelAI:D AndroidRuntime:E --pid=$(adb -s 1
 | TC-5 Code block rendering | ⚠️ | Copy works, no visual separator — fixed PR #67 |
 | TC-6 Regression | ✅ | No regressions found |
 
-**Overall:** ❌ Fixes pending in PR #67 — re-test required after merge.
+### Round 2 — PR #67 (CI run #88)
+**Tested by:** NickMonrad | **Date:** 2026-04-10
+
+| Test | Result | Notes |
+|------|--------|-------|
+| TC-1 Keyboard gap | ❌ | `adjustResize` ignored on API 30+ with `enableEdgeToEdge` — real fix in PR #68 |
+| TC-2 Back navigation | ✅ | All three screens have back arrow |
+| TC-3 Partial message persistence | ✅ | `runBlocking` flush in `onCleared()` works |
+| TC-4 Clickable links | ✅ | Links work; dark theme text contrast fixed |
+| TC-5 Code block rendering | ⚠️ | Better separation but no visible border — fixed PR #68 |
+| TC-6 Regression | ✅ | No regressions |
+
+### Round 3 — PR #68 (TC-1 fix) + PR #69 (TC-5 border)
+**Tested by:** NickMonrad | **Date:** 2026-04-10
+
+| Test | Result | Notes |
+|------|--------|-------|
+| TC-1 Keyboard gap | ✅ | `contentWindowInsets = WindowInsets(0)` on Scaffold — gap gone |
+| TC-2 Back navigation | ✅ | |
+| TC-3 Partial message persistence | ✅ | |
+| TC-4 Clickable links | ✅ | |
+| TC-5 Code block rendering | ✅ | `outline` token gives visible border in dark theme |
+| TC-6 Regression | ✅ | No regressions |
+
+**Overall: ✅ ALL TESTS PASSING — UI polish complete (PRs #62, #63, #67, #68, #69)**
