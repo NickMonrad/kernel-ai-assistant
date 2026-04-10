@@ -13,6 +13,10 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -73,6 +77,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.ripple
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.Dispatchers
@@ -81,6 +89,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -295,6 +304,34 @@ private fun MessageBubble(
         MaterialTheme.colorScheme.surfaceVariant
     }
     var showMenu by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+
+    // Assistant messages: use pointerInput with requireUnconsumed=false so long-press fires
+    // even when inner ClickableText nodes (URL handlers in MarkdownContent) have consumed
+    // the event. User messages use combinedClickable — they work fine with plain Text.
+    val bubbleModifier = if (!isUser) {
+        Modifier
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = { offset ->
+                        val press = PressInteraction.Press(offset)
+                        interactionSource.emit(press)
+                        val released = tryAwaitRelease()
+                        if (released) interactionSource.emit(PressInteraction.Release(press))
+                        else interactionSource.emit(PressInteraction.Cancel(press))
+                    },
+                    onLongPress = { showMenu = true },
+                )
+            }
+            .indication(interactionSource, ripple())
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction(label = "Copy message") { showMenu = true; true }
+                )
+            }
+    } else {
+        Modifier.combinedClickable(onClick = {}, onLongClick = { showMenu = true })
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -310,7 +347,7 @@ private fun MessageBubble(
             )
         }
 
-        Box {
+        Box(modifier = bubbleModifier) {
             Surface(
                 color = bubbleColor,
                 shape = RoundedCornerShape(
@@ -320,11 +357,7 @@ private fun MessageBubble(
                     bottomEnd = 18.dp,
                 ),
                 modifier = Modifier
-                    .widthIn(max = 300.dp)
-                    .combinedClickable(
-                        onClick = {},
-                        onLongClick = { showMenu = true },
-                    ),
+                    .widthIn(max = 300.dp),
             ) {
                 if (isUser) {
                     // User messages: plain text, no link/code parsing needed.
