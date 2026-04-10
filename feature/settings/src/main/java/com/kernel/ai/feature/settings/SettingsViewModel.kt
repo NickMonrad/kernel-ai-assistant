@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.download.DownloadState
@@ -8,11 +9,15 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.prefs.ModelPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.IOException
 import javax.inject.Inject
 
 @HiltViewModel
@@ -61,7 +66,17 @@ class SettingsViewModel @Inject constructor(
         initialValue = SettingsUiState(),
     )
 
+    private val _saveError = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val saveError: SharedFlow<String> = _saveError.asSharedFlow()
+
     fun setPreferredModel(model: KernelModel?) {
-        viewModelScope.launch { modelPreferences.setPreferredModel(model) }
+        viewModelScope.launch {
+            try {
+                modelPreferences.setPreferredModel(model)
+            } catch (e: IOException) {
+                Log.e("KernelAI", "SettingsViewModel: failed to save model preference", e)
+                _saveError.tryEmit("Couldn't save preference — please try again")
+            }
+        }
     }
 }

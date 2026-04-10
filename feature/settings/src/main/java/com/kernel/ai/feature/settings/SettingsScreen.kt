@@ -24,7 +24,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,6 +47,12 @@ fun SettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    LaunchedEffect(Unit) {
+        viewModel.saveError.collect { message ->
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -65,13 +71,13 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            // ── Active Model Info ─────────────────────────────────────────────
+            // ── Preferred Model Info ──────────────────────────────────────────
             if (uiState.activeModelLabel.isNotEmpty()) {
                 ListItem(
-                    headlineContent = { Text("Active model") },
+                    headlineContent = { Text("Preferred model") },
                     supportingContent = {
                         Text(
-                            text = "${uiState.activeModelLabel} · ${uiState.activeBackend} · ${uiState.activeTier}",
+                            text = "${uiState.activeModelLabel} · ${uiState.activeBackend} · ${uiState.activeTier} (takes effect on next launch)",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -205,8 +211,8 @@ private fun SettingsScreenPreview() {
                     .padding(padding),
             ) {
                 ListItem(
-                    headlineContent = { Text("Active model") },
-                    supportingContent = { Text("Gemma 4 E-4B · GPU · FLAGSHIP") },
+                    headlineContent = { Text("Preferred model") },
+                    supportingContent = { Text("Gemma 4 E-4B · GPU · FLAGSHIP (takes effect on next launch)") },
                     leadingContent = { Icon(Icons.Default.SmartToy, contentDescription = null) },
                 )
                 HorizontalDivider()

@@ -10,7 +10,9 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.kernel.ai.core.inference.download.KernelModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,6 +27,12 @@ class ModelPreferences @Inject constructor(
 
     /** Null means "auto" — let tier-based logic decide. */
     val preferredConversationModel: Flow<KernelModel?> = context.modelPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "ModelPreferences: DataStore read error, falling back to auto", e)
+                emit(androidx.datastore.preferences.core.emptyPreferences())
+            } else throw e
+        }
         .map { prefs ->
             prefs[preferredModelKey]?.let { name ->
                 KernelModel.entries.find { it.name == name }
@@ -33,14 +41,19 @@ class ModelPreferences @Inject constructor(
         }
 
     suspend fun setPreferredModel(model: KernelModel?) {
-        context.modelPrefsDataStore.edit { prefs ->
-            if (model == null) {
-                prefs.remove(preferredModelKey)
-                Log.i(TAG, "ModelPreferences: cleared preferred model (auto mode)")
-            } else {
-                prefs[preferredModelKey] = model.name
-                Log.i(TAG, "ModelPreferences: set preferred model to ${model.displayName}")
+        try {
+            context.modelPrefsDataStore.edit { prefs ->
+                if (model == null) {
+                    prefs.remove(preferredModelKey)
+                    Log.i(TAG, "ModelPreferences: cleared preferred model (auto mode)")
+                } else {
+                    prefs[preferredModelKey] = model.name
+                    Log.i(TAG, "ModelPreferences: set preferred model to ${model.displayName}")
+                }
             }
+        } catch (e: IOException) {
+            Log.e(TAG, "ModelPreferences: failed to save preference", e)
+            throw e  // re-throw so caller can surface feedback to the user
         }
     }
 }
