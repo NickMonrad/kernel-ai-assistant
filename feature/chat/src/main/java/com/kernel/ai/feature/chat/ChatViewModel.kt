@@ -72,6 +72,9 @@ class ChatViewModel @Inject constructor(
     /** The model currently loaded into the inference engine; used for the [Runtime] context block. */
     private var activeModel: KernelModel? = null
 
+    /** Set synchronously when title generation is launched to prevent duplicate coroutines. */
+    private var titleGenerationStarted = false
+
     private data class EngineState(val isReady: Boolean, val isGenerating: Boolean)
     private data class InputState(
         val messages: List<ChatMessage>,
@@ -163,6 +166,7 @@ class ChatViewModel @Inject constructor(
 
         // Load persisted title immediately so UI shows it on back-navigation.
         _conversationTitle.value = conversationRepository.getConversation(id)?.title
+        titleGenerationStarted = conversationRepository.getConversation(id)?.title != null
 
         val persisted = conversationRepository.getMessagesOnce(id)
         if (persisted.isNotEmpty()) {
@@ -350,12 +354,18 @@ class ChatViewModel @Inject constructor(
                             activeStreamingContent = StringBuilder()
                             activeStreamingThinking = StringBuilder()
 
-                            // Auto-title after the 2nd complete exchange (4 messages: 2 user + 2 assistant),
-                            // but only if the conversation is still untitled. Launched in a separate
-                            // coroutine so it never blocks or delays the chat UI.
+                            // Auto-title after the 2nd complete exchange (≥4 messages),
+                            // but only if the conversation is still untitled. Uses >= to
+                            // avoid missing the trigger if the count jumps past 4.
+                            // Small delay lets the generate() flow fully release the
+                            // single-threaded LlmDispatcher before generateOnce() claims it.
                             val messageCount = _messages.value.size
-                            if (messageCount == 4 && _conversationTitle.value == null) {
-                                viewModelScope.launch { generateTitle() }
+                            if (messageCount >= 4 && _conversationTitle.value == null && !titleGenerationStarted) {
+                                titleGenerationStarted = true
+                                viewModelScope.launch {
+                                    kotlinx.coroutines.delay(500L)
+                                    generateTitle()
+                                }
                             }
                         }
 
@@ -430,6 +440,7 @@ class ChatViewModel @Inject constructor(
             conversationId = id
             _messages.value = emptyList()
             _conversationTitle.value = null
+            titleGenerationStarted = false
             estimatedTokensUsed = 0
             needsHistoryReplay = false
             inferenceEngine.resetConversation()
@@ -447,12 +458,20 @@ class ChatViewModel @Inject constructor(
         val id = conversationId ?: return
 
         // Double-check the title is still null (may have been set manually in the meantime).
-        if (conversationRepository.getConversation(id)?.title != null) return
+        if (conversationRepository.getConversation(id)?.title != null) {
+            Log.d("KernelAI", "Title already set for $id — skipping generation")
+            return
+        }
 
         val userMessages = _messages.value
             .filter { it.role == ChatMessage.Role.USER }
             .take(2)
             .joinToString(" / ") { it.content.take(100) }
+
+        if (userMessages.isBlank()) {
+            Log.w("KernelAI", "No user messages to generate title from")
+            return
+        }
 
         // Directive system prompt constrains Gemma to output only the title — no preamble,
         // no "Here's a title:", no explanation. Without this, the model responds conversationally.
@@ -460,10 +479,13 @@ class ChatViewModel @Inject constructor(
             "No explanation, no preamble, no quotes, no punctuation at the end. Just the title itself."
         val titlePrompt = "Title for a conversation that starts with: $userMessages"
 
+        Log.d("KernelAI", "Generating title for $id with prompt: ${titlePrompt.take(80)}...")
+
         try {
             // generateOnce() uses an isolated conversation — the chat KV cache is untouched.
             // It also acquires generationMutex, so it waits politely if the engine is busy.
             val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = titleSystemPrompt)
+            Log.d("KernelAI", "Raw title output: \"$raw\"")
             val title = raw
                 .trim()
                 .lines().first()          // extract first line before stripping quotes
@@ -475,9 +497,11 @@ class ChatViewModel @Inject constructor(
                 conversationRepository.renameConversation(id, title)
                 _conversationTitle.value = title
                 Log.i("KernelAI", "Auto-titled conversation $id: $title")
+            } else {
+                Log.w("KernelAI", "Title generation produced blank result from raw: \"$raw\"")
             }
         } catch (e: Exception) {
-            Log.w("KernelAI", "Auto-title generation failed: ${e.message}")
+            Log.w("KernelAI", "Auto-title generation failed: ${e.message}", e)
             // Silent failure — title stays null, user can rename manually.
         }
     }

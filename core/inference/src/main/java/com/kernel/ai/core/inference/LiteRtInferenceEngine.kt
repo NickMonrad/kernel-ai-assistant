@@ -228,9 +228,25 @@ class LiteRtInferenceEngine @Inject constructor(
      * is currently generating, this suspends until the active generation completes.
      */
     override suspend fun generateOnce(prompt: String, systemPrompt: String?): String = withContext(LlmDispatcher) {
-        generationMutex.withLock {
-            val eng = engine ?: return@withLock ""
-            if (currentConfig == null) return@withLock ""
+        // Use tryLock + retry loop to avoid potential deadlock with the single-threaded dispatcher.
+        // The generate() flow's awaitClose needs to run on this same dispatcher to unlock the mutex.
+        var acquired = false
+        repeat(20) { attempt ->
+            if (generationMutex.tryLock()) {
+                acquired = true
+                return@repeat
+            }
+            Log.d(TAG, "generateOnce: mutex busy, retry ${attempt + 1}/20")
+            kotlinx.coroutines.delay(250L)
+        }
+        if (!acquired) {
+            Log.w(TAG, "generateOnce: failed to acquire mutex after 5s — engine busy")
+            return@withContext ""
+        }
+
+        try {
+            val eng = engine ?: return@withContext ""
+            if (currentConfig == null) return@withContext ""
             val backend = _activeBackend.value ?: BackendType.CPU
             val isolatedConv = eng.createConversation(buildConversationConfig(backend, systemPrompt))
             val sb = StringBuilder()
@@ -251,9 +267,12 @@ class LiteRtInferenceEngine @Inject constructor(
                 )
                 latch.await()
             } finally {
+                safeCancel(isolatedConv)
                 safeClose(isolatedConv, "title-conv")
             }
             sb.toString()
+        } finally {
+            generationMutex.unlock()
         }
     }
 
