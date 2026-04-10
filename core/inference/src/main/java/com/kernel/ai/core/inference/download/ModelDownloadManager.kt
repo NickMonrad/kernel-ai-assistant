@@ -215,15 +215,28 @@ class ModelDownloadManager @Inject constructor(
                     }
 
                     WorkInfo.State.FAILED -> {
-                        val errorMsg = info.outputData.getString(KEY_ERROR_MESSAGE)
-                            ?: "Download failed"
-                        Log.w(TAG, "Download failed for ${model.displayName}: $errorMsg")
-                        DownloadState.Error(message = errorMsg)
+                        // Stale WorkManager jobs from a previous session can fire FAILED
+                        // after the file was already pushed manually (e.g. via ADB). Trust
+                        // the file system over the worker state.
+                        if (model.isDownloaded(context)) {
+                            Log.i(TAG, "Worker failed but file present — treating as Downloaded: ${model.displayName}")
+                            DownloadState.Downloaded(localPath = model.localFile(context).absolutePath)
+                        } else {
+                            val errorMsg = info.outputData.getString(KEY_ERROR_MESSAGE)
+                                ?: "Download failed"
+                            Log.w(TAG, "Download failed for ${model.displayName}: $errorMsg")
+                            DownloadState.Error(message = errorMsg)
+                        }
                     }
 
                     WorkInfo.State.CANCELLED -> {
-                        Log.i(TAG, "Download cancelled for ${model.displayName}")
-                        DownloadState.NotDownloaded
+                        if (model.isDownloaded(context)) {
+                            Log.i(TAG, "Worker cancelled but file present — treating as Downloaded: ${model.displayName}")
+                            DownloadState.Downloaded(localPath = model.localFile(context).absolutePath)
+                        } else {
+                            Log.i(TAG, "Download cancelled for ${model.displayName}")
+                            DownloadState.NotDownloaded
+                        }
                     }
 
                     else -> return@collect
