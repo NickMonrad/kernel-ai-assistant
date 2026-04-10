@@ -466,10 +466,10 @@ class ChatViewModel @Inject constructor(
             val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = titleSystemPrompt)
             val title = raw
                 .trim()
+                .lines().first()          // extract first line before stripping quotes
+                .trim()
                 .trimStart('"', '\'')
                 .trimEnd('"', '\'', '.')
-                .lines().first() // take only first line in case model adds extras
-                .trim()
                 .take(60)
             if (title.isNotBlank()) {
                 conversationRepository.renameConversation(id, title)
