@@ -18,8 +18,7 @@ import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -403,15 +402,16 @@ class ChatViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         // Flush any in-progress streamed content to Room before the ViewModel is destroyed.
-        // Uses NonCancellable so the save completes even though viewModelScope is about to cancel.
-        val partialContent = activeStreamingContent.toString()
-        val partialThinking = activeStreamingThinking.toString().takeIf { it.isNotBlank() }
+        // runBlocking is acceptable here — called once on ViewModel teardown,
+        // Room insert is fast (<10ms), main thread briefly blocked on nav back.
+        // viewModelScope is already cancelled at this point so withContext(NonCancellable)
+        // inside a viewModelScope.launch does not work reliably.
+        val content = activeStreamingContent.toString()
+        val thinking = activeStreamingThinking.toString().takeIf { it.isNotBlank() }
         val convId = conversationId
-        if (partialContent.isNotBlank() && convId != null) {
-            viewModelScope.launch {
-                withContext(NonCancellable) {
-                    conversationRepository.addMessage(convId, "assistant", partialContent, partialThinking)
-                }
+        if (content.isNotBlank() && convId != null) {
+            runBlocking {
+                conversationRepository.addMessage(convId, "assistant", content, thinking)
             }
         }
         viewModelScope.launch { inferenceEngine.shutdown() }
