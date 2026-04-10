@@ -184,32 +184,59 @@ private val LATEX_TO_UNICODE = mapOf(
     "\\dagger" to "†",
 )
 
+// Pre-compiled regexes for $\cmd$ wrappers — zero runtime compilation cost.
+private val DOLLAR_WRAPPED_REPLACEMENTS: List<Pair<Regex, String>> =
+    LATEX_TO_UNICODE.map { (latex, unicode) ->
+        Regex("\\$" + Regex.escape(latex) + "\\$") to unicode
+    }
+
+// Pre-compiled regexes for bare \cmd with negative lookahead for [A-Za-z].
+// Prevents \to matching inside \top, \le inside \left, \in inside \input, etc.
+// Sorted longest-first so \longrightarrow matches before \to.
+private val BARE_LATEX_REPLACEMENTS: List<Pair<Regex, String>> =
+    LATEX_TO_UNICODE.entries
+        .sortedByDescending { it.key.length }
+        .map { (latex, unicode) ->
+            Regex(Regex.escape(latex) + """(?![A-Za-z])""") to unicode
+        }
+
 /**
- * Replaces LaTeX commands with Unicode equivalents.
+ * Replaces LaTeX commands with Unicode equivalents, skipping code fences.
  *
  * Handles:
  * - Inline math wrappers: `$\rightarrow$` → `→`
- * - Bare commands: `\rightarrow` → `→`
+ * - Bare commands: `\rightarrow` → `→` (with word-boundary guard to avoid
+ *   corrupting `\left`, `\top`, `\input`, etc.)
+ *
+ * Lines inside fenced code blocks (``` ... ```) are left untouched.
  *
  * Does NOT handle complex LaTeX (fractions, superscripts, etc.) — those remain as-is
  * since they can't be meaningfully rendered as plain Unicode text.
  */
 private fun convertLatexToUnicode(text: String): String {
-    var result = text
-
-    // First pass: strip $...$ wrappers around simple LaTeX commands.
-    // Matches $\command$ and replaces the whole thing with the Unicode character.
-    for ((latex, unicode) in LATEX_TO_UNICODE) {
-        val escaped = Regex.escape(latex)
-        result = result.replace(Regex("\\$$escaped\\$"), unicode)
+    val lines = text.lines()
+    var inCodeFence = false
+    val processed = lines.map { line ->
+        if (line.trimStart().startsWith("```")) {
+            inCodeFence = !inCodeFence
+            line
+        } else if (inCodeFence) {
+            line
+        } else {
+            convertLatexLine(line)
+        }
     }
+    return processed.joinToString("\n")
+}
 
-    // Second pass: replace bare LaTeX commands (not inside code blocks).
-    // Sort by length descending so \longrightarrow matches before \to.
-    for ((latex, unicode) in LATEX_TO_UNICODE.entries.sortedByDescending { it.key.length }) {
-        result = result.replace(latex, unicode)
+private fun convertLatexLine(line: String): String {
+    var result = line
+    for ((regex, unicode) in DOLLAR_WRAPPED_REPLACEMENTS) {
+        result = regex.replace(result, Regex.escapeReplacement(unicode))
     }
-
+    for ((regex, unicode) in BARE_LATEX_REPLACEMENTS) {
+        result = regex.replace(result, Regex.escapeReplacement(unicode))
+    }
     return result
 }
 
