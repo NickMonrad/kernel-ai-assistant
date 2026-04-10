@@ -97,9 +97,7 @@ class MemoryRepositoryImpl @Inject constructor(
             if (rowIds.isNotEmpty()) {
                 val entities = coreDao.getAll().filter { it.rowId in rowIds }
                 val distanceMap = coreResults.associate { it.rowId to it.distance }
-                val now = System.currentTimeMillis()
                 entities.forEach { entity ->
-                    coreDao.updateAccessStats(entity.id, now)
                     results.add(
                         MemorySearchResult(
                             id = entity.id,
@@ -109,6 +107,10 @@ class MemoryRepositoryImpl @Inject constructor(
                         )
                     )
                 }
+                // Update access stats independently — failure must not truncate search results
+                runCatching {
+                    coreDao.updateAccessStatsBatch(entities.map { it.id }, System.currentTimeMillis())
+                }.onFailure { Log.w(TAG, "updateAccessStatsBatch failed: ${it.message}") }
             }
         }.onFailure { Log.w(TAG, "Core memory search failed: ${it.message}") }
 

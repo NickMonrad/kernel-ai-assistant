@@ -75,8 +75,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -131,9 +133,13 @@ fun ChatScreen(
                 scope.launch { snackbarHostState.showSnackbar("Message copied") }
             },
             onCopyAll = {
-                val text = stripMarkdownForClipboard(viewModel.getConversationAsText())
-                clipboardManager.setText(AnnotatedString(text))
-                scope.launch { snackbarHostState.showSnackbar("Conversation copied") }
+                scope.launch {
+                    val text = withContext(Dispatchers.Default) {
+                        stripMarkdownForClipboard(viewModel.getConversationAsText())
+                    }
+                    clipboardManager.setText(AnnotatedString(text))
+                    snackbarHostState.showSnackbar("Conversation copied")
+                }
             },
         )
     }

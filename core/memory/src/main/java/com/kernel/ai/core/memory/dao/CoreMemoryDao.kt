@@ -40,4 +40,7 @@ interface CoreMemoryDao {
 
     @Query("UPDATE core_memories SET accessCount = accessCount + 1, lastAccessedAt = :lastAccessedAt WHERE id = :id")
     suspend fun updateAccessStats(id: String, lastAccessedAt: Long)
+
+    @Query("UPDATE core_memories SET accessCount = accessCount + 1, lastAccessedAt = :lastAccessedAt WHERE id IN (:ids)")
+    suspend fun updateAccessStatsBatch(ids: List<String>, lastAccessedAt: Long)
 }
