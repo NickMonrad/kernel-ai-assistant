@@ -257,7 +257,7 @@ private fun findMatchingBrace(text: String, openIndex: Int): Int {
  * parentheses in a fraction representation like `a/b`.
  */
 private fun needsParens(expr: String): Boolean =
-    expr.contains('+') || expr.contains('-') || expr.contains('/') || expr.contains(' ')
+    expr.contains('+') || expr.contains('-') || expr.contains('*') || expr.contains('/') || expr.contains(' ')
 
 /**
  * Converts `\frac{numerator}{denominator}` into `numerator/denominator` (or
@@ -384,7 +384,7 @@ private fun processSubSuperscripts(text: String): String {
     // Braced superscript: ^{content}
     result = Regex("""\^\{([^}]*)\}""").replace(result) { m ->
         val content = m.groupValues[1]
-        toSuperscript(content) ?: "^($content)"
+        toSuperscript(content) ?: "^(${content})"
     }
     // Single-char superscript: ^c (letter or digit)
     result = Regex("""\^([A-Za-z0-9])""").replace(result) { m ->

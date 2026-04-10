@@ -236,7 +236,8 @@ class LatexConversionTest {
         fun `complex superscript falls back to parens`() {
             val result = convertLatexToUnicode("e^{i\\pi}")
             // After \pi → π, content is "iπ" — i has superscript but π does not
-            assertTrue(result.contains("^(") || result.contains("ⁱ"))
+            // So fallback format is used: ^(iπ)
+            assertEquals("e^(iπ)", result)
         }
     }
 
@@ -266,6 +267,9 @@ class LatexConversionTest {
             assertTrue(result.contains("E = mc²"))
             assertTrue(result.contains("Before"))
             assertTrue(result.contains("After"))
+            // Verify the $$ delimiter lines are fully gone (3 content lines remain)
+            val lines = result.lines().filter { it.isNotBlank() }
+            assertEquals(3, lines.size, "Should have exactly 3 non-blank lines after $$ removal")
         }
     }
 
