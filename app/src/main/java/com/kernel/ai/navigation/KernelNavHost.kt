@@ -43,6 +43,7 @@ fun KernelNavHost() {
         composable(ROUTE_CHAT) {
             ChatScreen(
                 conversationId = null,
+                onBack = { navController.popBackStack() },
                 onNewConversation = {
                     navController.navigate(ROUTE_CHAT) {
                         popUpTo(ROUTE_CHAT) { inclusive = true }
@@ -64,6 +65,7 @@ fun KernelNavHost() {
             val conversationId = backStackEntry.arguments?.getString(ARG_CONVERSATION_ID)
             ChatScreen(
                 conversationId = conversationId,
+                onBack = { navController.popBackStack() },
                 onNewConversation = {
                     navController.navigate(ROUTE_CHAT)
                 },

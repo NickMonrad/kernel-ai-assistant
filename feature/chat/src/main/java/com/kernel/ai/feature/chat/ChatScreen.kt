@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -63,6 +64,7 @@ import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
 @Composable
 fun ChatScreen(
     conversationId: String? = null,
+    onBack: () -> Unit = {},
     onNewConversation: () -> Unit = {},
     onNavigateToList: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
@@ -81,6 +83,7 @@ fun ChatScreen(
             onInputChanged = viewModel::onInputChanged,
             onSend = viewModel::sendMessage,
             onCancel = viewModel::cancelGeneration,
+            onBack = onBack,
             onNewConversation = {
                 viewModel.startNewConversation()
                 onNewConversation()
@@ -96,6 +99,7 @@ private fun ChatContent(
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit,
+    onBack: () -> Unit,
     onNewConversation: () -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -110,6 +114,11 @@ private fun ChatContent(
         topBar = {
             TopAppBar(
                 title = { Text("Kernel", style = MaterialTheme.typography.titleMedium) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
                 actions = {
                     IconButton(onClick = onNewConversation) {
                         Icon(Icons.Default.Add, contentDescription = "New conversation")
