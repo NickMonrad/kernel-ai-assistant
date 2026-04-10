@@ -309,7 +309,7 @@ private fun renderInlineSpans(
 
 // ── Block composables ──────────────────────────────────────────────────────────
 
-@Suppress("DEPRECATION") // ClickableText: will migrate to LinkAnnotation when API stabilises
+@Suppress("DEPRECATION") // ClickableText: BasicText.onClick not available in this Compose version
 @Composable
 private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
     val uriHandler      = LocalUriHandler.current
@@ -427,7 +427,7 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
 
         // ── Fenced code block ──────────────────────────────────────────────────
         is MarkdownBlock.FencedCode -> {
-            FencedCodeBlock(code = block.code)
+            FencedCodeBlock(language = block.language, code = block.code)
         }
 
         // ── Table ──────────────────────────────────────────────────────────────
@@ -442,9 +442,11 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
  *  - `surfaceVariant` background and `RoundedCornerShape(8.dp)`
  *  - `FontFamily.Monospace`, `softWrap = false`, horizontal scroll
  *  - A copy-to-clipboard button anchored top-right; icon changes to ✓ for 2 seconds after copy
+ *  - An optional language label above the block (e.g. "yaml", "bash") when present
+ *  - Vertical padding (8.dp) to visually separate the block from surrounding text
  */
 @Composable
-private fun FencedCodeBlock(code: String, modifier: Modifier = Modifier) {
+private fun FencedCodeBlock(language: String = "", code: String, modifier: Modifier = Modifier) {
     val clipboardManager = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
 
@@ -455,38 +457,48 @@ private fun FencedCodeBlock(code: String, modifier: Modifier = Modifier) {
         }
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
-    ) {
-        Row(
-            modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                // Right padding leaves room so long lines don't slide under the copy button
-                .padding(start = 12.dp, end = 48.dp, top = 12.dp, bottom = 12.dp),
-        ) {
+    Column(modifier = modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        if (language.isNotBlank()) {
             Text(
-                text     = code.trimEnd('\n'),
-                style    = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                softWrap = false,
+                text = language,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 2.dp),
             )
         }
-
-        IconButton(
-            onClick = {
-                clipboardManager.setText(AnnotatedString(code))
-                copied = true
-                Log.d(TAG, "MarkdownRenderer: code block copied to clipboard")
-            },
-            modifier = Modifier.align(Alignment.TopEnd),
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
-            Icon(
-                imageVector     = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
-                contentDescription = if (copied) "Copied" else "Copy code",
-                modifier        = Modifier.size(16.dp),
-            )
+            Row(
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    // Right padding leaves room so long lines don't slide under the copy button
+                    .padding(start = 12.dp, end = 48.dp, top = 12.dp, bottom = 12.dp),
+            ) {
+                Text(
+                    text     = code.trimEnd('\n'),
+                    style    = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    softWrap = false,
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    clipboardManager.setText(AnnotatedString(code))
+                    copied = true
+                    Log.d(TAG, "MarkdownRenderer: code block copied to clipboard")
+                },
+                modifier = Modifier.align(Alignment.TopEnd),
+            ) {
+                Icon(
+                    imageVector     = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                    contentDescription = if (copied) "Copied" else "Copy code",
+                    modifier        = Modifier.size(16.dp),
+                )
+            }
         }
     }
 }
