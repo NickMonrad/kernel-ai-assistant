@@ -188,6 +188,10 @@ class ModelDownloadManager @Inject constructor(
      * Uses LiveData → coroutine bridge (WorkManager 2.8+ API).
      */
     private suspend fun observeWorkInfo(model: KernelModel) {
+        // One-shot flag: the stale-worker guard only needs to run once per observation
+        // session (the first ENQUEUED/RUNNING emission). Subsequent progress ticks skip
+        // the filesystem check entirely, avoiding redundant mkdirs() syscalls.
+        var filesystemChecked = false
         workManager
             .getWorkInfosByTagFlow(model.workerTag)
             .collect { infoList ->
@@ -196,13 +200,19 @@ class ModelDownloadManager @Inject constructor(
                 val newState: DownloadState = when (info.state) {
                     WorkInfo.State.RUNNING, WorkInfo.State.ENQUEUED -> {
                         // Guard: a stale ENQUEUED job from a previous session must not
-                        // overwrite a file that is already present on disk.
-                        val localFile = withContext(Dispatchers.IO) { model.localFile(context) }
-                        val alreadyPresent = withContext(Dispatchers.IO) { localFile.exists() && localFile.length() > 0 }
-                        if (alreadyPresent) {
-                            Log.i(TAG, "Stale enqueued/running worker but file present — cancelling: ${model.displayName}")
-                            workManager.cancelUniqueWork(model.workerTag)
-                            return@collect
+                        // overwrite a file that is already present on disk. Only check
+                        // once per observation session to avoid per-tick filesystem I/O.
+                        if (!filesystemChecked) {
+                            filesystemChecked = true
+                            val (localFile, alreadyPresent) = withContext(Dispatchers.IO) {
+                                val f = model.localFile(context)
+                                f to (f.exists() && f.length() > 0)
+                            }
+                            if (alreadyPresent) {
+                                Log.i(TAG, "Stale enqueued/running worker but file present — cancelling: ${model.displayName}")
+                                workManager.cancelUniqueWork(model.workerTag)
+                                return@collect
+                            }
                         }
                         val progress = info.progress
                         val totalBytes = model.approxSizeBytes
@@ -227,10 +237,12 @@ class ModelDownloadManager @Inject constructor(
                     WorkInfo.State.FAILED -> {
                         // Stale WorkManager jobs from a previous session can fire FAILED
                         // after the file was already pushed manually (e.g. via ADB). Trust
-                        // the file system over the worker state. Materialise the File once
-                        // to avoid a TOCTOU race between the existence check and path use.
-                        val localFile = withContext(Dispatchers.IO) { model.localFile(context) }
-                        val isPresent = withContext(Dispatchers.IO) { localFile.exists() && localFile.length() > 0 }
+                        // the file system over the worker state. Single withContext block
+                        // materialises the File and checks it atomically (no TOCTOU window).
+                        val (localFile, isPresent) = withContext(Dispatchers.IO) {
+                            val f = model.localFile(context)
+                            f to (f.exists() && f.length() > 0)
+                        }
                         if (isPresent) {
                             Log.i(TAG, "Worker failed but file present — treating as Downloaded: ${model.displayName}")
                             DownloadState.Downloaded(localPath = localFile.absolutePath)
@@ -243,8 +255,10 @@ class ModelDownloadManager @Inject constructor(
                     }
 
                     WorkInfo.State.CANCELLED -> {
-                        val localFile = withContext(Dispatchers.IO) { model.localFile(context) }
-                        val isPresent = withContext(Dispatchers.IO) { localFile.exists() && localFile.length() > 0 }
+                        val (localFile, isPresent) = withContext(Dispatchers.IO) {
+                            val f = model.localFile(context)
+                            f to (f.exists() && f.length() > 0)
+                        }
                         if (isPresent) {
                             Log.i(TAG, "Worker cancelled but file present — treating as Downloaded: ${model.displayName}")
                             DownloadState.Downloaded(localPath = localFile.absolutePath)
