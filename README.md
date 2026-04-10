@@ -28,6 +28,7 @@ The app operates on a **Brain–Memory–Action** triad:
 
 ## Features
 
+### Delivered
 - 🧠 **On-device reasoning** — Gemma-4 running on GPU/NPU via LiteRT, no internet required
 - 💾 **Persistent memory** — RAG-powered recall of personal facts and conversation history
 - 🔒 **100% private** — No cloud APIs, no telemetry, all data stays on device
@@ -37,6 +38,12 @@ The app operates on a **Brain–Memory–Action** triad:
 - 🎬 **Fun loading screens** — 13 themed animated narratives
 - 🖼️ **Context window management** — structured prompt assembly with KV cache management
 - 📊 **Runtime info** — shows active model, backend (GPU/NPU/CPU), and device tier in chat
+
+### Coming Soon
+- 🗣️ **Voice + text input** — tap-to-talk with auto-stop *(Phase 3)*
+- 🔧 **Native skills** — Flashlight, DND, Bluetooth, Alarms, SMS, Email, Media Control, Notes *(Phase 3)*
+- 🧩 **Wasm skill store** — community-extensible plugins (Rust → Wasm) with sandboxed execution *(Phase 4)*
+- 🏠 **Home Assistant** — smart home control via Wasm skill *(Phase 4)*
 
 ## Roadmap
 
