@@ -127,11 +127,11 @@ fun ChatScreen(
             onRenameConversation = viewModel::renameConversation,
             snackbarHostState = snackbarHostState,
             onCopyMessage = { content ->
-                clipboardManager.setText(AnnotatedString(stripMarkdown(content)))
+                clipboardManager.setText(AnnotatedString(stripMarkdownForClipboard(content)))
                 scope.launch { snackbarHostState.showSnackbar("Message copied") }
             },
             onCopyAll = {
-                val text = stripMarkdown(viewModel.getConversationAsText())
+                val text = stripMarkdownForClipboard(viewModel.getConversationAsText())
                 clipboardManager.setText(AnnotatedString(text))
                 scope.launch { snackbarHostState.showSnackbar("Conversation copied") }
             },
