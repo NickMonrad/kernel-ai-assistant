@@ -444,6 +444,14 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun getConversationAsText(): String {
+        val messages = _messages.value
+        return messages.joinToString("\n") { msg ->
+            val prefix = if (msg.role == ChatMessage.Role.USER) "You" else "Jandal"
+            "$prefix: ${msg.content}"
+        }
+    }
+
     fun startNewConversation() {
         viewModelScope.launch {
             val id = conversationRepository.createConversation()

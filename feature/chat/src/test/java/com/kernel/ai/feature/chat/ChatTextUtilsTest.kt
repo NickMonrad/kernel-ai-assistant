@@ -19,10 +19,9 @@ class ChatTextUtilsTest {
     }
 
     @Test
-    fun stripMarkdown_removesInlineCode() {
+    fun stripMarkdown_removesInlineCodeAndPreservesContent() {
         val input = "Use `foo()` to call"
-        val result = stripMarkdown(input)
-        assertEquals("Use  to call", result)
+        assertEquals("Use foo() to call", stripMarkdown(input))
     }
 
     @Test
