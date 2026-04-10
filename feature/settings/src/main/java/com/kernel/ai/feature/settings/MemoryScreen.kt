@@ -110,7 +110,7 @@ fun MemoryScreen(
                             )
                         },
                         trailingContent = {
-                            IconButton(onClick = { viewModel.deleteCoreMemory(memory.id) }) {
+                            IconButton(onClick = { viewModel.requestDeleteCoreMemory(memory.id) }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete memory")
                             }
                         },
@@ -145,6 +145,21 @@ fun MemoryScreen(
                 }
             }
         }
+    }
+
+    // ── Delete Core Memory Confirmation Dialog ─────────────────────────────
+    uiState.pendingDeleteId?.let { pendingId ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissDeleteConfirmation,
+            title = { Text("Delete memory?") },
+            text = { Text("This memory will be permanently removed. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.deleteCoreMemory(pendingId) }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissDeleteConfirmation) { Text("Cancel") }
+            },
+        )
     }
 
     // ── Add Core Memory Dialog ─────────────────────────────────────────────
