@@ -86,8 +86,8 @@ For community-driven and logic-heavy extensions, the system supports a **Wasm (W
 ---
 
 ## 8. Implementation Roadmap
-1.  **Phase 1:** Core LiteRT-LM integration with GPU acceleration for Gemma-4.
-2.  **Phase 2:** Deployment of SQLite-VSS and Gecko for local semantic search.
-3.  **Phase 3:** Implementation of the FunctionGemma "Intent Router" and initial Native Skills.
-4.  **Phase 4:** Integration of the Wasm Runtime and the GitHub-based Skill Store.
+1.  **Phase 1:** Core LiteRT-LM integration with GPU/NPU acceleration for Gemma-4. Backlog polish: active model/backend/tier display in Settings (#59); user-controlled E2B/E4B model selection persisted via DataStore (#60).
+2.  **Phase 2:** Deployment of sqlite-vec and EmbeddingGemma-300M for local semantic search and RAG.
+3.  **Phase 3:** FunctionGemma intent router + Native Skills + full Voice I/O. Includes **Live Mode** (#64) — real-time offline voice conversation via Silero VAD endpointing → Gemma-4 audio tensor input → Sherpa-ONNX/Piper TTS → barge-in, 28s rolling buffer, <1.5s time-to-first-audio. Includes **"Hey Jandal" wake word** (#65) — always-on local detection via openWakeWord (ONNX Runtime) + VoiceInteractionService with 3s ring buffer handoff to Live Mode pipeline.
+4.  **Phase 4:** Integration of the Chicory Wasm Runtime and the GitHub-based Skill Store.
 5.  **Phase 5:** Optimization for 8GB devices (dynamic loading/unloading of weights).
