@@ -18,6 +18,8 @@ import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -50,6 +52,11 @@ class ChatViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     private var conversationId: String? = null
     private val contextWindowManager = ContextWindowManager()
+
+    // Tracks the in-progress streaming response so it can be flushed to Room on cancel/clear.
+    private var activeStreamingMsgId: String? = null
+    private var activeStreamingContent = StringBuilder()
+    private var activeStreamingThinking = StringBuilder()
 
     /**
      * When true, the next [sendMessage] will re-inject conversation history into the
@@ -235,6 +242,11 @@ class ChatViewModel @Inject constructor(
             var accumulatedContent = StringBuilder()
             var accumulatedThinking = StringBuilder()
 
+            // Register active streaming state so cancel/onCleared can flush to Room.
+            activeStreamingMsgId = assistantMsgId
+            activeStreamingContent = accumulatedContent
+            activeStreamingThinking = accumulatedThinking
+
             val ragContext = ragRepository.getRelevantContext(text)
 
             // Proactive context reset: if we're at ~75% of the token budget, reset
@@ -296,6 +308,10 @@ class ChatViewModel @Inject constructor(
                             // Track cumulative token usage for proactive context window management.
                             estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
                                 contextWindowManager.estimateTokens(accumulatedContent.toString())
+                            // Clear streaming tracking now that the message is fully persisted.
+                            activeStreamingMsgId = null
+                            activeStreamingContent = StringBuilder()
+                            activeStreamingThinking = StringBuilder()
                             autoTitleConversation(convId, text)
                         }
 
@@ -308,6 +324,9 @@ class ChatViewModel @Inject constructor(
                                 }
                             }
                             _error.value = result.message
+                            activeStreamingMsgId = null
+                            activeStreamingContent = StringBuilder()
+                            activeStreamingThinking = StringBuilder()
                         }
                     }
                 }
@@ -319,21 +338,39 @@ class ChatViewModel @Inject constructor(
                         } else msg
                     }
                 }
+                activeStreamingMsgId = null
+                activeStreamingContent = StringBuilder()
+                activeStreamingThinking = StringBuilder()
             }
         }
     }
 
     fun cancelGeneration() {
         inferenceEngine.cancelGeneration()
-        // Clear any message stuck in streaming state
+        val partialContent = activeStreamingContent.toString()
+        val partialThinking = activeStreamingThinking.toString().takeIf { it.isNotBlank() }
+        val convId = conversationId
+
+        // Update UI: mark streaming message as complete with whatever was streamed.
         _messages.update { msgs ->
             msgs.map { msg ->
-                if (msg.isStreaming) msg.copy(
-                    isStreaming = false,
-                    content = msg.content.ifBlank { "Generation cancelled." },
-                ) else msg
+                if (msg.isStreaming) msg.copy(isStreaming = false) else msg
             }
         }
+
+        // Persist partial content to Room if we have anything streamed.
+        if (partialContent.isNotBlank() && convId != null) {
+            viewModelScope.launch {
+                val savedId = conversationRepository.addMessage(convId, "assistant", partialContent, partialThinking)
+                ragRepository.indexMessage(savedId, convId, partialContent)
+            }
+        }
+
+        // Clear streaming tracking.
+        activeStreamingMsgId = null
+        activeStreamingContent = StringBuilder()
+        activeStreamingThinking = StringBuilder()
+
         // Reset LiteRT conversation — cancelProcess() leaves it in a partial state.
         // Mark needsHistoryReplay so the next message re-injects prior context.
         needsHistoryReplay = true
@@ -365,6 +402,18 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        // Flush any in-progress streamed content to Room before the ViewModel is destroyed.
+        // Uses NonCancellable so the save completes even though viewModelScope is about to cancel.
+        val partialContent = activeStreamingContent.toString()
+        val partialThinking = activeStreamingThinking.toString().takeIf { it.isNotBlank() }
+        val convId = conversationId
+        if (partialContent.isNotBlank() && convId != null) {
+            viewModelScope.launch {
+                withContext(NonCancellable) {
+                    conversationRepository.addMessage(convId, "assistant", partialContent, partialThinking)
+                }
+            }
+        }
         viewModelScope.launch { inferenceEngine.shutdown() }
     }
 }

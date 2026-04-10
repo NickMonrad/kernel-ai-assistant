@@ -3,6 +3,8 @@ package com.kernel.ai.feature.chat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,18 +15,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -44,13 +47,22 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,6 +76,7 @@ import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
 @Composable
 fun ChatScreen(
     conversationId: String? = null,
+    onBack: () -> Unit = {},
     onNewConversation: () -> Unit = {},
     onNavigateToList: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
@@ -82,6 +95,7 @@ fun ChatScreen(
             onInputChanged = viewModel::onInputChanged,
             onSend = viewModel::sendMessage,
             onCancel = viewModel::cancelGeneration,
+            onBack = onBack,
             onNewConversation = {
                 viewModel.startNewConversation()
                 onNewConversation()
@@ -97,6 +111,7 @@ private fun ChatContent(
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit,
+    onBack: () -> Unit,
     onNewConversation: () -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -111,6 +126,11 @@ private fun ChatContent(
         topBar = {
             TopAppBar(
                 title = { Text("Kernel", style = MaterialTheme.typography.titleMedium) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
                 actions = {
                     IconButton(onClick = onNewConversation) {
                         Icon(Icons.Default.Add, contentDescription = "New conversation")
@@ -157,7 +177,7 @@ private fun ChatContent(
                 onTextChanged = onInputChanged,
                 onSend = onSend,
                 onCancel = onCancel,
-                modifier = Modifier.navigationBarsPadding(),
+                modifier = Modifier,
             )
         }
     }
@@ -196,26 +216,181 @@ private fun MessageBubble(message: ChatMessage) {
             ),
             modifier = Modifier.widthIn(max = 300.dp),
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = message.content,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (message.isStreaming) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(12.dp),
-                        strokeWidth = 2.dp,
+            if (isUser) {
+                // User messages: plain text, no link/code parsing needed.
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = message.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
+                }
+            } else {
+                // Assistant messages: render with clickable links and code block support.
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    AssistantMessageContent(
+                        text = message.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    if (message.isStreaming) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(top = 6.dp)
+                                .size(12.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
                 }
             }
         }
     }
 }
+
+// ── Rich assistant message rendering ─────────────────────────────────────────
+
+private val FENCED_CODE_BLOCK = Regex("```[\\w]*\\n([\\s\\S]*?)```", RegexOption.MULTILINE)
+private val INLINE_CODE = Regex("`([^`]+)`")
+
+private sealed class TextSegment {
+    data class Plain(val text: String) : TextSegment()
+    data class FencedCode(val code: String) : TextSegment()
+}
+
+private fun splitFencedCodeBlocks(text: String): List<TextSegment> {
+    val result = mutableListOf<TextSegment>()
+    var lastEnd = 0
+    for (match in FENCED_CODE_BLOCK.findAll(text)) {
+        if (match.range.first > lastEnd) {
+            result.add(TextSegment.Plain(text.substring(lastEnd, match.range.first)))
+        }
+        result.add(TextSegment.FencedCode(match.groupValues[1]))
+        lastEnd = match.range.last + 1
+    }
+    if (lastEnd < text.length) {
+        result.add(TextSegment.Plain(text.substring(lastEnd)))
+    }
+    if (result.isEmpty()) {
+        result.add(TextSegment.Plain(text))
+    }
+    return result
+}
+
+/**
+ * Renders assistant message text with:
+ * - Fenced code blocks in a monospace Surface with horizontal scroll (Fix #36)
+ * - Inline code spans with monospace + surfaceVariant background (Fix #36)
+ * - Tappable URLs via ClickableText (Fix #26)
+ */
+@Composable
+private fun AssistantMessageContent(text: String, modifier: Modifier = Modifier, style: TextStyle) {
+    val segments = remember(text) { splitFencedCodeBlocks(text) }
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        segments.forEach { segment ->
+            when (segment) {
+                is TextSegment.Plain -> LinkedText(text = segment.text, style = style)
+                is TextSegment.FencedCode -> FencedCodeBlock(code = segment.code)
+            }
+        }
+    }
+}
+
+/**
+ * Renders text with tappable URLs and inline-code spans styled in monospace.
+ */
+@Suppress("DEPRECATION") // ClickableText deprecated in Compose 1.7 in favour of LinkAnnotation
+@Composable
+private fun LinkedText(text: String, modifier: Modifier = Modifier, style: TextStyle) {
+    val uriHandler = LocalUriHandler.current
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val linkColor = MaterialTheme.colorScheme.primary
+
+    val annotated = remember(text, surfaceVariant, linkColor) {
+        buildLinkedAnnotatedString(text, surfaceVariant, linkColor)
+    }
+
+    ClickableText(
+        text = annotated,
+        style = style,
+        modifier = modifier,
+        onClick = { offset ->
+            annotated.getStringAnnotations("URL", offset, offset)
+                .firstOrNull()?.let { uriHandler.openUri(it.item) }
+        },
+    )
+}
+
+/**
+ * Renders a fenced code block with monospace font, surfaceVariant background,
+ * and horizontal scrolling for long lines.
+ */
+@Composable
+private fun FencedCodeBlock(code: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .horizontalScroll(rememberScrollState())
+            .padding(12.dp),
+    ) {
+        Text(
+            text = code.trimEnd('\n'),
+            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            softWrap = false,
+        )
+    }
+}
+
+/** Builds an [AnnotatedString] with inline-code styling and URL click annotations. */
+private fun buildLinkedAnnotatedString(
+    text: String,
+    surfaceVariant: Color,
+    linkColor: Color,
+) = buildAnnotatedString {
+    data class Span(val start: Int, val end: Int, val type: String, val content: String)
+
+    val spans = mutableListOf<Span>()
+
+    // Collect inline code matches
+    INLINE_CODE.findAll(text).forEach { match ->
+        spans.add(Span(match.range.first, match.range.last + 1, "CODE", match.groupValues[1]))
+    }
+
+    // Collect URL matches (Java Pattern API)
+    val urlMatcher = android.util.Patterns.WEB_URL.matcher(text)
+    while (urlMatcher.find()) {
+        spans.add(Span(urlMatcher.start(), urlMatcher.end(), "URL", urlMatcher.group()))
+    }
+
+    spans.sortBy { it.start }
+
+    var cursor = 0
+    for (span in spans) {
+        if (span.start < cursor) continue // skip overlapping spans
+        append(text.substring(cursor, span.start))
+        when (span.type) {
+            "CODE" -> {
+                withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = surfaceVariant)) {
+                    append(span.content)
+                }
+            }
+            "URL" -> {
+                pushStringAnnotation("URL", span.content)
+                withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)) {
+                    append(span.content)
+                }
+                pop()
+            }
+        }
+        cursor = span.end
+    }
+    if (cursor < text.length) append(text.substring(cursor))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun InputBar(
