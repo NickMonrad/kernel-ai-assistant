@@ -161,9 +161,10 @@ class LiteRtInferenceEngine @Inject constructor(
         val start = System.currentTimeMillis()
         var firstTokenMs: Long = -1
 
-        conv.sendMessageAsync(
-            Contents.of(Content.Text(userMessage)),
-            object : MessageCallback {
+        try {
+            conv.sendMessageAsync(
+                Contents.of(Content.Text(userMessage)),
+                object : MessageCallback {
                 override fun onMessage(message: Message) {
                     // Route thinking tokens separately (Gemma thinking mode)
                     val thinkingText = message.channels["thought"]
@@ -201,6 +202,12 @@ class LiteRtInferenceEngine @Inject constructor(
                 }
             },
         )
+        } catch (e: Exception) {
+            _isGenerating.value = false
+            generationMutex.unlock()
+            close(InferenceException("sendMessageAsync failed: ${e.message}", e))
+            return@callbackFlow
+        }
 
         // When the Flow collector cancels (e.g. user navigates away), stop inference.
         awaitClose {
@@ -223,7 +230,7 @@ class LiteRtInferenceEngine @Inject constructor(
     override suspend fun generateOnce(prompt: String): String = withContext(LlmDispatcher) {
         generationMutex.withLock {
             val eng = engine ?: return@withLock ""
-            val config = currentConfig ?: return@withLock ""
+            if (currentConfig == null) return@withLock ""
             val backend = _activeBackend.value ?: BackendType.CPU
             val isolatedConv = eng.createConversation(buildConversationConfig(backend, null))
             val sb = StringBuilder()

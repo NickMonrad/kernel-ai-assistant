@@ -185,7 +185,7 @@ fun ConversationListScreen(
 
     // Rename dialog
     pendingRename?.let { conversation ->
-        var renameText by remember(conversation.id) {
+        var renameText by rememberSaveable(conversation.id) {
             mutableStateOf(conversation.title ?: "")
         }
         AlertDialog(
