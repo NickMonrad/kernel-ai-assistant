@@ -129,11 +129,12 @@ This project uses a **Sonnet-orchestrates, specialists-implement** pattern with 
 5. Sonnet: raise PR with Closes #N
 6. Parallel: code-reviewer reviews the PR + CI runs
 7. Sonnet: push any fixes from code review to the PR branch
-8. Owner: manual test on S23 Ultra via ADB once CI passes
-9. Owner: final review and merge
+8. code-reviewer: re-review the fix commits (confirm issues resolved, no regressions introduced)
+9. Owner: manual test on S23 Ultra via ADB once CI passes
+10. Owner: final review and merge
 ```
 
-**Code review is mandatory before every merge.** Run the `code-reviewer` agent after raising the PR. Push fixes before the owner reviews. Never skip this step.
+**Code review is mandatory before every merge.** The re-review pass (step 8) is scoped to the fix commits only — not a full re-review of the whole PR.
 
 ## Branching & PR Standards
 
@@ -215,9 +216,10 @@ The script verifies SHA256 hashes after download. Models directory: `models/` (g
 7. git push, raise PR with Closes #N
 8. Parallel: code-reviewer reviews PR + CI runs Build & Test
 9. Push any code review fixes to the PR branch
-10. ./gradlew installDebug                     # Deploy to S23 Ultra
-11. Manual smoke test on device
-12. Owner reviews and merges
+10. code-reviewer: re-review fix commits (scoped — not a full re-review)
+11. ./gradlew installDebug                     # Deploy to S23 Ultra
+12. Manual smoke test on device
+13. Owner reviews and merges
 ```
 
 ### Before Raising a PR
