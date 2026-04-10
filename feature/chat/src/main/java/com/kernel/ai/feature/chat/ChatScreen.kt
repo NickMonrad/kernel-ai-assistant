@@ -131,7 +131,7 @@ fun ChatScreen(
                 scope.launch { snackbarHostState.showSnackbar("Message copied") }
             },
             onCopyAll = {
-                val text = viewModel.getConversationAsText()
+                val text = stripMarkdown(viewModel.getConversationAsText())
                 clipboardManager.setText(AnnotatedString(text))
                 scope.launch { snackbarHostState.showSnackbar("Conversation copied") }
             },
