@@ -17,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -41,6 +42,7 @@ private const val TAG = "ModelDownloadManager"
 class ModelDownloadManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val hardwareProfileDetector: com.kernel.ai.core.inference.hardware.HardwareProfileDetector,
+    private val modelPreferences: com.kernel.ai.core.inference.prefs.ModelPreferences,
 ) {
     private val workManager = WorkManager.getInstance(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -147,12 +149,25 @@ class ModelDownloadManager @Inject constructor(
             .all { it.isDownloaded(context) }
 
     /**
-     * Returns the best available conversation model for the current hardware tier.
+     * Returns the best available conversation model.
      *
-     * Prefers a tier-specific model (e.g. E-4B on FLAGSHIP) if it is already downloaded.
-     * Falls back to [KernelModel.GEMMA_4_E2B] which is always the baseline.
+     * Priority:
+     * 1. User-set preference (DataStore) — if the model is downloaded.
+     * 2. Tier-based auto-select (e.g. E-4B on FLAGSHIP) — if downloaded.
+     * 3. E-2B fallback (always available as required model).
+     *
+     * If the user-preferred model is not downloaded, falls back to tier/auto logic
+     * and logs a warning.
      */
-    fun preferredConversationModel(): KernelModel {
+    suspend fun preferredConversationModel(): KernelModel {
+        val userPref = modelPreferences.preferredConversationModel.first()
+        if (userPref != null) {
+            if (userPref.isDownloaded(context)) {
+                return userPref
+            } else {
+                Log.w(TAG, "User-preferred model ${userPref.displayName} not downloaded — falling back to auto")
+            }
+        }
         val tier = hardwareProfileDetector.profile.tier
         val tierModel = KernelModel.entries
             .firstOrNull { it.preferredForTier == tier && it.isDownloaded(context) }
