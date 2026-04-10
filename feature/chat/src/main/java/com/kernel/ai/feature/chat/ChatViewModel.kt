@@ -473,25 +473,32 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        // Directive system prompt constrains Gemma to output only the title — no preamble,
-        // no "Here's a title:", no explanation. Without this, the model responds conversationally.
-        val titleSystemPrompt = "You are a title generator. Output ONLY a short title of 4-6 words. " +
-            "No explanation, no preamble, no quotes, no punctuation at the end. Just the title itself."
-        val titlePrompt = "Title for a conversation that starts with: $userMessages"
+        // Embed the directive in the prompt itself — we're using the existing conversation
+        // so a separate systemPrompt has no effect here.
+        val titlePrompt = "Reply with ONLY a short conversation title, 4-6 words, no quotes, " +
+            "no markdown, no preamble, no alternatives. Just the title on one line.\n\n" +
+            "Conversation: $userMessages"
 
         Log.d("KernelAI", "Generating title for $id with prompt: ${titlePrompt.take(80)}...")
 
         try {
-            // generateOnce() uses an isolated conversation — the chat KV cache is untouched.
-            // It also acquires generationMutex, so it waits politely if the engine is busy.
-            val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = titleSystemPrompt)
+            // generateOnce() reuses the existing conversation session (LiteRT only supports
+            // one session at a time) and acquires generationMutex so it waits if engine is busy.
+            val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = null)
             Log.d("KernelAI", "Raw title output: \"$raw\"")
             val title = raw
                 .trim()
-                .lines().first()          // extract first line before stripping quotes
+                // Take only the first line — ignore "Or, ..." alternatives
+                .lines().first().trim()
+                // Strip leading preamble like "How about:", "Here's a title:", "Title:"
+                .replace(Regex("^(?:How about|Here(?:'s| is) (?:a |your )?title|Title)[:\\s]*", RegexOption.IGNORE_CASE), "")
+                // Strip markdown bold/italic markers
+                .replace(Regex("[*_]+"), "")
+                // Strip surrounding quotes
+                .trim('"', '\'', '\u201C', '\u201D')
+                // Strip trailing punctuation
+                .trimEnd('.', '?', '!')
                 .trim()
-                .trimStart('"', '\'')
-                .trimEnd('"', '\'', '.')
                 .take(60)
             if (title.isNotBlank()) {
                 conversationRepository.renameConversation(id, title)
