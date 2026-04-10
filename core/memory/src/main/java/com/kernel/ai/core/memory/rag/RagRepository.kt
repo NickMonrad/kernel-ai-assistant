@@ -81,12 +81,15 @@ class RagRepository @Inject constructor(
      * Returns a formatted context block ready to prepend to a prompt, or an
      * empty string when no relevant context is available.
      *
+     * @param conversationId Only episodic (message) memories from this conversation are
+     *   considered, preventing memories from unrelated conversations from leaking in.
      * @param excludeMessageIds Message IDs to exclude (e.g. the current turn's user message).
      * @param maxTokens Maximum token budget for the returned context block (estimated at chars/3).
      *   Results are truncated to fit within the budget. Defaults to [ContextWindowManager.EPISODIC_BUDGET].
      */
     suspend fun getRelevantContext(
         query: String,
+        conversationId: String,
         topK: Int = DEFAULT_TOP_K,
         excludeMessageIds: Set<String> = emptySet(),
         maxTokens: Int = ContextWindowManager.EPISODIC_BUDGET,
@@ -129,6 +132,7 @@ class RagRepository @Inject constructor(
                 if (candidates.isNotEmpty()) {
                     val embeddingEntities = embeddingDao.getByRowIds(candidates)
                     val filteredEntities = embeddingEntities
+                        .filter { it.conversationId == conversationId }
                         .filter { it.messageId !in excludeMessageIds }
                         .sortedBy { candidates.indexOf(it.rowId) }
                         .take(topK)

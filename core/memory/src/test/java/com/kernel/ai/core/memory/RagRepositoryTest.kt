@@ -60,7 +60,7 @@ class RagRepositoryTest {
     fun `getRelevantContext — returns empty string when embedding engine returns empty array`() = runTest {
         coEvery { embeddingEngine.embed(any()) } returns FloatArray(0)
 
-        val result = ragRepository.getRelevantContext("any query")
+        val result = ragRepository.getRelevantContext("any query", conversationId = "test-conv")
 
         assertEquals("", result)
     }
@@ -80,7 +80,7 @@ class RagRepositoryTest {
             )
         )
 
-        val result = ragRepository.getRelevantContext("user preferences")
+        val result = ragRepository.getRelevantContext("user preferences", conversationId = "test-conv")
 
         assertTrue(result.contains("[Core Memories]"), "Output must contain [Core Memories] section")
         assertTrue(result.contains("User prefers dark mode"), "Output must include the core memory content")
@@ -116,7 +116,7 @@ class RagRepositoryTest {
         coEvery { embeddingDao.getByRowIds(any()) } returns listOf(embeddingEntity)
         coEvery { messageDao.getByConversation(any()) } returns listOf(messageEntity)
 
-        val result = ragRepository.getRelevantContext("tell me about preferences")
+        val result = ragRepository.getRelevantContext("tell me about preferences", conversationId = "conv-1")
 
         assertTrue(result.contains("[Core Memories]"), "Output must contain [Core Memories]")
         assertTrue(result.contains("[Episodic Memories]"), "Output must contain [Episodic Memories]")
@@ -137,7 +137,7 @@ class RagRepositoryTest {
         // Note: tableCreated is false so vectorStore.search is NOT called;
         // both sections are empty → result is ""
 
-        val result = ragRepository.getRelevantContext("unknown topic")
+        val result = ragRepository.getRelevantContext("unknown topic", conversationId = "test-conv")
 
         assertEquals("", result, "Should return empty string when both tiers are empty")
     }
@@ -169,7 +169,7 @@ class RagRepositoryTest {
         coEvery { messageDao.getByConversation(any()) } returns listOf(messageEntity)
 
         // Must not throw
-        val result = ragRepository.getRelevantContext("what did the user say earlier")
+        val result = ragRepository.getRelevantContext("what did the user say earlier", conversationId = "conv-2")
 
         assertTrue(!result.contains("[Core Memories]"), "Failed core search must not produce a [Core Memories] section")
         assertTrue(result.contains("[Episodic Memories]"), "Episodic content must still appear despite core failure")

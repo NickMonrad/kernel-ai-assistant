@@ -293,6 +293,7 @@ class ChatViewModel @Inject constructor(
 
             val ragContext = ragRepository.getRelevantContext(
                 query = text,
+                conversationId = convId,
                 maxTokens = ContextWindowManager.EPISODIC_BUDGET,
             )
             val ragTokenCost = contextWindowManager.estimateTokens(ragContext)
