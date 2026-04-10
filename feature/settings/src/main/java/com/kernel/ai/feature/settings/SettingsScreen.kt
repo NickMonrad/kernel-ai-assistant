@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
@@ -42,6 +43,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     onBack: () -> Unit = {},
     onNavigateToUserProfile: () -> Unit = {},
+    onNavigateToMemory: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -196,6 +198,18 @@ fun SettingsScreen(
                 headlineContent = { Text("User Profile") },
                 supportingContent = { Text("Tell Kernel about yourself") },
                 leadingContent = { Icon(Icons.Default.Person, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
+
+            // ── Memory ────────────────────────────────────────────────────
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToMemory() },
+                headlineContent = { Text("Memory") },
+                supportingContent = { Text("Manage stored memories") },
+                leadingContent = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()
