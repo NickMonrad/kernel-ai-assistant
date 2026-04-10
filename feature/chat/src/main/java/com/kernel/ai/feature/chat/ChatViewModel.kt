@@ -454,16 +454,22 @@ class ChatViewModel @Inject constructor(
             .take(2)
             .joinToString(" / ") { it.content.take(100) }
 
-        val titlePrompt = "Generate a short, descriptive title (4-6 words max, no quotes) for a conversation that starts with: $userMessages"
+        // Directive system prompt constrains Gemma to output only the title — no preamble,
+        // no "Here's a title:", no explanation. Without this, the model responds conversationally.
+        val titleSystemPrompt = "You are a title generator. Output ONLY a short title of 4-6 words. " +
+            "No explanation, no preamble, no quotes, no punctuation at the end. Just the title itself."
+        val titlePrompt = "Title for a conversation that starts with: $userMessages"
 
         try {
             // generateOnce() uses an isolated conversation — the chat KV cache is untouched.
             // It also acquires generationMutex, so it waits politely if the engine is busy.
-            val raw = inferenceEngine.generateOnce(titlePrompt)
+            val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = titleSystemPrompt)
             val title = raw
                 .trim()
                 .trimStart('"', '\'')
                 .trimEnd('"', '\'', '.')
+                .lines().first() // take only first line in case model adds extras
+                .trim()
                 .take(60)
             if (title.isNotBlank()) {
                 conversationRepository.renameConversation(id, title)

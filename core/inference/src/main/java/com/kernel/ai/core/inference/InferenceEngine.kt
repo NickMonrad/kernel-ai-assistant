@@ -49,9 +49,13 @@ interface InferenceEngine {
      * not share KV cache state with the active chat. Safe to call for side tasks such
      * as title generation — the chat context is not affected.
      *
+     * @param systemPrompt Optional system prompt for the isolated conversation. Pass a
+     *   directive prompt (e.g. "Reply with only a title, no explanation") to constrain
+     *   the model's output format. Defaults to null (no system instruction).
+     *
      * Blocks until generation completes. Returns an empty string on error.
      */
-    suspend fun generateOnce(prompt: String): String
+    suspend fun generateOnce(prompt: String, systemPrompt: String? = null): String
 
     /**
      * Clear the conversation context window and start fresh.
