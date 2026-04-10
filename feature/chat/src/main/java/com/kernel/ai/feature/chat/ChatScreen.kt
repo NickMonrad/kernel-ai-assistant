@@ -7,6 +7,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -182,12 +184,20 @@ private fun ChatContent(
 
             AnimatedVisibility(visible = state.error != null) {
                 state.error?.let { err ->
-                    Text(
-                        text = err,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
+                    val errorQuip = remember(err) { LoadingMessages.randomError() }
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Text(
+                            text = err,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            text = errorQuip,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall.copy(fontStyle = FontStyle.Italic),
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
                 }
             }
 
@@ -298,7 +308,9 @@ private fun MessageBubble(message: ChatMessage) {
                             )
                             Text(
                                 text = generatingMessage,
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontStyle = FontStyle.Italic,
+                                ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -383,39 +395,44 @@ private fun EmptyConversationHint(modifier: Modifier = Modifier) {
 @Composable
 private fun LoadingContent() {
     val theme = remember { LoadingMessages.randomTheme() }
-    val steps = remember(theme) { listOf(theme.first, theme.second, theme.third) }
+    val steps = listOf(theme.first, theme.second, theme.third)
     var step by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
-        repeat(2) {
+        repeat(steps.size - 1) { i ->
             delay(2_500L)
-            step++
+            step = i + 1
         }
     }
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 32.dp),
+        ) {
             CircularProgressIndicator()
             AnimatedContent(
                 targetState = step,
                 transitionSpec = {
-                    (fadeIn(animationSpec = tween(400)) + slideInVertically { it / 2 }) togetherWith
-                        (fadeOut(animationSpec = tween(400)) + slideOutVertically { -it / 2 })
+                    (fadeIn(animationSpec = tween(400)) +
+                        slideInVertically(animationSpec = tween(400)) { it / 2 }) togetherWith
+                        (fadeOut(animationSpec = tween(200)) +
+                            slideOutVertically(animationSpec = tween(200)) { -it / 2 })
                 },
-                modifier = Modifier.padding(top = 12.dp).widthIn(max = 280.dp),
+                modifier = Modifier.padding(top = 12.dp),
                 label = "loadingStep",
-            ) { s ->
+            ) { currentStep ->
                 Text(
-                    text = steps[s],
+                    text = steps[currentStep],
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                 )
             }
             Text(
-                text = "${step + 1} / 3",
-                style = MaterialTheme.typography.bodySmall,
+                text = "${step + 1} / ${steps.size}",
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 6.dp),
+                modifier = Modifier.padding(top = 8.dp),
             )
         }
     }

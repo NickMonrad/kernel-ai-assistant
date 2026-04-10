@@ -227,12 +227,12 @@ class LiteRtInferenceEngine @Inject constructor(
      * cache state with the active chat. Acquires [generationMutex] — if the engine
      * is currently generating, this suspends until the active generation completes.
      */
-    override suspend fun generateOnce(prompt: String): String = withContext(LlmDispatcher) {
+    override suspend fun generateOnce(prompt: String, systemPrompt: String?): String = withContext(LlmDispatcher) {
         generationMutex.withLock {
             val eng = engine ?: return@withLock ""
             if (currentConfig == null) return@withLock ""
             val backend = _activeBackend.value ?: BackendType.CPU
-            val isolatedConv = eng.createConversation(buildConversationConfig(backend, null))
+            val isolatedConv = eng.createConversation(buildConversationConfig(backend, systemPrompt))
             val sb = StringBuilder()
             val latch = CompletableDeferred<Unit>()
             try {
