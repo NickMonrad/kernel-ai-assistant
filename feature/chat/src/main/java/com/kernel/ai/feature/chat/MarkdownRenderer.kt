@@ -84,6 +84,135 @@ private fun stripSystemTags(text: String): String =
         .replace(SYSTEM_TAG_SELF_CLOSING_REGEX, "")
         .trim()
 
+// ── LaTeX-to-Unicode conversion ────────────────────────────────────────────────
+
+/**
+ * Common LaTeX commands that LLMs emit in text (especially arrows, math operators,
+ * Greek letters, and comparison symbols). Mapped to their Unicode equivalents so
+ * they render properly without a full LaTeX engine.
+ *
+ * Handles both inline math (`$\rightarrow$`) and bare commands (`\rightarrow`).
+ */
+private val LATEX_TO_UNICODE = mapOf(
+    // Arrows
+    "\\rightarrow" to "→",
+    "\\leftarrow" to "←",
+    "\\leftrightarrow" to "↔",
+    "\\Rightarrow" to "⇒",
+    "\\Leftarrow" to "⇐",
+    "\\Leftrightarrow" to "⇔",
+    "\\uparrow" to "↑",
+    "\\downarrow" to "↓",
+    "\\to" to "→",
+    "\\gets" to "←",
+    "\\mapsto" to "↦",
+    "\\longrightarrow" to "⟶",
+    "\\longleftarrow" to "⟵",
+
+    // Math operators
+    "\\times" to "×",
+    "\\div" to "÷",
+    "\\pm" to "±",
+    "\\mp" to "∓",
+    "\\cdot" to "·",
+    "\\star" to "⋆",
+    "\\circ" to "∘",
+    "\\bullet" to "•",
+
+    // Comparison / relational
+    "\\neq" to "≠",
+    "\\ne" to "≠",
+    "\\leq" to "≤",
+    "\\le" to "≤",
+    "\\geq" to "≥",
+    "\\ge" to "≥",
+    "\\approx" to "≈",
+    "\\equiv" to "≡",
+    "\\sim" to "∼",
+    "\\propto" to "∝",
+    "\\ll" to "≪",
+    "\\gg" to "≫",
+
+    // Set / logic
+    "\\in" to "∈",
+    "\\notin" to "∉",
+    "\\subset" to "⊂",
+    "\\supset" to "⊃",
+    "\\subseteq" to "⊆",
+    "\\supseteq" to "⊇",
+    "\\cup" to "∪",
+    "\\cap" to "∩",
+    "\\emptyset" to "∅",
+    "\\forall" to "∀",
+    "\\exists" to "∃",
+    "\\neg" to "¬",
+    "\\land" to "∧",
+    "\\lor" to "∨",
+    "\\wedge" to "∧",
+    "\\vee" to "∨",
+
+    // Greek letters (commonly used)
+    "\\alpha" to "α",
+    "\\beta" to "β",
+    "\\gamma" to "γ",
+    "\\delta" to "δ",
+    "\\epsilon" to "ε",
+    "\\theta" to "θ",
+    "\\lambda" to "λ",
+    "\\mu" to "μ",
+    "\\pi" to "π",
+    "\\sigma" to "σ",
+    "\\tau" to "τ",
+    "\\phi" to "φ",
+    "\\omega" to "ω",
+    "\\Delta" to "Δ",
+    "\\Sigma" to "Σ",
+    "\\Omega" to "Ω",
+
+    // Miscellaneous
+    "\\infty" to "∞",
+    "\\partial" to "∂",
+    "\\nabla" to "∇",
+    "\\sqrt" to "√",
+    "\\sum" to "∑",
+    "\\prod" to "∏",
+    "\\int" to "∫",
+    "\\degree" to "°",
+    "\\ldots" to "…",
+    "\\cdots" to "⋯",
+    "\\checkmark" to "✓",
+    "\\dagger" to "†",
+)
+
+/**
+ * Replaces LaTeX commands with Unicode equivalents.
+ *
+ * Handles:
+ * - Inline math wrappers: `$\rightarrow$` → `→`
+ * - Bare commands: `\rightarrow` → `→`
+ *
+ * Does NOT handle complex LaTeX (fractions, superscripts, etc.) — those remain as-is
+ * since they can't be meaningfully rendered as plain Unicode text.
+ */
+private fun convertLatexToUnicode(text: String): String {
+    var result = text
+
+    // First pass: strip $...$ wrappers around simple LaTeX commands.
+    // Matches $\command$ and replaces the whole thing with the Unicode character.
+    for ((latex, unicode) in LATEX_TO_UNICODE) {
+        val escaped = Regex.escape(latex)
+        result = result.replace(Regex("\\$$escaped\\$"), unicode)
+    }
+
+    // Second pass: replace bare LaTeX commands (not inside code blocks).
+    // Sort by length descending so \longrightarrow matches before \to.
+    for ((latex, unicode) in LATEX_TO_UNICODE.entries.sortedByDescending { it.key.length }) {
+        result = result.replace(latex, unicode)
+    }
+
+    return result
+}
+
 // ── Block-level regex patterns ─────────────────────────────────────────────────
 
 private val HEADER_REGEX       = Regex("^(#{1,6})\\s+(.*)")
@@ -569,8 +698,10 @@ private fun MarkdownTable(
  *  - H1–H6 headings, blockquotes, bullet lists, ordered lists (block)
  *  - Fenced code blocks with copy button and horizontal scroll (block)
  *  - Tables with scrollable header + data rows (block)
+ *  - LaTeX-to-Unicode conversion for common symbols (arrows, math, Greek letters)
  *
  * Model routing artefacts (`<think>`, `<tool_call>`, etc.) are stripped before parsing.
+ * LaTeX commands (`$\rightarrow$`, `\times`, etc.) are converted to Unicode equivalents.
  * The renderer is stream-safe: incomplete syntax gracefully falls back to plain text.
  *
  * @param text     Raw Markdown text (may include model artefact tags).
@@ -583,7 +714,7 @@ fun MarkdownContent(
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.bodyMedium,
 ) {
-    val cleaned = remember(text) { stripSystemTags(text) }
+    val cleaned = remember(text) { convertLatexToUnicode(stripSystemTags(text)) }
     val blocks  = remember(cleaned) { parseBlocks(cleaned) }
 
     Column(
@@ -656,6 +787,29 @@ private fun MarkdownTagStrippingPreview() {
         MarkdownContent(
             modifier = Modifier.padding(16.dp),
             text = "<think>internal reasoning</think>The visible answer is **here**.",
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Markdown — LaTeX to Unicode")
+@Composable
+private fun MarkdownLatexPreview() {
+    KernelAITheme {
+        MarkdownContent(
+            modifier = Modifier.padding(16.dp),
+            text = """
+                ## LaTeX Symbol Conversion
+
+                Arrows: A ${'$'}\rightarrow${'$'} B ${'$'}\leftarrow${'$'} C ${'$'}\Rightarrow${'$'} D
+
+                Math: 2 ${'$'}\times${'$'} 3 = 6, ${'$'}\pi${'$'} ${'$'}\approx${'$'} 3.14
+
+                Logic: ${'$'}\forall${'$'} x ${'$'}\in${'$'} S, x ${'$'}\geq${'$'} 0
+
+                Greek: ${'$'}\alpha${'$'}, ${'$'}\beta${'$'}, ${'$'}\gamma${'$'}, ${'$'}\Delta${'$'}
+
+                Bare: \rightarrow works too, and \infty
+            """.trimIndent(),
         )
     }
 }
