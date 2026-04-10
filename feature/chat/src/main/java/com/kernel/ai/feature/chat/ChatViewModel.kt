@@ -210,10 +210,13 @@ class ChatViewModel @Inject constructor(
         // e.g. a worker is RUNNING for a model that was already pushed via ADB.
         val modelPath = downloadManager.getModelPath(preferred) ?: return
         activeModel = preferred
-        val systemPrompt = buildSystemPrompt()
         try {
-            inferenceEngine.initialize(ModelConfig(modelPath = modelPath, systemPrompt = systemPrompt))
+            // Initialize with a prompt that omits backend (not yet known).
+            inferenceEngine.initialize(ModelConfig(modelPath = modelPath, systemPrompt = buildSystemPrompt()))
             estimatedTokensUsed = 0
+            // Rebuild and push system prompt now that activeBackend is resolved — this
+            // corrects the [Runtime] backend field which was null during initialize().
+            inferenceEngine.updateSystemPrompt(buildSystemPrompt())
         } catch (e: Exception) {
             _error.value = "Failed to load model: ${e.message}"
         }
