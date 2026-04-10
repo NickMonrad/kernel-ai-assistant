@@ -29,20 +29,22 @@ The app operates on a **Brain–Memory–Action** triad:
 ## Features
 
 - 🧠 **On-device reasoning** — Gemma-4 running on GPU/NPU via LiteRT, no internet required
-- 🗣️ **Voice + text input** — tap-to-talk with auto-stop, or type
 - 💾 **Persistent memory** — RAG-powered recall of personal facts and conversation history
-- 🔧 **Native skills** — Flashlight, DND, Bluetooth, Alarms, SMS, Email, Media Control, Notes
-- 🧩 **Wasm skill store** — Community-extensible plugins (Rust → Wasm) with sandboxed execution
-- 🏠 **Home Assistant** — Smart home control via Wasm skill
 - 🔒 **100% private** — No cloud APIs, no telemetry, all data stays on device
+- 💬 **Full markdown rendering** — headings, bold, italic, code blocks, links, lists
+- 🎯 **Smart chat titles** — auto-generated from conversation content
+- ⚙️ **Model selection** — choose between E-2B and E-4B in Settings
+- 🎬 **Fun loading screens** — 13 themed animated narratives
+- 🖼️ **Context window management** — structured prompt assembly with KV cache management
+- 📊 **Runtime info** — shows active model, backend (GPU/NPU/CPU), and device tier in chat
 
 ## Roadmap
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1 | Core LiteRT-LM integration + GPU/NPU acceleration + Chat UI (+ #59 active model display, #60 model selection) | 🚧 |
-| 2 | sqlite-vec + EmbeddingGemma for local RAG | ⬜ |
-| 3 | FunctionGemma intent router + Native Skills + Voice I/O (Live Mode #64, "Hey Jandal" wake word #65) | ⬜ |
+| 1 | Core LiteRT-LM integration + GPU/NPU acceleration + Chat UI | ✅ |
+| 2 | sqlite-vec + EmbeddingGemma for local RAG + memory, UI polish, model selection | 🔄 |
+| 3 | FunctionGemma intent router + Native Skills + Voice I/O + Brand refresh (Jandal AI) | ⬜ |
 | 4 | Chicory Wasm runtime + GitHub Skill Store | ⬜ |
 | 5 | 8GB device optimization (dynamic weight loading) | ⬜ |
 
