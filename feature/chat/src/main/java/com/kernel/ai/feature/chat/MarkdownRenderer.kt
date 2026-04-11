@@ -8,6 +8,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -1080,6 +1081,16 @@ private fun MarkdownTable(
     val borderColor = MaterialTheme.colorScheme.outlineVariant
     val headerBg    = MaterialTheme.colorScheme.surfaceVariant
 
+    // `horizontalScroll` passes unbounded width constraints — `weight()` cannot be used
+    // inside such a container (causes crash). Use `defaultMinSize` so each cell wraps its
+    // content while remaining at least 80 dp wide. `IntrinsicSize.Min` on each Row still
+    // synchronises cell heights within the same logical row.
+    val cellModifier = Modifier
+        .defaultMinSize(minWidth = 80.dp)
+        .fillMaxHeight()
+        .border(0.5.dp, borderColor)
+        .padding(horizontal = 8.dp, vertical = 4.dp)
+
     Column(modifier.horizontalScroll(rememberScrollState()).border(1.dp, borderColor)) {
         // Header row
         Row(
@@ -1091,11 +1102,7 @@ private fun MarkdownTable(
                 Text(
                     text     = header,
                     style    = baseStyle.copy(fontWeight = FontWeight.Bold),
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .border(0.5.dp, borderColor)
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = cellModifier,
                 )
             }
         }
@@ -1106,11 +1113,7 @@ private fun MarkdownTable(
                     Text(
                         text     = row.getOrElse(idx) { "" },
                         style    = baseStyle,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .border(0.5.dp, borderColor)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = cellModifier,
                     )
                 }
             }
