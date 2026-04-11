@@ -28,6 +28,7 @@ class EpisodicDistillationUseCase @Inject constructor(
     companion object {
         private const val TAG = "KernelAI"
         private const val MIN_TURNS = 4
+        private val LEADING_JUNK = Regex("""^[\s\d]+[.)]\s*|^[-•*]\s*""")
     }
 
     /**
@@ -68,7 +69,9 @@ $transcript
                 return
             }
 
-            val sentences = response.lines().map { it.trim() }.filter { it.isNotBlank() }
+            val sentences = response.lines()
+                .map { LEADING_JUNK.replace(it.trim(), "") }
+                .filter { it.isNotBlank() }
             if (sentences.isEmpty()) {
                 Log.w(TAG, "Episodic distillation: no sentences parsed for $conversationId")
                 return

@@ -35,9 +35,6 @@ interface EpisodicMemoryDao {
     @Query("DELETE FROM episodic_memories WHERE createdAt < :cutoffMs")
     suspend fun deleteOlderThan(cutoffMs: Long)
 
-    @Query("DELETE FROM episodic_memories WHERE createdAt < :cutoff")
-    suspend fun deleteBefore(cutoff: Long)
-
     @Query("SELECT rowId FROM episodic_memories ORDER BY createdAt ASC LIMIT :count")
     suspend fun getOldestRowIds(count: Int): List<Long>
 
@@ -51,8 +48,15 @@ interface EpisodicMemoryDao {
     @Query("SELECT rowId FROM episodic_memories ORDER BY lastAccessedAt ASC LIMIT :count")
     suspend fun getOldestRowIdsByLRU(count: Int): List<Long>
 
-    @Query("DELETE FROM episodic_memories WHERE id IN (SELECT id FROM episodic_memories ORDER BY lastAccessedAt ASC LIMIT :count)")
-    suspend fun deleteOldest(count: Int)
+    @Query("DELETE FROM episodic_memories WHERE rowId IN (:rowIds)")
+    suspend fun deleteByRowIds(rowIds: List<Long>)
+
+    @Transaction
+    suspend fun getRowIdsAndDeleteByLRU(count: Int): List<Long> {
+        val rowIds = getOldestRowIdsByLRU(count)
+        if (rowIds.isNotEmpty()) deleteByRowIds(rowIds)
+        return rowIds
+    }
 
     @Query("UPDATE episodic_memories SET lastAccessedAt = :timestamp WHERE id = :id")
     suspend fun updateLastAccessedAt(id: String, timestamp: Long)

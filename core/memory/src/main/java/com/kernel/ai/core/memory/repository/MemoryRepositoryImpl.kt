@@ -202,8 +202,7 @@ class MemoryRepositoryImpl @Inject constructor(
         val episodicCount = episodicDao.count()
         if (episodicCount > EPISODIC_MAX) {
             val overflow = episodicCount - EPISODIC_MAX
-            val overflowRowIds = episodicDao.getOldestRowIdsByLRU(overflow)
-            episodicDao.deleteOldest(overflow)
+            val overflowRowIds = episodicDao.getRowIdsAndDeleteByLRU(overflow)
             overflowRowIds.forEach { vectorStore.delete(EPISODIC_VEC_TABLE, it) }
         }
 
