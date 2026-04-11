@@ -8,7 +8,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -50,7 +49,9 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import kotlinx.coroutines.delay
@@ -1072,9 +1073,21 @@ private fun FencedCodeBlock(language: String = "", code: String, modifier: Modif
 }
 
 /**
- * Renders a Markdown table as a scrollable grid with per-cell borders.
- * The header row is displayed on a `surfaceVariant` background with bold text.
- * If a data row has fewer columns than the header, missing cells are rendered as empty.
+ * Renders a Markdown table as a scrollable grid with per-cell borders, where every cell in
+ * the same column is given an identical width determined by the widest content in that column.
+ *
+ * Implementation notes:
+ *  - `weight()` crashes inside `horizontalScroll` (unbounded constraints → IllegalStateException).
+ *    `SubcomposeLayout` lets us do a multi-pass measurement without `weight()`.
+ *  - Three subcompose passes share the same outer [horizontalScroll] container so the whole
+ *    table scrolls as a unit.
+ *  - Pass 1 ("w-r-c"): measure each cell at [Constraints] (unconstrained) → max width per column.
+ *  - Pass 2 ("h-r-c"): measure at fixed column width, unbounded height → max height per row.
+ *  - Pass 3 ("l-r-c"): measure at exact (colWidth × rowHeight) → place every cell.
+ *  - [fillMaxHeight] on each cell Box is a no-op in passes 1 & 2 (unbounded height) and fills
+ *    to the fixed row height in pass 3, keeping all cells in a row the same height.
+ *  - The header row is distinguished by a `surfaceVariant` background applied per-cell.
+ *  - Missing cells (row shorter than header) are padded with an empty string.
  */
 @Composable
 private fun MarkdownTable(
@@ -1085,42 +1098,88 @@ private fun MarkdownTable(
 ) {
     val borderColor = MaterialTheme.colorScheme.outlineVariant
     val headerBg    = MaterialTheme.colorScheme.surfaceVariant
+    val colCount    = headers.size
 
-    // `horizontalScroll` passes unbounded width constraints — `weight()` cannot be used
-    // inside such a container (causes crash). Use `defaultMinSize` so each cell wraps its
-    // content while remaining at least 80 dp wide. `IntrinsicSize.Min` on each Row still
-    // synchronises cell heights within the same logical row.
-    val cellModifier = Modifier
-        .defaultMinSize(minWidth = 80.dp)
-        .fillMaxHeight()
-        .border(0.5.dp, borderColor)
-        .padding(horizontal = 8.dp, vertical = 4.dp)
+    // Normalise all rows to colCount cells up-front (headers + data).
+    val allRows: List<List<String>> = remember(headers, rows) {
+        listOf(headers) + rows.map { row ->
+            headers.indices.map { idx -> row.getOrElse(idx) { "" } }
+        }
+    }
 
-    Column(modifier.horizontalScroll(rememberScrollState()).border(1.dp, borderColor)) {
-        // Header row
-        Row(
-            Modifier
-                .background(headerBg)
-                .height(IntrinsicSize.Min)
+    // Returns the composable content lambda for a single cell so it can be reused across the
+    // three measurement passes without duplicating the layout code.
+    fun cellContent(text: String, isHeader: Boolean): @Composable () -> Unit = {
+        val bgMod = if (isHeader) Modifier.background(headerBg) else Modifier
+        Box(
+            modifier = bgMod
+                .fillMaxHeight()
+                .border(0.5.dp, borderColor)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
         ) {
-            headers.forEach { header ->
-                Text(
-                    text     = header,
-                    style    = baseStyle.copy(fontWeight = FontWeight.Bold),
-                    modifier = cellModifier,
-                )
+            Text(
+                text  = text,
+                style = if (isHeader) baseStyle.copy(fontWeight = FontWeight.Bold) else baseStyle,
+            )
+        }
+    }
+
+    SubcomposeLayout(
+        modifier = modifier
+            .horizontalScroll(rememberScrollState())
+            .border(1.dp, borderColor),
+    ) { _ ->
+
+        // ── Pass 1: unconstrained → find max natural width per column ─────────
+        val colWidths = IntArray(colCount)
+        allRows.forEachIndexed { rIdx, rowCells ->
+            rowCells.forEachIndexed { cIdx, cellText ->
+                subcompose("w-$rIdx-$cIdx", cellContent(cellText, rIdx == 0))
+                    .first()
+                    .measure(Constraints())
+                    .also { p -> colWidths[cIdx] = maxOf(colWidths[cIdx], p.width) }
             }
         }
-        // Data rows
-        rows.forEach { row ->
-            Row(Modifier.height(IntrinsicSize.Min)) {
-                headers.indices.forEach { idx ->
-                    Text(
-                        text     = row.getOrElse(idx) { "" },
-                        style    = baseStyle,
-                        modifier = cellModifier,
+
+        // ── Pass 2: constrained width → find max row height per row ───────────
+        val rowHeights = IntArray(allRows.size)
+        allRows.forEachIndexed { rIdx, rowCells ->
+            rowCells.forEachIndexed { cIdx, cellText ->
+                subcompose("h-$rIdx-$cIdx", cellContent(cellText, rIdx == 0))
+                    .first()
+                    .measure(Constraints(maxWidth = colWidths[cIdx]))
+                    .also { p -> rowHeights[rIdx] = maxOf(rowHeights[rIdx], p.height) }
+            }
+        }
+
+        // ── Pass 3: exact constraints → produce placeables ────────────────────
+        val finalPlaceables = allRows.mapIndexed { rIdx, rowCells ->
+            rowCells.mapIndexed { cIdx, cellText ->
+                subcompose("l-$rIdx-$cIdx", cellContent(cellText, rIdx == 0))
+                    .first()
+                    .measure(
+                        Constraints(
+                            minWidth  = colWidths[cIdx],
+                            maxWidth  = colWidths[cIdx],
+                            minHeight = rowHeights[rIdx],
+                            maxHeight = rowHeights[rIdx],
+                        )
                     )
+            }
+        }
+
+        val tableWidth  = colWidths.sum()
+        val tableHeight = rowHeights.sum()
+
+        layout(tableWidth, tableHeight) {
+            var yOffset = 0
+            finalPlaceables.forEachIndexed { rIdx, rowPlaceables ->
+                var xOffset = 0
+                rowPlaceables.forEach { placeable ->
+                    placeable.placeRelative(xOffset, yOffset)
+                    xOffset += placeable.width
                 }
+                yOffset += rowHeights[rIdx]
             }
         }
     }
