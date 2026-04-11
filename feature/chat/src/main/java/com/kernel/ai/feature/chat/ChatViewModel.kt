@@ -210,9 +210,11 @@ class ChatViewModel @Inject constructor(
         // still be overwritten if the conversation is long enough for a smart title.
         if (existingTitle != null) {
             val looksLikePlaceholder = existingTitle.endsWith("…") && existingTitle.length <= 43
-            if (persisted.size >= 4 && looksLikePlaceholder) {
-                titleIsPlaceholder = true      // allow generateTitle() to overwrite it
-                titleGenerationStarted = false  // allow the trigger in sendMessage()
+            if (looksLikePlaceholder) {
+                // Placeholder from a previous session — allow smart title to fire whenever
+                // messageCount >= 4 is reached. sendMessage() enforces that threshold.
+                titleIsPlaceholder = true
+                titleGenerationStarted = false
                 Log.d("KernelAI", "Restored session $id has placeholder title — smart title can still fire")
             } else {
                 titleGenerationStarted = true  // real title present — never overwrite
