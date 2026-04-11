@@ -93,7 +93,8 @@ tri-tiered memory architecture inspired by the
 | Episodic + Core memory tiers | ⬜ Next | — | Split flat index into episodic (volatile) + core (permanent). Separate vec0 tables. |
 | Memory management UI | ⬜ Pending | — | Profile editor, core memories CRUD, episodic browser, stats |
 | Bulk delete core memories ([#110](https://github.com/NickMonrad/kernel-ai-assistant/issues/110)) | ⬜ Pending | — | Multi-select + delete in the core memories list in Memory UI |
-| Fun loading screens v2 ([#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96)) | ⬜ Pending | — | Additional themed narratives and animation improvements beyond the initial 13 |
+| Conversation search ([#151](https://github.com/NickMonrad/kernel-ai-assistant/issues/151)) | ⬜ Pending | — | Search bar on the conversations list to filter by title |
+| Fun loading screens v2 ([#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96)) | ⬜ Pending (→ Phase 3) | — | Deferred to Jandal AI rebrand: dark AMOLED background, bigger text, per-phase icons, more Kiwi-themed messages |
 | Dreaming Engine | ⬜ Pending | — | WorkManager: Light Sleep → REM Sleep → Deep Sleep consolidation |
 | Self-Healing Identity System ([#47](https://github.com/NickMonrad/kernel-ai-assistant/issues/47)) | ⬜ Pending | — | Replace free-text profile with structured YAML identity (name, role, env, rules, sandbox). Dreaming Engine promotes sandbox → Core Identity or Core Memories overnight. |
 | SM8550 Qualcomm AI Engine delegate ([#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44)) | ⬜ Pending | — | Bundle QNN TFLite delegate so SM8550-optimised EmbeddingGemma model uses Hexagon NPU |
@@ -117,6 +118,7 @@ Brand refresh to Jandal AI, FunctionGemma for fast intent routing, native skills
 | Task | Status | Notes |
 |------|--------|-------|
 | Brand pass: Jandal AI ([#21](https://github.com/NickMonrad/kernel-ai-assistant/issues/21)) | ⬜ Pending | App name, package rename `com.kernel.ai` → `com.jandal.ai`, Kiwi persona, Fern Green palette |
+| Fun loading screens v2 ([#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96)) | ⬜ Pending | Dark AMOLED background, bigger text, per-phase icons, expanded Kiwi-themed messages — bundle with brand pass |
 | Gated model download handling ([#38](https://github.com/NickMonrad/kernel-ai-assistant/issues/38)) | ⬜ Pending | HuggingFace token flow, graceful error for 401/403 gated models |
 | Review UI patterns ([#71](https://github.com/NickMonrad/kernel-ai-assistant/issues/71)) | ⬜ Pending | Audit and refine UI patterns across the app |
 | Copy chat content ([#78](https://github.com/NickMonrad/kernel-ai-assistant/issues/78)) | ⬜ Pending | Copy individual messages or entire conversations |
@@ -242,9 +244,10 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#78](https://github.com/NickMonrad/kernel-ai-assistant/issues/78) | Copy chat content | Phase 3 | ⬜ Pending |
 | [#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84) | Gemma 4 native tool calling | Phase 3 | ⬜ Pending |
 | [#86](https://github.com/NickMonrad/kernel-ai-assistant/issues/86) | GetSystemInfo native skill | Phase 3 | ⬜ Pending |
-| [#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96) | Fun loading screens v2 | Phase 2 | ⬜ Pending |
+| [#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96) | Fun loading screens v2 | Phase 3 (with brand pass) | ⬜ Pending |
 | [#103](https://github.com/NickMonrad/kernel-ai-assistant/issues/103) | SaveMemory native skill | Phase 3 | ⬜ Pending |
 | [#110](https://github.com/NickMonrad/kernel-ai-assistant/issues/110) | Bulk delete core memories | Phase 2 | ⬜ Pending |
+| [#151](https://github.com/NickMonrad/kernel-ai-assistant/issues/151) | Conversation search by title | Phase 2 | ⬜ Pending |
 
 ---
 
