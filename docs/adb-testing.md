@@ -1,33 +1,41 @@
-# ADB Testing Guide — Samsung Galaxy S23 Ultra
+# ADB Testing Guide
 
-> **Target device:** Samsung Galaxy S23 Ultra, Android 16 / One UI 8.0, Snapdragon 8 Gen 2, 12 GB RAM  
-> **Expected hardware tier:** `FLAGSHIP` → NPU backend → E-4B model → 8192 token context
+| Device | Chip | RAM | Backend | Tier |
+|--------|------|-----|---------|------|
+| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU | FLAGSHIP |
+| Google Pixel 10 | Tensor G5 | 12 GB | GPU | FLAGSHIP |
 
 ---
 
 ## 1. One-Time Setup
 
-### 1.1 Enable Developer Options (One UI 8.0)
+### 1.1 Enable Developer Options — Pixel 10 (stock Android 16)
+
+1. Open **Settings → About phone**
+2. Tap **Build number** 7 times until "Developer mode enabled" toast appears
+3. Enter your lock screen PIN/password if prompted
+4. **Settings → System → Developer options → USB debugging** ON
+
+### 1.2 Enable Developer Options — Samsung S23 Ultra (One UI 8.0)
 
 1. Open **Settings → About phone → Software information**
 2. Tap **Build number** 7 times until "Developer mode enabled" toast appears
 3. Enter your lock screen PIN/password if prompted
+4. **Settings → Developer options** (now visible near the bottom of Settings)
+5. Enable **USB debugging**
+6. Enable **Install via USB** (required for sideloading)
+7. *Optional but recommended:* Enable **Wireless debugging** for cable-free sessions
 
-### 1.2 Enable USB Debugging
+### 1.3 Device-specific gotchas
 
-1. **Settings → Developer options** (now visible near the bottom of Settings)
-2. Enable **USB debugging**
-3. Enable **Install via USB** (required for sideloading)
-4. *Optional but recommended:* Enable **Wireless debugging** for cable-free sessions
-
-### 1.3 One UI-specific gotchas
-
-| Issue | Fix |
-|-------|-----|
-| `adb: error: failed to get feature set` | Make sure USB mode is **MTP** (not charging only) — pull down notification shade and tap the USB mode banner |
-| Authorisation dialog doesn't appear | Lock/unlock device; dialog appears on the lock screen on One UI 8 |
-| `INSTALL_FAILED_USER_RESTRICTED` | Settings → Developer options → **Allow ADB installs** ON |
-| NPU init fails / fallback to GPU | Expected on first run — the Hexagon delegate sometimes needs a warm cache; retry once |
+| Device | Issue | Fix |
+|--------|-------|-----|
+| S23 Ultra | `adb: error: failed to get feature set` | Make sure USB mode is **MTP** (not charging only) — pull down notification shade and tap the USB mode banner |
+| S23 Ultra | Authorisation dialog doesn't appear | Lock/unlock device; dialog appears on the lock screen on One UI 8 |
+| S23 Ultra | `INSTALL_FAILED_USER_RESTRICTED` | Settings → Developer options → **Allow ADB installs** ON |
+| S23 Ultra | NPU init fails / fallback to GPU | Expected on first run — the Hexagon delegate sometimes needs a warm cache; retry once |
+| Pixel 10 | `adb: no permissions` | Disconnect and reconnect the USB cable, then accept the RSA key dialog on screen |
+| Pixel 10 | GPU delegate init slow on first run | Expected — Pixel 10 JIT-compiles GPU shaders on first inference (~5–10 s); subsequent launches are fast |
 
 ### 1.4 Verify connection
 
@@ -110,6 +118,26 @@ I LiteRtInferenceEngine: Engine ready — backend: GPU, maxTokens: 8192
 > The NPU delegate may require a warm cache on the first run. Subsequent launches
 > should succeed on NPU after the Hexagon driver has cached the compiled model.
 
+### Pixel 10
+
+```
+I HardwareProfileDetector: Hardware profile: tier=FLAGSHIP, ram=12 GB,
+    soc=Google Tensor G5, npu=false, backend=GPU, maxTokens=8192
+
+I LiteRtInferenceEngine: Initializing engine — model: .../gemma-4-E4B-it.litertlm,
+    backend: GPU, tier: FLAGSHIP
+I LiteRtInferenceEngine: Backend GPU initialized successfully
+I LiteRtInferenceEngine: Engine ready — backend: GPU, maxTokens: 8192
+```
+
+### GPU shader warm-up (Pixel 10, first run only):
+
+```
+# First run only — GPU shader compilation (Pixel 10 Immortalis-G925):
+W LiteRtInferenceEngine: GPU shader compilation in progress (~5–10s first run)
+I LiteRtInferenceEngine: Backend GPU initialized successfully
+```
+
 ---
 
 ## 5. TTFT Benchmarks
@@ -124,12 +152,12 @@ adb logcat | grep "TTFT\|Generation complete"
 
 **Standard benchmark prompts:**
 
-| # | Prompt | Expected TTFT target |
-|---|--------|---------------------|
-| 1 | `"Hello"` | < 500 ms (NPU) / < 1500 ms (GPU) |
-| 2 | `"What is the capital of France?"` | < 800 ms (NPU) / < 2000 ms (GPU) |
-| 3 | `"Write a haiku about rain"` | < 800 ms (NPU) / < 2000 ms (GPU) |
-| 4 | `"Summarise the plot of Hamlet in 3 sentences"` | < 1200 ms |
+| # | Prompt | S23 Ultra NPU | S23 Ultra GPU (fallback) | Pixel 10 GPU |
+|---|--------|--------------|--------------------------|--------------|
+| 1 | `"Hello"` | < 500 ms | < 1500 ms | < 2000 ms |
+| 2 | `"What is the capital of France?"` | < 800 ms | < 2000 ms | < 2500 ms |
+| 3 | `"Write a haiku about rain"` | < 800 ms | < 2000 ms | < 2500 ms |
+| 4 | `"Summarise the plot of Hamlet in 3 sentences"` | < 1200 ms | — | < 3500 ms |
 
 ### 5.2 Reading the log output
 
@@ -162,6 +190,11 @@ adb shell dumpsys meminfo com.kernel.ai.debug | grep -E "TOTAL|Native|Java"
 - Java heap: < 100 MB
 - Total PSS: < 5.5 GB (comfortable on 12 GB)
 
+**Expected on Pixel 10 (E-4B + 8192 tokens, GPU):**
+- Native heap: ~4–5 GB (similar to S23 Ultra — GPU driver manages VRAM separately)
+- Java heap: < 100 MB
+- Total PSS: < 5.5 GB
+
 ### 6.2 Watch for Low Memory Killer
 
 ```bash
@@ -191,6 +224,8 @@ adb connect <device-ip>:<debugging-port>
 adb devices  # confirm connected
 ```
 
+> **Pixel 10:** Uses the same stock Android wireless debugging flow as described above — no device-specific changes needed.
+
 ---
 
 ## 8. Useful ADB Commands
@@ -199,11 +234,14 @@ adb devices  # confirm connected
 # Clear app data (simulates fresh install / first launch)
 adb shell pm clear com.kernel.ai.debug
 
-# View downloaded model files
-adb shell ls -lh /data/data/com.kernel.ai.debug/files/models/
+# View downloaded model files (primary path — external storage)
+adb shell ls -lh /sdcard/Android/data/com.kernel.ai.debug/files/models/
 
-# Check available storage
-adb shell df /data/data/com.kernel.ai.debug/
+# Fallback (internal storage, if external unavailable):
+adb shell run-as com.kernel.ai.debug ls -lh files/models/
+
+# Check available external storage
+adb shell df /sdcard/Android/data/com.kernel.ai.debug/
 
 # Force-stop and restart app
 adb shell am force-stop com.kernel.ai.debug
