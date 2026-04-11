@@ -1114,9 +1114,11 @@ private fun MarkdownTable(
     // three measurement passes without duplicating the layout code.
     // Inline spans (bold, italic, URLs, code) are rendered so table cells support full markdown.
     fun cellContent(text: String, isHeader: Boolean): @Composable () -> Unit = {
-        val bgMod = if (isHeader) Modifier.background(headerBg) else Modifier
+        val bgMod     = if (isHeader) Modifier.background(headerBg) else Modifier
         val cellStyle = if (isHeader) baseStyle.copy(fontWeight = FontWeight.Bold) else baseStyle
-        val annotated = renderInlineSpans(text, surfaceVariant, linkColor)
+        val annotated = remember(text, surfaceVariant, linkColor) {
+            renderInlineSpans(text, surfaceVariant, linkColor)
+        }
         Box(
             modifier = bgMod
                 .fillMaxHeight()
