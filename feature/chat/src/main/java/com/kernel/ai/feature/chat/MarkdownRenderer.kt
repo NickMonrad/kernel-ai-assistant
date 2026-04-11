@@ -769,7 +769,8 @@ private fun renderInlineSpans(
     // code spans rather than tappable links.
     Regex("`([^`]+)`").findAll(text).forEach { m ->
         val content = m.groupValues[1].trim()
-        val isUrl = content.startsWith("http://") || content.startsWith("https://") || content.startsWith("www.")
+        val isUrl = (content.startsWith("http://") || content.startsWith("https://") || content.startsWith("www."))
+                && !content.contains(' ')
         spans.add(InlineSpan(m.range.first, m.range.last + 1, if (isUrl) "URL" else "CODE", content))
     }
 

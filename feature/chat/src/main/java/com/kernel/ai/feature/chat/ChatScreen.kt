@@ -72,6 +72,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -166,6 +167,10 @@ private fun ChatContent(
     val listState = rememberLazyListState()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
 
+    // rememberUpdatedState wraps `state` in a MutableState so snapshotFlow can track
+    // content changes across recompositions without restarting the LaunchedEffect.
+    val currentState by rememberUpdatedState(state)
+
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) {
             listState.animateScrollToItem(state.messages.lastIndex)
@@ -173,15 +178,16 @@ private fun ChatContent(
     }
 
     // During streaming, keep scrolling to the bottom as content grows — but only if the
-    // user hasn't manually scrolled up (i.e. the last item is still visible or close to it).
+    // user hasn't manually scrolled up (last visible item within 2 of end) and no scroll
+    // animation is already in progress (avoid cancelling the animated scroll on new messages).
     LaunchedEffect(state.isGenerating) {
-        if (state.isGenerating) {
-            snapshotFlow { state.messages.lastOrNull()?.content?.length ?: 0 }
+        if (currentState.isGenerating) {
+            snapshotFlow { currentState.messages.lastOrNull()?.content?.length ?: 0 }
                 .collect {
-                    if (state.messages.isNotEmpty()) {
+                    if (currentState.messages.isNotEmpty()) {
                         val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-                        if (state.messages.lastIndex - lastVisible <= 2) {
-                            listState.scrollToItem(state.messages.lastIndex)
+                        if (currentState.messages.lastIndex - lastVisible <= 2 && !listState.isScrollInProgress) {
+                            listState.scrollToItem(currentState.messages.lastIndex)
                         }
                     }
                 }
