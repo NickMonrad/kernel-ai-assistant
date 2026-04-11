@@ -187,8 +187,9 @@ class ChatViewModel @Inject constructor(
         conversationId = id
 
         // Load persisted title immediately so UI shows it on back-navigation.
-        _conversationTitle.value = conversationRepository.getConversation(id)?.title
-        titleGenerationStarted = conversationRepository.getConversation(id)?.title != null
+        val conversation = conversationRepository.getConversation(id)
+        val existingTitle = conversation?.title
+        _conversationTitle.value = existingTitle
 
         val persisted = conversationRepository.getMessagesOnce(id)
         if (persisted.isNotEmpty()) {
@@ -203,6 +204,23 @@ class ChatViewModel @Inject constructor(
             // History is in Room but not in LiteRT's KV cache — replay on next send.
             needsHistoryReplay = true
         }
+
+        // Determine whether smart-title generation should still fire on this restored session.
+        // A title that looks like a first-message placeholder (ends with '…', ≤43 chars) can
+        // still be overwritten if the conversation is long enough for a smart title.
+        if (existingTitle != null) {
+            val looksLikePlaceholder = existingTitle.endsWith("…") && existingTitle.length <= 43
+            if (looksLikePlaceholder) {
+                // Placeholder from a previous session — allow smart title to fire whenever
+                // messageCount >= 4 is reached. sendMessage() enforces that threshold.
+                titleIsPlaceholder = true
+                titleGenerationStarted = false
+                Log.d("KernelAI", "Restored session $id has placeholder title — smart title can still fire")
+            } else {
+                titleGenerationStarted = true  // real title present — never overwrite
+            }
+        }
+        // else: new conversation, both flags stay false (defaults)
 
         // Engine init is handled reactively by initEngineWhenReady().
     }
@@ -262,6 +280,7 @@ class ChatViewModel @Inject constructor(
         val trimmed = newTitle.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
+            titleIsPlaceholder = false  // signal before any suspension point
             conversationRepository.renameConversation(id, trimmed)
             _conversationTitle.value = trimmed
             titleIsPlaceholder = false  // user explicitly named this conversation
@@ -549,6 +568,11 @@ class ChatViewModel @Inject constructor(
                 .trim()
                 .take(60)
             if (title.isNotBlank()) {
+                // Re-check: user may have renamed the conversation while inference was running
+                if (!titleIsPlaceholder) {
+                    Log.d("KernelAI", "Title overwritten by user during generation — skipping smart title for $id")
+                    return
+                }
                 conversationRepository.renameConversation(id, title)
                 _conversationTitle.value = title
                 titleIsPlaceholder = false
