@@ -12,11 +12,13 @@ import com.kernel.ai.core.memory.vector.VectorSearchResult
 import com.kernel.ai.core.memory.vector.VectorStore
 import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.junit5.MockKExtension
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -86,6 +88,11 @@ class RagRepositoryTest {
         assertTrue(result.contains("User prefers dark mode"), "Output must include the core memory content")
         assertTrue(!result.contains("[Episodic Memories"), "Output must NOT contain [Episodic Memories] when table not initialised")
         assertTrue(result.startsWith("The following context has been retrieved from memory."), "Output must start with framing instruction")
+
+        // Verify the correct topK contract — core gets 10 slots, episodic is suppressed (0)
+        coVerify(exactly = 1) {
+            memoryRepository.searchMemories(any(), coreTopK = 10, episodicTopK = 0)
+        }
     }
 
     @Test
@@ -214,5 +221,23 @@ class RagRepositoryTest {
 
         assertTrue(!result.contains("[Core Memories"), "Failed core search must not produce a [Core Memories] section")
         assertTrue(result.contains("[Episodic Memories"), "Episodic content must still appear despite core failure")
+    }
+
+    @Test
+    fun `getRelevantContext — lastAccessedAt tiebreaker orders memories with equal score by recency`() = runTest {
+        val queryVector = floatArrayOf(1.0f, 0.0f, 0.0f)
+        coEvery { embeddingEngine.embed(any()) } returns queryVector
+
+        // Two memories with identical score — stale predates recent by access time.
+        // Budget is deliberately tight (≈30 tokens) so only one fits.
+        coEvery { memoryRepository.searchMemories(any(), any(), any()) } returns listOf(
+            MemorySearchResult(id = "stale",  content = "Stale fact",  source = "core", score = 0.9f, lastAccessedAt = 1_000L),
+            MemorySearchResult(id = "recent", content = "Recent fact", source = "core", score = 0.9f, lastAccessedAt = 9_000L),
+        )
+
+        val result = ragRepository.getRelevantContext("query", conversationId = "c", maxTokens = 30)
+
+        assertTrue(result.contains("Recent fact"), "Higher lastAccessedAt must win the tiebreak and appear in output")
+        assertFalse(result.contains("Stale fact"), "Lower lastAccessedAt must be truncated when budget is tight")
     }
 }
