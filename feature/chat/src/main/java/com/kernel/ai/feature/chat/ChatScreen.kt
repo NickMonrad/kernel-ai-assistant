@@ -180,7 +180,7 @@ private fun ChatContent(
         if (state.messages.isNotEmpty()) {
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             if (lastVisible >= state.messages.size - 2) {
-                listState.scrollToItem(state.messages.lastIndex)
+                listState.scrollToItem(state.messages.lastIndex, scrollOffset = Int.MAX_VALUE)
             }
         }
     }
@@ -250,7 +250,7 @@ private fun ChatContent(
                         Surface(
                             onClick = {
                                 scope.launch {
-                                    listState.animateScrollToItem(state.messages.lastIndex)
+                                    listState.animateScrollToItem(state.messages.lastIndex, scrollOffset = Int.MAX_VALUE)
                                 }
                             },
                             shape = androidx.compose.foundation.shape.CircleShape,
