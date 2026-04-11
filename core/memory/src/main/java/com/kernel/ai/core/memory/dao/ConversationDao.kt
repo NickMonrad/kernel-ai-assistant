@@ -33,6 +33,9 @@ interface ConversationDao {
     @Query("UPDATE conversations SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun touchUpdatedAt(id: String, updatedAt: Long)
 
+    @Query("UPDATE conversations SET lastDistilledAt = :timestamp WHERE id = :id")
+    suspend fun updateLastDistilledAt(id: String, timestamp: Long)
+
     @Query("SELECT * FROM conversations WHERE title IS NULL OR title LIKE '%' || :query || '%' ESCAPE '\\' ORDER BY updatedAt DESC")
     fun searchByTitle(query: String): Flow<List<ConversationEntity>>
 }

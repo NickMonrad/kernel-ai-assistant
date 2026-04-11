@@ -12,4 +12,6 @@ data class EpisodicMemoryEntity(
     val content: String,
     val createdAt: Long,
     val accessCount: Int = 0,
+    // NOTE: defaults to 0 (not createdAt) due to SQLite migration constraint
+    val lastAccessedAt: Long = 0,
 )
