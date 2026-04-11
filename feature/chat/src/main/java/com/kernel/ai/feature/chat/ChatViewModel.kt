@@ -77,6 +77,12 @@ class ChatViewModel @Inject constructor(
     /** Set synchronously when title generation is launched to prevent duplicate coroutines. */
     private var titleGenerationStarted = false
 
+    /**
+     * True when [_conversationTitle] holds a first-message placeholder rather than a
+     * proper AI-generated title. Allows [generateTitle] to overwrite it after the 2nd exchange.
+     */
+    private var titleIsPlaceholder = false
+
     private data class EngineState(val isReady: Boolean, val isGenerating: Boolean)
     private data class InputState(
         val messages: List<ChatMessage>,
@@ -258,6 +264,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             conversationRepository.renameConversation(id, trimmed)
             _conversationTitle.value = trimmed
+            titleIsPlaceholder = false  // user explicitly named this conversation
         }
     }
 
@@ -278,6 +285,19 @@ class ChatViewModel @Inject constructor(
             _messages.update { it + userMessage }
             val savedUserMsgId = conversationRepository.addMessage(convId, "user", text)
             ragRepository.indexMessage(savedUserMsgId, convId, text)
+
+            // After the very first user message, immediately set a placeholder title from the
+            // first ~40 characters of the message so the conversation list never shows a blank
+            // title. The smart-title generation (after the 2nd exchange) will overwrite this.
+            if (_messages.value.size == 1 && _conversationTitle.value == null && !titleGenerationStarted) {
+                val placeholder = text.trim().replace('\n', ' ').take(40).let {
+                    if (it.length == 40) "$it…" else it
+                }
+                conversationRepository.renameConversation(convId, placeholder)
+                _conversationTitle.value = placeholder
+                titleIsPlaceholder = true
+                Log.d("KernelAI", "Set placeholder title for $convId: \"$placeholder\"")
+            }
 
             // Placeholder for the streaming assistant reply.
             val assistantMsgId = UUID.randomUUID().toString()
@@ -372,12 +392,13 @@ class ChatViewModel @Inject constructor(
                             activeStreamingThinking = StringBuilder()
 
                             // Auto-title after the 2nd complete exchange (≥4 messages),
-                            // but only if the conversation is still untitled. Uses >= to
-                            // avoid missing the trigger if the count jumps past 4.
+                            // but only if the conversation is still untitled (or holds a
+                            // first-message placeholder). Uses >= to avoid missing the trigger
+                            // if the count jumps past 4.
                             // Small delay lets the generate() flow fully release the
                             // single-threaded LlmDispatcher before generateOnce() claims it.
                             val messageCount = _messages.value.size
-                            if (messageCount >= 4 && _conversationTitle.value == null && !titleGenerationStarted) {
+                            if (messageCount >= 4 && (_conversationTitle.value == null || titleIsPlaceholder) && !titleGenerationStarted) {
                                 titleGenerationStarted = true
                                 viewModelScope.launch {
                                     kotlinx.coroutines.delay(500L)
@@ -466,6 +487,7 @@ class ChatViewModel @Inject constructor(
             _messages.value = emptyList()
             _conversationTitle.value = null
             titleGenerationStarted = false
+            titleIsPlaceholder = false
             estimatedTokensUsed = 0
             needsHistoryReplay = false
             inferenceEngine.resetConversation()
@@ -482,8 +504,9 @@ class ChatViewModel @Inject constructor(
     private suspend fun generateTitle() {
         val id = conversationId ?: return
 
-        // Double-check the title is still null (may have been set manually in the meantime).
-        if (conversationRepository.getConversation(id)?.title != null) {
+        // Double-check the title is still null or a placeholder (may have been set manually
+        // in the meantime — a manual rename should never be overwritten).
+        if (conversationRepository.getConversation(id)?.title != null && !titleIsPlaceholder) {
             Log.d("KernelAI", "Title already set for $id — skipping generation")
             return
         }
@@ -528,6 +551,7 @@ class ChatViewModel @Inject constructor(
             if (title.isNotBlank()) {
                 conversationRepository.renameConversation(id, title)
                 _conversationTitle.value = title
+                titleIsPlaceholder = false
                 Log.i("KernelAI", "Auto-titled conversation $id: $title")
             } else {
                 Log.w("KernelAI", "Title generation produced blank result from raw: \"$raw\"")
