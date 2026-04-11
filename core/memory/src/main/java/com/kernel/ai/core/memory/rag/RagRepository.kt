@@ -7,6 +7,7 @@ import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.memory.repository.MemorySearchResult
 import com.kernel.ai.core.memory.vector.VectorStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -107,12 +108,15 @@ class RagRepository @Inject constructor(
         // --- Core Memories ---
         val coreMemoryLines = mutableListOf<String>()
         runCatching {
-            val coreResults = memoryRepository.searchMemories(queryVector, topK = 5)
-            val coreHeader = "[Core Memories]\n"
+            val coreResults = memoryRepository.searchMemories(queryVector, coreTopK = 10, episodicTopK = 0)
+                .filter { it.source == "core" }
+                // Primary: semantic relevance. Secondary: recency (recently-accessed facts win ties).
+                .sortedWith(compareByDescending<MemorySearchResult> { it.score }.thenByDescending { it.lastAccessedAt })
+            val coreHeader = "[Core Memories — permanent facts about the user]\n"
             val coreFooter = "[End of core memories]"
             val coreOverhead = (coreHeader.length + coreFooter.length + charsPerToken - 1) / charsPerToken
             var coreBudget = tokenBudgetRemaining - coreOverhead
-            for (result in coreResults.filter { it.source == "core" }) {
+            for (result in coreResults) {
                 val line = result.content.take(300)
                 val cost = (line.length + 1 + charsPerToken - 1) / charsPerToken
                 if (coreBudget - cost < 0) break

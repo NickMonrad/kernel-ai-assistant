@@ -10,7 +10,11 @@ interface MemoryRepository {
     /** Store a permanent cross-conversation memory. */
     suspend fun addCoreMemory(content: String, source: String = "user", embeddingVector: FloatArray? = null): String
     /** Search BOTH tiers; core ranked above episodic. */
-    suspend fun searchMemories(queryVector: FloatArray, topK: Int = 5): List<MemorySearchResult>
+    suspend fun searchMemories(
+        queryVector: FloatArray,
+        coreTopK: Int = 10,
+        episodicTopK: Int = 5,
+    ): List<MemorySearchResult>
     /** Delete a specific core memory. */
     suspend fun deleteCoreMemory(id: String)
     /** Delete all episodic memories. */
