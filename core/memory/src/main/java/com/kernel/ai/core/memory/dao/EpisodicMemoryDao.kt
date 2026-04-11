@@ -35,6 +35,9 @@ interface EpisodicMemoryDao {
     @Query("DELETE FROM episodic_memories WHERE createdAt < :cutoffMs")
     suspend fun deleteOlderThan(cutoffMs: Long)
 
+    @Query("DELETE FROM episodic_memories WHERE createdAt < :cutoff")
+    suspend fun deleteBefore(cutoff: Long)
+
     @Query("SELECT rowId FROM episodic_memories ORDER BY createdAt ASC LIMIT :count")
     suspend fun getOldestRowIds(count: Int): List<Long>
 
@@ -44,6 +47,15 @@ interface EpisodicMemoryDao {
         )
     """)
     suspend fun deleteOldestBeyondLimit(count: Int)
+
+    @Query("SELECT rowId FROM episodic_memories ORDER BY lastAccessedAt ASC LIMIT :count")
+    suspend fun getOldestRowIdsByLRU(count: Int): List<Long>
+
+    @Query("DELETE FROM episodic_memories WHERE id IN (SELECT id FROM episodic_memories ORDER BY lastAccessedAt ASC LIMIT :count)")
+    suspend fun deleteOldest(count: Int)
+
+    @Query("UPDATE episodic_memories SET lastAccessedAt = :timestamp WHERE id = :id")
+    suspend fun updateLastAccessedAt(id: String, timestamp: Long)
 
     @Query("SELECT * FROM episodic_memories ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<EpisodicMemoryEntity>>

@@ -141,6 +141,13 @@ class MemoryRepositoryImpl @Inject constructor(
                         )
                     )
                 }
+                // Update last accessed timestamp for LRU pruning (#167)
+                val now = System.currentTimeMillis()
+                entities.forEach { entity ->
+                    runCatching {
+                        episodicDao.updateLastAccessedAt(entity.id, now)
+                    }.onFailure { Log.w(TAG, "updateLastAccessedAt failed for ${entity.id}: ${it.message}") }
+                }
             }
         }.onFailure { Log.w(TAG, "Episodic memory search failed: ${it.message}") }
 
@@ -195,8 +202,8 @@ class MemoryRepositoryImpl @Inject constructor(
         val episodicCount = episodicDao.count()
         if (episodicCount > EPISODIC_MAX) {
             val overflow = episodicCount - EPISODIC_MAX
-            val overflowRowIds = episodicDao.getOldestRowIds(overflow)
-            episodicDao.deleteOldestBeyondLimit(overflow)
+            val overflowRowIds = episodicDao.getOldestRowIdsByLRU(overflow)
+            episodicDao.deleteOldest(overflow)
             overflowRowIds.forEach { vectorStore.delete(EPISODIC_VEC_TABLE, it) }
         }
 
