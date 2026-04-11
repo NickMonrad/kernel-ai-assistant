@@ -739,7 +739,9 @@ private fun renderInlineSpans(
 
     // Markdown links: [text](url) — parsed before raw URL detection so the full
     // `[…](…)` range is consumed and not double-matched by Patterns.WEB_URL below.
-    Regex("\\[([^\\]]+)]\\(([^)]+)\\)").findAll(text).forEach { m ->
+    // The URL group allows one level of nested parens for Wikipedia-style URLs
+    // like https://en.wikipedia.org/wiki/Rust_(programming_language).
+    Regex("\\[([^\\]]+)]\\(([^()]*(?:\\([^()]*\\)[^()]*)*)\\)").findAll(text).forEach { m ->
         spans.add(
             InlineSpan(
                 start = m.range.first,
@@ -784,9 +786,15 @@ private fun renderInlineSpans(
 
 // ── Block composables ──────────────────────────────────────────────────────────
 
-/** Opens [url] safely — prepends https:// if no scheme present, swallows unresolvable URIs. */
+/** Opens [url] safely — prepends https:// if no scheme present, blocks non-HTTP(S) schemes,
+ *  and swallows unresolvable URIs. */
 private fun openUrlSafely(uriHandler: androidx.compose.ui.platform.UriHandler, url: String) {
     val safeUrl = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
+    val uri = android.net.Uri.parse(safeUrl)
+    if (uri.scheme != "http" && uri.scheme != "https") {
+        android.util.Log.w("MarkdownRenderer", "Blocked non-HTTP URI: $safeUrl")
+        return
+    }
     try {
         uriHandler.openUri(safeUrl)
     } catch (e: Exception) {
@@ -931,10 +939,16 @@ private fun LinkableText(
     onLongPress: (() -> Unit)? = null,
 ) {
     val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
+    // BasicText doesn't participate in the Material theme hierarchy (unlike Text).
+    // Ensure text color falls back to LocalContentColor for correct dark-mode rendering.
+    val contentColor = androidx.compose.material3.LocalContentColor.current
+    val mergedStyle = if (style.color == androidx.compose.ui.graphics.Color.Unspecified) {
+        style.copy(color = contentColor)
+    } else style
     BasicText(
         text = text,
-        style = style,
-        modifier = modifier.pointerInput(text, onLongPress) {
+        style = mergedStyle,
+        modifier = modifier.pointerInput(text, onLongPress, uriHandler) {
             detectTapGestures(
                 onTap = { pos ->
                     layoutResult.value?.let { result ->
