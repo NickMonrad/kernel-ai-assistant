@@ -273,4 +273,41 @@ class MemoryRepositoryImplTest {
         // Should not throw — errors are logged and swallowed
         repository.recordCoreMemoryAccess(listOf("id-1"))
     }
+
+    // ─────────────────────────────── observeEpisodicMemories ─────────────────────────
+
+    @Test
+    fun `observeEpisodicMemories — delegates to episodicDao observeAll`() = runTest {
+        val flow = kotlinx.coroutines.flow.flowOf(emptyList<com.kernel.ai.core.memory.entity.EpisodicMemoryEntity>())
+        every { episodicDao.observeAll() } returns flow
+
+        val result = repository.observeEpisodicMemories()
+
+        // Verify the call went through — collect one emission
+        var collected = false
+        result.collect { collected = true }
+        assertTrue(collected, "observeEpisodicMemories should emit at least one value")
+        verify(exactly = 1) { episodicDao.observeAll() }
+    }
+
+    // ─────────────────────────────── deleteEpisodicMemory ────────────────────────────
+
+    @Test
+    fun `deleteEpisodicMemory — deletes vec entry and Room entity`() = runTest {
+        coEvery { episodicDao.getRowIdAndDelete("ep-id-1") } returns 77L
+        every { vectorStore.delete(any(), any()) } just Runs
+
+        repository.deleteEpisodicMemory("ep-id-1")
+
+        verify(exactly = 1) { vectorStore.delete(any(), 77L) }
+    }
+
+    @Test
+    fun `deleteEpisodicMemory — still deletes vec-cleanup even when rowId is null`() = runTest {
+        coEvery { episodicDao.getRowIdAndDelete("ep-orphan") } returns null
+
+        repository.deleteEpisodicMemory("ep-orphan")
+
+        verify(exactly = 0) { vectorStore.delete(any(), any()) }
+    }
 }
