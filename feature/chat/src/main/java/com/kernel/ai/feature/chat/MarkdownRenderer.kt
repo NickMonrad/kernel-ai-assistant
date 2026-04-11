@@ -1096,9 +1096,12 @@ private fun MarkdownTable(
     baseStyle: TextStyle,
     modifier: Modifier = Modifier,
 ) {
-    val borderColor = MaterialTheme.colorScheme.outlineVariant
-    val headerBg    = MaterialTheme.colorScheme.surfaceVariant
-    val colCount    = headers.size
+    val borderColor  = MaterialTheme.colorScheme.outlineVariant
+    val headerBg     = MaterialTheme.colorScheme.surfaceVariant
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val linkColor    = MaterialTheme.colorScheme.primary
+    val uriHandler   = LocalUriHandler.current
+    val colCount     = headers.size
 
     // Normalise all rows to colCount cells up-front (headers + data).
     val allRows: List<List<String>> = remember(headers, rows) {
@@ -1109,17 +1112,21 @@ private fun MarkdownTable(
 
     // Returns the composable content lambda for a single cell so it can be reused across the
     // three measurement passes without duplicating the layout code.
+    // Inline spans (bold, italic, URLs, code) are rendered so table cells support full markdown.
     fun cellContent(text: String, isHeader: Boolean): @Composable () -> Unit = {
         val bgMod = if (isHeader) Modifier.background(headerBg) else Modifier
+        val cellStyle = if (isHeader) baseStyle.copy(fontWeight = FontWeight.Bold) else baseStyle
+        val annotated = renderInlineSpans(text, surfaceVariant, linkColor)
         Box(
             modifier = bgMod
                 .fillMaxHeight()
                 .border(0.5.dp, borderColor)
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         ) {
-            Text(
-                text  = text,
-                style = if (isHeader) baseStyle.copy(fontWeight = FontWeight.Bold) else baseStyle,
+            LinkableText(
+                text       = annotated,
+                style      = cellStyle,
+                uriHandler = uriHandler,
             )
         }
     }
