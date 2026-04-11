@@ -2,6 +2,7 @@ package com.kernel.ai.feature.chat
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -44,6 +45,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -67,14 +69,13 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.Dispatchers
@@ -84,6 +85,8 @@ import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -94,6 +97,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.feature.chat.R
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.feature.chat.model.ChatMessage
@@ -165,34 +169,18 @@ private fun ChatContent(
     onCopyAll: () -> Unit,
 ) {
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
 
-    // rememberUpdatedState wraps `state` in a MutableState so snapshotFlow can track
-    // content changes across recompositions without restarting the LaunchedEffect.
-    val currentState by rememberUpdatedState(state)
-
+    // Scroll to bottom when a new message is appended.
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) {
             listState.animateScrollToItem(state.messages.lastIndex)
         }
     }
 
-    // During streaming, keep scrolling to the bottom as content grows — but only if the
-    // user hasn't manually scrolled up (last visible item within 2 of end) and no scroll
-    // animation is already in progress (avoid cancelling the animated scroll on new messages).
-    LaunchedEffect(state.isGenerating) {
-        if (currentState.isGenerating) {
-            snapshotFlow { currentState.messages.lastOrNull()?.content?.length ?: 0 }
-                .collect {
-                    if (currentState.messages.isNotEmpty()) {
-                        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-                        if (currentState.messages.lastIndex - lastVisible <= 2 && !listState.isScrollInProgress) {
-                            listState.scrollToItem(currentState.messages.lastIndex)
-                        }
-                    }
-                }
-        }
-    }
+    // Show scroll-to-bottom button whenever there is content below the visible area.
+    val showScrollToBottom by remember { derivedStateOf { listState.canScrollForward } }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -233,17 +221,48 @@ private fun ChatContent(
             if (state.messages.isEmpty()) {
                 EmptyConversationHint(modifier = Modifier.weight(1f))
             } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(state.messages, key = { it.id }) { message ->
-                        MessageBubble(
-                            message = message,
-                            onCopy = { content -> onCopyMessage(content) },
-                        )
+                Box(modifier = Modifier.weight(1f)) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(state.messages, key = { it.id }) { message ->
+                            MessageBubble(
+                                message = message,
+                                onCopy = { content -> onCopyMessage(content) },
+                            )
+                        }
+                    }
+                    // Scroll-to-bottom button — fades in/out when content exists below the viewport.
+                    val scrollBtnAlpha by animateFloatAsState(
+                        targetValue = if (showScrollToBottom) 1f else 0f,
+                        label = "scrollBtnAlpha",
+                    )
+                    if (scrollBtnAlpha > 0f) {
+                        Surface(
+                            onClick = {
+                                scope.launch {
+                                    listState.animateScrollToItem(state.messages.lastIndex)
+                                }
+                            },
+                            shape = androidx.compose.foundation.shape.CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            tonalElevation = 4.dp,
+                            shadowElevation = 4.dp,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 12.dp, bottom = 8.dp)
+                                .graphicsLayer { alpha = scrollBtnAlpha },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = stringResource(R.string.cd_scroll_to_bottom),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
                     }
                 }
             }
