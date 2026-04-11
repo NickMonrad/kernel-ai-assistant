@@ -172,10 +172,16 @@ private fun ChatContent(
     val scope = rememberCoroutineScope()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
 
-    // Scroll to bottom when a new message is appended.
+    // Auto-scroll when a new message is appended, but only if the user is already
+    // near the bottom (within 2 items). If they've scrolled up to read history,
+    // the scroll-to-bottom button handles getting back. Uses instant scrollToItem
+    // (not animated) so it never holds the scroll mutex long enough to fight gestures.
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) {
-            listState.animateScrollToItem(state.messages.lastIndex)
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            if (lastVisible >= state.messages.size - 2) {
+                listState.scrollToItem(state.messages.lastIndex)
+            }
         }
     }
 
