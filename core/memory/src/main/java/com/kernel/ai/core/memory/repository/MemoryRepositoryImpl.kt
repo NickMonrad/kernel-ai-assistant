@@ -159,6 +159,17 @@ class MemoryRepositoryImpl @Inject constructor(
 
     override fun observeEpisodicCount(): Flow<Int> = episodicDao.observeCount()
 
+    override fun observeEpisodicMemories(): Flow<List<EpisodicMemoryEntity>> = episodicDao.observeAll()
+
+    override suspend fun deleteEpisodicMemory(id: String) {
+        val rowId = episodicDao.getRowIdById(id)
+        if (rowId != null) {
+            vectorStore.delete(EPISODIC_VEC_TABLE, rowId)
+        }
+        episodicDao.deleteById(id)
+        Log.d(TAG, "Deleted episodic memory id=$id rowId=$rowId")
+    }
+
     override suspend fun recordCoreMemoryAccess(ids: List<String>) {
         if (ids.isEmpty()) return
         runCatching {

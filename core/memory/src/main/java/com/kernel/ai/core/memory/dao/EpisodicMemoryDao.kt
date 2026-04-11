@@ -43,4 +43,13 @@ interface EpisodicMemoryDao {
         )
     """)
     suspend fun deleteOldestBeyondLimit(count: Int)
+
+    @Query("SELECT * FROM episodic_memories ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<EpisodicMemoryEntity>>
+
+    @Query("DELETE FROM episodic_memories WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("SELECT rowId FROM episodic_memories WHERE id = :id LIMIT 1")
+    suspend fun getRowIdById(id: String): Long?
 }

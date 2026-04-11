@@ -1,6 +1,7 @@
 package com.kernel.ai.core.memory.repository
 
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
+import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
 import kotlinx.coroutines.flow.Flow
 
 interface MemoryRepository {
@@ -20,6 +21,10 @@ interface MemoryRepository {
     fun observeEpisodicCount(): Flow<Int>
     /** Record that core memories with the given [ids] were accessed (increments accessCount). */
     suspend fun recordCoreMemoryAccess(ids: List<String>)
+    /** Observe all episodic memories ordered by most recent first (for UI). */
+    fun observeEpisodicMemories(): Flow<List<EpisodicMemoryEntity>>
+    /** Delete a single episodic memory and its vector entry. */
+    suspend fun deleteEpisodicMemory(id: String)
     /** Prune: episodic older than 30 days or count > 500; core capped at 200. */
     suspend fun prune()
 }
