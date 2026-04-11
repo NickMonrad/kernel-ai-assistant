@@ -18,7 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
@@ -35,10 +36,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -157,16 +160,36 @@ private val LATEX_TO_UNICODE = mapOf(
     "\\gamma" to "γ",
     "\\delta" to "δ",
     "\\epsilon" to "ε",
+    "\\varepsilon" to "ε",
+    "\\zeta" to "ζ",
+    "\\eta" to "η",
     "\\theta" to "θ",
+    "\\vartheta" to "ϑ",
+    "\\iota" to "ι",
+    "\\kappa" to "κ",
     "\\lambda" to "λ",
     "\\mu" to "μ",
+    "\\nu" to "ν",
+    "\\xi" to "ξ",
     "\\pi" to "π",
+    "\\rho" to "ρ",
     "\\sigma" to "σ",
     "\\tau" to "τ",
+    "\\upsilon" to "υ",
     "\\phi" to "φ",
+    "\\varphi" to "φ",
+    "\\chi" to "χ",
+    "\\psi" to "ψ",
     "\\omega" to "ω",
+    "\\Gamma" to "Γ",
     "\\Delta" to "Δ",
+    "\\Theta" to "Θ",
+    "\\Lambda" to "Λ",
+    "\\Xi" to "Ξ",
+    "\\Pi" to "Π",
     "\\Sigma" to "Σ",
+    "\\Phi" to "Φ",
+    "\\Psi" to "Ψ",
     "\\Omega" to "Ω",
 
     // Miscellaneous
@@ -178,10 +201,17 @@ private val LATEX_TO_UNICODE = mapOf(
     "\\prod" to "∏",
     "\\int" to "∫",
     "\\degree" to "°",
+    "\\dots" to "…",
     "\\ldots" to "…",
     "\\cdots" to "⋯",
+    "\\vdots" to "⋮",
+    "\\ddots" to "⋱",
     "\\checkmark" to "✓",
     "\\dagger" to "†",
+    "\\ell" to "ℓ",
+    "\\hbar" to "ℏ",
+    "\\Re" to "ℜ",
+    "\\Im" to "ℑ",
 
     // Math function names (rendered as plain text)
     "\\arccos" to "arccos",
@@ -658,7 +688,15 @@ private fun parseTableRow(line: String): List<String> =
 
 // ── Inline span renderer ───────────────────────────────────────────────────────
 
-private data class InlineSpan(val start: Int, val end: Int, val type: String, val content: String)
+private data class InlineSpan(
+    val start: Int,
+    val end: Int,
+    val type: String,
+    val content: String,
+    /** Text displayed to the user (defaults to [content]). For markdown links `[text](url)`,
+     *  [displayText] holds the link label while [content] stores the URL. */
+    val displayText: String = content,
+)
 
 /**
  * Converts [text] to an [AnnotatedString] with inline styling:
@@ -699,6 +737,20 @@ private fun renderInlineSpans(
         spans.add(InlineSpan(m.range.first, m.range.last + 1, "CODE", m.groupValues[1]))
     }
 
+    // Markdown links: [text](url) — parsed before raw URL detection so the full
+    // `[…](…)` range is consumed and not double-matched by Patterns.WEB_URL below.
+    Regex("\\[([^\\]]+)]\\(([^)]+)\\)").findAll(text).forEach { m ->
+        spans.add(
+            InlineSpan(
+                start = m.range.first,
+                end = m.range.last + 1,
+                type = "URL",
+                content = m.groupValues[2],      // the URL
+                displayText = m.groupValues[1],  // the link label
+            )
+        )
+    }
+
     // URLs (Java Patterns — handles http/https/www links)
     val urlMatcher = Patterns.WEB_URL.matcher(text)
     while (urlMatcher.find()) {
@@ -720,7 +772,7 @@ private fun renderInlineSpans(
                 "CODE"          -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = surfaceVariant)) { append(span.content) }
                 "URL"           -> {
                     pushStringAnnotation("URL", span.content)
-                    withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)) { append(span.content) }
+                    withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)) { append(span.displayText) }
                     pop()
                 }
             }
@@ -742,9 +794,12 @@ private fun openUrlSafely(uriHandler: androidx.compose.ui.platform.UriHandler, u
     }
 }
 
-@Suppress("DEPRECATION") // ClickableText: BasicText.onClick not available in this Compose version
 @Composable
-private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
+private fun BlockContent(
+    block: MarkdownBlock,
+    baseStyle: TextStyle,
+    onLongPress: (() -> Unit)? = null,
+) {
     val uriHandler      = LocalUriHandler.current
     val surfaceVariant  = MaterialTheme.colorScheme.surfaceVariant
     val linkColor       = MaterialTheme.colorScheme.primary
@@ -757,13 +812,11 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
             val annotated = remember(block.text, surfaceVariant, linkColor) {
                 renderInlineSpans(block.text, surfaceVariant, linkColor)
             }
-            ClickableText(
-                text     = annotated,
-                style    = baseStyle,
-                onClick  = { offset ->
-                    annotated.getStringAnnotations("URL", offset, offset)
-                        .firstOrNull()?.let { openUrlSafely(uriHandler, it.item) }
-                },
+            LinkableText(
+                text = annotated,
+                style = baseStyle,
+                uriHandler = uriHandler,
+                onLongPress = onLongPress,
             )
         }
 
@@ -780,13 +833,11 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
             val annotated = remember(block.text, surfaceVariant, linkColor) {
                 renderInlineSpans(block.text, surfaceVariant, linkColor)
             }
-            ClickableText(
-                text    = annotated,
-                style   = headingStyle,
-                onClick = { offset ->
-                    annotated.getStringAnnotations("URL", offset, offset)
-                        .firstOrNull()?.let { openUrlSafely(uriHandler, it.item) }
-                },
+            LinkableText(
+                text = annotated,
+                style = headingStyle,
+                uriHandler = uriHandler,
+                onLongPress = onLongPress,
             )
         }
 
@@ -808,14 +859,12 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
                         .fillMaxHeight()
                         .background(primaryColor),
                 )
-                ClickableText(
-                    text     = annotated,
-                    style    = baseStyle.copy(fontStyle = FontStyle.Italic, color = onSurfaceVariant),
+                LinkableText(
+                    text = annotated,
+                    style = baseStyle.copy(fontStyle = FontStyle.Italic, color = onSurfaceVariant),
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                    onClick  = { offset ->
-                        annotated.getStringAnnotations("URL", offset, offset)
-                            .firstOrNull()?.let { openUrlSafely(uriHandler, it.item) }
-                    },
+                    uriHandler = uriHandler,
+                    onLongPress = onLongPress,
                 )
             }
         }
@@ -827,13 +876,11 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
                     val annotated = remember(item, surfaceVariant, linkColor) {
                         renderInlineSpans("• $item", surfaceVariant, linkColor)
                     }
-                    ClickableText(
-                        text    = annotated,
-                        style   = baseStyle,
-                        onClick = { offset ->
-                            annotated.getStringAnnotations("URL", offset, offset)
-                                .firstOrNull()?.let { openUrlSafely(uriHandler, it.item) }
-                        },
+                    LinkableText(
+                        text = annotated,
+                        style = baseStyle,
+                        uriHandler = uriHandler,
+                        onLongPress = onLongPress,
                     )
                 }
             }
@@ -846,13 +893,11 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
                     val annotated = remember(item, surfaceVariant, linkColor) {
                         renderInlineSpans("${idx + 1}. $item", surfaceVariant, linkColor)
                     }
-                    ClickableText(
-                        text    = annotated,
-                        style   = baseStyle,
-                        onClick = { offset ->
-                            annotated.getStringAnnotations("URL", offset, offset)
-                                .firstOrNull()?.let { openUrlSafely(uriHandler, it.item) }
-                        },
+                    LinkableText(
+                        text = annotated,
+                        style = baseStyle,
+                        uriHandler = uriHandler,
+                        onLongPress = onLongPress,
                     )
                 }
             }
@@ -868,6 +913,43 @@ private fun BlockContent(block: MarkdownBlock, baseStyle: TextStyle) {
             MarkdownTable(headers = block.headers, rows = block.rows, baseStyle = baseStyle)
         }
     }
+}
+
+/**
+ * Text composable that supports both tappable URL annotations and long-press gestures.
+ *
+ * Unlike [ClickableText], this uses [BasicText] with [detectTapGestures] so that the
+ * parent long-press handler fires reliably — [ClickableText] internally consumes all
+ * pointer events, preventing parent gesture detectors from working.
+ */
+@Composable
+private fun LinkableText(
+    text: AnnotatedString,
+    style: TextStyle,
+    uriHandler: androidx.compose.ui.platform.UriHandler,
+    modifier: Modifier = Modifier,
+    onLongPress: (() -> Unit)? = null,
+) {
+    val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
+    BasicText(
+        text = text,
+        style = style,
+        modifier = modifier.pointerInput(text, onLongPress) {
+            detectTapGestures(
+                onTap = { pos ->
+                    layoutResult.value?.let { result ->
+                        val offset = result.getOffsetForPosition(pos)
+                        text.getStringAnnotations("URL", offset, offset)
+                            .firstOrNull()?.let { openUrlSafely(uriHandler, it.item) }
+                    }
+                },
+                onLongPress = if (onLongPress != null) {
+                    { _ -> onLongPress() }
+                } else null,
+            )
+        },
+        onTextLayout = { layoutResult.value = it },
+    )
 }
 
 /**
@@ -1008,15 +1090,18 @@ private fun MarkdownTable(
  * LaTeX commands (`$\rightarrow$`, `\times`, etc.) are converted to Unicode equivalents.
  * The renderer is stream-safe: incomplete syntax gracefully falls back to plain text.
  *
- * @param text     Raw Markdown text (may include model artefact tags).
- * @param modifier [Modifier] applied to the outer [Column].
- * @param style    Base [TextStyle] for body text; headings override this with Material 3 type scale.
+ * @param text        Raw Markdown text (may include model artefact tags).
+ * @param modifier    [Modifier] applied to the outer [Column].
+ * @param style       Base [TextStyle] for body text; headings override this with Material 3 type scale.
+ * @param onLongPress Optional callback invoked when the user long-presses any text block.
+ *                     Used by [MessageBubble][ChatScreen] to show the "Copy message" context menu.
  */
 @Composable
 fun MarkdownContent(
     text: String,
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.bodyMedium,
+    onLongPress: (() -> Unit)? = null,
 ) {
     val cleaned = remember(text) { convertLatexToUnicode(stripSystemTags(text)) }
     val blocks  = remember(cleaned) { parseBlocks(cleaned) }
@@ -1026,7 +1111,7 @@ fun MarkdownContent(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         blocks.forEach { block ->
-            BlockContent(block = block, baseStyle = style)
+            BlockContent(block = block, baseStyle = style, onLongPress = onLongPress)
         }
     }
 }

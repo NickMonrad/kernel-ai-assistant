@@ -247,4 +247,30 @@ class MemoryRepositoryImplTest {
         coVerify(exactly = 0) { coreDao.deleteOldestBeyondLimit(any()) }
         verify(exactly = 0) { vectorStore.delete(any(), any()) }
     }
+
+    // ─────────────────────────────── recordCoreMemoryAccess ──────────────────────────
+
+    @Test
+    fun `recordCoreMemoryAccess — calls incrementAccessStatsAndNotify with correct ids`() = runTest {
+        coEvery { coreDao.incrementAccessStatsAndNotify(any(), any()) } just Runs
+
+        repository.recordCoreMemoryAccess(listOf("id-1", "id-2"))
+
+        coVerify(exactly = 1) { coreDao.incrementAccessStatsAndNotify(listOf("id-1", "id-2"), any()) }
+    }
+
+    @Test
+    fun `recordCoreMemoryAccess — no-ops on empty list`() = runTest {
+        repository.recordCoreMemoryAccess(emptyList())
+
+        coVerify(exactly = 0) { coreDao.incrementAccessStatsAndNotify(any(), any()) }
+    }
+
+    @Test
+    fun `recordCoreMemoryAccess — swallows exceptions gracefully`() = runTest {
+        coEvery { coreDao.incrementAccessStatsAndNotify(any(), any()) } throws RuntimeException("DB error")
+
+        // Should not throw — errors are logged and swallowed
+        repository.recordCoreMemoryAccess(listOf("id-1"))
+    }
 }

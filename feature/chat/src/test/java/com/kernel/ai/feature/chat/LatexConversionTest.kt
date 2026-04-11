@@ -360,5 +360,29 @@ class LatexConversionTest {
             val result = convertLatexToUnicode("{x} + {y}")
             assertEquals("x + y", result)
         }
+
+        @Test
+        fun `zeta and dots are converted`() {
+            val input = "\\zeta(s) and \\dots"
+            val result = convertLatexToUnicode(input)
+            assertTrue(result.contains("ζ"), "\\zeta should become ζ")
+            assertTrue(result.contains("…"), "\\dots should become …")
+            assertFalse(result.contains("\\zeta"), "\\zeta should not remain")
+            assertFalse(result.contains("\\dots"), "\\dots should not remain")
+        }
+
+        @Test
+        fun `additional Greek letters are converted`() {
+            val input = "\\eta + \\kappa + \\nu + \\xi + \\rho + \\chi + \\psi"
+            val result = convertLatexToUnicode(input)
+            assertEquals("η + κ + ν + ξ + ρ + χ + ψ", result)
+        }
+
+        @Test
+        fun `uppercase Greek letters are converted`() {
+            val input = "\\Gamma \\Theta \\Lambda \\Xi \\Pi \\Phi \\Psi"
+            val result = convertLatexToUnicode(input)
+            assertEquals("Γ Θ Λ Ξ Π Φ Ψ", result)
+        }
     }
 }

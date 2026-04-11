@@ -146,15 +146,19 @@ class ChatViewModel @Inject constructor(
         val backend = inferenceEngine.activeBackend.value?.name ?: "CPU"
         val model = activeModel?.displayName ?: "Gemma 4"
         val device = "${Build.MANUFACTURER} ${Build.MODEL}"
+        // Fetch core memories before buildString so we can update access stats (suspend call).
+        val coreMemories = runCatching {
+            memoryRepository.observeCoreMemories().first().take(10)
+        }.getOrDefault(emptyList())
+        // Record access so the Memory screen reflects real usage counts.
+        if (coreMemories.isNotEmpty()) {
+            runCatching { memoryRepository.recordCoreMemoryAccess(coreMemories.map { it.id }) }
+        }
         return buildString {
             append(DEFAULT_SYSTEM_PROMPT)
             append("\n\n[Current date and time]\n$dateTime")
             append("\n\n[Runtime]\nModel: $model | Backend: $backend | Device: $device")
             if (profile.isNotBlank()) append("\n\n[User Profile]\n$profile")
-            // Inject top core memories into system prompt
-            val coreMemories = runCatching {
-                memoryRepository.observeCoreMemories().first().take(10)
-            }.getOrDefault(emptyList())
             if (coreMemories.isNotEmpty()) {
                 append("\n\n[Core Memories]\n")
                 coreMemories.forEach { append("- ${it.content}\n") }
