@@ -75,7 +75,7 @@ If you're setting up without a host machine (e.g. directly on the test device):
 |------|------|----------|--------|
 | `gemma-4-E2B-it.litertlm` | ~2.4 GB | ✅ | [litert-community/gemma-4-E2B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm) |
 | `gemma-4-E4B-it.litertlm` | ~3.4 GB | No (FLAGSHIP tier) | [litert-community/gemma-4-E4B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm) |
-| `mobile_actions_q8_ekv1024.litertlm` | ~289 MB | No (Phase 3) | [litert-community/functiongemma-270m-ft-mobile-actions](https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions) ⚠️ gated |
+| `mobile_actions_q8_ekv1024.litertlm` | ~289 MB | No (Phase 2) | [litert-community/functiongemma-270m-ft-mobile-actions](https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions) ⚠️ gated |
 
 ### EmbeddingGemma models (`.tflite`) — gated on HuggingFace
 
@@ -85,7 +85,6 @@ Push manually via ADB; not auto-downloaded.
 |------|---------|--------|
 | `embeddinggemma-300M_seq512_mixed-precision.tflite` | **All devices** (GPU, including Pixel 10) | [litert-community/embeddinggemma-300m](https://huggingface.co/litert-community/embeddinggemma-300m) |
 | `embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite` | Samsung S23 Ultra (SM8550, Snapdragon 8 Gen 2) | same repo |
-| `embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8650.tflite` | Samsung S24 Ultra (SM8650, Snapdragon 8 Gen 3) | same repo |
 | `sentencepiece.model` | All devices (tokeniser, required with any EmbeddingGemma) | same repo |
 
 > **Which EmbeddingGemma file do I need?**
