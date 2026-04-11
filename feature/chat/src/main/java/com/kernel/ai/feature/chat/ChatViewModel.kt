@@ -546,7 +546,11 @@ class ChatViewModel @Inject constructor(
         try {
             // generateOnce() reuses the existing conversation session (LiteRT only supports
             // one session at a time) and acquires generationMutex so it waits if engine is busy.
+            // After completion the title prompt + response sit in the KV cache. Mark
+            // needsHistoryReplay so the next sendMessage() resets the session and re-injects
+            // clean history, preventing the title instructions from leaking into the chat (#172).
             val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = null)
+            needsHistoryReplay = true
             Log.d("KernelAI", "Raw title output: \"$raw\"")
             val title = raw
                 .trim()
