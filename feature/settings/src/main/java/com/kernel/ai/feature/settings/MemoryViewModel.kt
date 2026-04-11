@@ -2,13 +2,17 @@ package com.kernel.ai.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
+import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
+import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -17,16 +21,20 @@ import javax.inject.Inject
 @HiltViewModel
 class MemoryViewModel @Inject constructor(
     private val memoryRepository: MemoryRepository,
+    private val conversationRepository: ConversationRepository,
 ) : ViewModel() {
 
     data class MemoryUiState(
         val coreMemories: List<CoreMemoryEntity> = emptyList(),
         val episodicCount: Int = 0,
+        val episodicMemories: List<EpisodicMemoryEntity> = emptyList(),
+        val conversationTitles: Map<String, String?> = emptyMap(),
         val isAddDialogOpen: Boolean = false,
         val addDialogText: String = "",
         val showClearConfirmation: Boolean = false,
         val isSubmitting: Boolean = false,
         val pendingDeleteId: String? = null,
+        val pendingDeleteEpisodicId: String? = null,
     )
 
     private val _dialogState = MutableStateFlow(
@@ -34,26 +42,40 @@ class MemoryViewModel @Inject constructor(
     )
     private val _isSubmitting = MutableStateFlow(false)
     private val _pendingDeleteId = MutableStateFlow<String?>(null)
+    private val _pendingDeleteEpisodicId = MutableStateFlow<String?>(null)
+
+    private val conversationTitlesFlow = conversationRepository.observeConversations()
+        .map { list: List<ConversationEntity> -> list.associate { it.id to it.title } }
 
     val uiState: StateFlow<MemoryUiState> = combine(
         combine(
-            memoryRepository.observeCoreMemories(),
-            memoryRepository.observeEpisodicCount(),
-            _dialogState,
-            _isSubmitting,
-        ) { coreMemories, episodicCount, (isAddDialogOpen, addDialogText, showClearConfirmation), isSubmitting ->
-            MemoryUiState(
-                coreMemories = coreMemories,
-                episodicCount = episodicCount,
-                isAddDialogOpen = isAddDialogOpen,
-                addDialogText = addDialogText,
-                showClearConfirmation = showClearConfirmation,
-                isSubmitting = isSubmitting,
+            combine(
+                memoryRepository.observeCoreMemories(),
+                memoryRepository.observeEpisodicMemories(),
+                _dialogState,
+                _isSubmitting,
+            ) { coreMemories, episodicMemories, (isAddDialogOpen, addDialogText, showClearConfirmation), isSubmitting ->
+                MemoryUiState(
+                    coreMemories = coreMemories,
+                    episodicCount = episodicMemories.size,
+                    episodicMemories = episodicMemories,
+                    isAddDialogOpen = isAddDialogOpen,
+                    addDialogText = addDialogText,
+                    showClearConfirmation = showClearConfirmation,
+                    isSubmitting = isSubmitting,
+                )
+            },
+            _pendingDeleteId,
+            _pendingDeleteEpisodicId,
+        ) { base, pendingDeleteId, pendingDeleteEpisodicId ->
+            base.copy(
+                pendingDeleteId = pendingDeleteId,
+                pendingDeleteEpisodicId = pendingDeleteEpisodicId,
             )
         },
-        _pendingDeleteId,
-    ) { base, pendingDeleteId ->
-        base.copy(pendingDeleteId = pendingDeleteId)
+        conversationTitlesFlow,
+    ) { base, conversationTitles ->
+        base.copy(conversationTitles = conversationTitles)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -101,6 +123,27 @@ class MemoryViewModel @Inject constructor(
         _pendingDeleteId.value = null
         viewModelScope.launch { memoryRepository.deleteCoreMemory(id) }
     }
+
+    fun requestDeleteEpisodicMemory(id: String) {
+        _pendingDeleteEpisodicId.value = id
+    }
+
+    fun dismissDeleteEpisodicConfirmation() {
+        _pendingDeleteEpisodicId.value = null
+    }
+
+    fun deleteEpisodicMemory(id: String) {
+        viewModelScope.launch {
+            try {
+                memoryRepository.deleteEpisodicMemory(id)
+            } finally {
+                _pendingDeleteEpisodicId.value = null
+            }
+        }
+    }
+
+    suspend fun getConversationTitle(conversationId: String): String? =
+        conversationRepository.getConversation(conversationId)?.title
 
     fun showClearEpisodicConfirmation() {
         _dialogState.update { it.copy(third = true) }

@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -43,4 +44,20 @@ interface EpisodicMemoryDao {
         )
     """)
     suspend fun deleteOldestBeyondLimit(count: Int)
+
+    @Query("SELECT * FROM episodic_memories ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<EpisodicMemoryEntity>>
+
+    @Query("DELETE FROM episodic_memories WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("SELECT rowId FROM episodic_memories WHERE id = :id LIMIT 1")
+    suspend fun getRowIdById(id: String): Long?
+
+    @Transaction
+    suspend fun getRowIdAndDelete(id: String): Long? {
+        val rowId = getRowIdById(id)
+        if (rowId != null) deleteById(id)
+        return rowId
+    }
 }
