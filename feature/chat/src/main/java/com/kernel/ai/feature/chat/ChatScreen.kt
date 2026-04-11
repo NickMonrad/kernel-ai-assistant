@@ -73,6 +73,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.Dispatchers
@@ -168,6 +169,22 @@ private fun ChatContent(
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) {
             listState.animateScrollToItem(state.messages.lastIndex)
+        }
+    }
+
+    // During streaming, keep scrolling to the bottom as content grows — but only if the
+    // user hasn't manually scrolled up (i.e. the last item is still visible or close to it).
+    LaunchedEffect(state.isGenerating) {
+        if (state.isGenerating) {
+            snapshotFlow { state.messages.lastOrNull()?.content?.length ?: 0 }
+                .collect {
+                    if (state.messages.isNotEmpty()) {
+                        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+                        if (state.messages.lastIndex - lastVisible <= 2) {
+                            listState.scrollToItem(state.messages.lastIndex)
+                        }
+                    }
+                }
         }
     }
 
