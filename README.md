@@ -42,8 +42,12 @@ The app operates on a **Brain–Memory–Action** triad:
 ### Coming Soon
 - 🗣️ **Voice + text input** — tap-to-talk with auto-stop *(Phase 3)*
 - 🔧 **Native skills** — Flashlight, DND, Bluetooth, Alarms, SMS, Email, Media Control, Notes *(Phase 3)*
-- 🧩 **Wasm skill store** — community-extensible plugins (Rust → Wasm) with sandboxed execution *(Phase 4)*
-- 🏠 **Home Assistant** — smart home control via Wasm skill *(Phase 4)*
+- 💭 **Episodic memory distillation** — Gemma-4 summarises each conversation into long-term memories *(Phase 3)*
+- 🌙 **Dreaming Engine** — overnight WorkManager consolidation (Light Sleep → REM → Deep Sleep) *(Phase 4)*
+- ⚡ **Semantic cache** — instant responses for repeated knowledge queries, bypassing main LLM *(Phase 4)*
+- 🪪 **Self-healing identity** — structured user profile, LLM-managed via Dreaming cycle *(Phase 4)*
+- 🧩 **Wasm skill store** — community-extensible plugins (Rust → Wasm) with sandboxed execution *(Phase 5)*
+- 🏠 **Home Assistant** — smart home control via Wasm skill *(Phase 5)*
 
 ## Roadmap
 
@@ -51,9 +55,10 @@ The app operates on a **Brain–Memory–Action** triad:
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM integration + GPU/NPU acceleration + Chat UI | ✅ |
 | 2 | sqlite-vec + EmbeddingGemma for local RAG + memory, UI polish, model selection | 🔄 |
-| 3 | FunctionGemma intent router + Native Skills + Voice I/O + Brand refresh (Jandal AI) | ⬜ |
-| 4 | Chicory Wasm runtime + GitHub Skill Store | ⬜ |
-| 5 | 8GB device optimization (dynamic weight loading) | ⬜ |
+| 3 | FunctionGemma intent router + Native Skills + Voice I/O + episodic distillation + Brand refresh (Jandal AI) | ⬜ |
+| 4 | Dreaming Engine (WorkManager overnight cycle) + Semantic Cache + Self-Healing Identity System | ⬜ |
+| 5 | Chicory Wasm runtime + GitHub Skill Store | ⬜ |
+| 6 | 8GB device optimization (dynamic weight loading) | ⬜ |
 
 ## Getting Started
 
