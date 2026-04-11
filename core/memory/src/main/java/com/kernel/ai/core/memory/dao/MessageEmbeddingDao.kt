@@ -21,6 +21,11 @@ interface MessageEmbeddingDao {
     @Query("SELECT * FROM message_embeddings WHERE rowId IN (:rowIds)")
     suspend fun getByRowIds(rowIds: List<Long>): List<MessageEmbeddingEntity>
 
+    /** Fetch records for a list of rowIds scoped to a specific conversation (pushes
+     *  conversationId predicate into SQL to prevent cross-conversation topK starvation). */
+    @Query("SELECT * FROM message_embeddings WHERE rowId IN (:rowIds) AND conversationId = :conversationId")
+    suspend fun getByRowIdsForConversation(rowIds: List<Long>, conversationId: String): List<MessageEmbeddingEntity>
+
     /** Check whether a message has already been indexed. */
     @Query("SELECT rowId FROM message_embeddings WHERE messageId = :messageId LIMIT 1")
     suspend fun getRowIdForMessage(messageId: String): Long?

@@ -107,14 +107,12 @@ class MemoryRepositoryImpl @Inject constructor(
                         )
                     )
                 }
-                // Update access stats via @Update so Room's InvalidationTracker is
-                // guaranteed to fire and observeAll() re-emits to the Memory screen UI.
+                // Update access stats atomically via @Transaction wrapper so Room's
+                // InvalidationTracker fires on commit and observeAll() re-emits.
                 runCatching {
                     val now = System.currentTimeMillis()
-                    coreDao.updateAllEntities(
-                        entities.map { it.copy(accessCount = it.accessCount + 1, lastAccessedAt = now) }
-                    )
-                }.onFailure { Log.w(TAG, "updateAllEntities failed: ${it.message}") }
+                    coreDao.incrementAccessStatsAndNotify(entities.map { it.id }, now)
+                }.onFailure { Log.w(TAG, "incrementAccessStatsAndNotify failed: ${it.message}") }
             }
         }.onFailure { Log.w(TAG, "Core memory search failed: ${it.message}") }
 

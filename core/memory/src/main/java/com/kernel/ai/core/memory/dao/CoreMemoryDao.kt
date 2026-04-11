@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import kotlinx.coroutines.flow.Flow
@@ -53,4 +54,15 @@ interface CoreMemoryDao {
      */
     @Update
     suspend fun updateAllEntities(entities: List<CoreMemoryEntity>)
+
+    /**
+     * Atomically increment accessCount and update lastAccessedAt for [ids] in a single
+     * transaction. Wrapping [updateAccessStatsBatch] in @Transaction guarantees both:
+     * 1. Atomicity — no concurrent read-modify-write can interleave between rows.
+     * 2. InvalidationTracker notification on commit — [observeAll] Flow re-emits.
+     */
+    @Transaction
+    suspend fun incrementAccessStatsAndNotify(ids: List<String>, lastAccessedAt: Long) {
+        updateAccessStatsBatch(ids, lastAccessedAt)
+    }
 }

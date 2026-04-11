@@ -130,9 +130,7 @@ class RagRepository @Inject constructor(
                     .map { it.rowId }
 
                 if (candidates.isNotEmpty()) {
-                    val embeddingEntities = embeddingDao.getByRowIds(candidates)
-                    val filteredEntities = embeddingEntities
-                        .filter { it.conversationId == conversationId }
+                    val filteredEntities = embeddingDao.getByRowIdsForConversation(candidates, conversationId)
                         .filter { it.messageId !in excludeMessageIds }
                         .sortedBy { candidates.indexOf(it.rowId) }
                         .take(topK)

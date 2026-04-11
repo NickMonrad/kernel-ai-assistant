@@ -113,7 +113,7 @@ class RagRepositoryTest {
             timestamp = System.currentTimeMillis(),
         )
         every { vectorStore.search(any(), any(), any()) } returns listOf(VectorSearchResult(rowId = 1L, distance = 0.1f))
-        coEvery { embeddingDao.getByRowIds(any()) } returns listOf(embeddingEntity)
+        coEvery { embeddingDao.getByRowIdsForConversation(any(), any()) } returns listOf(embeddingEntity)
         coEvery { messageDao.getByConversation(any()) } returns listOf(messageEntity)
 
         val result = ragRepository.getRelevantContext("tell me about preferences", conversationId = "conv-1")
@@ -143,6 +143,42 @@ class RagRepositoryTest {
     }
 
     @Test
+    fun `getRelevantContext excludes messages from other conversations`() = runTest {
+        val sharedVector = floatArrayOf(0.7f, 0.3f, 0.0f)
+
+        // Prime tableCreated so the episodic retrieval path is active
+        primeEpisodicTable(sharedVector)
+
+        coEvery { embeddingEngine.embed(any()) } returns sharedVector
+        coEvery { memoryRepository.searchMemories(any(), any()) } returns emptyList()
+
+        // Vector search returns two candidates — one from each conversation
+        every { vectorStore.search(any(), any(), any()) } returns listOf(
+            VectorSearchResult(rowId = 10L, distance = 0.05f),
+            VectorSearchResult(rowId = 20L, distance = 0.10f),
+        )
+
+        // SQL-level filter: only conv-1 entity is returned when queried for conv-1
+        val conv1Entity = MessageEmbeddingEntity(rowId = 10L, messageId = "msg-conv1", conversationId = "conv-1")
+        coEvery { embeddingDao.getByRowIdsForConversation(any(), any()) } returns listOf(conv1Entity)
+
+        val conv1Message = MessageEntity(
+            id = "msg-conv1",
+            conversationId = "conv-1",
+            role = "user",
+            content = "This message belongs to conv-1",
+            thinkingText = null,
+            timestamp = System.currentTimeMillis(),
+        )
+        coEvery { messageDao.getByConversation("conv-1") } returns listOf(conv1Message)
+
+        val result = ragRepository.getRelevantContext("some query", conversationId = "conv-1")
+
+        assertTrue(result.contains("This message belongs to conv-1"), "conv-1 content must appear in results")
+        assertTrue(!result.contains("conv-2"), "conv-2 content must be absent from results scoped to conv-1")
+    }
+
+    @Test
     fun `getRelevantContext — core memory failure is swallowed gracefully and returns episodic only`() = runTest {
         val sharedVector = floatArrayOf(0.8f, 0.2f, 0.0f)
 
@@ -165,7 +201,7 @@ class RagRepositoryTest {
             timestamp = System.currentTimeMillis(),
         )
         every { vectorStore.search(any(), any(), any()) } returns listOf(VectorSearchResult(rowId = 2L, distance = 0.15f))
-        coEvery { embeddingDao.getByRowIds(any()) } returns listOf(embeddingEntity)
+        coEvery { embeddingDao.getByRowIdsForConversation(any(), any()) } returns listOf(embeddingEntity)
         coEvery { messageDao.getByConversation(any()) } returns listOf(messageEntity)
 
         // Must not throw
