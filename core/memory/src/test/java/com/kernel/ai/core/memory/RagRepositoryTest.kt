@@ -82,9 +82,10 @@ class RagRepositoryTest {
 
         val result = ragRepository.getRelevantContext("user preferences", conversationId = "test-conv")
 
-        assertTrue(result.contains("[Core Memories]"), "Output must contain [Core Memories] section")
+        assertTrue(result.contains("[Core Memories"), "Output must contain [Core Memories] section")
         assertTrue(result.contains("User prefers dark mode"), "Output must include the core memory content")
-        assertTrue(!result.contains("[Episodic Memories]"), "Output must NOT contain [Episodic Memories] when table not initialised")
+        assertTrue(!result.contains("[Episodic Memories"), "Output must NOT contain [Episodic Memories] when table not initialised")
+        assertTrue(result.startsWith("The following context has been retrieved from memory."), "Output must start with framing instruction")
     }
 
     @Test
@@ -118,11 +119,15 @@ class RagRepositoryTest {
 
         val result = ragRepository.getRelevantContext("tell me about preferences", conversationId = "conv-1")
 
-        assertTrue(result.contains("[Core Memories]"), "Output must contain [Core Memories]")
-        assertTrue(result.contains("[Episodic Memories]"), "Output must contain [Episodic Memories]")
+        assertTrue(result.startsWith("The following context has been retrieved from memory."), "Output must start with framing instruction")
+        assertTrue(result.contains("[Core Memories"), "Output must contain [Core Memories]")
+        assertTrue(result.contains("[Episodic Memories"), "Output must contain [Episodic Memories]")
+        assertTrue(result.contains("past conversation"), "Episodic header must clarify source as past conversation")
 
-        val coreIndex = result.indexOf("[Core Memories]")
-        val episodicIndex = result.indexOf("[Episodic Memories]")
+        val framingIndex = result.indexOf("The following context")
+        val coreIndex = result.indexOf("[Core Memories")
+        val episodicIndex = result.indexOf("[Episodic Memories")
+        assertTrue(framingIndex < coreIndex, "Framing must appear before [Core Memories]")
         assertTrue(coreIndex < episodicIndex, "[Core Memories] must appear before [Episodic Memories]")
     }
 
@@ -207,7 +212,7 @@ class RagRepositoryTest {
         // Must not throw
         val result = ragRepository.getRelevantContext("what did the user say earlier", conversationId = "conv-2")
 
-        assertTrue(!result.contains("[Core Memories]"), "Failed core search must not produce a [Core Memories] section")
-        assertTrue(result.contains("[Episodic Memories]"), "Episodic content must still appear despite core failure")
+        assertTrue(!result.contains("[Core Memories"), "Failed core search must not produce a [Core Memories] section")
+        assertTrue(result.contains("[Episodic Memories"), "Episodic content must still appear despite core failure")
     }
 }
