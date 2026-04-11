@@ -632,9 +632,14 @@ private fun parseBlocks(text: String): List<MarkdownBlock> {
                 }
                 val indentedMatch = INDENTED_BULLET_REGEX.matchEntire(l)
                 if (indentedMatch != null) {
-                    // Normalise tabs → 4 spaces, then each 2 spaces of indent = 1 depth level
-                    val spaces = indentedMatch.groupValues[1].replace("\t", "    ").length
-                    val depth  = (spaces / 2).coerceAtLeast(1)
+                    val rawIndent = indentedMatch.groupValues[1]
+                    val depth = if (rawIndent.contains('\t')) {
+                        // Count tabs as indent levels
+                        rawIndent.count { it == '\t' }.coerceAtLeast(1)
+                    } else {
+                        // Space-only: every 2 spaces = 1 level
+                        (rawIndent.length / 2).coerceAtLeast(1)
+                    }
                     items.add(BulletItem(depth, indentedMatch.groupValues[2]))
                     i++
                     continue
@@ -1072,46 +1077,41 @@ private fun MarkdownTable(
     baseStyle: TextStyle,
     modifier: Modifier = Modifier,
 ) {
-    val outlineColor   = MaterialTheme.colorScheme.outline
-    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val borderColor = MaterialTheme.colorScheme.outlineVariant
+    val headerBg    = MaterialTheme.colorScheme.surfaceVariant
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-    ) {
-        // Column-major layout: each logical column is a Compose Column so all cells
-        // in that column share the same parent and are naturally sized to the widest
-        // sibling.  This guarantees header and body cells in the same column are always
-        // the same width — fixing the misalignment caused by per-row independent sizing.
+    Column(modifier.horizontalScroll(rememberScrollState()).border(1.dp, borderColor)) {
+        // Header row
         Row(
-            modifier = Modifier
-                .border(1.dp, outlineColor, RoundedCornerShape(8.dp))
-                .clip(RoundedCornerShape(8.dp)),
+            Modifier
+                .background(headerBg)
+                .height(IntrinsicSize.Min)
         ) {
-            headers.indices.forEach { colIdx ->
-                Column {
-                    // Header cell
+            headers.forEach { header ->
+                Text(
+                    text     = header,
+                    style    = baseStyle.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .border(0.5.dp, borderColor)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+        // Data rows
+        rows.forEach { row ->
+            Row(Modifier.height(IntrinsicSize.Min)) {
+                headers.indices.forEach { idx ->
                     Text(
-                        text     = headers.getOrElse(colIdx) { "" },
-                        style    = baseStyle.copy(fontWeight = FontWeight.Bold),
+                        text     = row.getOrElse(idx) { "" },
+                        style    = baseStyle,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .background(surfaceVariant)
-                            .border(0.5.dp, outlineColor)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .border(0.5.dp, borderColor)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                     )
-                    // Data cells — same padding as header for consistent column widths
-                    rows.forEach { row ->
-                        Text(
-                            text     = row.getOrElse(colIdx) { "" },
-                            style    = baseStyle,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(0.5.dp, outlineColor)
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
-                    }
                 }
             }
         }
