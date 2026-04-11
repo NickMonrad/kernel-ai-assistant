@@ -62,20 +62,19 @@ class MemoryViewModel @Inject constructor(
     private val _selectedCoreIds = MutableStateFlow<Set<String>>(emptySet())
     private val _showBulkDeleteConfirmation = MutableStateFlow(false)
 
-    // #164 — embedding stats
-    private val _embeddingStats = MutableStateFlow(MessageEmbeddingStats())
-
-    init {
-        refreshEmbeddingStats()
-    }
-
-    private fun refreshEmbeddingStats() {
-        viewModelScope.launch {
-            val messageCount = embeddingDao.count()
-            val conversationCount = embeddingDao.countDistinctConversations()
-            _embeddingStats.value = MessageEmbeddingStats(messageCount, conversationCount)
+    // #164 — embedding stats (reactive: Room re-emits on every write to message_embeddings)
+    val embeddingStats: StateFlow<MessageEmbeddingStats> =
+        combine(
+            embeddingDao.observeCount(),
+            embeddingDao.observeDistinctConversationCount(),
+        ) { count, conversations ->
+            MessageEmbeddingStats(messageCount = count, conversationCount = conversations)
         }
-    }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = MessageEmbeddingStats(),
+        )
 
     private val conversationTitlesFlow = conversationRepository.observeConversations()
         .map { list: List<ConversationEntity> -> list.associate { it.id to it.title } }
@@ -110,7 +109,7 @@ class MemoryViewModel @Inject constructor(
     ) { base, conversationTitles ->
         base.copy(conversationTitles = conversationTitles)
     }.combine(
-        combine(_isInSelectionMode, _selectedCoreIds, _showBulkDeleteConfirmation, _embeddingStats)
+        combine(_isInSelectionMode, _selectedCoreIds, _showBulkDeleteConfirmation, embeddingStats)
         { inSelection, selectedIds, showBulkConfirm, stats ->
             Triple(inSelection to selectedIds, showBulkConfirm, stats)
         }
@@ -221,6 +220,9 @@ class MemoryViewModel @Inject constructor(
     fun toggleSelection(id: String) {
         _selectedCoreIds.update { current ->
             if (id in current) current - id else current + id
+        }
+        if (_selectedCoreIds.value.isEmpty()) {
+            _isInSelectionMode.value = false
         }
     }
 
