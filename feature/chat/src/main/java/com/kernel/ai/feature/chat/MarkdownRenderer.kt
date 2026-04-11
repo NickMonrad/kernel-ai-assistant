@@ -58,11 +58,15 @@ private const val TAG = "KernelAI"
 
 // ── Sealed block types ─────────────────────────────────────────────────────────
 
+/** A single item in a bullet list, carrying its nesting [depth] (0 = top level). */
+private data class BulletItem(val depth: Int, val text: String)
+
 private sealed class MarkdownBlock {
     data class Paragraph(val text: String) : MarkdownBlock()
     data class Header(val level: Int, val text: String) : MarkdownBlock()
     data class Blockquote(val text: String) : MarkdownBlock()
-    data class BulletList(val items: List<String>) : MarkdownBlock()
+    /** Items are [BulletItem] values; [depth] drives indentation in the Composable. */
+    data class BulletList(val items: List<BulletItem>) : MarkdownBlock()
     data class OrderedList(val items: List<String>) : MarkdownBlock()
     data class FencedCode(val language: String, val code: String) : MarkdownBlock()
     data class Table(val headers: List<String>, val rows: List<List<String>>) : MarkdownBlock()
@@ -539,9 +543,11 @@ private fun convertLatexLine(line: String): String {
 
 // ── Block-level regex patterns ─────────────────────────────────────────────────
 
-private val HEADER_REGEX       = Regex("^(#{1,6})\\s+(.*)")
-private val BULLET_REGEX       = Regex("^[-*+]\\s+(.*)")
-private val ORDERED_REGEX      = Regex("^\\d+\\.\\s+(.*)")
+private val HEADER_REGEX          = Regex("^(#{1,6})\\s+(.*)")
+private val BULLET_REGEX          = Regex("^[-*+]\\s+(.*)")
+/** Matches indented list items: 1+ leading spaces/tabs, then a list marker, then content. */
+private val INDENTED_BULLET_REGEX = Regex("^([ \t]+)[-*+][ \t]+(.*)")
+private val ORDERED_REGEX         = Regex("^\\d+\\.\\s+(.*)")
 private val TABLE_ROW_REGEX    = Regex("^\\|(.+)\\|\\s*\$")
 private val TABLE_SEP_REGEX    = Regex("^\\|[\\s|:-]+\\|\\s*\$")
 private val FENCED_START_REGEX = Regex("^```(\\w*)\\s*\$")
@@ -614,11 +620,26 @@ private fun parseBlocks(text: String): List<MarkdownBlock> {
         }
 
         // ── Bullet list ────────────────────────────────────────────────────────
-        if (BULLET_REGEX.matches(line)) {
-            val items = mutableListOf<String>()
-            while (i < lines.size && BULLET_REGEX.matches(lines[i])) {
-                items.add(BULLET_REGEX.matchEntire(lines[i])!!.groupValues[1])
-                i++
+        if (BULLET_REGEX.matches(line) || INDENTED_BULLET_REGEX.matches(line)) {
+            val items = mutableListOf<BulletItem>()
+            while (i < lines.size) {
+                val l = lines[i]
+                val topMatch = BULLET_REGEX.matchEntire(l)
+                if (topMatch != null) {
+                    items.add(BulletItem(0, topMatch.groupValues[1]))
+                    i++
+                    continue
+                }
+                val indentedMatch = INDENTED_BULLET_REGEX.matchEntire(l)
+                if (indentedMatch != null) {
+                    // Normalise tabs → 4 spaces, then each 2 spaces of indent = 1 depth level
+                    val spaces = indentedMatch.groupValues[1].replace("\t", "    ").length
+                    val depth  = (spaces / 2).coerceAtLeast(1)
+                    items.add(BulletItem(depth, indentedMatch.groupValues[2]))
+                    i++
+                    continue
+                }
+                break
             }
             blocks.add(MarkdownBlock.BulletList(items))
             continue
@@ -666,6 +687,7 @@ private fun parseBlocks(text: String): List<MarkdownBlock> {
             if (HEADER_REGEX.matches(pl)) break
             if (pl.startsWith("> ") || pl == ">") break
             if (BULLET_REGEX.matches(pl)) break
+            if (INDENTED_BULLET_REGEX.matches(pl)) break
             if (ORDERED_REGEX.matches(pl)) break
             if (FENCED_START_REGEX.matches(pl)) break
             if (TABLE_ROW_REGEX.matches(pl) &&
@@ -883,14 +905,17 @@ private fun BlockContent(
         is MarkdownBlock.BulletList -> {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 block.items.forEach { item ->
+                    // • for depth 0 (top-level), ◦ for all sub-levels
+                    val bullet    = if (item.depth == 0) "•" else "◦"
                     val annotated = remember(item, surfaceVariant, linkColor) {
-                        renderInlineSpans("• $item", surfaceVariant, linkColor)
+                        renderInlineSpans("$bullet ${item.text}", surfaceVariant, linkColor)
                     }
                     LinkableText(
-                        text = annotated,
-                        style = baseStyle,
+                        text      = annotated,
+                        style     = baseStyle,
                         uriHandler = uriHandler,
                         onLongPress = onLongPress,
+                        modifier  = Modifier.padding(start = 16.dp * item.depth),
                     )
                 }
             }
@@ -1055,31 +1080,34 @@ private fun MarkdownTable(
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
     ) {
-        Column(
+        // Column-major layout: each logical column is a Compose Column so all cells
+        // in that column share the same parent and are naturally sized to the widest
+        // sibling.  This guarantees header and body cells in the same column are always
+        // the same width — fixing the misalignment caused by per-row independent sizing.
+        Row(
             modifier = Modifier
                 .border(1.dp, outlineColor, RoundedCornerShape(8.dp))
                 .clip(RoundedCornerShape(8.dp)),
         ) {
-            // Header row
-            Row(modifier = Modifier.background(surfaceVariant)) {
-                headers.forEach { header ->
+            headers.indices.forEach { colIdx ->
+                Column {
+                    // Header cell
                     Text(
-                        text     = header,
+                        text     = headers.getOrElse(colIdx) { "" },
                         style    = baseStyle.copy(fontWeight = FontWeight.Bold),
                         modifier = Modifier
+                            .fillMaxWidth()
+                            .background(surfaceVariant)
                             .border(0.5.dp, outlineColor)
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                     )
-                }
-            }
-            // Data rows
-            rows.forEach { row ->
-                Row {
-                    headers.indices.forEach { idx ->
+                    // Data cells — same padding as header for consistent column widths
+                    rows.forEach { row ->
                         Text(
-                            text     = row.getOrElse(idx) { "" },
+                            text     = row.getOrElse(colIdx) { "" },
                             style    = baseStyle,
                             modifier = Modifier
+                                .fillMaxWidth()
                                 .border(0.5.dp, outlineColor)
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                         )
@@ -1214,6 +1242,41 @@ private fun MarkdownLatexPreview() {
                 Arrows: A ${'$'}\rightarrow${'$'} B ${'$'}\Rightarrow${'$'} C
 
                 Superscript: x^2 + y^2 = z^2
+            """.trimIndent(),
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Markdown — nested bullets (#131)")
+@Composable
+private fun MarkdownNestedBulletsPreview() {
+    KernelAITheme {
+        MarkdownContent(
+            modifier = Modifier.padding(16.dp),
+            text = """
+                - Top level one
+                  * Nested sub-item A
+                  * Nested sub-item B
+                - Top level two
+                    * Deeply nested item
+                - Top level three
+            """.trimIndent(),
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Markdown — table alignment (#130)")
+@Composable
+private fun MarkdownTableAlignmentPreview() {
+    KernelAITheme {
+        MarkdownContent(
+            modifier = Modifier.padding(16.dp),
+            text = """
+                | Framework       | Language   | Stars |
+                |-----------------|------------|-------|
+                | Jetpack Compose | Kotlin     | 5k    |
+                | SwiftUI         | Swift      | 12k   |
+                | Flutter         | Dart       | 160k  |
             """.trimIndent(),
         )
     }
