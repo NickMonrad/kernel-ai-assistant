@@ -30,13 +30,16 @@ The app operates on a **Brain–Memory–Action** triad:
 
 ### Delivered
 - 🧠 **On-device reasoning** — Gemma-4 running on GPU/NPU via LiteRT, no internet required
-- 💾 **Persistent memory** — RAG-powered recall of personal facts and conversation history
+- 💾 **Persistent memory** — RAG-powered recall across conversations using sqlite-vec semantic search
 - 🔒 **100% private** — No cloud APIs, no telemetry, all data stays on device
-- 💬 **Full markdown rendering** — headings, bold, italic, code blocks, links, lists
+- 💬 **Full markdown rendering** — headings, bold, italic, inline code, code blocks, tables, links, lists
 - 🎯 **Smart chat titles** — auto-generated from conversation content
-- ⚙️ **Model selection** — choose between E-2B and E-4B in Settings
+- 🗂️ **Multi-conversation** — create, delete, rename, and search conversations by title
+- 🧠 **Core memories** — add and manage permanent facts the assistant always recalls
+- 📂 **Memory Management screen** — view, add and delete core memories and episodic memory browser
+- ⚙️ **Model selection** — switch between E-2B and E-4B in Settings
 - 🎬 **Fun loading screens** — 13 themed animated narratives
-- 🖼️ **Context window management** — structured prompt assembly with KV cache management
+- 🖼️ **Context window management** — structured prompt assembly with KV cache management and recursive summarisation
 - 📊 **Runtime info** — shows active model, backend (GPU/NPU/CPU), and device tier in chat
 
 ### Coming Soon
