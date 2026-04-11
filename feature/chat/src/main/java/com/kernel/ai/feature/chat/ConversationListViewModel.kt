@@ -25,13 +25,16 @@ class ConversationListViewModel @Inject constructor(
     val conversations: StateFlow<List<ConversationEntity>> = _searchQuery
         .flatMapLatest { query ->
             if (query.isBlank()) repository.observeConversations()
-            else repository.searchByTitle(query)
+            else repository.searchByTitle(query.escapeLikeWildcards())
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun onSearchQueryChanged(query: String) { _searchQuery.value = query }
 
     fun clearSearch() { _searchQuery.value = "" }
+
+    private fun String.escapeLikeWildcards(): String =
+        replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     fun deleteConversation(conversation: ConversationEntity) {
         viewModelScope.launch {
