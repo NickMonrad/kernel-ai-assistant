@@ -17,10 +17,13 @@ import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
+import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -45,6 +48,7 @@ class ChatViewModel @Inject constructor(
     private val ragRepository: RagRepository,
     private val userProfileRepository: UserProfileRepository,
     private val memoryRepository: MemoryRepository,
+    private val episodicDistillationUseCase: EpisodicDistillationUseCase,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -56,6 +60,9 @@ class ChatViewModel @Inject constructor(
     private val _conversationTitle = MutableStateFlow<String?>(null)
     private var conversationId: String? = null
     private val contextWindowManager = ContextWindowManager()
+
+    /** Tracks the timestamp of the last episodic distillation for the current conversation. */
+    private var lastDistilledAt: Long? = null
 
     // Tracks the in-progress streaming response so it can be flushed to Room on cancel/clear.
     private var activeStreamingMsgId: String? = null
@@ -177,6 +184,9 @@ class ChatViewModel @Inject constructor(
         val conversation = conversationRepository.getConversation(id)
         val existingTitle = conversation?.title
         _conversationTitle.value = existingTitle
+
+        // Track lastDistilledAt for episodic distillation on close.
+        lastDistilledAt = conversation?.lastDistilledAt
 
         val persisted = conversationRepository.getMessagesOnce(id)
         if (persisted.isNotEmpty()) {
@@ -584,6 +594,15 @@ class ChatViewModel @Inject constructor(
         if (content.isNotBlank() && convId != null) {
             runBlocking {
                 conversationRepository.addMessage(convId, "assistant", content, thinking)
+            }
+        }
+        // Fire-and-forget episodic distillation on conversation close.
+        if (convId != null) {
+            val lastDistilled = lastDistilledAt
+            CoroutineScope(Dispatchers.IO).launch {
+                runCatching {
+                    episodicDistillationUseCase.distil(convId, lastDistilled)
+                }.onFailure { Log.w("KernelAI", "Episodic distillation failed: ${it.message}") }
             }
         }
         viewModelScope.launch { inferenceEngine.shutdown() }

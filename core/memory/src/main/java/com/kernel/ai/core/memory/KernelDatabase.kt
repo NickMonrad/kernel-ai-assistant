@@ -3,6 +3,8 @@ package com.kernel.ai.core.memory
 import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.kernel.ai.core.memory.dao.ConversationDao
 import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
@@ -25,7 +27,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         EpisodicMemoryEntity::class,
         CoreMemoryEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -38,4 +40,15 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun userProfileDao(): UserProfileDao
     abstract fun episodicMemoryDao(): EpisodicMemoryDao
     abstract fun coreMemoryDao(): CoreMemoryDao
+
+    companion object {
+        /** Adds lastDistilledAt to conversations (#165) and lastAccessedAt to episodic_memories (#167). */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversations ADD COLUMN lastDistilledAt INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE episodic_memories ADD COLUMN lastAccessedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE episodic_memories SET lastAccessedAt = createdAt")
+            }
+        }
+    }
 }

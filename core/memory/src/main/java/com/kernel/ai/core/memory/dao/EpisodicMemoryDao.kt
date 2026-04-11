@@ -45,6 +45,22 @@ interface EpisodicMemoryDao {
     """)
     suspend fun deleteOldestBeyondLimit(count: Int)
 
+    @Query("SELECT rowId FROM episodic_memories ORDER BY lastAccessedAt ASC LIMIT :count")
+    suspend fun getOldestRowIdsByLRU(count: Int): List<Long>
+
+    @Query("DELETE FROM episodic_memories WHERE rowId IN (:rowIds)")
+    suspend fun deleteByRowIds(rowIds: List<Long>)
+
+    @Transaction
+    suspend fun getRowIdsAndDeleteByLRU(count: Int): List<Long> {
+        val rowIds = getOldestRowIdsByLRU(count)
+        if (rowIds.isNotEmpty()) deleteByRowIds(rowIds)
+        return rowIds
+    }
+
+    @Query("UPDATE episodic_memories SET lastAccessedAt = :timestamp WHERE id = :id")
+    suspend fun updateLastAccessedAt(id: String, timestamp: Long)
+
     @Query("SELECT * FROM episodic_memories ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<EpisodicMemoryEntity>>
 
