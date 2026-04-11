@@ -60,7 +60,7 @@ class RagRepositoryTest {
     fun `getRelevantContext — returns empty string when embedding engine returns empty array`() = runTest {
         coEvery { embeddingEngine.embed(any()) } returns FloatArray(0)
 
-        val result = ragRepository.getRelevantContext("any query")
+        val result = ragRepository.getRelevantContext("any query", conversationId = "test-conv")
 
         assertEquals("", result)
     }
@@ -80,7 +80,7 @@ class RagRepositoryTest {
             )
         )
 
-        val result = ragRepository.getRelevantContext("user preferences")
+        val result = ragRepository.getRelevantContext("user preferences", conversationId = "test-conv")
 
         assertTrue(result.contains("[Core Memories]"), "Output must contain [Core Memories] section")
         assertTrue(result.contains("User prefers dark mode"), "Output must include the core memory content")
@@ -113,10 +113,10 @@ class RagRepositoryTest {
             timestamp = System.currentTimeMillis(),
         )
         every { vectorStore.search(any(), any(), any()) } returns listOf(VectorSearchResult(rowId = 1L, distance = 0.1f))
-        coEvery { embeddingDao.getByRowIds(any()) } returns listOf(embeddingEntity)
+        coEvery { embeddingDao.getByRowIdsForConversation(any(), any()) } returns listOf(embeddingEntity)
         coEvery { messageDao.getByConversation(any()) } returns listOf(messageEntity)
 
-        val result = ragRepository.getRelevantContext("tell me about preferences")
+        val result = ragRepository.getRelevantContext("tell me about preferences", conversationId = "conv-1")
 
         assertTrue(result.contains("[Core Memories]"), "Output must contain [Core Memories]")
         assertTrue(result.contains("[Episodic Memories]"), "Output must contain [Episodic Memories]")
@@ -137,9 +137,45 @@ class RagRepositoryTest {
         // Note: tableCreated is false so vectorStore.search is NOT called;
         // both sections are empty → result is ""
 
-        val result = ragRepository.getRelevantContext("unknown topic")
+        val result = ragRepository.getRelevantContext("unknown topic", conversationId = "test-conv")
 
         assertEquals("", result, "Should return empty string when both tiers are empty")
+    }
+
+    @Test
+    fun `getRelevantContext excludes messages from other conversations`() = runTest {
+        val sharedVector = floatArrayOf(0.7f, 0.3f, 0.0f)
+
+        // Prime tableCreated so the episodic retrieval path is active
+        primeEpisodicTable(sharedVector)
+
+        coEvery { embeddingEngine.embed(any()) } returns sharedVector
+        coEvery { memoryRepository.searchMemories(any(), any()) } returns emptyList()
+
+        // Vector search returns two candidates — one from each conversation
+        every { vectorStore.search(any(), any(), any()) } returns listOf(
+            VectorSearchResult(rowId = 10L, distance = 0.05f),
+            VectorSearchResult(rowId = 20L, distance = 0.10f),
+        )
+
+        // SQL-level filter: only conv-1 entity is returned when queried for conv-1
+        val conv1Entity = MessageEmbeddingEntity(rowId = 10L, messageId = "msg-conv1", conversationId = "conv-1")
+        coEvery { embeddingDao.getByRowIdsForConversation(any(), any()) } returns listOf(conv1Entity)
+
+        val conv1Message = MessageEntity(
+            id = "msg-conv1",
+            conversationId = "conv-1",
+            role = "user",
+            content = "This message belongs to conv-1",
+            thinkingText = null,
+            timestamp = System.currentTimeMillis(),
+        )
+        coEvery { messageDao.getByConversation("conv-1") } returns listOf(conv1Message)
+
+        val result = ragRepository.getRelevantContext("some query", conversationId = "conv-1")
+
+        assertTrue(result.contains("This message belongs to conv-1"), "conv-1 content must appear in results")
+        assertTrue(!result.contains("conv-2"), "conv-2 content must be absent from results scoped to conv-1")
     }
 
     @Test
@@ -165,11 +201,11 @@ class RagRepositoryTest {
             timestamp = System.currentTimeMillis(),
         )
         every { vectorStore.search(any(), any(), any()) } returns listOf(VectorSearchResult(rowId = 2L, distance = 0.15f))
-        coEvery { embeddingDao.getByRowIds(any()) } returns listOf(embeddingEntity)
+        coEvery { embeddingDao.getByRowIdsForConversation(any(), any()) } returns listOf(embeddingEntity)
         coEvery { messageDao.getByConversation(any()) } returns listOf(messageEntity)
 
         // Must not throw
-        val result = ragRepository.getRelevantContext("what did the user say earlier")
+        val result = ragRepository.getRelevantContext("what did the user say earlier", conversationId = "conv-2")
 
         assertTrue(!result.contains("[Core Memories]"), "Failed core search must not produce a [Core Memories] section")
         assertTrue(result.contains("[Episodic Memories]"), "Episodic content must still appear despite core failure")

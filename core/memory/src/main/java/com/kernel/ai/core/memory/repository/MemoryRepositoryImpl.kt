@@ -107,10 +107,12 @@ class MemoryRepositoryImpl @Inject constructor(
                         )
                     )
                 }
-                // Update access stats independently — failure must not truncate search results
+                // Update access stats atomically via @Transaction wrapper so Room's
+                // InvalidationTracker fires on commit and observeAll() re-emits.
                 runCatching {
-                    coreDao.updateAccessStatsBatch(entities.map { it.id }, System.currentTimeMillis())
-                }.onFailure { Log.w(TAG, "updateAccessStatsBatch failed: ${it.message}") }
+                    val now = System.currentTimeMillis()
+                    coreDao.incrementAccessStatsAndNotify(entities.map { it.id }, now)
+                }.onFailure { Log.w(TAG, "incrementAccessStatsAndNotify failed: ${it.message}") }
             }
         }.onFailure { Log.w(TAG, "Core memory search failed: ${it.message}") }
 
