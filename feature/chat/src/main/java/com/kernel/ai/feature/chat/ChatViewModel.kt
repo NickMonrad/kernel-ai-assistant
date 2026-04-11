@@ -283,6 +283,7 @@ class ChatViewModel @Inject constructor(
             titleIsPlaceholder = false  // signal before any suspension point
             conversationRepository.renameConversation(id, trimmed)
             _conversationTitle.value = trimmed
+            titleIsPlaceholder = false  // user explicitly named this conversation
         }
     }
 
