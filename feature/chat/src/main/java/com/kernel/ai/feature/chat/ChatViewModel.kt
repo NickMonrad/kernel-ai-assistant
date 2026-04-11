@@ -309,9 +309,7 @@ class ChatViewModel @Inject constructor(
             // first ~40 characters of the message so the conversation list never shows a blank
             // title. The smart-title generation (after the 2nd exchange) will overwrite this.
             if (_messages.value.size == 1 && _conversationTitle.value == null && !titleGenerationStarted) {
-                val placeholder = text.trim().replace('\n', ' ').take(40).let {
-                    if (it.length == 40) "$it…" else it
-                }
+                val placeholder = text.trim().replace('\n', ' ').take(40) + "…"
                 conversationRepository.renameConversation(convId, placeholder)
                 _conversationTitle.value = placeholder
                 titleIsPlaceholder = true

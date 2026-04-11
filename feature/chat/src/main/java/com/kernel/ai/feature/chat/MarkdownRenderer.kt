@@ -764,9 +764,14 @@ private fun renderInlineSpans(
         spans.add(InlineSpan(m.range.first, m.range.last + 1, "STRIKETHROUGH", m.groupValues[1]))
     }
 
-    // Inline code: `code`
+    // Inline code: `code` — but if the entire content is a URL, treat as a clickable link.
+    // The model often wraps bare URLs in backticks, which would otherwise render as monospace
+    // code spans rather than tappable links.
     Regex("`([^`]+)`").findAll(text).forEach { m ->
-        spans.add(InlineSpan(m.range.first, m.range.last + 1, "CODE", m.groupValues[1]))
+        val content = m.groupValues[1].trim()
+        val isUrl = (content.startsWith("http://") || content.startsWith("https://") || content.startsWith("www."))
+                && !content.contains(' ')
+        spans.add(InlineSpan(m.range.first, m.range.last + 1, if (isUrl) "URL" else "CODE", content))
     }
 
     // Markdown links: [text](url) — parsed before raw URL detection so the full
