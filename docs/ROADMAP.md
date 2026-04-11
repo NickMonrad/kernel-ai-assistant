@@ -92,6 +92,8 @@ tri-tiered memory architecture inspired by the
 | Fun loading screens ([#13](https://github.com/NickMonrad/kernel-ai-assistant/issues/13)) | ✅ Done | #85 | 13 themed 3-step narratives (Kernel Kitchen, Techno-Wizard, Star Trek, etc.), animated transitions. |
 | Episodic + Core memory tiers | ⬜ Next | — | Split flat index into episodic (volatile) + core (permanent). Separate vec0 tables. |
 | Memory management UI | ⬜ Pending | — | Profile editor, core memories CRUD, episodic browser, stats |
+| Bulk delete core memories ([#110](https://github.com/NickMonrad/kernel-ai-assistant/issues/110)) | ⬜ Pending | — | Multi-select + delete in the core memories list in Memory UI |
+| Fun loading screens v2 ([#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96)) | ⬜ Pending | — | Additional themed narratives and animation improvements beyond the initial 13 |
 | Dreaming Engine | ⬜ Pending | — | WorkManager: Light Sleep → REM Sleep → Deep Sleep consolidation |
 | Self-Healing Identity System ([#47](https://github.com/NickMonrad/kernel-ai-assistant/issues/47)) | ⬜ Pending | — | Replace free-text profile with structured YAML identity (name, role, env, rules, sandbox). Dreaming Engine promotes sandbox → Core Identity or Core Memories overnight. |
 | SM8550 Qualcomm AI Engine delegate ([#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44)) | ⬜ Pending | — | Bundle QNN TFLite delegate so SM8550-optimised EmbeddingGemma model uses Hexagon NPU |
@@ -130,6 +132,7 @@ FunctionGemma routes user intents to native Android actions without loading the 
 | Gemma 4 native tool calling ([#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84)) | ⬜ Pending | Leverage Gemma 4's built-in function calling instead of separate FunctionGemma |
 | Semantic Caching ([#49](https://github.com/NickMonrad/kernel-ai-assistant/issues/49)) | ⬜ Pending | sqlite-vec `semantic_cache` table; bypass Gemma-4 for repeated knowledge queries (0.95 cosine threshold); parallel FunctionGemma intent check + cache lookup; 7-day LRU pruning in Dreaming Light Sleep |
 | GetSystemInfo native skill ([#86](https://github.com/NickMonrad/kernel-ai-assistant/issues/86)) | ⬜ Pending | Runtime device/model/backend info via callable skill, replaces static `[Runtime]` block |
+| SaveMemory native skill ([#103](https://github.com/NickMonrad/kernel-ai-assistant/issues/103)) | ⬜ Pending | Agent-initiated `addEpisodicMemory()` / `addCoreMemory()` — model decides what to remember |
 | Skill registry + JSON schema generation | ⬜ Pending | Uses LiteRT-LM's `@Tool`/`@ToolParam` annotations |
 | Native skills (8+ Kotlin skills) | ⬜ Pending | Flashlight, DND, Bluetooth, Alarms, SMS, Notes, Media |
 | Model cascade orchestrator | ⬜ Pending | FunctionGemma → skill exec OR escalate to Gemma-4 |
@@ -239,6 +242,9 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#78](https://github.com/NickMonrad/kernel-ai-assistant/issues/78) | Copy chat content | Phase 3 | ⬜ Pending |
 | [#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84) | Gemma 4 native tool calling | Phase 3 | ⬜ Pending |
 | [#86](https://github.com/NickMonrad/kernel-ai-assistant/issues/86) | GetSystemInfo native skill | Phase 3 | ⬜ Pending |
+| [#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96) | Fun loading screens v2 | Phase 2 | ⬜ Pending |
+| [#103](https://github.com/NickMonrad/kernel-ai-assistant/issues/103) | SaveMemory native skill | Phase 3 | ⬜ Pending |
+| [#110](https://github.com/NickMonrad/kernel-ai-assistant/issues/110) | Bulk delete core memories | Phase 2 | ⬜ Pending |
 
 ---
 
