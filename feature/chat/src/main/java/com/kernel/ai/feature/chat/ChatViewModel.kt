@@ -543,6 +543,11 @@ class ChatViewModel @Inject constructor(
 
         Log.d("KernelAI", "Generating title for $id with prompt: ${titlePrompt.take(80)}...")
 
+        // Mark the KV cache dirty BEFORE sending the title prompt. generateOnce() writes the
+        // prompt + response into the live LiteRT session. Setting the flag early ensures any
+        // concurrent sendMessage() that slips past the isGenerating guard will still trigger
+        // a history replay and flush the title artefacts before the next generation (#172).
+        needsHistoryReplay = true
         try {
             // generateOnce() reuses the existing conversation session (LiteRT only supports
             // one session at a time) and acquires generationMutex so it waits if engine is busy.
@@ -577,6 +582,8 @@ class ChatViewModel @Inject constructor(
             }
         } catch (e: Exception) {
             Log.w("KernelAI", "Auto-title generation failed: ${e.message}", e)
+            // needsHistoryReplay is already true (set before the call) — KV cache may be
+            // partially dirty from the prompt write, so the flag correctly stays set.
             // Silent failure — title stays null, user can rename manually.
         }
     }
