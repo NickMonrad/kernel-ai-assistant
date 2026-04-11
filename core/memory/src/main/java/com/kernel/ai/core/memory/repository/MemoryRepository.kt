@@ -18,6 +18,8 @@ interface MemoryRepository {
     fun observeCoreMemories(): Flow<List<CoreMemoryEntity>>
     /** Observe episodic memory count (for UI). */
     fun observeEpisodicCount(): Flow<Int>
+    /** Record that core memories with the given [ids] were accessed (increments accessCount). */
+    suspend fun recordCoreMemoryAccess(ids: List<String>)
     /** Prune: episodic older than 30 days or count > 500; core capped at 200. */
     suspend fun prune()
 }

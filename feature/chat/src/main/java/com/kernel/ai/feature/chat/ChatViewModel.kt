@@ -139,22 +139,28 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch { initEngineWhenReady() }
     }
 
-    private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
+    private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList(), recordAccess: Boolean = false): String {
         val profile = userProfileRepository.get()
         val dateTime = LocalDateTime.now()
             .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm"))
         val backend = inferenceEngine.activeBackend.value?.name ?: "CPU"
         val model = activeModel?.displayName ?: "Gemma 4"
         val device = "${Build.MANUFACTURER} ${Build.MODEL}"
+        // Fetch core memories before buildString so we can update access stats (suspend call).
+        val coreMemories = runCatching {
+            memoryRepository.observeCoreMemories().first().take(10)
+        }.getOrDefault(emptyList())
+        // Record access so the Memory screen reflects real usage counts.
+        // Errors are silently swallowed — the repository impl already logs failures,
+        // and access-stat updates must never block prompt construction.
+        if (recordAccess && coreMemories.isNotEmpty()) {
+            runCatching { memoryRepository.recordCoreMemoryAccess(coreMemories.map { it.id }) }
+        }
         return buildString {
             append(DEFAULT_SYSTEM_PROMPT)
             append("\n\n[Current date and time]\n$dateTime")
             append("\n\n[Runtime]\nModel: $model | Backend: $backend | Device: $device")
             if (profile.isNotBlank()) append("\n\n[User Profile]\n$profile")
-            // Inject top core memories into system prompt
-            val coreMemories = runCatching {
-                memoryRepository.observeCoreMemories().first().take(10)
-            }.getOrDefault(emptyList())
             if (coreMemories.isNotEmpty()) {
                 append("\n\n[Core Memories]\n")
                 coreMemories.forEach { append("- ${it.content}\n") }
@@ -311,7 +317,7 @@ class ChatViewModel @Inject constructor(
                 )
                 val selected = contextWindowManager.selectHistory(turns)
                 // Inject history into the system prompt so Gemma treats it as background context.
-                val systemPromptWithHistory = buildSystemPrompt(selected)
+                val systemPromptWithHistory = buildSystemPrompt(selected, recordAccess = true)
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
                 // Re-baseline from selected history, then add the RAG cost for this turn.
                 estimatedTokensUsed = selected.sumOf {

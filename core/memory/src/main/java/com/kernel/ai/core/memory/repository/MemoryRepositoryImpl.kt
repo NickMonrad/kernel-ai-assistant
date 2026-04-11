@@ -159,6 +159,15 @@ class MemoryRepositoryImpl @Inject constructor(
 
     override fun observeEpisodicCount(): Flow<Int> = episodicDao.observeCount()
 
+    override suspend fun recordCoreMemoryAccess(ids: List<String>) {
+        if (ids.isEmpty()) return
+        runCatching {
+            val now = System.currentTimeMillis()
+            coreDao.incrementAccessStatsAndNotify(ids, now)
+            Log.d(TAG, "Recorded access for ${ids.size} core memories")
+        }.onFailure { Log.w(TAG, "recordCoreMemoryAccess failed: ${it.message}") }
+    }
+
     // Delete vec entries for pruned rows to prevent orphan accumulation
     override suspend fun prune() {
         val now = System.currentTimeMillis()

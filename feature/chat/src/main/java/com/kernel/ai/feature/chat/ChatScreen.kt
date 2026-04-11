@@ -13,7 +13,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -74,9 +73,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.semantics.CustomAccessibilityAction
-import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.Dispatchers
@@ -85,13 +81,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.inference.download.DownloadState
@@ -301,22 +299,16 @@ private fun MessageBubble(
     }
     var showMenu by remember { mutableStateOf(false) }
 
-    // Assistant messages: use pointerInput with requireUnconsumed=false so long-press fires
-    // even when inner ClickableText nodes (URL handlers in MarkdownContent) have consumed
-    // the event. User messages use combinedClickable — they work fine with plain Text.
-    val bubbleModifier = if (!isUser) {
-        Modifier
-            .pointerInput(Unit) {
-                detectTapGestures(onLongPress = { showMenu = true })
-            }
-            .semantics {
-                customActions = listOf(
-                    CustomAccessibilityAction(label = "Copy message") { showMenu = true; true }
-                )
-            }
-    } else {
-        Modifier.combinedClickable(onClick = {}, onLongClick = { showMenu = true })
-    }
+    // Both user and assistant messages use combinedClickable for long-press → context menu.
+    // For assistant messages, MarkdownContent also passes onLongPress through to its
+    // inner text composables so that long-press fires even on text with URL annotations.
+    val bubbleModifier = Modifier
+        .combinedClickable(onClick = {}, onLongClick = { showMenu = true })
+        .semantics {
+            customActions = listOf(
+                CustomAccessibilityAction(label = "Copy message") { showMenu = true; true }
+            )
+        }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -363,6 +355,7 @@ private fun MessageBubble(
                         MarkdownContent(
                             text  = message.content,
                             style = MaterialTheme.typography.bodyMedium.copy(color = contentColor),
+                            onLongPress = { showMenu = true },
                         )
                         if (message.isStreaming) {
                             val generatingMessage = remember { LoadingMessages.randomGenerating() }
