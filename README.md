@@ -57,6 +57,15 @@ The app operates on a **Brain–Memory–Action** triad:
 
 ## Getting Started
 
+### Tested devices
+
+| Device | Chip | RAM | Backend | Status |
+|--------|------|-----|---------|--------|
+| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU (Hexagon) | ✅ Tested |
+| Google Pixel 10 | Tensor G5 | 12 GB | GPU (Immortalis-G925) | ✅ Expected compatible |
+
+> **Backend note:** On Qualcomm devices the app uses the Hexagon NPU delegate for fastest inference. On Google Pixel 10 (Tensor G5) the app uses `Backend.GPU` (ARM Immortalis-G925 via LiteRT). Performance and output are equivalent — the hardware tier detection automatically selects the right delegate. See [`models/README.md`](models/README.md) for per-device model setup.
+
 ### Prerequisites
 
 - Android Studio Ladybug (2024.2.1) or newer

@@ -81,7 +81,7 @@ For community-driven and logic-heavy extensions, the system supports a **Wasm (W
 * **Machine:** 32GB RAM minimum (to handle LiteRT builds and Android Emulators simultaneously).
 * **Android Studio:** Ladybug (2024.2.1) or newer.
 * **Android NDK:** Required for building SQLite-VSS and Wasm runtime JNI bridges.
-* **Testing Hardware:** Physical device with 8GB–12GB RAM and a Snapdragon 8 Gen 2/3 (or equivalent NPU-capable SoC).
+* **Testing Hardware:** Physical device with 8GB–12GB RAM and an NPU/GPU-capable SoC. Validated on Samsung Galaxy S23 Ultra (Snapdragon 8 Gen 2 / NPU) and Google Pixel 10 (Tensor G5 / GPU). Qualcomm devices use the Hexagon NPU delegate; non-Qualcomm flagship devices (e.g. Pixel 10) use `Backend.GPU` automatically.
 
 ---
 
