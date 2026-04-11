@@ -71,7 +71,7 @@ class RagRepositoryTest {
         coEvery { embeddingEngine.embed(any()) } returns queryVector
 
         // Memory tier: one core result — episodic table NOT created so no [Episodic Memories]
-        coEvery { memoryRepository.searchMemories(any(), any()) } returns listOf(
+        coEvery { memoryRepository.searchMemories(any(), any(), any()) } returns listOf(
             MemorySearchResult(
                 id = "core-1",
                 content = "User prefers dark mode",
@@ -99,7 +99,7 @@ class RagRepositoryTest {
         coEvery { embeddingEngine.embed(any()) } returns sharedVector
 
         // Memory tier: core only (episodic from searchMemories is NOT rendered)
-        coEvery { memoryRepository.searchMemories(any(), any()) } returns listOf(
+        coEvery { memoryRepository.searchMemories(any(), any(), any()) } returns listOf(
             MemorySearchResult(id = "core-1", content = "Core preference fact", source = "core", score = 0.9f),
         )
 
@@ -137,7 +137,7 @@ class RagRepositoryTest {
         coEvery { embeddingEngine.embed(any()) } returns queryVector
 
         // No memory results from either tier
-        coEvery { memoryRepository.searchMemories(any(), any()) } returns emptyList()
+        coEvery { memoryRepository.searchMemories(any(), any(), any()) } returns emptyList()
 
         // Note: tableCreated is false so vectorStore.search is NOT called;
         // both sections are empty → result is ""
@@ -155,7 +155,7 @@ class RagRepositoryTest {
         primeEpisodicTable(sharedVector)
 
         coEvery { embeddingEngine.embed(any()) } returns sharedVector
-        coEvery { memoryRepository.searchMemories(any(), any()) } returns emptyList()
+        coEvery { memoryRepository.searchMemories(any(), any(), any()) } returns emptyList()
 
         // Vector search returns two candidates — one from each conversation
         every { vectorStore.search(any(), any(), any()) } returns listOf(
@@ -193,7 +193,7 @@ class RagRepositoryTest {
         coEvery { embeddingEngine.embed(any()) } returns sharedVector
 
         // Memory tier throws — should be caught, not propagated
-        coEvery { memoryRepository.searchMemories(any(), any()) } throws RuntimeException("Memory DB failure")
+        coEvery { memoryRepository.searchMemories(any(), any(), any()) } throws RuntimeException("Memory DB failure")
 
         // Message history is still available
         val embeddingEntity = MessageEmbeddingEntity(rowId = 2L, messageId = "msg-2", conversationId = "conv-2")

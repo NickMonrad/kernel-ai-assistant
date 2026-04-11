@@ -28,8 +28,10 @@ class MemoryRepositoryImpl @Inject constructor(
         private const val EPISODIC_MAX = 500
         private const val CORE_MAX = 200
         private const val EPISODIC_TTL_MS = 30L * 24 * 60 * 60 * 1000  // 30 days
-        /** Mirror of RagRepository.MAX_DISTANCE — filter out low-relevance results. */
-        private const val MAX_SEARCH_DISTANCE = 0.4f
+        /** Looser threshold for core memories — user deliberately added these, cast a wide net. */
+        private const val CORE_MAX_DISTANCE = 0.55f
+        /** Stricter threshold for episodic memories — only surface clearly relevant past exchanges. */
+        private const val EPISODIC_MAX_DISTANCE = 0.40f
     }
 
     // AtomicBoolean + Mutex for thread-safe lazy table creation
@@ -87,12 +89,16 @@ class MemoryRepositoryImpl @Inject constructor(
 
     // Remove flag-guards: persisted vec tables must be searched after app restart.
     // runCatching already swallows "no such table" when no embeddings have been stored.
-    override suspend fun searchMemories(queryVector: FloatArray, topK: Int): List<MemorySearchResult> {
+    override suspend fun searchMemories(
+        queryVector: FloatArray,
+        coreTopK: Int,
+        episodicTopK: Int,
+    ): List<MemorySearchResult> {
         val results = mutableListOf<MemorySearchResult>()
 
         runCatching {
-            val coreResults = vectorStore.search(CORE_VEC_TABLE, queryVector, topK)
-                .filter { it.distance <= MAX_SEARCH_DISTANCE }
+            val coreResults = vectorStore.search(CORE_VEC_TABLE, queryVector, coreTopK)
+                .filter { it.distance <= CORE_MAX_DISTANCE }
             val rowIds = coreResults.map { it.rowId }
             if (rowIds.isNotEmpty()) {
                 val entities = coreDao.getAll().filter { it.rowId in rowIds }
@@ -104,6 +110,7 @@ class MemoryRepositoryImpl @Inject constructor(
                             content = entity.content,
                             source = "core",
                             score = 1f - (distanceMap[entity.rowId] ?: 1f),
+                            lastAccessedAt = entity.lastAccessedAt,
                         )
                     )
                 }
@@ -117,8 +124,8 @@ class MemoryRepositoryImpl @Inject constructor(
         }.onFailure { Log.w(TAG, "Core memory search failed: ${it.message}") }
 
         runCatching {
-            val episodicResults = vectorStore.search(EPISODIC_VEC_TABLE, queryVector, topK)
-                .filter { it.distance <= MAX_SEARCH_DISTANCE }
+            val episodicResults = vectorStore.search(EPISODIC_VEC_TABLE, queryVector, episodicTopK)
+                .filter { it.distance <= EPISODIC_MAX_DISTANCE }
             val rowIds = episodicResults.map { it.rowId }
             if (rowIds.isNotEmpty()) {
                 val entities = episodicDao.getAll().filter { it.rowId in rowIds }
@@ -136,10 +143,7 @@ class MemoryRepositoryImpl @Inject constructor(
             }
         }.onFailure { Log.w(TAG, "Episodic memory search failed: ${it.message}") }
 
-        // Core ranked above episodic, then by score descending
         return results
-            .sortedWith(compareBy<MemorySearchResult> { if (it.source == "core") 0 else 1 }.thenByDescending { it.score })
-            .take(topK)
     }
 
     override suspend fun deleteCoreMemory(id: String) {
