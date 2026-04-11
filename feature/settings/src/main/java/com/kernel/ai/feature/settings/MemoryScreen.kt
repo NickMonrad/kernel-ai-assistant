@@ -335,12 +335,12 @@ private fun EpisodicMemoryItem(
     )
 }
 
-private fun formatEpisodicDate(epochMs: Long): String {
-    val formatter = DateTimeFormatter
-        .ofPattern("MMM d, yyyy", Locale.getDefault())
-        .withZone(ZoneId.systemDefault())
-    return formatter.format(Instant.ofEpochMilli(epochMs))
-}
+private val EPISODIC_DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter
+    .ofPattern("MMM d, yyyy", Locale.getDefault())
+    .withZone(ZoneId.systemDefault())
+
+private fun formatEpisodicDate(epochMs: Long): String =
+    EPISODIC_DATE_FORMATTER.format(Instant.ofEpochMilli(epochMs))
 
 @Preview(showBackground = true)
 @Composable

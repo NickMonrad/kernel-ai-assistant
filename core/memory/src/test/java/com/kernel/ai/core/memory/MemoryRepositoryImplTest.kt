@@ -294,24 +294,20 @@ class MemoryRepositoryImplTest {
 
     @Test
     fun `deleteEpisodicMemory — deletes vec entry and Room entity`() = runTest {
-        coEvery { episodicDao.getRowIdById("ep-id-1") } returns 77L
+        coEvery { episodicDao.getRowIdAndDelete("ep-id-1") } returns 77L
         every { vectorStore.delete(any(), any()) } just Runs
-        coEvery { episodicDao.deleteById("ep-id-1") } just Runs
 
         repository.deleteEpisodicMemory("ep-id-1")
 
         verify(exactly = 1) { vectorStore.delete(any(), 77L) }
-        coVerify(exactly = 1) { episodicDao.deleteById("ep-id-1") }
     }
 
     @Test
-    fun `deleteEpisodicMemory — still deletes Room entity even when rowId is null`() = runTest {
-        coEvery { episodicDao.getRowIdById("ep-orphan") } returns null
-        coEvery { episodicDao.deleteById("ep-orphan") } just Runs
+    fun `deleteEpisodicMemory — still deletes vec-cleanup even when rowId is null`() = runTest {
+        coEvery { episodicDao.getRowIdAndDelete("ep-orphan") } returns null
 
         repository.deleteEpisodicMemory("ep-orphan")
 
         verify(exactly = 0) { vectorStore.delete(any(), any()) }
-        coVerify(exactly = 1) { episodicDao.deleteById("ep-orphan") }
     }
 }

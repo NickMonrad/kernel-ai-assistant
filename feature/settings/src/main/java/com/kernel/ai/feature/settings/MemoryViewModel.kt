@@ -51,14 +51,13 @@ class MemoryViewModel @Inject constructor(
         combine(
             combine(
                 memoryRepository.observeCoreMemories(),
-                memoryRepository.observeEpisodicCount(),
                 memoryRepository.observeEpisodicMemories(),
                 _dialogState,
                 _isSubmitting,
-            ) { coreMemories, episodicCount, episodicMemories, (isAddDialogOpen, addDialogText, showClearConfirmation), isSubmitting ->
+            ) { coreMemories, episodicMemories, (isAddDialogOpen, addDialogText, showClearConfirmation), isSubmitting ->
                 MemoryUiState(
                     coreMemories = coreMemories,
-                    episodicCount = episodicCount,
+                    episodicCount = episodicMemories.size,
                     episodicMemories = episodicMemories,
                     isAddDialogOpen = isAddDialogOpen,
                     addDialogText = addDialogText,
@@ -134,8 +133,13 @@ class MemoryViewModel @Inject constructor(
     }
 
     fun deleteEpisodicMemory(id: String) {
-        _pendingDeleteEpisodicId.value = null
-        viewModelScope.launch { memoryRepository.deleteEpisodicMemory(id) }
+        viewModelScope.launch {
+            try {
+                memoryRepository.deleteEpisodicMemory(id)
+            } finally {
+                _pendingDeleteEpisodicId.value = null
+            }
+        }
     }
 
     suspend fun getConversationTitle(conversationId: String): String? =
