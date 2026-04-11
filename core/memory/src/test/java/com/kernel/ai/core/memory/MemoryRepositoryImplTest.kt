@@ -208,14 +208,14 @@ class MemoryRepositoryImplTest {
         coEvery { episodicDao.getRowIdsOlderThan(any()) } returns emptyList()
         coEvery { episodicDao.deleteOlderThan(any()) } just Runs
         coEvery { episodicDao.count() } returns 600   // 100 over the 500 limit
-        coEvery { episodicDao.getOldestRowIds(100) } returns listOf(1L, 2L)
-        coEvery { episodicDao.deleteOldestBeyondLimit(100) } just Runs
+        coEvery { episodicDao.getRowIdsAndDeleteByLRU(100) } returns listOf(1L, 2L)
         every { vectorStore.delete(any(), any()) } just Runs
         coEvery { coreDao.count() } returns 10
 
         repository.prune()
 
-        coVerify(exactly = 1) { episodicDao.deleteOldestBeyondLimit(100) }
+        coVerify(exactly = 1) { episodicDao.getRowIdsAndDeleteByLRU(100) }
+        verify(exactly = 2) { vectorStore.delete(any(), any()) }
     }
 
     @Test
@@ -243,7 +243,7 @@ class MemoryRepositoryImplTest {
 
         repository.prune()
 
-        coVerify(exactly = 0) { episodicDao.deleteOldestBeyondLimit(any()) }
+        coVerify(exactly = 0) { episodicDao.getOldestRowIdsByLRU(any()) }
         coVerify(exactly = 0) { coreDao.deleteOldestBeyondLimit(any()) }
         verify(exactly = 0) { vectorStore.delete(any(), any()) }
     }
