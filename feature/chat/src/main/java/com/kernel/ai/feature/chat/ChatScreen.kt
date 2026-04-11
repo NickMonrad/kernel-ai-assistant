@@ -86,6 +86,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -96,6 +97,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.feature.chat.R
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.feature.chat.model.ChatMessage
@@ -256,9 +258,9 @@ private fun ChatContent(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = "Scroll to bottom",
+                                contentDescription = stringResource(R.string.cd_scroll_to_bottom),
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(8.dp),
+                                modifier = Modifier.padding(12.dp),
                             )
                         }
                     }
