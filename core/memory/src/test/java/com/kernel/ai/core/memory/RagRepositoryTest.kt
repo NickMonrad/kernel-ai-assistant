@@ -235,7 +235,7 @@ class RagRepositoryTest {
             MemorySearchResult(id = "recent", content = "Recent fact", source = "core", score = 0.9f, lastAccessedAt = 9_000L),
         )
 
-        val result = ragRepository.getRelevantContext("query", conversationId = "c", maxTokens = 30)
+        val result = ragRepository.getRelevantContext("query", conversationId = "c", maxTokens = 75)
 
         assertTrue(result.contains("Recent fact"), "Higher lastAccessedAt must win the tiebreak and appear in output")
         assertFalse(result.contains("Stale fact"), "Lower lastAccessedAt must be truncated when budget is tight")
