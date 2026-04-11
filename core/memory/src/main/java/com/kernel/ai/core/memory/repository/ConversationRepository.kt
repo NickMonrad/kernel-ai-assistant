@@ -69,4 +69,7 @@ class ConversationRepository @Inject constructor(
 
     suspend fun getMessagesOnce(conversationId: String): List<MessageEntity> =
         messageDao.getByConversation(conversationId)
+
+    fun searchByTitle(query: String): Flow<List<ConversationEntity>> =
+        conversationDao.searchByTitle(query)
 }
