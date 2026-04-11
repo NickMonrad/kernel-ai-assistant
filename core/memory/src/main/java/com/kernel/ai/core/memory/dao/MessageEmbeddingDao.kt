@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MessageEmbeddingDao {
@@ -30,7 +31,15 @@ interface MessageEmbeddingDao {
     @Query("SELECT rowId FROM message_embeddings WHERE messageId = :messageId LIMIT 1")
     suspend fun getRowIdForMessage(messageId: String): Long?
 
-    /** Total number of indexed messages (for diagnostics). */
+    /** All rowIds for embeddings belonging to a specific conversation (used before cascade delete). */
+    @Query("SELECT rowId FROM message_embeddings WHERE conversationId = :conversationId")
+    suspend fun getRowIdsForConversation(conversationId: String): List<Long>
+
+    /** Live count of indexed messages — Room re-emits on every write to message_embeddings. */
     @Query("SELECT COUNT(*) FROM message_embeddings")
-    suspend fun count(): Int
+    fun observeCount(): Flow<Int>
+
+    /** Live count of distinct conversations that have at least one indexed message. */
+    @Query("SELECT COUNT(DISTINCT conversationId) FROM message_embeddings")
+    fun observeDistinctConversationCount(): Flow<Int>
 }
