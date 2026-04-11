@@ -98,7 +98,11 @@ class RagRepository @Inject constructor(
         if (queryVector.isEmpty()) return@withContext ""
 
         val charsPerToken = 3
-        var tokenBudgetRemaining = maxTokens
+        // Reserve tokens for the framing header that wraps the entire RAG block.
+        val framingHeader = "The following context has been retrieved from memory. " +
+            "Use it to inform your response where relevant — do not repeat it verbatim.\n\n"
+        val framingTokenCost = (framingHeader.length + charsPerToken - 1) / charsPerToken
+        var tokenBudgetRemaining = maxTokens - framingTokenCost
 
         // --- Core Memories ---
         val coreMemoryLines = mutableListOf<String>()
@@ -140,7 +144,7 @@ class RagRepository @Inject constructor(
                             .firstOrNull { it.id == entity.messageId }
                     }
 
-                    val episodicHeader = "[Episodic Memories]\n"
+                    val episodicHeader = "[Episodic Memories — recalled from a past conversation]\n"
                     val episodicFooter = "[End of episodic memories]"
                     val episodicOverhead = (episodicHeader.length + episodicFooter.length + charsPerToken - 1) / charsPerToken
                     var episodicBudget = tokenBudgetRemaining - episodicOverhead
@@ -160,14 +164,15 @@ class RagRepository @Inject constructor(
         if (coreMemoryLines.isEmpty() && episodicLines.isEmpty()) return@withContext ""
 
         buildString {
+            append(framingHeader)
             if (coreMemoryLines.isNotEmpty()) {
-                append("[Core Memories]\n")
+                append("[Core Memories — permanent facts about the user]\n")
                 coreMemoryLines.forEach { appendLine(it) }
                 append("[End of core memories]")
             }
             if (episodicLines.isNotEmpty()) {
                 if (coreMemoryLines.isNotEmpty()) append("\n\n")
-                append("[Episodic Memories]\n")
+                append("[Episodic Memories — recalled from a past conversation]\n")
                 episodicLines.forEach { appendLine(it) }
                 append("[End of episodic memories]")
             }
