@@ -139,7 +139,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch { initEngineWhenReady() }
     }
 
-    private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
+    private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList(), recordAccess: Boolean = false): String {
         val profile = userProfileRepository.get()
         val dateTime = LocalDateTime.now()
             .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm"))
@@ -153,7 +153,7 @@ class ChatViewModel @Inject constructor(
         // Record access so the Memory screen reflects real usage counts.
         // Errors are silently swallowed — the repository impl already logs failures,
         // and access-stat updates must never block prompt construction.
-        if (coreMemories.isNotEmpty()) {
+        if (recordAccess && coreMemories.isNotEmpty()) {
             runCatching { memoryRepository.recordCoreMemoryAccess(coreMemories.map { it.id }) }
         }
         return buildString {
@@ -317,7 +317,7 @@ class ChatViewModel @Inject constructor(
                 )
                 val selected = contextWindowManager.selectHistory(turns)
                 // Inject history into the system prompt so Gemma treats it as background context.
-                val systemPromptWithHistory = buildSystemPrompt(selected)
+                val systemPromptWithHistory = buildSystemPrompt(selected, recordAccess = true)
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
                 // Re-baseline from selected history, then add the RAG cost for this turn.
                 estimatedTokensUsed = selected.sumOf {

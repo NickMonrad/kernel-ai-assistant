@@ -87,6 +87,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.inference.download.DownloadState
@@ -299,7 +302,13 @@ private fun MessageBubble(
     // Both user and assistant messages use combinedClickable for long-press → context menu.
     // For assistant messages, MarkdownContent also passes onLongPress through to its
     // inner text composables so that long-press fires even on text with URL annotations.
-    val bubbleModifier = Modifier.combinedClickable(onClick = {}, onLongClick = { showMenu = true })
+    val bubbleModifier = Modifier
+        .combinedClickable(onClick = {}, onLongClick = { showMenu = true })
+        .semantics {
+            customActions = listOf(
+                CustomAccessibilityAction(label = "Copy message") { showMenu = true; true }
+            )
+        }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
