@@ -698,6 +698,10 @@ private data class InlineSpan(
     val displayText: String = content,
 )
 
+/** Matches markdown links `[text](url)` with one level of nested parens
+ *  (e.g. Wikipedia URLs like `https://en.wikipedia.org/wiki/Rust_(programming_language)`). */
+private val MARKDOWN_LINK_REGEX = Regex("\\[([^\\]]+)]\\(([^()]*(?:\\([^()]*\\)[^()]*)*)\\)")
+
 /**
  * Converts [text] to an [AnnotatedString] with inline styling:
  * bold, italic, strikethrough, inline code, and tappable URLs.
@@ -739,9 +743,7 @@ private fun renderInlineSpans(
 
     // Markdown links: [text](url) — parsed before raw URL detection so the full
     // `[…](…)` range is consumed and not double-matched by Patterns.WEB_URL below.
-    // The URL group allows one level of nested parens for Wikipedia-style URLs
-    // like https://en.wikipedia.org/wiki/Rust_(programming_language).
-    Regex("\\[([^\\]]+)]\\(([^()]*(?:\\([^()]*\\)[^()]*)*)\\)").findAll(text).forEach { m ->
+    MARKDOWN_LINK_REGEX.findAll(text).forEach { m ->
         spans.add(
             InlineSpan(
                 start = m.range.first,

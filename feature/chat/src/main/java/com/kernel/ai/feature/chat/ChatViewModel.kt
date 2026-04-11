@@ -151,6 +151,8 @@ class ChatViewModel @Inject constructor(
             memoryRepository.observeCoreMemories().first().take(10)
         }.getOrDefault(emptyList())
         // Record access so the Memory screen reflects real usage counts.
+        // Errors are silently swallowed — the repository impl already logs failures,
+        // and access-stat updates must never block prompt construction.
         if (coreMemories.isNotEmpty()) {
             runCatching { memoryRepository.recordCoreMemoryAccess(coreMemories.map { it.id }) }
         }
