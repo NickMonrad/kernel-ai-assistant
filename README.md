@@ -30,20 +30,27 @@ The app operates on a **Brain–Memory–Action** triad:
 
 ### Delivered
 - 🧠 **On-device reasoning** — Gemma-4 running on GPU/NPU via LiteRT, no internet required
-- 💾 **Persistent memory** — RAG-powered recall of personal facts and conversation history
+- 💾 **Persistent memory** — RAG-powered recall across conversations using sqlite-vec semantic search
 - 🔒 **100% private** — No cloud APIs, no telemetry, all data stays on device
-- 💬 **Full markdown rendering** — headings, bold, italic, code blocks, links, lists
+- 💬 **Full markdown rendering** — headings, bold, italic, inline code, code blocks, tables, links, lists
 - 🎯 **Smart chat titles** — auto-generated from conversation content
-- ⚙️ **Model selection** — choose between E-2B and E-4B in Settings
+- 🗂️ **Multi-conversation** — create, delete, rename, and search conversations by title
+- 🧠 **Core memories** — add and manage permanent facts the assistant always recalls
+- 📂 **Memory Management screen** — view, add and delete core memories and episodic memory browser
+- ⚙️ **Model selection** — switch between E-2B and E-4B in Settings
 - 🎬 **Fun loading screens** — 13 themed animated narratives
-- 🖼️ **Context window management** — structured prompt assembly with KV cache management
+- 🖼️ **Context window management** — structured prompt assembly with KV cache management and recursive summarisation
 - 📊 **Runtime info** — shows active model, backend (GPU/NPU/CPU), and device tier in chat
 
 ### Coming Soon
 - 🗣️ **Voice + text input** — tap-to-talk with auto-stop *(Phase 3)*
 - 🔧 **Native skills** — Flashlight, DND, Bluetooth, Alarms, SMS, Email, Media Control, Notes *(Phase 3)*
-- 🧩 **Wasm skill store** — community-extensible plugins (Rust → Wasm) with sandboxed execution *(Phase 4)*
-- 🏠 **Home Assistant** — smart home control via Wasm skill *(Phase 4)*
+- 💭 **Episodic memory distillation** — Gemma-4 summarises each conversation into long-term memories *(Phase 3)*
+- 🌙 **Dreaming Engine** — overnight WorkManager consolidation (Light Sleep → REM → Deep Sleep) *(Phase 4)*
+- ⚡ **Semantic cache** — instant responses for repeated knowledge queries, bypassing main LLM *(Phase 4)*
+- 🪪 **Self-healing identity** — structured user profile, LLM-managed via Dreaming cycle *(Phase 4)*
+- 🧩 **Wasm skill store** — community-extensible plugins (Rust → Wasm) with sandboxed execution *(Phase 5)*
+- 🏠 **Home Assistant** — smart home control via Wasm skill *(Phase 5)*
 
 ## Roadmap
 
@@ -51,9 +58,10 @@ The app operates on a **Brain–Memory–Action** triad:
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM integration + GPU/NPU acceleration + Chat UI | ✅ |
 | 2 | sqlite-vec + EmbeddingGemma for local RAG + memory, UI polish, model selection | 🔄 |
-| 3 | FunctionGemma intent router + Native Skills + Voice I/O + Brand refresh (Jandal AI) | ⬜ |
-| 4 | Chicory Wasm runtime + GitHub Skill Store | ⬜ |
-| 5 | 8GB device optimization (dynamic weight loading) | ⬜ |
+| 3 | FunctionGemma intent router + Native Skills + Voice I/O + episodic distillation + Brand refresh (Jandal AI) | ⬜ |
+| 4 | Dreaming Engine (WorkManager overnight cycle) + Semantic Cache + Self-Healing Identity System | ⬜ |
+| 5 | Chicory Wasm runtime + GitHub Skill Store | ⬜ |
+| 6 | 8GB device optimization (dynamic weight loading) | ⬜ |
 
 ## Getting Started
 

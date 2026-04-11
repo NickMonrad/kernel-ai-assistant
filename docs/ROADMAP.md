@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-07-11
+> **Last updated:** 2026-04-11
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -55,21 +55,11 @@ tri-tiered memory architecture inspired by the
 │                    Prompt Assembly                       │
 │                                                         │
 │  [System Prompt]                                        │
-│  [User Profile]          ← Tier 3: always injected      │
-│  [Core Memories]         ← Tier 3: permanent facts      │
-│  [Episodic Memories]     ← Tier 2: relevant past turns  │
+│  [User Profile]          ← always injected              │
 │  [Active Sliding Window] ← Tier 1: current conversation │
-│  [Current User Prompt]                                  │
-└─────────────────────────────────────────────────────────┘
-
-         ▲ Dreaming Engine promotes facts upward
-         │
-┌────────┴────────────────────────────────────────────────┐
-│  Dreaming Engine (runs while charging + idle)           │
-│                                                         │
-│  Light Sleep → prune low-value episodic entries (SQL)   │
-│  REM Sleep   → extract facts via E-2B inference         │
-│  Deep Sleep  → promote to core, rewrite profile, GC    │
+│  [Current User Prompt]   ← prepended with RAG context:  │
+│    [Core Memories]       ← Tier 3: retrieved by RAG     │
+│    [Episodic Memories]   ← Tier 2: retrieved by RAG     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -90,13 +80,13 @@ tri-tiered memory architecture inspired by the
 | Model selection ([#18](https://github.com/NickMonrad/kernel-ai-assistant/issues/18)) | ✅ Done | #72, #76 | E-2B/E-4B chooser in Settings, DataStore persistence, snackbar confirmation. |
 | Model persistence ([#20](https://github.com/NickMonrad/kernel-ai-assistant/issues/20)) | ✅ Done | #57 | Models stored in external shared storage, survive reinstalls. |
 | Fun loading screens ([#13](https://github.com/NickMonrad/kernel-ai-assistant/issues/13)) | ✅ Done | #85 | 13 themed 3-step narratives (Kernel Kitchen, Techno-Wizard, Star Trek, etc.), animated transitions. |
-| Episodic + Core memory tiers | ⬜ Next | — | Split flat index into episodic (volatile) + core (permanent). Separate vec0 tables. |
-| Memory management UI | ⬜ Pending | — | Profile editor, core memories CRUD, episodic browser, stats |
+| Episodic + Core memory tiers | ✅ Done | #101 | Split flat index into episodic (volatile) + core (permanent). Separate vec0 tables. Room DB v3→v4. |
+| Memory management UI | ✅ Done | #102 | Core memories CRUD, episodic memory browser, stats. MemoryViewModel, MemoryScreen in Settings. |
 | Bulk delete core memories ([#110](https://github.com/NickMonrad/kernel-ai-assistant/issues/110)) | ⬜ Pending | — | Multi-select + delete in the core memories list in Memory UI |
-| Conversation search ([#151](https://github.com/NickMonrad/kernel-ai-assistant/issues/151)) | ⬜ Pending | — | Search bar on the conversations list to filter by title |
+| Conversation search ([#151](https://github.com/NickMonrad/kernel-ai-assistant/issues/151)) | ✅ Done | #156 | Search bar on conversations list, filters by title with NULL guard and LIKE wildcard escaping. |
+| RAG context framing | ✅ Done | #159 | Added framing instruction header, updated section labels to `[Core Memories — permanent facts about the user]` and `[Episodic Memories — recalled from a past conversation]`. |
+| Core memory RAG-only ([#160](https://github.com/NickMonrad/kernel-ai-assistant/issues/160)) | ✅ Done | #162 | Removed core memories from system prompt. Core memories now retrieved only via RAG (CORE_MAX_DISTANCE=0.55, topK=10, sorted by similarity then lastAccessedAt). User Profile framing instruction added. |
 | Fun loading screens v2 ([#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96)) | ⬜ Pending (→ Phase 3) | — | Deferred to Jandal AI rebrand: dark AMOLED background, bigger text, per-phase icons, more Kiwi-themed messages |
-| Dreaming Engine | ⬜ Pending | — | WorkManager: Light Sleep → REM Sleep → Deep Sleep consolidation |
-| Self-Healing Identity System ([#47](https://github.com/NickMonrad/kernel-ai-assistant/issues/47)) | ⬜ Pending | — | Replace free-text profile with structured YAML identity (name, role, env, rules, sandbox). Dreaming Engine promotes sandbox → Core Identity or Core Memories overnight. |
 | SM8550 Qualcomm AI Engine delegate ([#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44)) | ⬜ Pending | — | Bundle QNN TFLite delegate so SM8550-optimised EmbeddingGemma model uses Hexagon NPU |
 
 ### Key Design Decisions
@@ -123,6 +113,9 @@ Brand refresh to Jandal AI, FunctionGemma for fast intent routing, native skills
 | Review UI patterns ([#71](https://github.com/NickMonrad/kernel-ai-assistant/issues/71)) | ⬜ Pending | Audit and refine UI patterns across the app |
 | Copy chat content ([#78](https://github.com/NickMonrad/kernel-ai-assistant/issues/78)) | ⬜ Pending | Copy individual messages or entire conversations |
 | Live mode ([#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64)) | ⬜ Pending | Real-time streaming / continuous interaction mode |
+| Episodic memory distillation ([#165](https://github.com/NickMonrad/kernel-ai-assistant/issues/165)) | ⬜ Pending | Gemma-4 distils each conversation into 3–5 episodic memory sentences on conversation close. Populates `episodic_memories_vec`. No WorkManager needed — triggered inline. |
+| Message embedding stats in Memory screen ([#164](https://github.com/NickMonrad/kernel-ai-assistant/issues/164)) | ⬜ Pending | Show indexed message count and conversation count in Memory screen so RAG activity is visible during testing. |
+| Fix: message_embeddings_vec orphan cleanup on conversation delete ([#163](https://github.com/NickMonrad/kernel-ai-assistant/issues/163)) | ⬜ Pending | Clean up vec entries when conversation deleted. |
 
 ### Phase 3 continued: FunctionGemma Intent Router + Native Skills
 
@@ -132,7 +125,6 @@ FunctionGemma routes user intents to native Android actions without loading the 
 |------|--------|-------|
 | FunctionGemma integration | ⬜ Pending | Pre-fine-tuned LiteRT model, ~154 tk/s on CPU |
 | Gemma 4 native tool calling ([#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84)) | ⬜ Pending | Leverage Gemma 4's built-in function calling instead of separate FunctionGemma |
-| Semantic Caching ([#49](https://github.com/NickMonrad/kernel-ai-assistant/issues/49)) | ⬜ Pending | sqlite-vec `semantic_cache` table; bypass Gemma-4 for repeated knowledge queries (0.95 cosine threshold); parallel FunctionGemma intent check + cache lookup; 7-day LRU pruning in Dreaming Light Sleep |
 | GetSystemInfo native skill ([#86](https://github.com/NickMonrad/kernel-ai-assistant/issues/86)) | ⬜ Pending | Runtime device/model/backend info via callable skill, replaces static `[Runtime]` block |
 | SaveMemory native skill ([#103](https://github.com/NickMonrad/kernel-ai-assistant/issues/103)) | ⬜ Pending | Agent-initiated `addEpisodicMemory()` / `addCoreMemory()` — model decides what to remember |
 | Skill registry + JSON schema generation | ⬜ Pending | Uses LiteRT-LM's `@Tool`/`@ToolParam` annotations |
@@ -171,7 +163,34 @@ User Input (voice/text)
 
 ---
 
-## Phase 4: WebAssembly Runtime + Skill Store
+## Phase 4: Dreaming Engine
+
+Overnight WorkManager consolidation cycle + Semantic Cache + Self-Healing Identity System.
+
+### The Dreaming Cycle
+
+WorkManager runs three sequential phases while the device is charging and idle:
+
+| Sleep Phase | What happens |
+|-------------|-------------|
+| Light Sleep | Prune `semantic_cache` entries not accessed in 7 days. Prune episodic memories older than 30 days. |
+| REM Sleep | Batch distil recent conversations into episodic memories (replaces Phase 3's inline trigger). Extract candidate facts via Gemma-4 E-2B inference. |
+| Deep Sleep | Route candidate facts: permanent identity → structured profile fields; specific/temporary → `core_memories_vec` via `vector_promotion`. Clear the profile sandbox. |
+
+### Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Semantic Cache (#49) | ⬜ Pending | `semantic_cache` vec table; bypass Gemma-4 for repeated knowledge queries (≥0.95 cosine similarity); parallel FunctionGemma intent check + cache lookup; 7-day LRU pruning in Light Sleep |
+| Self-Healing Identity System (#47) | ⬜ Pending | Replace free-text profile with structured fields (name, role, env, rules, sandbox). Gemma-4 promotes sandbox → core identity or core memories in Deep Sleep. |
+| WorkManager chain scaffold | ⬜ Pending | Light Sleep → REM Sleep → Deep Sleep chained workers, runs on CHARGING + IDLE |
+| Episodic distillation (overnight batch) | ⬜ Pending | Move Phase 3's inline distillation to REM Sleep batch |
+| Profile maintenance LLM routing | ⬜ Pending | Gemma-4 E-2B classifies candidate memories: permanent facts → structured profile, specific → `vector_promotion` array |
+| Failure handling + rollback | ⬜ Pending | Malformed JSON output → abort transaction, preserve existing profile, retry next cycle |
+
+---
+
+## Phase 5: WebAssembly Runtime + Skill Store
 
 Community-extensible skills running in sandboxed Wasm via Chicory.
 
@@ -191,7 +210,7 @@ Community-extensible skills running in sandboxed Wasm via Chicory.
 
 ---
 
-## Phase 5: 8GB Device Optimization
+## Phase 6: 8GB Device Optimization
 
 Dynamic weight loading/unloading so the app runs smoothly on 8GB RAM devices.
 
@@ -222,17 +241,17 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#25](https://github.com/NickMonrad/kernel-ai-assistant/issues/25) | Last streaming message lost on nav away | Phase 2 | ✅ Done |
 | [#26](https://github.com/NickMonrad/kernel-ai-assistant/issues/26) | URL/markdown links not clickable | Phase 2 | ✅ Done (#61) |
 | [#27](https://github.com/NickMonrad/kernel-ai-assistant/issues/27) | Keyboard gap at bottom of chat | Phase 2 | ✅ Done (#68) |
-| [#29](https://github.com/NickMonrad/kernel-ai-assistant/issues/29) | WASM Plugin/Skill Storefront | Phase 4 | ⬜ Pending |
-| [#31](https://github.com/NickMonrad/kernel-ai-assistant/issues/31) | LiteRT-LM auto-update mechanism | Phase 4 | ⬜ Pending |
-| [#32](https://github.com/NickMonrad/kernel-ai-assistant/issues/32) | Multimodal capabilities | Phase 4 | ⬜ Pending |
-| [#34](https://github.com/NickMonrad/kernel-ai-assistant/issues/34) | Skill building & baseline skills | Phase 4 | ⬜ Pending |
+| [#29](https://github.com/NickMonrad/kernel-ai-assistant/issues/29) | WASM Plugin/Skill Storefront | Phase 5 | ⬜ Pending |
+| [#31](https://github.com/NickMonrad/kernel-ai-assistant/issues/31) | LiteRT-LM auto-update mechanism | Phase 5 | ⬜ Pending |
+| [#32](https://github.com/NickMonrad/kernel-ai-assistant/issues/32) | Multimodal capabilities | Phase 5 | ⬜ Pending |
+| [#34](https://github.com/NickMonrad/kernel-ai-assistant/issues/34) | Skill building & baseline skills | Phase 5 | ⬜ Pending |
 | [#36](https://github.com/NickMonrad/kernel-ai-assistant/issues/36) | Markdown/code blocks not rendering | Phase 2 | ✅ Done (#63) |
 | [#38](https://github.com/NickMonrad/kernel-ai-assistant/issues/38) | Handle gated model downloads | Phase 3 | ⬜ Pending |
-| [#43](https://github.com/NickMonrad/kernel-ai-assistant/issues/43) | Recipe skill datasources & regional produce | Phase 4 | ⬜ Pending |
+| [#43](https://github.com/NickMonrad/kernel-ai-assistant/issues/43) | Recipe skill datasources & regional produce | Phase 5 | ⬜ Pending |
 | [#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44) | SM8550 Qualcomm AI Engine delegate for EmbeddingGemma | Phase 2 | ⬜ Pending |
 | [#46](https://github.com/NickMonrad/kernel-ai-assistant/issues/46) | Model Settings UI | Phase 3 | ⬜ Pending |
-| [#47](https://github.com/NickMonrad/kernel-ai-assistant/issues/47) | Self-Healing Identity System | Phase 2 | ⬜ Pending |
-| [#49](https://github.com/NickMonrad/kernel-ai-assistant/issues/49) | Semantic Caching via sqlite-vec | Phase 3 | ⬜ Pending |
+| [#47](https://github.com/NickMonrad/kernel-ai-assistant/issues/47) | Self-Healing Identity System | Phase 4 | ⬜ Pending |
+| [#49](https://github.com/NickMonrad/kernel-ai-assistant/issues/49) | Semantic Caching via sqlite-vec | Phase 4 | ⬜ Pending |
 | [#56](https://github.com/NickMonrad/kernel-ai-assistant/issues/56) | Download worker saves to wrong path | Phase 1 | ✅ Fixed (#57) |
 | [#58](https://github.com/NickMonrad/kernel-ai-assistant/issues/58) | Engine init stuck (stale WorkManager) | Phase 1 | ✅ Fixed (#75) |
 | [#59](https://github.com/NickMonrad/kernel-ai-assistant/issues/59) | Settings: show active model/backend/tier | Phase 2 | ✅ Done (#72) |
@@ -247,7 +266,11 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96) | Fun loading screens v2 | Phase 3 (with brand pass) | ⬜ Pending |
 | [#103](https://github.com/NickMonrad/kernel-ai-assistant/issues/103) | SaveMemory native skill | Phase 3 | ⬜ Pending |
 | [#110](https://github.com/NickMonrad/kernel-ai-assistant/issues/110) | Bulk delete core memories | Phase 2 | ⬜ Pending |
-| [#151](https://github.com/NickMonrad/kernel-ai-assistant/issues/151) | Conversation search by title | Phase 2 | ⬜ Pending |
+| [#151](https://github.com/NickMonrad/kernel-ai-assistant/issues/151) | Conversation search by title | Phase 2 | ✅ Done (#156) |
+| [#160](https://github.com/NickMonrad/kernel-ai-assistant/issues/160) | Core memory RAG-only + User Profile framing | Phase 2 | ✅ Done (#162) |
+| [#163](https://github.com/NickMonrad/kernel-ai-assistant/issues/163) | message_embeddings_vec orphan cleanup on conversation delete | Phase 3 | ⬜ Pending |
+| [#164](https://github.com/NickMonrad/kernel-ai-assistant/issues/164) | Message embedding stats in Memory screen | Phase 3 | ⬜ Pending |
+| [#165](https://github.com/NickMonrad/kernel-ai-assistant/issues/165) | Episodic memory distillation on conversation close | Phase 3 | ⬜ Pending |
 
 ---
 
