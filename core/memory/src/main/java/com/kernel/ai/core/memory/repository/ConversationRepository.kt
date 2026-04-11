@@ -1,9 +1,12 @@
 package com.kernel.ai.core.memory.repository
 
+import android.util.Log
 import com.kernel.ai.core.memory.dao.ConversationDao
 import com.kernel.ai.core.memory.dao.MessageDao
+import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.MessageEntity
+import com.kernel.ai.core.memory.vector.VectorStore
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 import javax.inject.Inject
@@ -13,7 +16,14 @@ import javax.inject.Singleton
 class ConversationRepository @Inject constructor(
     private val conversationDao: ConversationDao,
     private val messageDao: MessageDao,
+    private val embeddingDao: MessageEmbeddingDao,
+    private val vectorStore: VectorStore,
 ) {
+
+    companion object {
+        private const val TAG = "ConversationRepository"
+        private const val MESSAGE_VEC_TABLE = "message_embeddings"
+    }
 
     fun observeConversations(): Flow<List<ConversationEntity>> =
         conversationDao.observeAll()
@@ -61,6 +71,12 @@ class ConversationRepository @Inject constructor(
     }
 
     suspend fun deleteConversation(conversation: ConversationEntity) {
+        // Clean up vec entries before Room cascade removes the embedding rows
+        val rowIds = embeddingDao.getRowIdsForConversation(conversation.id)
+        rowIds.forEach { rowId ->
+            runCatching { vectorStore.delete(MESSAGE_VEC_TABLE, rowId) }
+                .onFailure { Log.w(TAG, "Failed to delete vec entry rowId=$rowId: ${it.message}") }
+        }
         conversationDao.delete(conversation)
     }
 

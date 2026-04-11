@@ -2,6 +2,7 @@ package com.kernel.ai.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
@@ -22,7 +23,13 @@ import javax.inject.Inject
 class MemoryViewModel @Inject constructor(
     private val memoryRepository: MemoryRepository,
     private val conversationRepository: ConversationRepository,
+    private val embeddingDao: MessageEmbeddingDao,
 ) : ViewModel() {
+
+    data class MessageEmbeddingStats(
+        val messageCount: Int = 0,
+        val conversationCount: Int = 0,
+    )
 
     data class MemoryUiState(
         val coreMemories: List<CoreMemoryEntity> = emptyList(),
@@ -35,6 +42,12 @@ class MemoryViewModel @Inject constructor(
         val isSubmitting: Boolean = false,
         val pendingDeleteId: String? = null,
         val pendingDeleteEpisodicId: String? = null,
+        // #110 — bulk selection
+        val isInSelectionMode: Boolean = false,
+        val selectedCoreIds: Set<String> = emptySet(),
+        val showBulkDeleteConfirmation: Boolean = false,
+        // #164 — embedding stats
+        val embeddingStats: MessageEmbeddingStats = MessageEmbeddingStats(),
     )
 
     private val _dialogState = MutableStateFlow(
@@ -43,6 +56,26 @@ class MemoryViewModel @Inject constructor(
     private val _isSubmitting = MutableStateFlow(false)
     private val _pendingDeleteId = MutableStateFlow<String?>(null)
     private val _pendingDeleteEpisodicId = MutableStateFlow<String?>(null)
+
+    // #110 — selection mode state
+    private val _isInSelectionMode = MutableStateFlow(false)
+    private val _selectedCoreIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _showBulkDeleteConfirmation = MutableStateFlow(false)
+
+    // #164 — embedding stats
+    private val _embeddingStats = MutableStateFlow(MessageEmbeddingStats())
+
+    init {
+        refreshEmbeddingStats()
+    }
+
+    private fun refreshEmbeddingStats() {
+        viewModelScope.launch {
+            val messageCount = embeddingDao.count()
+            val conversationCount = embeddingDao.countDistinctConversations()
+            _embeddingStats.value = MessageEmbeddingStats(messageCount, conversationCount)
+        }
+    }
 
     private val conversationTitlesFlow = conversationRepository.observeConversations()
         .map { list: List<ConversationEntity> -> list.associate { it.id to it.title } }
@@ -76,6 +109,19 @@ class MemoryViewModel @Inject constructor(
         conversationTitlesFlow,
     ) { base, conversationTitles ->
         base.copy(conversationTitles = conversationTitles)
+    }.combine(
+        combine(_isInSelectionMode, _selectedCoreIds, _showBulkDeleteConfirmation, _embeddingStats)
+        { inSelection, selectedIds, showBulkConfirm, stats ->
+            Triple(inSelection to selectedIds, showBulkConfirm, stats)
+        }
+    ) { base, (selectionPair, showBulkConfirm, stats) ->
+        val (inSelection, selectedIds) = selectionPair
+        base.copy(
+            isInSelectionMode = inSelection,
+            selectedCoreIds = selectedIds,
+            showBulkDeleteConfirmation = showBulkConfirm,
+            embeddingStats = stats,
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -159,6 +205,58 @@ class MemoryViewModel @Inject constructor(
                 memoryRepository.clearEpisodicMemories()
             } finally {
                 _dialogState.update { it.copy(third = false) }
+            }
+        }
+    }
+
+    // ── #110 Bulk selection ────────────────────────────────────────────────
+
+    /** Long-press entry point: enter selection mode and select the tapped item. */
+    fun enterSelectionMode(id: String) {
+        _isInSelectionMode.value = true
+        _selectedCoreIds.update { it + id }
+    }
+
+    /** Toggle an individual item's selected state. */
+    fun toggleSelection(id: String) {
+        _selectedCoreIds.update { current ->
+            if (id in current) current - id else current + id
+        }
+    }
+
+    /** Select every core memory currently in the list. */
+    fun selectAll(allIds: List<String>) {
+        _selectedCoreIds.value = allIds.toSet()
+    }
+
+    /** Exit selection mode without deleting anything. */
+    fun clearSelection() {
+        _isInSelectionMode.value = false
+        _selectedCoreIds.value = emptySet()
+        _showBulkDeleteConfirmation.value = false
+    }
+
+    /** Show the "Delete Selected (N)" confirmation dialog. */
+    fun requestBulkDelete() {
+        if (_selectedCoreIds.value.isNotEmpty()) {
+            _showBulkDeleteConfirmation.value = true
+        }
+    }
+
+    fun dismissBulkDeleteConfirmation() {
+        _showBulkDeleteConfirmation.value = false
+    }
+
+    /** Delete all selected core memories, then exit selection mode. */
+    fun deleteSelected() {
+        val ids = _selectedCoreIds.value.toList()
+        viewModelScope.launch {
+            try {
+                ids.forEach { id -> memoryRepository.deleteCoreMemory(id) }
+            } finally {
+                _showBulkDeleteConfirmation.value = false
+                _isInSelectionMode.value = false
+                _selectedCoreIds.value = emptySet()
             }
         }
     }

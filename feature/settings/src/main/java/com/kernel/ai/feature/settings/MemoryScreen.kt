@@ -1,5 +1,7 @@
 package com.kernel.ai.feature.settings
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,6 +19,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -32,7 +37,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,10 +70,12 @@ fun MemoryScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { if (!uiState.isSubmitting) viewModel.openAddDialog() },
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add core memory")
+            if (!uiState.isInSelectionMode) {
+                FloatingActionButton(
+                    onClick = { if (!uiState.isSubmitting) viewModel.openAddDialog() },
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add core memory")
+                }
             }
         },
     ) { innerPadding ->
@@ -95,7 +101,14 @@ fun MemoryScreen(
 
             // ── Core Memories ──────────────────────────────────────────────
             item {
-                SectionHeader("Core Memories")
+                CoreMemoriesSectionHeader(
+                    isInSelectionMode = uiState.isInSelectionMode,
+                    selectedCount = uiState.selectedCoreIds.size,
+                    totalCount = uiState.coreMemories.size,
+                    onSelectAll = { viewModel.selectAll(uiState.coreMemories.map { it.id }) },
+                    onDeleteSelected = viewModel::requestBulkDelete,
+                    onCancelSelection = viewModel::clearSelection,
+                )
             }
 
             if (uiState.coreMemories.isEmpty()) {
@@ -109,20 +122,15 @@ fun MemoryScreen(
                 }
             } else {
                 items(uiState.coreMemories, key = { it.id }) { memory ->
-                    ListItem(
-                        headlineContent = { Text(memory.content) },
-                        supportingContent = {
-                            Text(
-                                text = "Source: ${memory.source} · Accessed ${memory.accessCount}×",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        trailingContent = {
-                            IconButton(onClick = { viewModel.requestDeleteCoreMemory(memory.id) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete memory")
-                            }
-                        },
+                    CoreMemoryItem(
+                        content = memory.content,
+                        source = memory.source,
+                        accessCount = memory.accessCount,
+                        isInSelectionMode = uiState.isInSelectionMode,
+                        isSelected = memory.id in uiState.selectedCoreIds,
+                        onLongPress = { viewModel.enterSelectionMode(memory.id) },
+                        onToggleSelect = { viewModel.toggleSelection(memory.id) },
+                        onDelete = { viewModel.requestDeleteCoreMemory(memory.id) },
                     )
                     HorizontalDivider()
                 }
@@ -183,6 +191,18 @@ fun MemoryScreen(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
+            }
+
+            // ── Message History (RAG) ──────────────────────────────────────
+            item {
+                Spacer(Modifier.height(8.dp))
+                SectionHeader("Message History (RAG)")
+            }
+            item {
+                MessageEmbeddingStatsSection(
+                    messageCount = uiState.embeddingStats.messageCount,
+                    conversationCount = uiState.embeddingStats.conversationCount,
+                )
             }
         }
     }
@@ -261,6 +281,22 @@ fun MemoryScreen(
             },
         )
     }
+
+    // ── Bulk Delete Confirmation Dialog ────────────────────────────────────
+    if (uiState.showBulkDeleteConfirmation) {
+        val count = uiState.selectedCoreIds.size
+        AlertDialog(
+            onDismissRequest = viewModel::dismissBulkDeleteConfirmation,
+            title = { Text("Delete $count ${if (count == 1) "memory" else "memories"}?") },
+            text = { Text("These memories will be permanently removed. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = viewModel::deleteSelected) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissBulkDeleteConfirmation) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -270,6 +306,104 @@ private fun SectionHeader(title: String) {
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+/**
+ * Section header for Core Memories. In normal mode shows just the label.
+ * In selection mode shows "Select All", "Delete Selected (N)", and "Cancel" actions.
+ */
+@Composable
+private fun CoreMemoriesSectionHeader(
+    isInSelectionMode: Boolean,
+    selectedCount: Int,
+    totalCount: Int,
+    onSelectAll: () -> Unit,
+    onDeleteSelected: () -> Unit,
+    onCancelSelection: () -> Unit,
+) {
+    if (isInSelectionMode) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "$selectedCount / $totalCount selected",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 8.dp),
+            )
+            TextButton(onClick = onSelectAll) {
+                Text("Select All")
+            }
+            Button(
+                onClick = onDeleteSelected,
+                enabled = selectedCount > 0,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                ),
+            ) {
+                Text("Delete ($selectedCount)")
+            }
+            TextButton(onClick = onCancelSelection) {
+                Text("Cancel")
+            }
+        }
+    } else {
+        SectionHeader("Core Memories")
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CoreMemoryItem(
+    content: String,
+    source: String,
+    accessCount: Int,
+    isInSelectionMode: Boolean,
+    isSelected: Boolean,
+    onLongPress: () -> Unit,
+    onToggleSelect: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    ListItem(
+        headlineContent = { Text(content) },
+        supportingContent = {
+            Text(
+                text = "Source: $source · Accessed ${accessCount}×",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        leadingContent = if (isInSelectionMode) {
+            {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelect() },
+                )
+            }
+        } else {
+            null
+        },
+        trailingContent = if (isInSelectionMode) {
+            null
+        } else {
+            {
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete memory")
+                }
+            }
+        },
+        modifier = Modifier.combinedClickable(
+            onClick = { if (isInSelectionMode) onToggleSelect() },
+            onLongClick = { if (!isInSelectionMode) onLongPress() },
+        ),
     )
 }
 
@@ -335,6 +469,36 @@ private fun EpisodicMemoryItem(
     )
 }
 
+/** Informational read-only stats card for the RAG message index (#164). */
+@Composable
+private fun MessageEmbeddingStatsSection(
+    messageCount: Int,
+    conversationCount: Int,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = "Indexed messages: $messageCount",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            text = "Conversations indexed: $conversationCount",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Message embeddings are created automatically for every message and are scoped to each conversation.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
+    }
+}
+
 private val EPISODIC_DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter
     .ofPattern("MMM d, yyyy", Locale.getDefault())
     .withZone(ZoneId.systemDefault())
@@ -360,3 +524,29 @@ private fun EpisodicMemoryItemPreview() {
         )
     }
 }
+
+@Preview(showBackground = true)
+@Composable
+private fun CoreMemoryItemSelectionPreview() {
+    MaterialTheme {
+        CoreMemoryItem(
+            content = "I prefer concise, direct answers.",
+            source = "user",
+            accessCount = 5,
+            isInSelectionMode = true,
+            isSelected = true,
+            onLongPress = {},
+            onToggleSelect = {},
+            onDelete = {},
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun MessageEmbeddingStatsSectionPreview() {
+    MaterialTheme {
+        MessageEmbeddingStatsSection(messageCount = 142, conversationCount = 7)
+    }
+}
+

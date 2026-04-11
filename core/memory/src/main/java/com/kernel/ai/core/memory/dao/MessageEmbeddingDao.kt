@@ -30,7 +30,15 @@ interface MessageEmbeddingDao {
     @Query("SELECT rowId FROM message_embeddings WHERE messageId = :messageId LIMIT 1")
     suspend fun getRowIdForMessage(messageId: String): Long?
 
-    /** Total number of indexed messages (for diagnostics). */
+    /** All rowIds for embeddings belonging to a specific conversation (used before cascade delete). */
+    @Query("SELECT rowId FROM message_embeddings WHERE conversationId = :conversationId")
+    suspend fun getRowIdsForConversation(conversationId: String): List<Long>
+
+    /** Total number of indexed messages (for diagnostics / Memory screen stats). */
     @Query("SELECT COUNT(*) FROM message_embeddings")
     suspend fun count(): Int
+
+    /** Number of distinct conversations that have at least one indexed message. */
+    @Query("SELECT COUNT(DISTINCT conversationId) FROM message_embeddings")
+    suspend fun countDistinctConversations(): Int
 }
