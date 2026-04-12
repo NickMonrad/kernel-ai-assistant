@@ -10,6 +10,7 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.tool
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
@@ -17,32 +18,45 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "KernelAI"
 
 /**
- * Routes user messages to either a skill or plain conversation using FunctionGemma-270M.
+ * Handles user messages via FunctionGemma-270M using the LiteRT-LM native ToolSet API.
  *
- * FunctionGemma runs on CPU (XNNPACK, 4 threads) and is always-hot — loaded at app start.
+ * FunctionGemma is fine-tuned to use the SDK's `@Tool`/`ToolSet`/`ToolProvider` mechanism.
+ * Tools are registered with [ConversationConfig] so the model genuinely sees them — no
+ * manual JSON schema injection or text-output parsing required.
+ *
+ * FunctionGemma runs on CPU (XNNPACK) and is always-hot — loaded at app start.
  * It never shares its session with the main conversation (isolated Engine + Conversation).
  *
  * Output contract:
- * - Valid JSON object with "name" field → [RouteDecision.SkillCall]
- * - Anything else (including "CONVERSATION") → [RouteDecision.PlainConversation]
- * - Engine not yet initialised → [RouteDecision.RouterNotReady]
+ * - Non-null [String] → final model text response after any tool calls completed internally
+ * - `null`            → router not ready; caller should fall through to Gemma-4
  */
 @Singleton
 class FunctionGemmaRouter @Inject constructor(
     @ApplicationContext private val context: Context,
     @Suppress("UnusedPrivateMember")
     private val hardwareProfileDetector: HardwareProfileDetector,
+    private val toolSet: KernelAIToolSet,
 ) {
-    sealed class RouteDecision {
-        data class SkillCall(val rawJson: String) : RouteDecision()
-        object PlainConversation : RouteDecision()
-        object RouterNotReady : RouteDecision()
+    /**
+     * Result of a [handle] call.
+     *
+     * [ToolHandled] — a `@Tool` method was invoked; display [response] to the user.
+     * [PlainResponse] — FunctionGemma responded but called no tool; fall through to Gemma-4.
+     * [NotReady] — router not yet initialised; fall through to Gemma-4.
+     */
+    sealed class HandleResult {
+        data class ToolHandled(val response: String) : HandleResult()
+        data class PlainResponse(val response: String) : HandleResult()
+        object NotReady : HandleResult()
     }
 
     private var engine: Engine? = null
@@ -57,13 +71,19 @@ class FunctionGemmaRouter @Inject constructor(
      * Always forces CPU/XNNPACK backend — FunctionGemma-270M is the always-hot router and
      * must not compete with the main model on GPU/NPU resources.
      *
+     * Tools are registered via [KernelAIToolSet] through the SDK's native `ToolProvider`
+     * mechanism — the model sees the tool declarations directly with no system-prompt hacking.
+     *
      * @param functionGemmaPath Absolute path to the `.litertlm` model file on disk.
-     * @param functionDeclarationsJson JSON array of available skill declarations injected
-     *        into the system prompt so the model knows which functions it may call.
      */
-    suspend fun initialize(functionGemmaPath: String, functionDeclarationsJson: String) {
+    suspend fun initialize(functionGemmaPath: String) {
         withContext(LlmDispatcher) {
             _isReady.value = false
+            // Close any previously-held resources before re-initialising to avoid native memory leaks.
+            try { conversation?.close() } catch (e: Exception) { Log.w(TAG, "FunctionGemmaRouter: close prev conv: ${e.message}") }
+            try { engine?.close() } catch (e: Exception) { Log.w(TAG, "FunctionGemmaRouter: close prev engine: ${e.message}") }
+            conversation = null
+            engine = null
             try {
                 Log.i(TAG, "FunctionGemmaRouter: initialising from $functionGemmaPath")
 
@@ -75,11 +95,12 @@ class FunctionGemmaRouter @Inject constructor(
                 val eng = Engine(engineConfig)
                 eng.initialize()
 
-                val systemInstruction = buildSystemPrompt(functionDeclarationsJson)
+                val toolProvider = tool(toolSet)
                 val samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0)
                 val convConfig = ConversationConfig(
                     samplerConfig = samplerConfig,
-                    systemInstruction = Contents.of(Content.Text(systemInstruction)),
+                    systemInstruction = buildSystemPrompt(),
+                    tools = listOf(toolProvider),
                 )
                 val conv = eng.createConversation(convConfig)
 
@@ -95,22 +116,24 @@ class FunctionGemmaRouter @Inject constructor(
     }
 
     /**
-     * Routes [userMessage] to a skill call or plain conversation.
+     * Sends [userMessage] to FunctionGemma. The SDK invokes any matching `@Tool` methods
+     * automatically and feeds their results back to the model before generating the final
+     * text reply.
      *
      * Must only be called after [initialize] completes successfully (i.e., [isReady] is true).
-     * If the router is not ready, returns [RouteDecision.RouterNotReady] so the caller can
-     * fall through to Gemma-4.
+     * Returns `null` if the router is not ready — caller should fall through to Gemma-4.
      *
      * Runs on [LlmDispatcher] — safe to call from any coroutine context.
      */
-    suspend fun route(userMessage: String): RouteDecision = withContext(LlmDispatcher) {
+    suspend fun handle(userMessage: String): HandleResult = withContext(LlmDispatcher) {
         val conv = conversation
         if (conv == null) {
-            Log.w(TAG, "FunctionGemmaRouter: route() called before initialisation — falling back")
-            return@withContext RouteDecision.RouterNotReady
+            Log.w(TAG, "FunctionGemmaRouter: handle() called before initialisation — falling back")
+            return@withContext HandleResult.NotReady
         }
 
         try {
+            toolSet.resetTurnState()
             val sb = StringBuilder()
             val latch = CompletableDeferred<Unit>()
 
@@ -134,11 +157,15 @@ class FunctionGemmaRouter @Inject constructor(
             latch.await()
 
             val raw = sb.toString().trim()
-            Log.d(TAG, "FunctionGemmaRouter: raw output=\"$raw\"")
-            parseRouteDecision(raw)
+            Log.d(TAG, "FunctionGemmaRouter: response=\"$raw\" toolCalled=${toolSet.wasToolCalled()}")
+            when {
+                toolSet.wasToolCalled() -> HandleResult.ToolHandled(raw.ifEmpty { "Done." })
+                raw.isNotEmpty() -> HandleResult.PlainResponse(raw)
+                else -> HandleResult.PlainResponse("")   // router ready, model returned nothing; fall through to Gemma-4
+            }
         } catch (e: Exception) {
             Log.e(TAG, "FunctionGemmaRouter: inference failed — ${e.message}", e)
-            RouteDecision.RouterNotReady
+            HandleResult.NotReady
         }
     }
 
@@ -157,52 +184,25 @@ class FunctionGemmaRouter @Inject constructor(
     // -------------------------------------------------------------------------
 
     /**
-     * Parses the raw model output and returns the appropriate [RouteDecision].
-     *
-     * Strips code fences (same pattern as `SkillExecutor.parseSkillCall`) then tries to
-     * deserialise as a JSON object with a non-blank "name" field.
+     * Builds the system instruction matching Edge Gallery's style.
+     * No manual function declarations — those are provided via [ConversationConfig.tools].
      */
-    private fun parseRouteDecision(raw: String): RouteDecision {
-        return try {
-            val cleaned = raw.trim()
-                .removePrefix("```json").removePrefix("```")
-                .removeSuffix("```")
-                .trim()
-            val json = org.json.JSONObject(cleaned)
-            val name = json.optString("name").takeIf { it.isNotBlank() }
-            if (name != null) {
-                Log.d(TAG, "FunctionGemmaRouter: skill call detected — name=$name")
-                RouteDecision.SkillCall(cleaned)
-            } else {
-                Log.d(TAG, "FunctionGemmaRouter: JSON has no 'name' field — plain conversation")
-                RouteDecision.PlainConversation
-            }
-        } catch (e: Exception) {
-            // Not valid JSON — treat as plain conversation (includes "CONVERSATION" literal)
-            Log.d(TAG, "FunctionGemmaRouter: non-JSON output — plain conversation")
-            RouteDecision.PlainConversation
-        }
+    private fun buildSystemPrompt(): Contents {
+        val now = LocalDateTime.now()
+        val dateStr = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"))
+        val dayStr = now.format(DateTimeFormatter.ofPattern("EEEE"))
+        return Contents.of(
+            listOf(
+                Content.Text("You are a model that can do function calling with the following functions"),
+                Content.Text("Current date and time: $dateStr, Day: $dayStr"),
+            ),
+        )
     }
-
-    private fun buildSystemPrompt(functionDeclarationsJson: String): String = """
-You are a function router. Given a user message, decide if it requires a function call or a normal conversation response.
-
-Available functions:
-$functionDeclarationsJson
-
-If the user message requires a function call, respond with ONLY a JSON object:
-{"name": "function_name", "arguments": {"param": "value"}}
-
-If the user message is a normal conversation, respond with ONLY the word: CONVERSATION
-
-Do not add any explanation or extra text.
-    """.trimIndent()
 
     private companion object {
         /**
          * Token budget for the router. The model file is the `ekv1024` variant, compiled with
-         * a 1024-token KV cache — match that here. 256 was too small for the system prompt +
-         * function declarations, causing "Input token ids are too long" on every inference call.
+         * a 1024-token KV cache — match that here.
          */
         private const val MAX_TOKENS = 1024
     }

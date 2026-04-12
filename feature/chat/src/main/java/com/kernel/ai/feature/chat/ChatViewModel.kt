@@ -210,12 +210,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Returns the function_declarations JSON array for FunctionGemma's system prompt.
-     * Used to advertise available skills to the model at inference time.
-     */
-    fun buildSkillContext(): String = skillRegistry.buildFunctionDeclarationsJson()
-
     private suspend fun initializeConversation() {
         val id = navConversationId ?: conversationRepository.createConversation()
         conversationId = id
@@ -303,7 +297,7 @@ class ChatViewModel @Inject constructor(
             return
         }
         try {
-            functionGemmaRouter.initialize(routerPath, buildSkillContext())
+            functionGemmaRouter.initialize(routerPath)
             Log.i("KernelAI", "FunctionGemmaRouter initialized successfully")
         } catch (e: Exception) {
             Log.w("KernelAI", "FunctionGemmaRouter: init failed (non-fatal): ${e.message}", e)
@@ -427,33 +421,19 @@ class ChatViewModel @Inject constructor(
                 Log.d("KernelAI", "Set placeholder title for $convId: \"$placeholder\"")
             }
 
-            // 1. Route via FunctionGemma — fast CPU classifier decides skill vs. conversation.
-            val routeDecision = functionGemmaRouter.route(text)
-            when (routeDecision) {
-                is FunctionGemmaRouter.RouteDecision.SkillCall -> {
-                    val result = skillExecutor.execute(routeDecision.rawJson)
-                    when (result) {
-                        is SkillResult.Success -> {
-                            appendAssistantMessage(convId, result.content)
-                            needsHistoryReplay = true
-                            return@launch
-                        }
-                        is SkillResult.ParseError, is SkillResult.UnknownSkill -> {
-                            Log.w("KernelAI", "Skill routing failed: $result — falling back to Gemma-4")
-                            // fall through to Gemma-4
-                        }
-                        is SkillResult.Failure -> {
-                            appendAssistantMessage(
-                                convId,
-                                "I tried to do that but something went wrong: ${(result as SkillResult.Failure).error}",
-                            )
-                            needsHistoryReplay = true
-                            return@launch
-                        }
-                    }
+            // 1. Route via FunctionGemma — SDK calls @Tool methods natively.
+            //    ToolHandled  → a skill ran, display response, skip Gemma-4.
+            //    PlainResponse → FunctionGemma answered without a tool, fall through to Gemma-4
+            //                    so the user gets a high-quality conversational response.
+            //    NotReady     → router not initialised, fall through to Gemma-4.
+            when (val result = functionGemmaRouter.handle(text)) {
+                is FunctionGemmaRouter.HandleResult.ToolHandled -> {
+                    appendAssistantMessage(convId, result.response)
+                    needsHistoryReplay = true
+                    return@launch
                 }
-                is FunctionGemmaRouter.RouteDecision.PlainConversation,
-                is FunctionGemmaRouter.RouteDecision.RouterNotReady -> {
+                is FunctionGemmaRouter.HandleResult.PlainResponse,
+                is FunctionGemmaRouter.HandleResult.NotReady -> {
                     // fall through to Gemma-4
                 }
             }
