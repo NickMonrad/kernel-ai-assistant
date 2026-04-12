@@ -246,8 +246,10 @@ class ModelDownloadManager @Inject constructor(
 
     // Issue 3 fix: guard against launching duplicate observeWorkInfo coroutines
     private fun ensureObserving(model: KernelModel) {
-        if (observerJobs[model]?.isActive == true) return
-        observerJobs[model] = scope.launch { observeWorkInfo(model) }
+        observerJobs.compute(model) { _, existing ->
+            if (existing?.isActive == true) existing
+            else scope.launch { observeWorkInfo(model) }
+        }
     }
 
     /**
