@@ -291,15 +291,18 @@ class LiteRtInferenceEngine @Inject constructor(
         for (backendType in orderedBackends) {
             try {
                 Log.d(TAG, "Trying backend: $backendType")
-                val engineConfig = EngineConfig(
+                val timeoutMs = if (backendType == BackendType.GPU) 25_000L else 120_000L
+                val eng = tryInitEngine(
                     modelPath = config.modelPath,
                     backend = backendType.toBackend(context),
-                    maxNumTokens = config.maxTokens,
+                    maxTokens = config.maxTokens,
+                    timeoutMs = timeoutMs,
                 )
-                val eng = Engine(engineConfig)
-                eng.initialize()
                 Log.i(TAG, "Backend $backendType initialized successfully")
                 return Pair(eng, backendType)
+            } catch (e: java.util.concurrent.TimeoutException) {
+                Log.w(TAG, "Backend $backendType init timed out — falling back")
+                lastException = Exception("Backend $backendType timed out", e)
             } catch (e: Exception) {
                 Log.w(TAG, "Backend $backendType failed: ${e.message}")
                 lastException = e
@@ -310,6 +313,45 @@ class LiteRtInferenceEngine @Inject constructor(
             "All backends failed for ${config.modelPath}. Last error: ${lastException?.message}",
             lastException,
         )
+    }
+
+    /**
+     * Attempts to initialize a [Engine] with a timeout guard.
+     *
+     * GPU initialization on some devices (e.g. Samsung Galaxy S23 Ultra) can
+     * block for >50s, causing an OOM-kill before the fallback chain fires.
+     * Running the blocking call on a [CompletableFuture] thread lets us abort
+     * our wait after [timeoutMs] and propagate a [java.util.concurrent.TimeoutException]
+     * so [createEngineWithFallback] can fall back to the next backend.
+     *
+     * Note: the spawned thread cannot be forcibly cancelled — it will eventually
+     * surface an error internally and its result will be discarded.
+     */
+    private fun tryInitEngine(
+        modelPath: String,
+        backend: com.google.ai.edge.litertlm.Backend,
+        maxTokens: Int,
+        timeoutMs: Long,
+    ): Engine {
+        val future = java.util.concurrent.CompletableFuture.supplyAsync {
+            val engineConfig = EngineConfig(
+                modelPath = modelPath,
+                backend = backend,
+                maxNumTokens = maxTokens,
+            )
+            val eng = Engine(engineConfig)
+            eng.initialize()
+            eng
+        }
+        return try {
+            future.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (e: java.util.concurrent.TimeoutException) {
+            Log.w(TAG, "Backend init timed out after ${timeoutMs}ms — falling back")
+            throw e
+        } catch (e: java.util.concurrent.ExecutionException) {
+            // Unwrap the cause thrown inside supplyAsync so callers see the original exception.
+            throw e.cause ?: e
+        }
     }
 
     private fun buildConversationConfig(
