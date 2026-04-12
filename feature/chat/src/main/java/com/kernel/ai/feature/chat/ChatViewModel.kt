@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 
@@ -181,7 +182,7 @@ class ChatViewModel @Inject constructor(
     private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
         val profile = userProfileRepository.get()
         val dateTime = LocalDateTime.now()
-            .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm"))
+            .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))
         return buildString {
             append(DEFAULT_SYSTEM_PROMPT)
             append("\n\n[Current date and time]\n$dateTime")
