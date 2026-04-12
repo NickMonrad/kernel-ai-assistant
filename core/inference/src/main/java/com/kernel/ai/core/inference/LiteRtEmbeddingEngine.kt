@@ -6,7 +6,10 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.isDownloaded
 import com.kernel.ai.core.inference.download.localFile
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.tensorflow.lite.Interpreter
 import java.io.File
@@ -46,9 +49,10 @@ class LiteRtEmbeddingEngine @Inject constructor(
     private val lock = Any()
 
     init {
-        // Clean up the SM8550 variant — disabled due to LiteRT format incompatibility.
-        // Remove this once the upstream issue is resolved and the model is re-enabled.
-        KernelModel.EMBEDDING_GEMMA_300M_SM8550.localFile(context).let { f ->
+        // Clean up the SM8550 variant on a background thread — disabled due to LiteRT format
+        // incompatibility. Remove once the upstream issue is resolved and model is re-enabled.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            val f = KernelModel.EMBEDDING_GEMMA_300M_SM8550.localFile(context)
             if (f.exists()) {
                 f.delete()
                 Log.i(TAG, "Deleted broken SM8550 embedding variant: ${f.name}")
