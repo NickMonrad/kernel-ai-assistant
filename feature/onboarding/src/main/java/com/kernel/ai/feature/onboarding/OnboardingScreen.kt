@@ -95,12 +95,12 @@ fun OnboardingScreen(
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
-                text = "Welcome to Kernel AI",
+                text = "Welcome to Jandal AI",
                 style = MaterialTheme.typography.headlineMedium,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "On-device AI — private by design.",
+                text = "Your private AI mate — all on-device.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

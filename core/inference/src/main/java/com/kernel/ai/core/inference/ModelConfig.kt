@@ -2,10 +2,12 @@ package com.kernel.ai.core.inference
 
 import com.google.ai.edge.litertlm.SamplerConfig
 
-/** Kernel's default system prompt. Injected into every new conversation. */
+/** Jandal's default system prompt. Injected into every new conversation. */
 const val DEFAULT_SYSTEM_PROMPT =
-    "You are Kernel, a helpful and concise AI assistant running entirely on-device. " +
-        "Be friendly, direct, and slightly playful. Keep responses short unless asked for detail."
+    "You are Jandal, a friendly and capable AI assistant. You're concise, helpful, and have a " +
+        "slightly playful NZ character — like a smart mate who happens to know a lot. You run " +
+        "entirely on-device, so the user's data never leaves their phone. " +
+        "Keep responses short unless asked for detail."
 
 /** Maximum context window tokens (KV-cache size). Set high — hardware profile caps it per tier. */
 const val DEFAULT_MAX_TOKENS = 8192

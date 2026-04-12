@@ -226,7 +226,7 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .clickable { onNavigateToUserProfile() },
                 headlineContent = { Text("User Profile") },
-                supportingContent = { Text("Tell Kernel about yourself") },
+                supportingContent = { Text("Tell Jandal about yourself") },
                 leadingContent = { Icon(Icons.Default.Person, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )

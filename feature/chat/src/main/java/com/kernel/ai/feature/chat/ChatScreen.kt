@@ -200,7 +200,7 @@ private fun ChatContent(
             TopAppBar(
                 title = {
                     Text(
-                        text = state.conversationTitle ?: "Kernel",
+                        text = state.conversationTitle ?: "Jandal",
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -476,7 +476,7 @@ private fun InputBar(
             TextField(
                 value = text,
                 onValueChange = onTextChanged,
-                placeholder = { Text("Message Kernel…") },
+                placeholder = { Text("Message Jandal…") },
                 modifier = Modifier.weight(1f),
                 maxLines = 5,
                 colors = TextFieldDefaults.colors(
@@ -516,7 +516,7 @@ private fun EmptyConversationHint(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.displayMedium,
             )
             Text(
-                text = "Hi, I'm Kernel. How can I help?",
+                text = "Hi, I'm Jandal. How can I help?",
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.padding(top = 8.dp),
             )
@@ -607,7 +607,7 @@ private fun OnboardingContent(
         ) {
             Text(text = "🧠", style = MaterialTheme.typography.displayLarge)
             Text(
-                text = "Welcome to Kernel",
+                text = "Welcome to Jandal",
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(top = 16.dp),
             )

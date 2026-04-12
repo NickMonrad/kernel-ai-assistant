@@ -82,7 +82,7 @@ fun ConversationListScreen(
                     if (isInSelectionMode) {
                         Text("${selectedConversationIds.size} / ${conversations.size} selected")
                     } else {
-                        Text("Kernel")
+                        Text("Jandal")
                     }
                 },
                 actions = {
