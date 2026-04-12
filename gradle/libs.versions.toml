@@ -46,6 +46,10 @@ leakcanary = "2.14"
 appauth = "0.11.1"
 securityCrypto = "1.1.0-alpha06"
 
+# Weather skill deps
+okhttp = "4.12.0"
+playServicesLocation = "21.3.0"
+
 [libraries]
 # Compose BOM
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -105,6 +109,10 @@ leakcanary = { group = "com.squareup.leakcanary", name = "leakcanary-android", v
 # Auth
 appauth = { group = "net.openid", name = "appauth", version.ref = "appauth" }
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+
+# Weather skill deps
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
