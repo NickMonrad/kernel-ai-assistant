@@ -392,8 +392,14 @@ class ChatViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            // Hoisted so the streaming section (outside the try/finally) can read them.
+            var assistantMsgId = ""
+            var accumulatedContent = StringBuilder()
+            var accumulatedThinking = StringBuilder()
+            var prompt = ""
+
             try {
-                val userMsgId = UUID.randomUUID().toString()
+            val userMsgId = UUID.randomUUID().toString()
             val userMessage = ChatMessage(
                 id = userMsgId,
                 role = ChatMessage.Role.USER,
@@ -454,9 +460,10 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
             }
+            // _isLoadingModel is always cleared by the outer finally block below.
 
             // 2. Gemma-4 streaming inference path.
-            val assistantMsgId = UUID.randomUUID().toString()
+            assistantMsgId = UUID.randomUUID().toString()
             val streamingPlaceholder = ChatMessage(
                 id = assistantMsgId,
                 role = ChatMessage.Role.ASSISTANT,
@@ -465,8 +472,8 @@ class ChatViewModel @Inject constructor(
             )
             _messages.update { it + streamingPlaceholder }
 
-            var accumulatedContent = StringBuilder()
-            var accumulatedThinking = StringBuilder()
+            accumulatedContent = StringBuilder()
+            accumulatedThinking = StringBuilder()
 
             // Register active streaming state so cancel/onCleared can flush to Room.
             activeStreamingMsgId = assistantMsgId
@@ -503,7 +510,13 @@ class ChatViewModel @Inject constructor(
                 estimatedTokensUsed += ragTokenCost
             }
 
-            val prompt = if (ragContext.isNotBlank()) "$ragContext\n\n$text" else text
+            prompt = if (ragContext.isNotBlank()) "$ragContext\n\n$text" else text
+
+            } finally {
+                // Reset the loading spinner on every exit path from the pre-inference block —
+                // skill early-returns, model-not-ready bail-outs, and the normal fall-through.
+                _isLoadingModel.value = false
+            }
 
             try {
                 inferenceEngine.generate(prompt).collect { result ->
@@ -625,9 +638,6 @@ class ChatViewModel @Inject constructor(
                 activeStreamingContent = StringBuilder()
                 activeStreamingThinking = StringBuilder()
             }
-        } finally {
-            _isLoadingModel.value = false
-        }
         }
     }
 
