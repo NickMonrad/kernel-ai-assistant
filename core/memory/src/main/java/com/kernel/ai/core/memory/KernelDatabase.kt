@@ -30,7 +30,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         CoreMemoryEntity::class,
         ModelSettingsEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -69,6 +69,13 @@ abstract class KernelDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+            }
+        }
+
+        /** Adds toolCallJson column to messages for Gemma-4 native tool calling (#197). */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN toolCallJson TEXT DEFAULT NULL")
             }
         }
     }
