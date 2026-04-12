@@ -385,7 +385,9 @@ private fun MessageBubble(
         if (!isUser && message.toolCall != null) {
             ToolCallChip(
                 toolCall = message.toolCall,
-                modifier = Modifier.padding(bottom = 4.dp),
+                modifier = Modifier
+                    .padding(bottom = 4.dp)
+                    .widthIn(max = 300.dp),
             )
         }
 
