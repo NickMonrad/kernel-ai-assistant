@@ -159,6 +159,18 @@ class MemoryRepositoryImpl @Inject constructor(
         Log.d(TAG, "Deleted core memory id=$id")
     }
 
+    override suspend fun updateCoreMemory(id: String, newContent: String, newVector: FloatArray?) {
+        coreDao.updateContent(id, newContent)
+        if (newVector != null) {
+            val rowId = coreDao.getAll().find { it.id == id }?.rowId
+            if (rowId != null && rowId > 0) {
+                ensureCoreVecTable(newVector.size)
+                vectorStore.upsert(CORE_VEC_TABLE, rowId, newVector)
+            }
+        }
+        Log.d(TAG, "Updated core memory id=$id")
+    }
+
     override suspend fun clearEpisodicMemories() {
         // Fetch rowIds first so we can remove orphaned vec entries
         val rowIds = episodicDao.getRowIdsOlderThan(Long.MAX_VALUE)
