@@ -26,14 +26,26 @@ class KernelAIToolSet @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : ToolSet {
 
+    @Volatile private var toolCalledInThisTurn = false
+
+    /** Call before each [FunctionGemmaRouter.handle] invocation to reset the tool-called flag. */
+    fun resetTurnState() {
+        toolCalledInThisTurn = false
+    }
+
+    /** Returns true if any `@Tool` method was invoked during the current turn. */
+    fun wasToolCalled(): Boolean = toolCalledInThisTurn
+
     @Tool(description = "Turns the device flashlight/torch on")
     fun turnOnFlashlight(): Map<String, String> {
+        toolCalledInThisTurn = true
         Log.d(TAG, "ToolSet: turnOnFlashlight")
         return setTorch(true)
     }
 
     @Tool(description = "Turns the device flashlight/torch off")
     fun turnOffFlashlight(): Map<String, String> {
+        toolCalledInThisTurn = true
         Log.d(TAG, "ToolSet: turnOffFlashlight")
         return setTorch(false)
     }
@@ -42,6 +54,7 @@ class KernelAIToolSet @Inject constructor(
     fun getWeather(
         @ToolParam(description = "The city or location to get weather for") location: String,
     ): Map<String, String> {
+        toolCalledInThisTurn = true
         Log.d(TAG, "ToolSet: getWeather location=$location")
         // TODO: wire to real weather API — return placeholder for now
         return mapOf("result" to "Weather lookup for $location is not yet available offline.")
@@ -51,6 +64,7 @@ class KernelAIToolSet @Inject constructor(
     fun setTimer(
         @ToolParam(description = "Duration in seconds") seconds: Int,
     ): Map<String, String> {
+        toolCalledInThisTurn = true
         Log.d(TAG, "ToolSet: setTimer seconds=$seconds")
         // TODO: wire to Android AlarmManager
         return mapOf("result" to "Timer set for $seconds seconds.")
@@ -60,6 +74,7 @@ class KernelAIToolSet @Inject constructor(
     fun saveMemory(
         @ToolParam(description = "The content to remember") content: String,
     ): Map<String, String> {
+        toolCalledInThisTurn = true
         Log.d(TAG, "ToolSet: saveMemory content=$content")
         // TODO: wire to Room notes DB
         return mapOf("result" to "Memory saved: $content")

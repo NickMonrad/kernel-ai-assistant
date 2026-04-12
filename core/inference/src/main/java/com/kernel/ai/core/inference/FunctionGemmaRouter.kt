@@ -46,6 +46,19 @@ class FunctionGemmaRouter @Inject constructor(
     private val hardwareProfileDetector: HardwareProfileDetector,
     private val toolSet: KernelAIToolSet,
 ) {
+    /**
+     * Result of a [handle] call.
+     *
+     * [ToolHandled] — a `@Tool` method was invoked; display [response] to the user.
+     * [PlainResponse] — FunctionGemma responded but called no tool; fall through to Gemma-4.
+     * [NotReady] — router not yet initialised; fall through to Gemma-4.
+     */
+    sealed class HandleResult {
+        data class ToolHandled(val response: String) : HandleResult()
+        data class PlainResponse(val response: String) : HandleResult()
+        object NotReady : HandleResult()
+    }
+
     private var engine: Engine? = null
     private var conversation: com.google.ai.edge.litertlm.Conversation? = null
 
@@ -107,14 +120,15 @@ class FunctionGemmaRouter @Inject constructor(
      *
      * Runs on [LlmDispatcher] — safe to call from any coroutine context.
      */
-    suspend fun handle(userMessage: String): String? = withContext(LlmDispatcher) {
+    suspend fun handle(userMessage: String): HandleResult = withContext(LlmDispatcher) {
         val conv = conversation
         if (conv == null) {
             Log.w(TAG, "FunctionGemmaRouter: handle() called before initialisation — falling back")
-            return@withContext null
+            return@withContext HandleResult.NotReady
         }
 
         try {
+            toolSet.resetTurnState()
             val sb = StringBuilder()
             val latch = CompletableDeferred<Unit>()
 
@@ -138,11 +152,15 @@ class FunctionGemmaRouter @Inject constructor(
             latch.await()
 
             val raw = sb.toString().trim()
-            Log.d(TAG, "FunctionGemmaRouter: response=\"$raw\"")
-            raw.ifEmpty { null }
+            Log.d(TAG, "FunctionGemmaRouter: response=\"$raw\" toolCalled=${toolSet.wasToolCalled()}")
+            when {
+                toolSet.wasToolCalled() -> HandleResult.ToolHandled(raw.ifEmpty { "Done." })
+                raw.isNotEmpty() -> HandleResult.PlainResponse(raw)
+                else -> HandleResult.NotReady
+            }
         } catch (e: Exception) {
             Log.e(TAG, "FunctionGemmaRouter: inference failed — ${e.message}", e)
-            null
+            HandleResult.NotReady
         }
     }
 

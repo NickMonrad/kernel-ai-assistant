@@ -421,14 +421,22 @@ class ChatViewModel @Inject constructor(
                 Log.d("KernelAI", "Set placeholder title for $convId: \"$placeholder\"")
             }
 
-            // 1. Route via FunctionGemma — SDK calls @Tool methods natively and returns final text.
-            val routerResponse = functionGemmaRouter.handle(text)
-            if (routerResponse != null) {
-                appendAssistantMessage(convId, routerResponse)
-                needsHistoryReplay = true
-                return@launch
+            // 1. Route via FunctionGemma — SDK calls @Tool methods natively.
+            //    ToolHandled  → a skill ran, display response, skip Gemma-4.
+            //    PlainResponse → FunctionGemma answered without a tool, fall through to Gemma-4
+            //                    so the user gets a high-quality conversational response.
+            //    NotReady     → router not initialised, fall through to Gemma-4.
+            when (val result = functionGemmaRouter.handle(text)) {
+                is FunctionGemmaRouter.HandleResult.ToolHandled -> {
+                    appendAssistantMessage(convId, result.response)
+                    needsHistoryReplay = true
+                    return@launch
+                }
+                is FunctionGemmaRouter.HandleResult.PlainResponse,
+                is FunctionGemmaRouter.HandleResult.NotReady -> {
+                    // fall through to Gemma-4
+                }
             }
-            // null → router not ready or plain conversation; fall through to Gemma-4
 
             // Lazy-init Gemma-4 if not yet loaded.
             if (!inferenceEngine.isReady.value) {
