@@ -26,6 +26,7 @@ private const val TAG = "KernelAI"
 @Singleton
 class GetWeatherSkill @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val httpClient: OkHttpClient,
 ) : Skill {
 
     override val name = "get_weather"
@@ -42,8 +43,6 @@ class GetWeatherSkill @Inject constructor(
         ),
         required = emptyList(),
     )
-
-    private val httpClient = OkHttpClient()
 
     override suspend fun execute(call: SkillCall): SkillResult {
         val location = call.arguments["location"]?.takeIf { it.isNotBlank() } ?: "current"
