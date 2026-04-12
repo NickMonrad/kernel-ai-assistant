@@ -1,4 +1,4 @@
-# Kernel AI Assistant
+# Jandal AI
 
 A high-performance, **local-first** intelligent agent for Android. All inference runs entirely on-device — no cloud APIs, no telemetry, no data leakage. Built on Google's **Gemma-4** model family via **LiteRT**.
 
