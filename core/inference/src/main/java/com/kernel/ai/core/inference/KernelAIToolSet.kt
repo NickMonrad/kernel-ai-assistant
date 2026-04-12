@@ -81,8 +81,8 @@ class KernelAIToolSet @Inject constructor(
         toolCalledInThisTurn = true
         Log.d(TAG, "ToolSet: getCurrentTime")
         val now = java.time.LocalDateTime.now()
-        val timeStr = now.format(java.time.format.DateTimeFormatter.ofPattern("h:mm a"))
-        val dateStr = now.format(java.time.format.DateTimeFormatter.ofPattern("EEEE, MMMM d yyyy"))
+        val timeStr = now.format(java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.ENGLISH))
+        val dateStr = now.format(java.time.format.DateTimeFormatter.ofPattern("EEEE, MMMM d yyyy", java.util.Locale.ENGLISH))
         return mapOf("time" to timeStr, "date" to dateStr, "result" to "success")
     }
 
