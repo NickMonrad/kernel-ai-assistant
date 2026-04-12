@@ -510,7 +510,6 @@ class ChatViewModel @Inject constructor(
             }
 
             try {
-                kernelAIToolSet.resetTurnState()
                 inferenceEngine.generate(prompt).collect { result ->
                     when (result) {
                         is GenerationResult.Token -> {

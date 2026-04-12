@@ -84,7 +84,7 @@ class KernelAIToolSet @Inject constructor(
     @Tool(description = "Runs an Android system action such as opening settings, setting an alarm, creating a calendar event, or sending an email")
     fun runIntent(
         @ToolParam(description = "The action to perform. One of: SET_ALARM, OPEN_WIFI_SETTINGS, OPEN_BLUETOOTH_SETTINGS, CREATE_CALENDAR_EVENT, SEND_EMAIL") action: String,
-        @ToolParam(description = "JSON string of parameters for the action, e.g. '{\"hours\":7,\"minutes\":30,\"message\":\"Wake up\"}' for SET_ALARM") parameters: String,
+        @ToolParam(description = "JSON string of parameters. SET_ALARM: {\"hours\":7,\"minutes\":30,\"message\":\"label\"}. CREATE_CALENDAR_EVENT: {\"title\":\"Meeting\",\"startEpochMs\":1234567890000,\"endEpochMs\":1234571490000}. SEND_EMAIL: {\"subject\":\"Hello\",\"body\":\"text\"}") parameters: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         Log.d(TAG, "ToolSet: runIntent action=$action params=$parameters")
@@ -115,15 +115,20 @@ class KernelAIToolSet @Inject constructor(
                     val intent = Intent(Intent.ACTION_INSERT).apply {
                         data = android.provider.CalendarContract.Events.CONTENT_URI
                         putExtra(android.provider.CalendarContract.Events.TITLE, params.optString("title", "New Event"))
+                        val startMs = params.optLong("startEpochMs")
+                        if (startMs > 0) putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMs)
+                        val endMs = params.optLong("endEpochMs")
+                        if (endMs > 0) putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME, endMs)
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     }
                     context.startActivity(intent)
                     mapOf("result" to "success")
                 }
                 "SEND_EMAIL" -> {
+                    // Do NOT populate EXTRA_EMAIL from LLM output to prevent prompt-injection
+                    // exfiltration — the user must enter the recipient themselves in the mail app.
                     val intent = Intent(Intent.ACTION_SEND).apply {
                         type = "message/rfc822"
-                        putExtra(Intent.EXTRA_EMAIL, arrayOf(params.optString("to", "")))
                         putExtra(Intent.EXTRA_SUBJECT, params.optString("subject", ""))
                         putExtra(Intent.EXTRA_TEXT, params.optString("body", ""))
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
