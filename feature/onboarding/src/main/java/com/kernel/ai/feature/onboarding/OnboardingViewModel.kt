@@ -28,27 +28,45 @@ class OnboardingViewModel @Inject constructor(
     data class OnboardingUiState(
         val isAuthenticated: Boolean = false,
         val username: String? = null,
-        /** Download progress 0..1 for the required E2B model. */
-        val downloadProgress: Float = 0f,
-        val downloadState: DownloadState = DownloadState.NotDownloaded,
-    )
+        val gemmaDownloadState: DownloadState = DownloadState.NotDownloaded,
+        val routerDownloadState: DownloadState = DownloadState.NotDownloaded,
+    ) {
+        val overallProgress: Float
+            get() {
+                val gemmaP = when (gemmaDownloadState) {
+                    is DownloadState.Downloading -> gemmaDownloadState.progress
+                    is DownloadState.Downloaded -> 1f
+                    else -> 0f
+                }
+                val routerP = when (routerDownloadState) {
+                    is DownloadState.Downloading -> routerDownloadState.progress
+                    is DownloadState.Downloaded -> 1f
+                    else -> 0f
+                }
+                // FunctionGemma is ~289MB, Gemma-4 E2B is ~2.4GB — weight accordingly
+                return (gemmaP * 0.89f) + (routerP * 0.11f)
+            }
+        val allDownloaded: Boolean
+            get() = gemmaDownloadState is DownloadState.Downloaded &&
+                    routerDownloadState is DownloadState.Downloaded
+        val anyError: Boolean
+            get() = gemmaDownloadState is DownloadState.Error ||
+                    routerDownloadState is DownloadState.Error
+        val isDownloading: Boolean
+            get() = gemmaDownloadState is DownloadState.Downloading ||
+                    routerDownloadState is DownloadState.Downloading
+    }
 
     val uiState: StateFlow<OnboardingUiState> = combine(
         authRepository.isAuthenticated,
         authRepository.username,
         modelDownloadManager.downloadStates,
     ) { isAuthenticated, username, downloadStates ->
-        val e2bState = downloadStates[KernelModel.GEMMA_4_E2B] ?: DownloadState.NotDownloaded
-        val progress = when (e2bState) {
-            is DownloadState.Downloading -> e2bState.progress
-            is DownloadState.Downloaded -> 1f
-            else -> 0f
-        }
         OnboardingUiState(
             isAuthenticated = isAuthenticated,
             username = username,
-            downloadProgress = progress,
-            downloadState = e2bState,
+            gemmaDownloadState = downloadStates[KernelModel.GEMMA_4_E2B] ?: DownloadState.NotDownloaded,
+            routerDownloadState = downloadStates[KernelModel.FUNCTION_GEMMA_270M] ?: DownloadState.NotDownloaded,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -92,6 +110,9 @@ class OnboardingViewModel @Inject constructor(
     /**
      * Starts downloading a [model]. If the model is gated and the user is not signed in,
      * emits [OnboardingEvent.GatedModelRequiresAuth] instead.
+     *
+     * Always queues [KernelModel.FUNCTION_GEMMA_270M] alongside the primary model so that
+     * [com.kernel.ai.core.inference.FunctionGemmaRouter] can initialise correctly and skills fire.
      */
     fun startDownload(model: KernelModel) {
         if (model.isGated && !uiState.value.isAuthenticated) {
@@ -99,6 +120,10 @@ class OnboardingViewModel @Inject constructor(
             return
         }
         modelDownloadManager.startDownload(model)
+        // FunctionGemma is always required and never gated — queue alongside any Gemma-4 download
+        if (model != KernelModel.FUNCTION_GEMMA_270M) {
+            modelDownloadManager.startDownload(KernelModel.FUNCTION_GEMMA_270M)
+        }
     }
 
     sealed interface OnboardingEvent {
