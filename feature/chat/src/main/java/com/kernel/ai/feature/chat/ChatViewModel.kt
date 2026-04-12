@@ -9,6 +9,7 @@ import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.FunctionGemmaRouter
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.LlmDispatcher
 import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
@@ -375,6 +376,7 @@ class ChatViewModel @Inject constructor(
                     when (result) {
                         is SkillResult.Success -> {
                             appendAssistantMessage(convId, result.content)
+                            needsHistoryReplay = true
                             return@launch
                         }
                         is SkillResult.ParseError, is SkillResult.UnknownSkill -> {
@@ -386,6 +388,7 @@ class ChatViewModel @Inject constructor(
                                 convId,
                                 "I tried to do that but something went wrong: ${(result as SkillResult.Failure).error}",
                             )
+                            needsHistoryReplay = true
                             return@launch
                         }
                     }
@@ -696,7 +699,9 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { inferenceEngine.shutdown() }
-        functionGemmaRouter.release()
+        CoroutineScope(LlmDispatcher).launch {
+            functionGemmaRouter.release()
+        }
     }
 }
 
