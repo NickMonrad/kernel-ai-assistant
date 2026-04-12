@@ -65,8 +65,6 @@ abstract class KernelDatabase : RoomDatabase() {
                         contextWindowSize INTEGER NOT NULL,
                         temperature REAL NOT NULL,
                         topP REAL NOT NULL,
-                        minP REAL NOT NULL,
-                        repetitionPenalty REAL,
                         updatedAt INTEGER NOT NULL
                     )
                     """.trimIndent()

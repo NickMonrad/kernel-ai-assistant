@@ -38,8 +38,6 @@ class ModelSettingsRepositoryImpl @Inject constructor(
             contextWindowSize = defaultContextWindow,
             temperature = 1.0f,
             topP = 0.95f,
-            minP = 0.05f,
-            repetitionPenalty = null,
             updatedAt = System.currentTimeMillis(),
         )
     }

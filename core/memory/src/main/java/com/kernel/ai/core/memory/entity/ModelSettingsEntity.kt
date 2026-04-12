@@ -6,7 +6,8 @@ import androidx.room.PrimaryKey
 /**
  * Stores user-configured inference parameters for a specific model.
  *
- * @param modelId Stable identifier, e.g. "gemma4_e4b" or "gemma4_e2b".
+ * @param modelId Stable identifier, e.g. "gemma_4_e4b" or "gemma_4_e2b" — matches
+ *   [com.kernel.ai.core.inference.download.KernelModel.modelId].
  */
 @Entity(tableName = "model_settings")
 data class ModelSettingsEntity(
@@ -15,8 +16,5 @@ data class ModelSettingsEntity(
     val contextWindowSize: Int,
     val temperature: Float,
     val topP: Float,
-    val minP: Float,
-    /** null = disabled. When set, typically 1.0–2.0. */
-    val repetitionPenalty: Float?,
     val updatedAt: Long = System.currentTimeMillis(),
 )

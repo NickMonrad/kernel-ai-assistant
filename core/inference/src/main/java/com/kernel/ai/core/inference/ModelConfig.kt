@@ -22,8 +22,6 @@ val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 40, topP = 0.95, temperature =
  * @param systemPrompt Optional system instruction prepended to every conversation.
  * @param temperature Sampling temperature (0.1–2.0). Higher = more creative. Default 1.0.
  * @param topP Nucleus sampling threshold (0.0–1.0). Default 0.95.
- * @param minP Minimum probability for token sampling (0.0–0.5). Default 0.05.
- * @param repetitionPenalty Penalty for repeated tokens; null = disabled. Typical range 1.0–2.0.
  */
 data class ModelConfig(
     val modelPath: String,
@@ -32,6 +30,4 @@ data class ModelConfig(
     val systemPrompt: String? = DEFAULT_SYSTEM_PROMPT,
     val temperature: Float = 1.0f,
     val topP: Float = 0.95f,
-    val minP: Float = 0.05f,
-    val repetitionPenalty: Float? = null,
 )

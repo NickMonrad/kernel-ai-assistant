@@ -20,7 +20,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -146,55 +145,6 @@ private fun ModelCard(
             },
         )
 
-        // Min-P
-        SliderRow(
-            label = "Min-P",
-            valueLabel = "%.2f".format(settings.minP),
-            value = settings.minP,
-            valueRange = 0.0f..0.5f,
-            steps = 49,
-            onValueChangeFinished = { newVal ->
-                onSettingsChanged(settings.copy(minP = (newVal * 100).roundToInt() / 100f))
-            },
-        )
-
-        // Repetition Penalty
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Repetition penalty",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            Switch(
-                checked = settings.repetitionPenalty != null,
-                onCheckedChange = { enabled ->
-                    onSettingsChanged(
-                        settings.copy(repetitionPenalty = if (enabled) 1.15f else null)
-                    )
-                },
-            )
-        }
-        if (settings.repetitionPenalty != null) {
-            // requireNotNull used because cross-module smart-cast on data class properties isn't supported
-            val repPenalty: Float = requireNotNull(settings.repetitionPenalty)
-            SliderRow(
-                label = "",
-                valueLabel = "%.2f".format(repPenalty),
-                value = repPenalty,
-                valueRange = 1.0f..2.0f,
-                steps = 19,
-                onValueChangeFinished = { newVal ->
-                    onSettingsChanged(
-                        settings.copy(repetitionPenalty = (newVal * 20).roundToInt() / 20f)
-                    )
-                },
-            )
-        }
-
         Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedButton(
@@ -257,12 +207,10 @@ private fun SliderRow(
 private fun ModelSettingsScreenPreview() {
     MaterialTheme {
         val sampleSettings = ModelSettingsEntity(
-            modelId = "gemma4_e2b",
+            modelId = "gemma_4_e2b",
             contextWindowSize = 4096,
             temperature = 1.0f,
             topP = 0.95f,
-            minP = 0.05f,
-            repetitionPenalty = null,
         )
         ModelCard(
             modelName = "Gemma 4 E-2B",

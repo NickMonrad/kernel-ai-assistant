@@ -169,7 +169,7 @@ class ChatViewModel @Inject constructor(
                 // Truncate profile to context-window-aware budget (10% of context window, max 3000 chars).
                 // The original stored profile is never modified — only the injected copy is shortened.
                 val contextWindowSize = activeModel?.let { model ->
-                    modelSettingsRepository.getSettings(model.name.lowercase()).contextWindowSize
+                    modelSettingsRepository.getSettings(model.modelId).contextWindowSize
                 } ?: 4096
                 val maxProfileChars = modelSettingsRepository.getMaxUserProfileChars(contextWindowSize)
                 val injectedProfile = profile.take(maxProfileChars)
@@ -261,8 +261,16 @@ class ChatViewModel @Inject constructor(
         val modelPath = downloadManager.getModelPath(preferred) ?: return
         activeModel = preferred
         try {
+            // Load user-configured settings so context window and sampler params reach the engine.
+            val settings = modelSettingsRepository.getSettings(preferred.modelId)
             // Initialize with a prompt that omits backend (not yet known).
-            inferenceEngine.initialize(ModelConfig(modelPath = modelPath, systemPrompt = buildSystemPrompt()))
+            inferenceEngine.initialize(ModelConfig(
+                modelPath = modelPath,
+                systemPrompt = buildSystemPrompt(),
+                maxTokens = settings.contextWindowSize,
+                temperature = settings.temperature,
+                topP = settings.topP,
+            ))
             estimatedTokensUsed = 0
             // Rebuild and push system prompt now that activeBackend is resolved — this
             // corrects the [Runtime] backend field which was null during initialize().

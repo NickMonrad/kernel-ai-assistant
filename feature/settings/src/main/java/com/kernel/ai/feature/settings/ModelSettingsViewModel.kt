@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
+import com.kernel.ai.core.inference.download.KernelModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -74,7 +75,7 @@ class ModelSettingsViewModel @Inject constructor(
     }
 
     companion object {
-        const val MODEL_ID_E2B = "gemma4_e2b"
-        const val MODEL_ID_E4B = "gemma4_e4b"
+        val MODEL_ID_E2B = KernelModel.GEMMA_4_E2B.modelId
+        val MODEL_ID_E4B = KernelModel.GEMMA_4_E4B.modelId
     }
 }
