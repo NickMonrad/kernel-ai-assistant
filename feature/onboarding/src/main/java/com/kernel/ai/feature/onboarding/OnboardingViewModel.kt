@@ -1,7 +1,5 @@
 package com.kernel.ai.feature.onboarding
 
-import android.content.Intent
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
@@ -77,31 +75,25 @@ class OnboardingViewModel @Inject constructor(
     private val _events = MutableSharedFlow<OnboardingEvent>(extraBufferCapacity = 1)
     val events: SharedFlow<OnboardingEvent> = _events.asSharedFlow()
 
-    /** Returns an [Intent] for the HuggingFace OAuth Chrome Custom Tab flow. */
-    fun buildAuthIntent(): Intent = authRepository.buildAuthIntent()
-
-    /**
-     * Called with the result [Intent] from [android.app.Activity.RESULT_OK] after AppAuth
-     * redirects back to the app. Performs the token exchange and updates auth state.
-     */
-    fun handleAuthResponse(intent: Intent) {
+    init {
+        // Forward authResult outcomes to the UI event bus so Onboarding screens can
+        // show success/error feedback without polling isAuthenticated.
         viewModelScope.launch {
-            authRepository.handleAuthResponse(intent)
-                .onFailure { e ->
-                    Log.e("KernelAI", "OnboardingViewModel: HF auth failed", e)
-                    _events.tryEmit(OnboardingEvent.AuthError("Sign-in failed: ${e.message}"))
-                }
-                .onSuccess {
-                    _events.tryEmit(OnboardingEvent.AuthSuccess)
-                }
+            authRepository.authResult.collect { result ->
+                result.onSuccess { _events.tryEmit(OnboardingEvent.AuthSuccess) }
+                result.onFailure { e -> _events.tryEmit(OnboardingEvent.AuthError("Sign-in failed: ${e.message}")) }
+            }
         }
     }
 
-    /** Emits an [OnboardingEvent.AuthError] directly — used when the screen detects a
-     *  RESULT_OK callback that carries no data intent. */
-    fun emitAuthError(message: String) {
-        _events.tryEmit(OnboardingEvent.AuthError(message))
-    }
+    /**
+     * Starts the HuggingFace OAuth flow by launching a Chrome Custom Tab via AppAuth.
+     * The result is delivered back to [MainActivity.onNewIntent] via a PendingIntent,
+     * bypassing [ActivityResultLauncher] to survive Samsung's memory management (#195).
+     *
+     * Must be called on the main thread (button-click handler).
+     */
+    fun startAuth() = authRepository.startAuthFlow()
 
     fun signOut() {
         authRepository.signOut()
