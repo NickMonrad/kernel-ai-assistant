@@ -301,7 +301,8 @@ class LiteRtInferenceEngine @Inject constructor(
                 Log.i(TAG, "Backend $backendType initialized successfully")
                 return Pair(eng, backendType)
             } catch (e: InterruptedException) {
-                // Coroutine was cancelled — restore flag and propagate immediately.
+                // tryInitEngine already restored the flag; re-assert defensively and abort
+                // without attempting the next backend — the caller was cancelled.
                 Thread.currentThread().interrupt()
                 throw e
             } catch (e: java.util.concurrent.TimeoutException) {
@@ -328,8 +329,13 @@ class LiteRtInferenceEngine @Inject constructor(
      * our wait after [timeoutMs] and propagate a [java.util.concurrent.TimeoutException]
      * so [createEngineWithFallback] can fall back to the next backend.
      *
-     * Note: the spawned thread cannot be forcibly cancelled — if init eventually
-     * completes after the deadline, the returned Engine is closed immediately.
+     * Memory note: after a GPU timeout the spawned thread keeps running (it cannot be
+     * interrupted since it is inside a JNI call). If GPU init eventually succeeds while CPU
+     * init is already in flight, both model weights are briefly resident simultaneously.
+     * The [whenComplete] cleanup closes the orphaned engine as soon as it surfaces, but the
+     * overlap window is real. On the S23 Ultra (12 GB) this is acceptable; on 6 GB devices
+     * it may retrigger OOM. A future improvement would be to serialise backends through a
+     * dedicated single-thread executor rather than sharing [ForkJoinPool.commonPool].
      */
     private fun tryInitEngine(
         modelPath: String,
