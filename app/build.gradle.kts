@@ -106,6 +106,7 @@ dependencies {
     // Auth — AppAuth + EncryptedSharedPreferences
     implementation(libs.appauth)
     implementation(libs.security.crypto)
+    implementation(libs.play.services.location)
 
     // Testing
     testImplementation(libs.junit.jupiter)
