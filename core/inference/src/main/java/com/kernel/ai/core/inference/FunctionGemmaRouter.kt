@@ -79,6 +79,11 @@ class FunctionGemmaRouter @Inject constructor(
     suspend fun initialize(functionGemmaPath: String) {
         withContext(LlmDispatcher) {
             _isReady.value = false
+            // Close any previously-held resources before re-initialising to avoid native memory leaks.
+            try { conversation?.close() } catch (e: Exception) { Log.w(TAG, "FunctionGemmaRouter: close prev conv: ${e.message}") }
+            try { engine?.close() } catch (e: Exception) { Log.w(TAG, "FunctionGemmaRouter: close prev engine: ${e.message}") }
+            conversation = null
+            engine = null
             try {
                 Log.i(TAG, "FunctionGemmaRouter: initialising from $functionGemmaPath")
 
@@ -156,7 +161,7 @@ class FunctionGemmaRouter @Inject constructor(
             when {
                 toolSet.wasToolCalled() -> HandleResult.ToolHandled(raw.ifEmpty { "Done." })
                 raw.isNotEmpty() -> HandleResult.PlainResponse(raw)
-                else -> HandleResult.NotReady
+                else -> HandleResult.PlainResponse("")   // router ready, model returned nothing; fall through to Gemma-4
             }
         } catch (e: Exception) {
             Log.e(TAG, "FunctionGemmaRouter: inference failed — ${e.message}", e)

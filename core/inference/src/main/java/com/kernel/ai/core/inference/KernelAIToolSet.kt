@@ -75,7 +75,7 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "The content to remember") content: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
-        Log.d(TAG, "ToolSet: saveMemory content=$content")
+        Log.d(TAG, "ToolSet: saveMemory (${content.length} chars)")
         // TODO: wire to Room notes DB
         return mapOf("result" to "Memory saved: $content")
     }
