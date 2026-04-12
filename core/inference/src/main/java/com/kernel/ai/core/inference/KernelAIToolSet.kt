@@ -62,12 +62,28 @@ class KernelAIToolSet @Inject constructor(
 
     @Tool(description = "Sets a timer for a specified duration")
     fun setTimer(
-        @ToolParam(description = "Duration in seconds") seconds: Int,
+        @ToolParam(description = "Duration as a number with unit, e.g. '5 minutes', '30 seconds', '1 hour', '90 seconds'") duration: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
-        Log.d(TAG, "ToolSet: setTimer seconds=$seconds")
-        // TODO: wire to Android AlarmManager
-        return mapOf("result" to "Timer set for $seconds seconds.")
+        Log.d(TAG, "ToolSet: setTimer duration=$duration")
+        // Parse duration string to milliseconds for AlarmManager
+        val millis = parseDuration(duration)
+        return if (millis > 0) {
+            // TODO: wire to AlarmManager — placeholder for now
+            mapOf("result" to "success", "message" to "Timer set for $duration")
+        } else {
+            mapOf("result" to "error", "error" to "Could not understand duration: $duration")
+        }
+    }
+
+    @Tool(description = "Gets the current date and time on the device")
+    fun getCurrentTime(): Map<String, String> {
+        toolCalledInThisTurn = true
+        Log.d(TAG, "ToolSet: getCurrentTime")
+        val now = java.time.LocalDateTime.now()
+        val timeStr = now.format(java.time.format.DateTimeFormatter.ofPattern("h:mm a"))
+        val dateStr = now.format(java.time.format.DateTimeFormatter.ofPattern("EEEE, MMMM d yyyy"))
+        return mapOf("time" to timeStr, "date" to dateStr, "result" to "success")
     }
 
     @Tool(description = "Saves a note or memory for future reference")
@@ -83,6 +99,19 @@ class KernelAIToolSet @Inject constructor(
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    private fun parseDuration(duration: String): Long {
+        val lower = duration.trim().lowercase()
+        val regex = Regex("""(\d+(?:\.\d+)?)\s*(second|sec|minute|min|hour|hr)s?""")
+        val match = regex.find(lower) ?: return -1L
+        val value = match.groupValues[1].toDoubleOrNull() ?: return -1L
+        val unit = match.groupValues[2]
+        return when {
+            unit.startsWith("hour") || unit.startsWith("hr") -> (value * 3_600_000).toLong()
+            unit.startsWith("min") -> (value * 60_000).toLong()
+            else -> (value * 1_000).toLong()
+        }
+    }
 
     private fun setTorch(enabled: Boolean): Map<String, String> {
         return try {
