@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 6,
-    "identityHash": "e2cff38014cceaf45c52f6052681d600",
+    "identityHash": "ada61d90ed829bd026e71bd5b3320a0c",
     "entities": [
       {
         "tableName": "conversations",
@@ -340,7 +340,7 @@
       },
       {
         "tableName": "model_settings",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`modelId` TEXT NOT NULL, `contextWindowSize` INTEGER NOT NULL, `temperature` REAL NOT NULL, `topP` REAL NOT NULL, `minP` REAL NOT NULL, `repetitionPenalty` REAL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`modelId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`modelId` TEXT NOT NULL, `contextWindowSize` INTEGER NOT NULL, `temperature` REAL NOT NULL, `topP` REAL NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`modelId`))",
         "fields": [
           {
             "fieldPath": "modelId",
@@ -367,17 +367,6 @@
             "notNull": true
           },
           {
-            "fieldPath": "minP",
-            "columnName": "minP",
-            "affinity": "REAL",
-            "notNull": true
-          },
-          {
-            "fieldPath": "repetitionPenalty",
-            "columnName": "repetitionPenalty",
-            "affinity": "REAL"
-          },
-          {
             "fieldPath": "updatedAt",
             "columnName": "updatedAt",
             "affinity": "INTEGER",
@@ -394,7 +383,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e2cff38014cceaf45c52f6052681d600')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ada61d90ed829bd026e71bd5b3320a0c')"
     ]
   }
 }
