@@ -171,6 +171,17 @@ class MemoryRepositoryImpl @Inject constructor(
         Log.d(TAG, "Updated core memory id=$id")
     }
 
+    override suspend fun updateEpisodicMemory(id: String, newContent: String, newVector: FloatArray) {
+        // Atomicity: update vec first; only write content if vec succeeds.
+        val rowId = episodicDao.getRowIdById(id)
+        if (rowId != null && rowId > 0) {
+            ensureEpisodicVecTable(newVector.size)
+            vectorStore.upsert(EPISODIC_VEC_TABLE, rowId, newVector)
+        }
+        episodicDao.updateContent(id, newContent)
+        Log.d(TAG, "Updated episodic memory id=$id")
+    }
+
     override suspend fun clearEpisodicMemories() {
         // Fetch rowIds first so we can remove orphaned vec entries
         val rowIds = episodicDao.getRowIdsOlderThan(Long.MAX_VALUE)

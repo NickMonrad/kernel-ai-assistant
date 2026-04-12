@@ -30,9 +30,7 @@ class ModelSettingsRepositoryImpl @Inject constructor(
         (contextWindowSize * 0.1).toInt().coerceIn(500, 3000)
 
     private fun defaultSettings(modelId: String): ModelSettingsEntity {
-        val totalRam = hardwareProfileDetector.profile.totalRamBytes
-        // ≥12 GB RAM → 8192 tokens, otherwise 4096
-        val defaultContextWindow = if (totalRam >= 12L * 1024 * 1024 * 1024) 8192 else 4096
+        val defaultContextWindow = hardwareProfileDetector.profile.recommendedMaxTokens
         return ModelSettingsEntity(
             modelId = modelId,
             contextWindowSize = defaultContextWindow,
