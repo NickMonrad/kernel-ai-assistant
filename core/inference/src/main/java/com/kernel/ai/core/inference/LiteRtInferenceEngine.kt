@@ -10,6 +10,8 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
@@ -95,7 +97,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
             val (eng, backendType) = createEngineWithFallback(resolvedConfig)
             engine = eng
-            conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
+            conversation = createConversationWithTools(eng, backendType, resolvedConfig)
             currentConfig = resolvedConfig
             _activeBackend.value = backendType
             _isReady.value = true
@@ -111,9 +113,8 @@ class LiteRtInferenceEngine @Inject constructor(
             val backend = _activeBackend.value ?: BackendType.CPU
 
             safeClose(conversation, "conversation")
-            conversation = eng.createConversation(buildConversationConfig(backend, config))
+            conversation = createConversationWithTools(eng, backend, config)
             _isGenerating.value = false
-            Log.i(TAG, "Conversation reset")
         }
     }
 
@@ -125,7 +126,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
             currentConfig = config.copy(systemPrompt = systemPrompt)
             safeClose(conversation, "conversation")
-            conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
+            conversation = createConversationWithTools(eng, backend, currentConfig!!)
             _isGenerating.value = false
             Log.i(TAG, "System prompt updated and conversation reset")
         }
@@ -395,8 +396,35 @@ class LiteRtInferenceEngine @Inject constructor(
             samplerConfig = samplerConfig,
             systemInstruction = systemInstruction,
             tools = tools,
-            automaticToolCalling = tools.isNotEmpty(),
         )
+    }
+
+    /**
+     * Creates a conversation, enabling constrained decoding when tools are present.
+     *
+     * Matches the Edge Gallery pattern: set [ExperimentalFlags.enableConversationConstrainedDecoding]
+     * to `true` before [Engine.createConversation], then reset to `false` immediately after.
+     * This forces the model to output valid tool-call JSON without the extra memory overhead
+     * of `automaticToolCalling`.
+     */
+    @OptIn(ExperimentalApi::class)
+    private fun createConversationWithTools(
+        eng: Engine,
+        backendType: BackendType,
+        config: ModelConfig,
+    ): com.google.ai.edge.litertlm.Conversation {
+        val convConfig = buildConversationConfig(backendType, config)
+        val hasTools = config.toolSet != null
+        if (hasTools) {
+            ExperimentalFlags.enableConversationConstrainedDecoding = true
+        }
+        return try {
+            eng.createConversation(convConfig)
+        } finally {
+            if (hasTools) {
+                ExperimentalFlags.enableConversationConstrainedDecoding = false
+            }
+        }
     }
 
     private fun safeCancel(conv: com.google.ai.edge.litertlm.Conversation?) {
