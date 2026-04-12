@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -47,4 +48,64 @@ class ConversationListViewModel @Inject constructor(
             repository.renameConversation(id, title)
         }
     }
+
+    // ── #178 Bulk selection ────────────────────────────────────────────────
+
+    private val _isInSelectionMode = MutableStateFlow(false)
+    val isInSelectionMode: StateFlow<Boolean> = _isInSelectionMode.asStateFlow()
+
+    private val _selectedConversationIds = MutableStateFlow<Set<String>>(emptySet())
+    val selectedConversationIds: StateFlow<Set<String>> = _selectedConversationIds.asStateFlow()
+
+    private val _showBulkDeleteConfirmation = MutableStateFlow(false)
+    val showBulkDeleteConfirmation: StateFlow<Boolean> = _showBulkDeleteConfirmation.asStateFlow()
+
+    fun enterSelectionMode(id: String) {
+        _isInSelectionMode.value = true
+        _selectedConversationIds.update { it + id }
+    }
+
+    fun toggleSelection(id: String) {
+        _selectedConversationIds.update { current ->
+            if (id in current) current - id else current + id
+        }
+        if (_selectedConversationIds.value.isEmpty()) {
+            _isInSelectionMode.value = false
+        }
+    }
+
+    fun selectAll(allIds: List<String>) {
+        _selectedConversationIds.value = allIds.toSet()
+    }
+
+    fun clearSelection() {
+        _isInSelectionMode.value = false
+        _selectedConversationIds.value = emptySet()
+        _showBulkDeleteConfirmation.value = false
+    }
+
+    fun requestBulkDelete() {
+        if (_selectedConversationIds.value.isNotEmpty()) {
+            _showBulkDeleteConfirmation.value = true
+        }
+    }
+
+    fun dismissBulkDeleteConfirmation() {
+        _showBulkDeleteConfirmation.value = false
+    }
+
+    fun deleteSelected() {
+        val ids = _selectedConversationIds.value.toSet()
+        val entities = conversations.value.filter { it.id in ids }
+        viewModelScope.launch {
+            try {
+                entities.forEach { entity -> repository.deleteConversation(entity) }
+            } finally {
+                _showBulkDeleteConfirmation.value = false
+                _isInSelectionMode.value = false
+                _selectedConversationIds.value = emptySet()
+            }
+        }
+    }
 }
+
