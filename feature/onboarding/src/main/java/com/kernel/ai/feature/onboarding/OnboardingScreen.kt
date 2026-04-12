@@ -1,8 +1,5 @@
 package com.kernel.ai.feature.onboarding
 
-import android.app.Activity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -52,19 +49,6 @@ fun OnboardingScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Launcher for the AppAuth Chrome Custom Tab OAuth flow
-    val authLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        when {
-            result.resultCode == Activity.RESULT_OK && result.data != null ->
-                viewModel.handleAuthResponse(result.data!!)
-            result.resultCode == Activity.RESULT_OK ->
-                viewModel.emitAuthError("Sign-in failed: no response from HuggingFace")
-            // RESULT_CANCELED: user closed the tab — no feedback needed
-        }
-    }
-
     // Consume one-shot events
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -111,7 +95,7 @@ fun OnboardingScreen(
             HuggingFaceAuthCard(
                 isAuthenticated = uiState.isAuthenticated,
                 username = uiState.username,
-                onSignIn = { authLauncher.launch(viewModel.buildAuthIntent()) },
+                onSignIn = { viewModel.startAuth() },
                 onSignOut = { viewModel.signOut() },
             )
 

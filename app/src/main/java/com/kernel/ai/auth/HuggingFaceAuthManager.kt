@@ -1,5 +1,6 @@
 package com.kernel.ai.auth
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -9,6 +10,7 @@ import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.kernel.ai.BuildConfig
+import com.kernel.ai.MainActivity
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -114,12 +116,17 @@ class HuggingFaceAuthManager @Inject constructor(
         runCatching { prefs.getString(KEY_ACCESS_TOKEN, null) }.getOrNull()
 
     /**
-     * Builds an intent that launches the Authorization Code + PKCE flow.
-     * PKCE (S256) is automatically applied by AppAuth when using [ResponseTypeValues.CODE].
+     * Starts the Authorization Code + PKCE flow by launching a Chrome Custom Tab.
+     * The OAuth result is delivered back to [MainActivity] via a [PendingIntent], which
+     * calls [MainActivity.onNewIntent] regardless of whether the activity was recreated.
+     *
+     * This approach survives Samsung's aggressive memory management (observed on S23 Ultra /
+     * Android 16) where AppAuth's AuthorizationManagementActivity could be killed while the
+     * Custom Tab is open, preventing ActivityResultLauncher from firing.
      *
      * Must be called on the main thread (AppAuth requirement for Chrome Custom Tab setup).
      */
-    override fun buildAuthIntent(): Intent {
+    override fun startAuthFlow() {
         val request = AuthorizationRequest.Builder(
             serviceConfig,
             BuildConfig.HF_CLIENT_ID,
@@ -129,7 +136,30 @@ class HuggingFaceAuthManager @Inject constructor(
             .setScopes("openid", "profile", "gated-repos")
             .build()
 
-        return authService.getAuthorizationRequestIntent(request)
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        val completionIntent = Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val cancelIntent = Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+
+        authService.performAuthorizationRequest(
+            request,
+            PendingIntent.getActivity(context, REQUEST_CODE_COMPLETION, completionIntent, flags),
+            PendingIntent.getActivity(context, REQUEST_CODE_CANCEL, cancelIntent, flags),
+        )
+    }
+
+    /**
+     * Delivers the OAuth redirect [Intent] received in [MainActivity.onNewIntent].
+     * Performs the token exchange on [Dispatchers.IO] and logs any failure.
+     *
+     * Safe to call on the main thread.
+     */
+    override fun deliverAuthResponse(intent: Intent) {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            handleAuthResponse(intent)
+                .onFailure { e -> Log.e(TAG, "HF auth delivery failed: ${e.message}", e) }
+        }
     }
 
     /**
@@ -228,5 +258,10 @@ class HuggingFaceAuthManager @Inject constructor(
             json.optString("preferred_username").takeIf { it.isNotBlank() }
                 ?: json.optString("name").takeIf { it.isNotBlank() }
         }.getOrNull()
+    }
+
+    private companion object {
+        const val REQUEST_CODE_COMPLETION = 1001
+        const val REQUEST_CODE_CANCEL = 1002
     }
 }

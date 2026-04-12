@@ -1,8 +1,5 @@
 package com.kernel.ai.feature.settings
 
-import android.app.Activity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -66,19 +63,6 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-
-    // Launcher for the AppAuth Chrome Custom Tab OAuth re-authentication flow
-    val authLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        when {
-            result.resultCode == Activity.RESULT_OK && result.data != null ->
-                viewModel.handleAuthResponse(result.data!!)
-            result.resultCode == Activity.RESULT_OK ->
-                scope.launch { snackbarHostState.showSnackbar("Sign-in failed: no response from HuggingFace") }
-            // RESULT_CANCELED: user dismissed — no feedback needed
-        }
-    }
 
     LaunchedEffect(Unit) {
         viewModel.saveError.collect { message ->
@@ -268,7 +252,7 @@ fun SettingsScreen(
             HuggingFaceAccountRow(
                 isAuthenticated = uiState.hfAuthenticated,
                 username = uiState.hfUsername,
-                onSignIn = { authLauncher.launch(viewModel.buildAuthIntent()) },
+                onSignIn = { viewModel.startAuth() },
                 onSignOut = { viewModel.signOutHuggingFace() },
             )
             HorizontalDivider()

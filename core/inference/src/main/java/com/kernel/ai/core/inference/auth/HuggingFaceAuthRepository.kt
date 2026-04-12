@@ -11,12 +11,17 @@ import kotlinx.coroutines.flow.StateFlow
  * implementation, which is confined to :app.
  *
  * Flow:
- * 1. Call [buildAuthIntent] to obtain an [Intent] that launches a Chrome Custom Tab for login.
- * 2. Launch the intent via [android.app.Activity.startActivityForResult] /
- *    [androidx.activity.result.ActivityResultLauncher].
- * 3. When the OAuth redirect returns (AppAuth's RedirectUriReceiverActivity delivers the
- *    result), pass the [Intent] to [handleAuthResponse] to exchange the code for a token.
+ * 1. Call [startAuthFlow] from a button-click handler (main thread). AppAuth launches a
+ *    Chrome Custom Tab and, on completion, delivers the result to [MainActivity] via
+ *    [android.app.Activity.onNewIntent] using a [android.app.PendingIntent].
+ * 2. [MainActivity.onNewIntent] detects the AppAuth response and calls [deliverAuthResponse].
+ * 3. [deliverAuthResponse] exchanges the code for a token on a background thread and persists
+ *    the result in EncryptedSharedPreferences.
  * 4. [isAuthenticated] and [username] update automatically.
+ *
+ * Using PendingIntent delivery (instead of ActivityResultLauncher) prevents Samsung's
+ * aggressive memory management from killing AppAuth's AuthorizationManagementActivity
+ * while the Chrome Custom Tab is open (observed on S23 Ultra / Android 16).
  */
 interface HuggingFaceAuthRepository {
 
@@ -33,17 +38,30 @@ interface HuggingFaceAuthRepository {
     fun getAccessToken(): String?
 
     /**
-     * Builds an [Intent] that starts the Authorization Code + PKCE flow via a Chrome Custom
-     * Tab. The intent should be launched with [android.app.Activity.startActivityForResult] or
-     * [androidx.activity.result.ActivityResultLauncher] with
-     * [androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult].
+     * Starts the Authorization Code + PKCE flow by launching a Chrome Custom Tab.
+     * AppAuth delivers the result back to [MainActivity] via a [android.app.PendingIntent],
+     * which calls [onNewIntent] regardless of whether the activity was recreated.
+     *
+     * Must be called on the main thread (AppAuth requirement for Chrome Custom Tab setup).
      */
-    fun buildAuthIntent(): Intent
+    fun startAuthFlow()
 
     /**
-     * Handles the redirect [Intent] returned by AppAuth's RedirectUriReceiverActivity.
-     * Performs the token exchange (authorization code → access token) on the caller's
-     * coroutine context and stores the result in EncryptedSharedPreferences.
+     * Delivers the OAuth redirect [Intent] received in [MainActivity.onNewIntent].
+     * Performs the token exchange (authorization code → access token) on a background
+     * dispatcher and stores the result in EncryptedSharedPreferences.
+     *
+     * Safe to call on the main thread — internally switches to [kotlinx.coroutines.Dispatchers.IO].
+     */
+    fun deliverAuthResponse(intent: Intent)
+
+    /**
+     * Handles the redirect [Intent] returned by AppAuth. Performs the token exchange
+     * (authorization code → access token) on the caller's coroutine context and stores
+     * the result in EncryptedSharedPreferences.
+     *
+     * Exposed for internal use by [deliverAuthResponse]; external callers should prefer
+     * [deliverAuthResponse].
      *
      * @return [Result.success] on success, [Result.failure] with the underlying exception otherwise.
      */
