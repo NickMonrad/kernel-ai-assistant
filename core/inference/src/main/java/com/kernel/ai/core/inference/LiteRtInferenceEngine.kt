@@ -13,6 +13,7 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.tool
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
@@ -388,9 +389,13 @@ class LiteRtInferenceEngine @Inject constructor(
             ?.takeIf { it.isNotBlank() }
             ?.let { Contents.of(Content.Text(it)) }
 
+        val tools = config.toolSet?.let { listOf(tool(it)) } ?: emptyList()
+
         return ConversationConfig(
             samplerConfig = samplerConfig,
             systemInstruction = systemInstruction,
+            tools = tools,
+            automaticToolCalling = tools.isNotEmpty(),
         )
     }
 

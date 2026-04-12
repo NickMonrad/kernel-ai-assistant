@@ -1,6 +1,7 @@
 package com.kernel.ai.core.inference
 
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.ToolSet
 
 /** Jandal's default system prompt. Injected into every new conversation. */
 const val DEFAULT_SYSTEM_PROMPT =
@@ -32,4 +33,5 @@ data class ModelConfig(
     val systemPrompt: String? = DEFAULT_SYSTEM_PROMPT,
     val temperature: Float = 1.0f,
     val topP: Float = 0.95f,
+    val toolSet: ToolSet? = null,
 )

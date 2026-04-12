@@ -9,6 +9,7 @@ import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.FunctionGemmaRouter
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.KernelAIToolSet
 import com.kernel.ai.core.inference.LlmDispatcher
 import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.inference.download.DownloadState
@@ -63,6 +64,7 @@ class ChatViewModel @Inject constructor(
     private val skillRegistry: SkillRegistry,
     private val skillExecutor: SkillExecutor,
     private val functionGemmaRouter: FunctionGemmaRouter,
+    private val kernelAIToolSet: KernelAIToolSet,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -208,6 +210,7 @@ class ChatViewModel @Inject constructor(
             if (skillDeclarations != "[]") {
                 append("\n\n[Tool Use]\nYou have access to tools. When a user asks for something a tool can help with, output ONLY the following JSON — no explanation, no extra text:\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n\nAvailable tools:\n$skillDeclarations")
             }
+            append("\n\n[Available tools]\nflashlight on/off, set timer, get current time, save memory, set alarm, open settings, create calendar event, send email")
         }
     }
 
@@ -333,6 +336,7 @@ class ChatViewModel @Inject constructor(
                     maxTokens = settings.contextWindowSize,
                     temperature = settings.temperature,
                     topP = settings.topP,
+                    toolSet = kernelAIToolSet,
                 ))
                 estimatedTokensUsed = 0
                 // Rebuild system prompt now that activeBackend is resolved (backend field
