@@ -1,5 +1,8 @@
 package com.kernel.ai.feature.settings
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +21,8 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -61,6 +66,19 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    // Launcher for the AppAuth Chrome Custom Tab OAuth re-authentication flow
+    val authLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        when {
+            result.resultCode == Activity.RESULT_OK && result.data != null ->
+                viewModel.handleAuthResponse(result.data!!)
+            result.resultCode == Activity.RESULT_OK ->
+                scope.launch { snackbarHostState.showSnackbar("Sign-in failed: no response from HuggingFace") }
+            // RESULT_CANCELED: user dismissed — no feedback needed
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.saveError.collect { message ->
@@ -250,6 +268,7 @@ fun SettingsScreen(
             HuggingFaceAccountRow(
                 isAuthenticated = uiState.hfAuthenticated,
                 username = uiState.hfUsername,
+                onSignIn = { authLauncher.launch(viewModel.buildAuthIntent()) },
                 onSignOut = { viewModel.signOutHuggingFace() },
             )
             HorizontalDivider()
@@ -286,13 +305,14 @@ private fun SettingsScreenPreview() {
 /**
  * Inline row shown in the Settings screen for the HuggingFace account section.
  *
- * - Not signed in: shows an info label (sign-in happens via OnboardingScreen or deep link).
+ * - Not signed in: shows an info label + "Sign in" button to launch the OAuth flow.
  * - Signed in: shows username + Sign Out button.
  */
 @Composable
 private fun HuggingFaceAccountRow(
     isAuthenticated: Boolean,
     username: String?,
+    onSignIn: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -323,13 +343,21 @@ private fun HuggingFaceAccountRow(
         ListItem(
             modifier = modifier.fillMaxWidth(),
             headlineContent = { Text("Not signed in") },
-            supportingContent = { Text("Sign in via onboarding to download gated models") },
+            supportingContent = { Text("Sign in to download gated models (Gemma 4, EmbeddingGemma)") },
             leadingContent = {
                 Icon(
                     imageVector = Icons.Default.AccountCircle,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            },
+            trailingContent = {
+                Button(
+                    onClick = onSignIn,
+                    colors = ButtonDefaults.buttonColors(containerColor = HfOrange),
+                ) {
+                    Text("Sign in", color = Color.Black)
+                }
             },
         )
     }
@@ -342,6 +370,7 @@ private fun HuggingFaceAccountRowSignedInPreview() {
         HuggingFaceAccountRow(
             isAuthenticated = true,
             username = "kerneluser",
+            onSignIn = {},
             onSignOut = {},
         )
     }
@@ -354,6 +383,7 @@ private fun HuggingFaceAccountRowNotSignedInPreview() {
         HuggingFaceAccountRow(
             isAuthenticated = false,
             username = null,
+            onSignIn = {},
             onSignOut = {},
         )
     }

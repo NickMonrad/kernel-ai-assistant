@@ -11,9 +11,13 @@ import androidx.security.crypto.MasterKey
 import com.kernel.ai.BuildConfig
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import net.openid.appauth.AuthorizationException
 import net.openid.appauth.AuthorizationRequest
@@ -91,12 +95,15 @@ class HuggingFaceAuthManager @Inject constructor(
     override val username: StateFlow<String?> = _username.asStateFlow()
 
     init {
-        // Restore persisted state on startup (lazy prefs not triggered until first access,
-        // so wrap in a safe-call block to avoid ANR from Keystore on main thread)
-        val storedToken = runCatching { prefs.getString(KEY_ACCESS_TOKEN, null) }.getOrNull()
-        _isAuthenticated.value = storedToken != null
-        _username.value = runCatching { prefs.getString(KEY_USERNAME, null) }.getOrNull()
-        Log.d(TAG, "HuggingFaceAuthManager: restored auth=${_isAuthenticated.value}, user=${_username.value}")
+        // Restore persisted state off the main thread — EncryptedSharedPreferences initialises
+        // MasterKey and the Keystore, which can block 100–500 ms on first use.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            val storedToken = runCatching { prefs.getString(KEY_ACCESS_TOKEN, null) }.getOrNull()
+            val storedUser  = runCatching { prefs.getString(KEY_USERNAME, null) }.getOrNull()
+            _isAuthenticated.value = !storedToken.isNullOrBlank()
+            _username.value = storedUser
+            Log.d(TAG, "HuggingFaceAuthManager: restored auth=${_isAuthenticated.value}, user=${_username.value}")
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -159,7 +166,13 @@ class HuggingFaceAuthManager @Inject constructor(
                     return@performTokenRequest
                 }
 
-                val accessToken = tokenResponse.accessToken.orEmpty()
+                val accessToken = tokenResponse.accessToken
+                if (accessToken.isNullOrBlank()) {
+                    val err = IllegalStateException("HF token response contained no access token")
+                    Log.e(TAG, err.message!!)
+                    continuation.resume(Result.failure(err))
+                    return@performTokenRequest
+                }
                 val username = extractUsername(tokenResponse.idToken)
 
                 runCatching {
@@ -173,7 +186,7 @@ class HuggingFaceAuthManager @Inject constructor(
                     return@performTokenRequest
                 }
 
-                _isAuthenticated.value = accessToken.isNotBlank()
+                _isAuthenticated.value = true
                 _username.value = username
                 Log.i(TAG, "HF auth success — user: $username")
                 continuation.resume(Result.success(Unit))

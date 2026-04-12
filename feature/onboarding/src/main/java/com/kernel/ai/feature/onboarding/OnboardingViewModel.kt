@@ -79,6 +79,12 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
+    /** Emits an [OnboardingEvent.AuthError] directly — used when the screen detects a
+     *  RESULT_OK callback that carries no data intent. */
+    fun emitAuthError(message: String) {
+        _events.tryEmit(OnboardingEvent.AuthError(message))
+    }
+
     fun signOut() {
         authRepository.signOut()
     }

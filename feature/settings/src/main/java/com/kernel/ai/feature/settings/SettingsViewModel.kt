@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import android.content.Intent
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -101,5 +102,25 @@ class SettingsViewModel @Inject constructor(
     fun signOutHuggingFace() {
         authRepository.signOut()
         _saveSuccess.tryEmit("Signed out of HuggingFace")
+    }
+
+    /** Returns an [Intent] for the HuggingFace OAuth Chrome Custom Tab flow. */
+    fun buildAuthIntent(): Intent = authRepository.buildAuthIntent()
+
+    /**
+     * Called with the result [Intent] from [android.app.Activity.RESULT_OK] after AppAuth
+     * redirects back to the app. Performs the token exchange and updates auth state.
+     */
+    fun handleAuthResponse(intent: Intent) {
+        viewModelScope.launch {
+            authRepository.handleAuthResponse(intent)
+                .onFailure { e ->
+                    Log.e("KernelAI", "SettingsViewModel: HF auth failed", e)
+                    _saveError.tryEmit("Sign-in failed: ${e.message}")
+                }
+                .onSuccess {
+                    _saveSuccess.tryEmit("Signed in to HuggingFace ✓")
+                }
+        }
     }
 }

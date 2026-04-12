@@ -56,8 +56,12 @@ fun OnboardingScreen(
     val authLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            result.data?.let { viewModel.handleAuthResponse(it) }
+        when {
+            result.resultCode == Activity.RESULT_OK && result.data != null ->
+                viewModel.handleAuthResponse(result.data!!)
+            result.resultCode == Activity.RESULT_OK ->
+                viewModel.emitAuthError("Sign-in failed: no response from HuggingFace")
+            // RESULT_CANCELED: user closed the tab — no feedback needed
         }
     }
 
