@@ -1,6 +1,5 @@
 package com.kernel.ai.feature.chat
 
-import android.os.Build
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -19,6 +18,8 @@ import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
+import com.kernel.ai.core.skills.SkillExecutor
+import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
@@ -51,6 +52,9 @@ class ChatViewModel @Inject constructor(
     private val memoryRepository: MemoryRepository,
     private val episodicDistillationUseCase: EpisodicDistillationUseCase,
     private val modelSettingsRepository: ModelSettingsRepository,
+    private val skillRegistry: SkillRegistry,
+    @Suppress("UnusedPrivateMember") // wired in next PR: FunctionGemma routing (#84)
+    private val skillExecutor: SkillExecutor,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -158,13 +162,10 @@ class ChatViewModel @Inject constructor(
         val profile = userProfileRepository.get()
         val dateTime = LocalDateTime.now()
             .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm"))
-        val backend = inferenceEngine.activeBackend.value?.name ?: "CPU"
-        val model = activeModel?.displayName ?: "Gemma 4"
-        val device = "${Build.MANUFACTURER} ${Build.MODEL}"
         return buildString {
             append(DEFAULT_SYSTEM_PROMPT)
             append("\n\n[Current date and time]\n$dateTime")
-            append("\n\n[Runtime]\nModel: $model | Backend: $backend | Device: $device")
+            // Runtime info fetched dynamically via get_system_info skill at query time
             if (profile.isNotBlank()) {
                 // Truncate profile to context-window-aware budget (10% of context window, max 3000 chars).
                 // The original stored profile is never modified — only the injected copy is shortened.
@@ -184,6 +185,12 @@ class ChatViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Returns the function_declarations JSON array for FunctionGemma's system prompt.
+     * Used to advertise available skills to the model at inference time.
+     */
+    fun buildSkillContext(): String = skillRegistry.buildFunctionDeclarationsJson()
 
     private suspend fun initializeConversation() {
         val id = navConversationId ?: conversationRepository.createConversation()

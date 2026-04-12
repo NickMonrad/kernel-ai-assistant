@@ -25,9 +25,13 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:inference"))
+    implementation(project(":core:memory"))
+
     implementation(libs.core.ktx)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    implementation(libs.coroutines.android)
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)
