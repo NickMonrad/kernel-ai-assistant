@@ -20,10 +20,14 @@ val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 40, topP = 0.95, temperature =
  * @param backendType Preferred hardware backend; defaults to [BackendType.AUTO].
  * @param maxTokens KV-cache capacity. Higher values use more RAM.
  * @param systemPrompt Optional system instruction prepended to every conversation.
+ * @param temperature Sampling temperature (0.1–2.0). Higher = more creative. Default 1.0.
+ * @param topP Nucleus sampling threshold (0.0–1.0). Default 0.95.
  */
 data class ModelConfig(
     val modelPath: String,
     val backendType: BackendType = BackendType.AUTO,
     val maxTokens: Int = DEFAULT_MAX_TOKENS,
     val systemPrompt: String? = DEFAULT_SYSTEM_PROMPT,
+    val temperature: Float = 1.0f,
+    val topP: Float = 0.95f,
 )

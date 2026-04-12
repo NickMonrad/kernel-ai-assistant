@@ -16,6 +16,7 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.feature.chat.model.ChatMessage
@@ -49,6 +50,7 @@ class ChatViewModel @Inject constructor(
     private val userProfileRepository: UserProfileRepository,
     private val memoryRepository: MemoryRepository,
     private val episodicDistillationUseCase: EpisodicDistillationUseCase,
+    private val modelSettingsRepository: ModelSettingsRepository,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -164,7 +166,14 @@ class ChatViewModel @Inject constructor(
             append("\n\n[Current date and time]\n$dateTime")
             append("\n\n[Runtime]\nModel: $model | Backend: $backend | Device: $device")
             if (profile.isNotBlank()) {
-                append("\n\nThe following is background context about the user — use it to personalise responses:\n\n[User Profile]\n$profile")
+                // Truncate profile to context-window-aware budget (10% of context window, max 3000 chars).
+                // The original stored profile is never modified — only the injected copy is shortened.
+                val contextWindowSize = activeModel?.let { model ->
+                    modelSettingsRepository.getSettings(model.modelId).contextWindowSize
+                } ?: 4096
+                val maxProfileChars = modelSettingsRepository.getMaxUserProfileChars(contextWindowSize)
+                val injectedProfile = profile.take(maxProfileChars)
+                append("\n\nThe following is background context about the user — use it to personalise responses:\n\n[User Profile]\n$injectedProfile")
             }
             if (historyTurns.isNotEmpty()) {
                 append("\n\n[Previous conversation context]\n")
@@ -252,8 +261,16 @@ class ChatViewModel @Inject constructor(
         val modelPath = downloadManager.getModelPath(preferred) ?: return
         activeModel = preferred
         try {
+            // Load user-configured settings so context window and sampler params reach the engine.
+            val settings = modelSettingsRepository.getSettings(preferred.modelId)
             // Initialize with a prompt that omits backend (not yet known).
-            inferenceEngine.initialize(ModelConfig(modelPath = modelPath, systemPrompt = buildSystemPrompt()))
+            inferenceEngine.initialize(ModelConfig(
+                modelPath = modelPath,
+                systemPrompt = buildSystemPrompt(),
+                maxTokens = settings.contextWindowSize,
+                temperature = settings.temperature,
+                topP = settings.topP,
+            ))
             estimatedTokensUsed = 0
             // Rebuild and push system prompt now that activeBackend is resolved — this
             // corrects the [Runtime] backend field which was null during initialize().
