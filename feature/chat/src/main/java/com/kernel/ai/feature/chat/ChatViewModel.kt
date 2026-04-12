@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
+import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.FunctionGemmaRouter
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
@@ -65,6 +66,7 @@ class ChatViewModel @Inject constructor(
     private val skillExecutor: SkillExecutor,
     private val functionGemmaRouter: FunctionGemmaRouter,
     private val kernelAIToolSet: KernelAIToolSet,
+    private val embeddingEngine: EmbeddingEngine,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -329,6 +331,14 @@ class ChatViewModel @Inject constructor(
             val modelPath = downloadManager.getModelPath(preferred) ?: return
             activeModel = preferred
             try {
+                // Release FunctionGemma + EmbeddingGemma before loading Gemma-4 to free memory.
+                // Edge Gallery only keeps one model in memory; holding multiple models during
+                // GPU init causes Samsung's lmkd to kill the process.
+                functionGemmaRouter.release()
+                embeddingEngine.close()
+                System.gc()
+                Log.i("KernelAI", "Released FunctionGemma + EmbeddingGemma for Gemma-4 GPU init")
+
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
@@ -336,7 +346,6 @@ class ChatViewModel @Inject constructor(
                     maxTokens = settings.contextWindowSize,
                     temperature = settings.temperature,
                     topP = settings.topP,
-                    toolSet = kernelAIToolSet,
                 ))
                 estimatedTokensUsed = 0
                 // Rebuild system prompt now that activeBackend is resolved (backend field
