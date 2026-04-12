@@ -199,7 +199,11 @@ Do not add any explanation or extra text.
     """.trimIndent()
 
     private companion object {
-        /** Token budget for the router — 256 is sufficient for a compact JSON function call. */
-        private const val MAX_TOKENS = 256
+        /**
+         * Token budget for the router. The model file is the `ekv1024` variant, compiled with
+         * a 1024-token KV cache — match that here. 256 was too small for the system prompt +
+         * function declarations, causing "Input token ids are too long" on every inference call.
+         */
+        private const val MAX_TOKENS = 1024
     }
 }
