@@ -31,4 +31,6 @@ interface MemoryRepository {
     suspend fun deleteEpisodicMemory(id: String)
     /** Prune: episodic older than 30 days or count > 500; core capped at 200. */
     suspend fun prune()
+    /** Update the content of an existing core memory, optionally updating its vector. */
+    suspend fun updateCoreMemory(id: String, newContent: String, newVector: FloatArray? = null)
 }
