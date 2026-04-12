@@ -42,6 +42,7 @@ class OnboardingViewModel @Inject constructor(
         val gemmaDownloadState: DownloadState = DownloadState.NotDownloaded,
         val routerDownloadState: DownloadState = DownloadState.NotDownloaded,
         val embeddingDownloadState: DownloadState = DownloadState.NotDownloaded,
+        val spModelDownloadState: DownloadState = DownloadState.NotDownloaded,
     ) {
         val overallProgress: Float
             get() {
@@ -61,20 +62,24 @@ class OnboardingViewModel @Inject constructor(
                     else -> 0f
                 }
                 // Gemma-4 ~3.4GB, EmbeddingGemma ~350MB, FunctionGemma ~289MB → weights ~83%, 9%, 8%
+                // SP model is ~4.5 MB — negligible weight, excluded from progress calculation
                 return (gemmaP * 0.83f) + (embeddingP * 0.09f) + (routerP * 0.08f)
             }
         val allDownloaded: Boolean
             get() = gemmaDownloadState is DownloadState.Downloaded &&
                     routerDownloadState is DownloadState.Downloaded &&
-                    embeddingDownloadState is DownloadState.Downloaded
+                    embeddingDownloadState is DownloadState.Downloaded &&
+                    spModelDownloadState is DownloadState.Downloaded
         val anyError: Boolean
             get() = gemmaDownloadState is DownloadState.Error ||
                     routerDownloadState is DownloadState.Error ||
-                    embeddingDownloadState is DownloadState.Error
+                    embeddingDownloadState is DownloadState.Error ||
+                    spModelDownloadState is DownloadState.Error
         val isDownloading: Boolean
             get() = gemmaDownloadState is DownloadState.Downloading ||
                     routerDownloadState is DownloadState.Downloading ||
-                    embeddingDownloadState is DownloadState.Downloading
+                    embeddingDownloadState is DownloadState.Downloading ||
+                    spModelDownloadState is DownloadState.Downloading
     }
 
     val uiState: StateFlow<OnboardingUiState> = combine(
@@ -88,6 +93,7 @@ class OnboardingViewModel @Inject constructor(
             gemmaDownloadState = downloadStates[preferredGemmaModel] ?: DownloadState.NotDownloaded,
             routerDownloadState = downloadStates[KernelModel.FUNCTION_GEMMA_270M] ?: DownloadState.NotDownloaded,
             embeddingDownloadState = downloadStates[preferredEmbeddingModel] ?: DownloadState.NotDownloaded,
+            spModelDownloadState = downloadStates[KernelModel.EMBEDDING_GEMMA_SP_MODEL] ?: DownloadState.NotDownloaded,
         )
     }.stateIn(
         scope = viewModelScope,

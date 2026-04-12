@@ -386,8 +386,14 @@ class ChatViewModel @Inject constructor(
         _inputText.value = ""
         val convId = conversationId ?: return
 
+        // Synchronous flag set — collapses the TOCTOU window before coroutine dispatch
+        if (!inferenceEngine.isReady.value) {
+            _isLoadingModel.value = true
+        }
+
         viewModelScope.launch {
-            val userMsgId = UUID.randomUUID().toString()
+            try {
+                val userMsgId = UUID.randomUUID().toString()
             val userMessage = ChatMessage(
                 id = userMsgId,
                 role = ChatMessage.Role.USER,
@@ -441,12 +447,7 @@ class ChatViewModel @Inject constructor(
 
             // Lazy-init Gemma-4 if not yet loaded.
             if (!inferenceEngine.isReady.value) {
-                _isLoadingModel.value = true
-                try {
-                    initGemma4()
-                } finally {
-                    _isLoadingModel.value = false
-                }
+                initGemma4()
                 if (!inferenceEngine.isReady.value) {
                     // Model still not ready (e.g. file absent) — tell the user and bail.
                     appendAssistantMessage(convId, "Still loading the AI model, please try again in a moment.")
@@ -624,6 +625,9 @@ class ChatViewModel @Inject constructor(
                 activeStreamingContent = StringBuilder()
                 activeStreamingThinking = StringBuilder()
             }
+        } finally {
+            _isLoadingModel.value = false
+        }
         }
     }
 
