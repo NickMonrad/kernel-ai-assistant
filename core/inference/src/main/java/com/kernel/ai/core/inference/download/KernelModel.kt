@@ -61,10 +61,10 @@ enum class KernelModel(
         downloadUrl = "https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions/resolve/main/mobile_actions_q8_ekv1024.litertlm",
         approxSizeBytes = 303_000_000L, // ~289 MB
         // Required — powers the intent router (FunctionGemmaRouter) so skills fire on every device.
-        // Public HuggingFace repo — no auth token needed.
+        // HuggingFace repo is gated — requires sign-in to download.
         isRequired = true,
         preferredForTier = null,
-        isGated = false,
+        isGated = true,
     ),
 
     /**
