@@ -300,6 +300,10 @@ class LiteRtInferenceEngine @Inject constructor(
                 )
                 Log.i(TAG, "Backend $backendType initialized successfully")
                 return Pair(eng, backendType)
+            } catch (e: InterruptedException) {
+                // Coroutine was cancelled — restore flag and propagate immediately.
+                Thread.currentThread().interrupt()
+                throw e
             } catch (e: java.util.concurrent.TimeoutException) {
                 Log.w(TAG, "Backend $backendType init timed out — falling back")
                 lastException = Exception("Backend $backendType timed out", e)
@@ -324,8 +328,8 @@ class LiteRtInferenceEngine @Inject constructor(
      * our wait after [timeoutMs] and propagate a [java.util.concurrent.TimeoutException]
      * so [createEngineWithFallback] can fall back to the next backend.
      *
-     * Note: the spawned thread cannot be forcibly cancelled — it will eventually
-     * surface an error internally and its result will be discarded.
+     * Note: the spawned thread cannot be forcibly cancelled — if init eventually
+     * completes after the deadline, the returned Engine is closed immediately.
      */
     private fun tryInitEngine(
         modelPath: String,
@@ -345,12 +349,22 @@ class LiteRtInferenceEngine @Inject constructor(
         }
         return try {
             future.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (e: InterruptedException) {
+            // Restore the interrupt flag so the calling coroutine sees cancellation.
+            Thread.currentThread().interrupt()
+            future.whenComplete { eng, _ -> eng?.let { safeClose(it, "interrupted engine") } }
+            throw e
         } catch (e: java.util.concurrent.TimeoutException) {
             Log.w(TAG, "Backend init timed out after ${timeoutMs}ms — falling back")
+            // Clean up the engine if it eventually completes after our deadline.
+            future.whenComplete { eng, _ -> eng?.let { safeClose(it, "timed-out engine") } }
             throw e
         } catch (e: java.util.concurrent.ExecutionException) {
-            // Unwrap the cause thrown inside supplyAsync so callers see the original exception.
-            throw e.cause ?: e
+            val cause = e.cause ?: e
+            if (cause is Exception) throw cause
+            // Wrap Error (e.g. OutOfMemoryError) so createEngineWithFallback's
+            // catch (e: Exception) can trigger the fallback to the next backend.
+            throw RuntimeException("Engine init failed: ${cause.message}", cause)
         }
     }
 
