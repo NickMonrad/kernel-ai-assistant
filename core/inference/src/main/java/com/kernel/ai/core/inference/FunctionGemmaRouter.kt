@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -189,8 +190,8 @@ class FunctionGemmaRouter @Inject constructor(
      */
     private fun buildSystemPrompt(): Contents {
         val now = LocalDateTime.now()
-        val dateStr = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"))
-        val dayStr = now.format(DateTimeFormatter.ofPattern("EEEE"))
+        val dateStr = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss", Locale.ENGLISH))
+        val dayStr = now.format(DateTimeFormatter.ofPattern("EEEE", Locale.ENGLISH))
         return Contents.of(
             listOf(
                 Content.Text("You are a model that can do function calling with the following functions"),
