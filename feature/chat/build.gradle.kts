@@ -26,6 +26,9 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // LiteRT-LM (via core:inference) is compiled with Kotlin metadata 2.3.0.
+        // Skip the strict metadata version check to allow compilation.
+        freeCompilerArgs += "-Xskip-metadata-version-check"
     }
 
     testOptions {
@@ -38,6 +41,9 @@ dependencies {
     implementation(project(":core:inference"))
     implementation(project(":core:memory"))
     implementation(project(":core:skills"))
+
+    // LiteRT-LM — needed to resolve ToolSet supertype of KernelAIToolSet at compile time
+    implementation(libs.litertlm.android)
 
     // Compose
     implementation(platform(libs.compose.bom))
