@@ -7,7 +7,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -18,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -25,10 +29,15 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -115,6 +124,7 @@ private fun ModelCard(
             value = settings.contextWindowSize.toFloat(),
             valueRange = 2048f..32768f,
             steps = ((32768 - 2048) / 1024) - 1,
+            isInteger = true,
             onValueChangeFinished = { newVal ->
                 val snapped = (newVal / 1024).roundToInt() * 1024
                 onSettingsChanged(settings.copy(contextWindowSize = snapped))
@@ -128,6 +138,7 @@ private fun ModelCard(
             value = settings.temperature,
             valueRange = 0.1f..2.0f,
             steps = 18,
+            isInteger = false,
             onValueChangeFinished = { newVal ->
                 onSettingsChanged(settings.copy(temperature = (newVal * 10).roundToInt() / 10f))
             },
@@ -140,6 +151,7 @@ private fun ModelCard(
             value = settings.topP,
             valueRange = 0.0f..1.0f,
             steps = 19,
+            isInteger = false,
             onValueChangeFinished = { newVal ->
                 onSettingsChanged(settings.copy(topP = (newVal * 20).roundToInt() / 20f))
             },
@@ -163,9 +175,29 @@ private fun SliderRow(
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
     steps: Int,
+    isInteger: Boolean = false,
     onValueChangeFinished: (Float) -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
     var sliderValue by remember(value) { mutableFloatStateOf(value) }
+    // Text field tracks what the user types; synced when slider moves or on commit
+    var textValue by remember(value) {
+        mutableStateOf(if (isInteger) value.roundToInt().toString() else "%.2f".format(value))
+    }
+
+    fun commitText(raw: String) {
+        val parsed = if (isInteger) raw.trim().toIntOrNull()?.toFloat() else raw.trim().toFloatOrNull()
+        if (parsed != null) {
+            val clamped = parsed.coerceIn(valueRange.start, valueRange.endInclusive)
+            sliderValue = clamped
+            textValue = if (isInteger) clamped.roundToInt().toString() else "%.2f".format(clamped)
+            onValueChangeFinished(clamped)
+        } else {
+            // Revert to current slider value on invalid input
+            textValue = if (isInteger) sliderValue.roundToInt().toString() else "%.2f".format(sliderValue)
+        }
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         if (label.isNotEmpty()) {
             Row(
@@ -191,14 +223,44 @@ private fun SliderRow(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        Slider(
-            value = sliderValue,
-            onValueChange = { sliderValue = it },
-            onValueChangeFinished = { onValueChangeFinished(sliderValue) },
-            valueRange = valueRange,
-            steps = steps,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Slider(
+                value = sliderValue,
+                onValueChange = { newVal ->
+                    sliderValue = newVal
+                    textValue = if (isInteger) newVal.roundToInt().toString() else "%.2f".format(newVal)
+                },
+                onValueChangeFinished = { onValueChangeFinished(sliderValue) },
+                valueRange = valueRange,
+                steps = steps,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            OutlinedTextField(
+                value = textValue,
+                onValueChange = { textValue = it },
+                modifier = Modifier
+                    .width(76.dp)
+                    .onFocusChanged { focusState ->
+                        if (!focusState.isFocused) commitText(textValue)
+                    },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = if (isInteger) KeyboardType.Number else KeyboardType.Decimal,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        commitText(textValue)
+                        focusManager.clearFocus()
+                    },
+                ),
+            )
+        }
     }
 }
 

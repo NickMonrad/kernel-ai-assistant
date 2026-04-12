@@ -78,6 +78,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -548,11 +549,12 @@ private fun LoadingContent() {
             .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center,
     ) {
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(horizontal = 32.dp),
         ) {
-            CircularProgressIndicator()
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             AnimatedContent(
                 targetState = step,
                 transitionSpec = {
@@ -577,6 +579,7 @@ private fun LoadingContent() {
                         text = steps[currentStep],
                         style = MaterialTheme.typography.titleLarge,
                         textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onBackground,
                     )
                 }
             }
@@ -586,6 +589,7 @@ private fun LoadingContent() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),
             )
+        }
         }
     }
 }

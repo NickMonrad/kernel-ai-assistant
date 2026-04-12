@@ -453,4 +453,21 @@ class MemoryViewModel @Inject constructor(
             }
         }
     }
+
+    fun saveEpisodicMemoryEdit(id: String, newContent: String) {
+        viewModelScope.launch {
+            _isSubmitting.value = true
+            try {
+                val embedding = withContext(Dispatchers.Default) {
+                    embeddingEngine.embed(newContent)
+                }
+                memoryRepository.updateEpisodicMemory(id, newContent, embedding)
+                closeEpisodicMemoryDetail()
+            } catch (e: Exception) {
+                Log.e("KernelAI", "saveEpisodicMemoryEdit failed: ${e.message}", e)
+            } finally {
+                _isSubmitting.value = false
+            }
+        }
+    }
 }

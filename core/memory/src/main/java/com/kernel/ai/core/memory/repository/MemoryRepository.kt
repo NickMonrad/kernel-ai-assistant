@@ -33,4 +33,6 @@ interface MemoryRepository {
     suspend fun prune()
     /** Update the content of an existing core memory, optionally updating its vector. */
     suspend fun updateCoreMemory(id: String, newContent: String, newVector: FloatArray? = null)
+    /** Update the content of an existing episodic memory and re-embed it. */
+    suspend fun updateEpisodicMemory(id: String, newContent: String, newVector: FloatArray)
 }
