@@ -34,7 +34,6 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.play.services.location)
-    implementation(libs.security.crypto)
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)

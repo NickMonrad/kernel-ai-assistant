@@ -10,20 +10,16 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.prefs.ModelPreferences
-import com.kernel.ai.core.skills.weather.WeatherApiKeyStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.IOException
 import javax.inject.Inject
 
@@ -33,7 +29,6 @@ class SettingsViewModel @Inject constructor(
     private val modelDownloadManager: ModelDownloadManager,
     private val modelPreferences: ModelPreferences,
     private val authRepository: HuggingFaceAuthRepository,
-    private val weatherApiKeyStore: WeatherApiKeyStore,
 ) : ViewModel() {
 
     data class SettingsUiState(
@@ -88,28 +83,6 @@ class SettingsViewModel @Inject constructor(
 
     private val _saveSuccess = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val saveSuccess: SharedFlow<String> = _saveSuccess.asSharedFlow()
-
-    private val _openWeatherApiKey = MutableStateFlow("")
-    val openWeatherApiKey: StateFlow<String> = _openWeatherApiKey.asStateFlow()
-
-    init {
-        viewModelScope.launch {
-            val key = withContext(Dispatchers.IO) { weatherApiKeyStore.getKey() } ?: ""
-            _openWeatherApiKey.value = key
-        }
-    }
-
-    fun setOpenWeatherApiKey(key: String) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                if (key.isBlank()) weatherApiKeyStore.clearKey()
-                else weatherApiKeyStore.setKey(key)
-            }
-            _openWeatherApiKey.value = key.trim()
-            _saveSuccess.tryEmit("OpenWeather API key saved")
-            Log.d("KernelAI", "SettingsViewModel: OpenWeather API key updated")
-        }
-    }
 
     fun setPreferredModel(model: KernelModel?) {
         viewModelScope.launch {

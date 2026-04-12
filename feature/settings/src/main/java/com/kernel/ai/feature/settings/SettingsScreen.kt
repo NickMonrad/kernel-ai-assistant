@@ -18,12 +18,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,7 +29,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -43,16 +39,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -267,22 +258,6 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // ── Skills ────────────────────────────────────────────────────────────
-            Text(
-                text = "Skills",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            val openWeatherApiKey by viewModel.openWeatherApiKey.collectAsStateWithLifecycle()
-            OpenWeatherApiKeyField(
-                currentKey = openWeatherApiKey,
-                onSave = { viewModel.setOpenWeatherApiKey(it) },
-            )
-            HorizontalDivider()
-
-            Spacer(modifier = Modifier.height(8.dp))
-
             // ── HuggingFace Account ───────────────────────────────────────────────
             Text(
                 text = "HuggingFace Account",
@@ -414,76 +389,4 @@ private fun HuggingFaceAccountRowNotSignedInPreview() {
     }
 }
 
-/**
- * Settings field that lets the user enter (and optionally reveal) their OpenWeather API key.
- * The key is persisted in encrypted storage via [SettingsViewModel.setOpenWeatherApiKey].
- */
-@Composable
-private fun OpenWeatherApiKeyField(
-    currentKey: String,
-    onSave: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var keyText by rememberSaveable(currentKey) { mutableStateOf(currentKey) }
-    var showKey by rememberSaveable { mutableStateOf(false) }
-
-    Column(modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Default.Cloud,
-                contentDescription = null,
-                modifier = Modifier.size(24.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Text(
-                text = "OpenWeather API Key",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(
-            value = keyText,
-            onValueChange = { keyText = it },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Paste your API key here") },
-            visualTransformation = if (showKey) VisualTransformation.None
-            else PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = { showKey = !showKey }) {
-                    Icon(
-                        imageVector = if (showKey) Icons.Default.Visibility
-                        else Icons.Default.VisibilityOff,
-                        contentDescription = if (showKey) "Hide key" else "Show key",
-                    )
-                }
-            },
-            singleLine = true,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "Used by the weather skill. Get a free key at openweathermap.org",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(
-            onClick = { onSave(keyText) },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Save API Key")
-        }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun OpenWeatherApiKeyFieldPreview() {
-    MaterialTheme {
-        OpenWeatherApiKeyField(
-            currentKey = "",
-            onSave = {},
-        )
-    }
-}
 
