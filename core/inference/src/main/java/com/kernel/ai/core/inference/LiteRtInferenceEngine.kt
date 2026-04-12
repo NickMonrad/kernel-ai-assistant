@@ -10,12 +10,9 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
-import com.google.ai.edge.litertlm.ExperimentalApi
-import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
-import com.google.ai.edge.litertlm.tool
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
@@ -97,7 +94,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
             val (eng, backendType) = createEngineWithFallback(resolvedConfig)
             engine = eng
-            conversation = createConversationWithTools(eng, backendType, resolvedConfig)
+            conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
             currentConfig = resolvedConfig
             _activeBackend.value = backendType
             _isReady.value = true
@@ -113,7 +110,7 @@ class LiteRtInferenceEngine @Inject constructor(
             val backend = _activeBackend.value ?: BackendType.CPU
 
             safeClose(conversation, "conversation")
-            conversation = createConversationWithTools(eng, backend, config)
+            conversation = eng.createConversation(buildConversationConfig(backend, config))
             _isGenerating.value = false
         }
     }
@@ -126,7 +123,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
             currentConfig = config.copy(systemPrompt = systemPrompt)
             safeClose(conversation, "conversation")
-            conversation = createConversationWithTools(eng, backend, currentConfig!!)
+            conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
             _isGenerating.value = false
             Log.i(TAG, "System prompt updated and conversation reset")
         }
@@ -286,30 +283,22 @@ class LiteRtInferenceEngine @Inject constructor(
             BackendType.CPU -> listOf(BackendType.CPU)
             BackendType.GPU -> listOf(BackendType.GPU, BackendType.CPU)
             BackendType.NPU -> listOf(BackendType.NPU, BackendType.GPU, BackendType.CPU)
-            BackendType.AUTO -> listOf(BackendType.NPU, BackendType.GPU, BackendType.CPU)
+            BackendType.AUTO -> listOf(BackendType.GPU, BackendType.CPU)
         }
 
         var lastException: Exception? = null
         for (backendType in orderedBackends) {
             try {
                 Log.d(TAG, "Trying backend: $backendType")
-                val timeoutMs = if (backendType == BackendType.GPU) 25_000L else 120_000L
-                val eng = tryInitEngine(
+                val engineConfig = EngineConfig(
                     modelPath = config.modelPath,
                     backend = backendType.toBackend(context),
-                    maxTokens = config.maxTokens,
-                    timeoutMs = timeoutMs,
+                    maxNumTokens = config.maxTokens,
                 )
+                val eng = Engine(engineConfig)
+                eng.initialize()
                 Log.i(TAG, "Backend $backendType initialized successfully")
                 return Pair(eng, backendType)
-            } catch (e: InterruptedException) {
-                // tryInitEngine already restored the flag; re-assert defensively and abort
-                // without attempting the next backend — the caller was cancelled.
-                Thread.currentThread().interrupt()
-                throw e
-            } catch (e: java.util.concurrent.TimeoutException) {
-                Log.w(TAG, "Backend $backendType init timed out — falling back")
-                lastException = Exception("Backend $backendType timed out", e)
             } catch (e: Exception) {
                 Log.w(TAG, "Backend $backendType failed: ${e.message}")
                 lastException = e
@@ -320,60 +309,6 @@ class LiteRtInferenceEngine @Inject constructor(
             "All backends failed for ${config.modelPath}. Last error: ${lastException?.message}",
             lastException,
         )
-    }
-
-    /**
-     * Attempts to initialize a [Engine] with a timeout guard.
-     *
-     * GPU initialization on some devices (e.g. Samsung Galaxy S23 Ultra) can
-     * block for >50s, causing an OOM-kill before the fallback chain fires.
-     * Running the blocking call on a [CompletableFuture] thread lets us abort
-     * our wait after [timeoutMs] and propagate a [java.util.concurrent.TimeoutException]
-     * so [createEngineWithFallback] can fall back to the next backend.
-     *
-     * Memory note: after a GPU timeout the spawned thread keeps running (it cannot be
-     * interrupted since it is inside a JNI call). If GPU init eventually succeeds while CPU
-     * init is already in flight, both model weights are briefly resident simultaneously.
-     * The [whenComplete] cleanup closes the orphaned engine as soon as it surfaces, but the
-     * overlap window is real. On the S23 Ultra (12 GB) this is acceptable; on 6 GB devices
-     * it may retrigger OOM. A future improvement would be to serialise backends through a
-     * dedicated single-thread executor rather than sharing [ForkJoinPool.commonPool].
-     */
-    private fun tryInitEngine(
-        modelPath: String,
-        backend: com.google.ai.edge.litertlm.Backend,
-        maxTokens: Int,
-        timeoutMs: Long,
-    ): Engine {
-        val future = java.util.concurrent.CompletableFuture.supplyAsync {
-            val engineConfig = EngineConfig(
-                modelPath = modelPath,
-                backend = backend,
-                maxNumTokens = maxTokens,
-            )
-            val eng = Engine(engineConfig)
-            eng.initialize()
-            eng
-        }
-        return try {
-            future.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-        } catch (e: InterruptedException) {
-            // Restore the interrupt flag so the calling coroutine sees cancellation.
-            Thread.currentThread().interrupt()
-            future.whenComplete { eng, _ -> eng?.let { safeClose(it, "interrupted engine") } }
-            throw e
-        } catch (e: java.util.concurrent.TimeoutException) {
-            Log.w(TAG, "Backend init timed out after ${timeoutMs}ms — falling back")
-            // Clean up the engine if it eventually completes after our deadline.
-            future.whenComplete { eng, _ -> eng?.let { safeClose(it, "timed-out engine") } }
-            throw e
-        } catch (e: java.util.concurrent.ExecutionException) {
-            val cause = e.cause ?: e
-            if (cause is Exception) throw cause
-            // Wrap Error (e.g. OutOfMemoryError) so createEngineWithFallback's
-            // catch (e: Exception) can trigger the fallback to the next backend.
-            throw RuntimeException("Engine init failed: ${cause.message}", cause)
-        }
     }
 
     private fun buildConversationConfig(
@@ -390,41 +325,10 @@ class LiteRtInferenceEngine @Inject constructor(
             ?.takeIf { it.isNotBlank() }
             ?.let { Contents.of(Content.Text(it)) }
 
-        val tools = config.toolSet?.let { listOf(tool(it)) } ?: emptyList()
-
         return ConversationConfig(
             samplerConfig = samplerConfig,
             systemInstruction = systemInstruction,
-            tools = tools,
         )
-    }
-
-    /**
-     * Creates a conversation, enabling constrained decoding when tools are present.
-     *
-     * Matches the Edge Gallery pattern: set [ExperimentalFlags.enableConversationConstrainedDecoding]
-     * to `true` before [Engine.createConversation], then reset to `false` immediately after.
-     * This forces the model to output valid tool-call JSON without the extra memory overhead
-     * of `automaticToolCalling`.
-     */
-    @OptIn(ExperimentalApi::class)
-    private fun createConversationWithTools(
-        eng: Engine,
-        backendType: BackendType,
-        config: ModelConfig,
-    ): com.google.ai.edge.litertlm.Conversation {
-        val convConfig = buildConversationConfig(backendType, config)
-        val hasTools = config.toolSet != null
-        if (hasTools) {
-            ExperimentalFlags.enableConversationConstrainedDecoding = true
-        }
-        return try {
-            eng.createConversation(convConfig)
-        } finally {
-            if (hasTools) {
-                ExperimentalFlags.enableConversationConstrainedDecoding = false
-            }
-        }
     }
 
     private fun safeCancel(conv: com.google.ai.edge.litertlm.Conversation?) {
