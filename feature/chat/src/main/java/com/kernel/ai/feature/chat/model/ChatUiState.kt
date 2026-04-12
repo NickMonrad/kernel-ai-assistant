@@ -13,6 +13,7 @@ sealed interface ChatUiState {
         val isGenerating: Boolean,
         val inputText: String,
         val error: String?,
+        val isLoadingModel: Boolean = false,
     ) : ChatUiState
 
     /** Models need to be downloaded before chatting. */

@@ -249,6 +249,28 @@ private fun ChatContent(
                                 onCopy = { content -> onCopyMessage(content) },
                             )
                         }
+                        if (state.isLoadingModel) {
+                            item(key = "model-loading-indicator") {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = "Loading model…",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
                     }
                     // Scroll-to-bottom button — fades in/out when content exists below the viewport.
                     val scrollBtnAlpha by animateFloatAsState(

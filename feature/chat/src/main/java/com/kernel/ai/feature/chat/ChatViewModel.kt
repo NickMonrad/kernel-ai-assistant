@@ -31,6 +31,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -100,7 +102,13 @@ class ChatViewModel @Inject constructor(
      */
     private var titleIsPlaceholder = false
 
-    private data class EngineState(val isReady: Boolean, val isGenerating: Boolean)
+    /** True while Gemma-4 is being lazily initialised in response to a [sendMessage] call. */
+    private val _isLoadingModel = MutableStateFlow(false)
+
+    /** Ensures at most one concurrent Gemma-4 initialisation attempt. */
+    private val gemma4InitMutex = Mutex()
+
+    private data class GenerationState(val isGenerating: Boolean, val isLoadingModel: Boolean)
     private data class InputState(
         val messages: List<ChatMessage>,
         val inputText: String,
@@ -108,10 +116,10 @@ class ChatViewModel @Inject constructor(
         val conversationTitle: String?,
     )
 
-    private val engineState = combine(
-        inferenceEngine.isReady,
+    private val generationState = combine(
         inferenceEngine.isGenerating,
-    ) { isReady, isGenerating -> EngineState(isReady, isGenerating) }
+        _isLoadingModel,
+    ) { isGenerating, isLoadingModel -> GenerationState(isGenerating, isLoadingModel) }
 
     private val inputState = combine(
         _messages,
@@ -121,10 +129,10 @@ class ChatViewModel @Inject constructor(
     ) { messages, inputText, error, title -> InputState(messages, inputText, error, title) }
 
     val uiState: StateFlow<ChatUiState> = combine(
-        engineState,
+        generationState,
         downloadManager.downloadStates,
         inputState,
-    ) { engine, downloadStates, input ->
+    ) { generation, downloadStates, input ->
         val allRequired = KernelModel.entries.filter { it.isRequired }
         val allDownloaded = allRequired.all { downloadStates[it] is DownloadState.Downloaded }
 
@@ -141,14 +149,14 @@ class ChatViewModel @Inject constructor(
                 }
                 ChatUiState.ModelsNotReady(isDownloading = anyDownloading, modelProgress = progress)
             }
-            !engine.isReady -> ChatUiState.Loading
             else -> ChatUiState.Ready(
                 conversationId = conversationId ?: "",
                 conversationTitle = input.conversationTitle,
                 messages = input.messages,
-                isGenerating = engine.isGenerating,
+                isGenerating = generation.isGenerating,
                 inputText = input.inputText,
                 error = input.error,
+                isLoadingModel = generation.isLoadingModel,
             )
         }
     }.stateIn(
@@ -159,7 +167,8 @@ class ChatViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { initializeConversation() }
-        viewModelScope.launch { initEngineWhenReady() }
+        viewModelScope.launch { initFunctionGemmaRouter() }  // eager, fast
+        // Gemma-4 loads lazily on first sendMessage() that needs it
     }
 
     private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
@@ -261,63 +270,75 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Waits until all required models are present on disk, then initialises the inference
-     * engine with the preferred conversation model.
+     * Eagerly initialises [FunctionGemmaRouter] from `init {}` so skill commands are ready
+     * before the user types anything.
      *
-     * Uses [ModelDownloadManager.getModelPath] (file-existence check) rather than the
-     * [ModelDownloadManager.downloadStates] StateFlow so that models pushed manually via ADB
-     * are recognised immediately, independent of WorkManager task state.
-     *
-     * Terminates after the first successful initialisation — the engine stays loaded for the
-     * lifetime of the ViewModel.
+     * Waits for [KernelModel.FUNCTION_GEMMA_270M] to be on disk (handles the case where the
+     * model is currently being downloaded when the chat opens). If the model is absent and not
+     * downloading, logs a warning and returns without blocking.
+     * Non-fatal if initialisation throws.
      */
-    private suspend fun initEngineWhenReady() {
-        // Wait until the StateFlow reports all required models as Downloaded.
-        // The initial value of downloadStates already reflects file existence, so this
-        // fires immediately when models are already on disk.
+    private suspend fun initFunctionGemmaRouter() {
+        // Wait until FunctionGemma transitions out of Downloading state, or bail immediately
+        // if it's NotDownloaded / Error (never been fetched).
         downloadManager.downloadStates
             .filter { states ->
-                KernelModel.entries.filter { it.isRequired }
-                    .all { states[it] is DownloadState.Downloaded }
+                val state = states[KernelModel.FUNCTION_GEMMA_270M]
+                state is DownloadState.Downloaded ||
+                    state is DownloadState.NotDownloaded ||
+                    state is DownloadState.Error
             }
             .first()
 
-        if (inferenceEngine.isReady.value) return
-
-        val preferred = downloadManager.preferredConversationModel()
-        // Use getModelPath (file-existence) — WorkManager state may disagree with reality
-        // e.g. a worker is RUNNING for a model that was already pushed via ADB.
-        val modelPath = downloadManager.getModelPath(preferred) ?: return
-        activeModel = preferred
-        try {
-            // Load user-configured settings so context window and sampler params reach the engine.
-            val settings = modelSettingsRepository.getSettings(preferred.modelId)
-            // Initialize with a prompt that omits backend (not yet known).
-            inferenceEngine.initialize(ModelConfig(
-                modelPath = modelPath,
-                systemPrompt = buildSystemPrompt(),
-                maxTokens = settings.contextWindowSize,
-                temperature = settings.temperature,
-                topP = settings.topP,
-            ))
-            estimatedTokensUsed = 0
-            // Rebuild and push system prompt now that activeBackend is resolved — this
-            // corrects the [Runtime] backend field which was null during initialize().
-            inferenceEngine.updateSystemPrompt(buildSystemPrompt())
-        } catch (e: Exception) {
-            _error.value = "Failed to load model: ${e.message}"
-        }
-
-        // Initialise FunctionGemmaRouter in parallel — non-fatal if model is absent.
         val routerPath = downloadManager.getModelPath(KernelModel.FUNCTION_GEMMA_270M)
-        if (routerPath != null) {
-            try {
-                functionGemmaRouter.initialize(routerPath, buildSkillContext())
-            } catch (e: Exception) {
-                Log.w("KernelAI", "FunctionGemmaRouter: init failed (non-fatal): ${e.message}", e)
-            }
-        } else {
+        if (routerPath == null) {
             Log.i("KernelAI", "FunctionGemmaRouter: model not downloaded — intent routing disabled")
+            return
+        }
+        try {
+            functionGemmaRouter.initialize(routerPath, buildSkillContext())
+            Log.i("KernelAI", "FunctionGemmaRouter initialized successfully")
+        } catch (e: Exception) {
+            Log.w("KernelAI", "FunctionGemmaRouter: init failed (non-fatal): ${e.message}", e)
+        }
+    }
+
+    /**
+     * Lazily initialises the Gemma-4 [InferenceEngine] on the first [sendMessage] that
+     * routes to the streaming path.
+     *
+     * Uses [gemma4InitMutex] to guarantee idempotency: if called concurrently the second
+     * caller waits for the first to finish, then finds [InferenceEngine.isReady] already
+     * true and returns immediately.
+     *
+     * Only waits for the preferred conversation model to be on disk via
+     * [ModelDownloadManager.getModelPath] (file-existence check) — does NOT block on the
+     * [ModelDownloadManager.downloadStates] flow so that manually ADB-pushed models are
+     * recognised immediately.
+     */
+    private suspend fun initGemma4() {
+        gemma4InitMutex.withLock {
+            if (inferenceEngine.isReady.value) return
+
+            val preferred = downloadManager.preferredConversationModel()
+            val modelPath = downloadManager.getModelPath(preferred) ?: return
+            activeModel = preferred
+            try {
+                val settings = modelSettingsRepository.getSettings(preferred.modelId)
+                inferenceEngine.initialize(ModelConfig(
+                    modelPath = modelPath,
+                    systemPrompt = buildSystemPrompt(),
+                    maxTokens = settings.contextWindowSize,
+                    temperature = settings.temperature,
+                    topP = settings.topP,
+                ))
+                estimatedTokensUsed = 0
+                // Rebuild system prompt now that activeBackend is resolved (backend field
+                // was null during initialize()).
+                inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+            } catch (e: Exception) {
+                _error.value = "Failed to load model: ${e.message}"
+            }
         }
     }
 
@@ -360,12 +381,24 @@ class ChatViewModel @Inject constructor(
 
     fun sendMessage() {
         val text = _inputText.value.trim()
-        if (text.isBlank() || inferenceEngine.isGenerating.value) return
+        if (text.isBlank() || inferenceEngine.isGenerating.value || _isLoadingModel.value) return
 
         _inputText.value = ""
         val convId = conversationId ?: return
 
+        // Synchronous flag set — collapses the TOCTOU window before coroutine dispatch
+        if (!inferenceEngine.isReady.value) {
+            _isLoadingModel.value = true
+        }
+
         viewModelScope.launch {
+            // Hoisted so the streaming section (outside the try/finally) can read them.
+            var assistantMsgId = ""
+            var accumulatedContent = StringBuilder()
+            var accumulatedThinking = StringBuilder()
+            var prompt = ""
+
+            try {
             val userMsgId = UUID.randomUUID().toString()
             val userMessage = ChatMessage(
                 id = userMsgId,
@@ -418,8 +451,19 @@ class ChatViewModel @Inject constructor(
                 }
             }
 
+            // Lazy-init Gemma-4 if not yet loaded.
+            if (!inferenceEngine.isReady.value) {
+                initGemma4()
+                if (!inferenceEngine.isReady.value) {
+                    // Model still not ready (e.g. file absent) — tell the user and bail.
+                    appendAssistantMessage(convId, "Still loading the AI model, please try again in a moment.")
+                    return@launch
+                }
+            }
+            // _isLoadingModel is always cleared by the outer finally block below.
+
             // 2. Gemma-4 streaming inference path.
-            val assistantMsgId = UUID.randomUUID().toString()
+            assistantMsgId = UUID.randomUUID().toString()
             val streamingPlaceholder = ChatMessage(
                 id = assistantMsgId,
                 role = ChatMessage.Role.ASSISTANT,
@@ -428,8 +472,8 @@ class ChatViewModel @Inject constructor(
             )
             _messages.update { it + streamingPlaceholder }
 
-            var accumulatedContent = StringBuilder()
-            var accumulatedThinking = StringBuilder()
+            accumulatedContent = StringBuilder()
+            accumulatedThinking = StringBuilder()
 
             // Register active streaming state so cancel/onCleared can flush to Room.
             activeStreamingMsgId = assistantMsgId
@@ -466,7 +510,13 @@ class ChatViewModel @Inject constructor(
                 estimatedTokensUsed += ragTokenCost
             }
 
-            val prompt = if (ragContext.isNotBlank()) "$ragContext\n\n$text" else text
+            prompt = if (ragContext.isNotBlank()) "$ragContext\n\n$text" else text
+
+            } finally {
+                // Reset the loading spinner on every exit path from the pre-inference block —
+                // skill early-returns, model-not-ready bail-outs, and the normal fall-through.
+                _isLoadingModel.value = false
+            }
 
             try {
                 inferenceEngine.generate(prompt).collect { result ->
