@@ -1,5 +1,8 @@
 package com.kernel.ai.feature.onboarding
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,8 +20,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -48,6 +51,19 @@ fun OnboardingScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Launcher for the AppAuth Chrome Custom Tab OAuth flow
+    val authLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        when {
+            result.resultCode == Activity.RESULT_OK && result.data != null ->
+                viewModel.handleAuthResponse(result.data!!)
+            result.resultCode == Activity.RESULT_OK ->
+                viewModel.emitAuthError("Sign-in failed: no response from HuggingFace")
+            // RESULT_CANCELED: user closed the tab — no feedback needed
+        }
+    }
 
     // Consume one-shot events
     LaunchedEffect(Unit) {
@@ -95,43 +111,15 @@ fun OnboardingScreen(
             HuggingFaceAuthCard(
                 isAuthenticated = uiState.isAuthenticated,
                 username = uiState.username,
-                onSignIn = { viewModel.startAuth() },
+                onSignIn = { authLauncher.launch(viewModel.buildAuthIntent()) },
                 onSignOut = { viewModel.signOut() },
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
             // ── Download progress ─────────────────────────────────────────
-            val downloadState = uiState.gemmaDownloadState
-            when (downloadState) {
-                is DownloadState.NotDownloaded -> {
-                    Button(
-                        onClick = { viewModel.startDownload(KernelModel.GEMMA_4_E2B) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Download Gemma 4 E-2B (2.4 GB)")
-                    }
-                }
-
-                is DownloadState.Downloading -> {
-                    Text(
-                        text = "Downloading model…",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    CircularProgressIndicator(
-                        progress = { downloadState.progress },
-                        modifier = Modifier.size(48.dp),
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "${(downloadState.progress * 100).toInt()}%",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-
-                is DownloadState.Downloaded -> {
+            when {
+                uiState.allDownloaded -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
@@ -140,15 +128,53 @@ fun OnboardingScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Model ready",
+                            text = "All models ready",
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
                 }
 
-                is DownloadState.Error -> {
+                uiState.isDownloading -> {
                     Text(
-                        text = "Download error: ${downloadState.message}",
+                        text = "Downloading models…",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { uiState.overallProgress },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "${(uiState.overallProgress * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ModelDownloadRow("Gemma 4 E-2B", uiState.gemmaDownloadState)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ModelDownloadRow("Routing model", uiState.routerDownloadState)
+                    if (uiState.anyError) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { viewModel.startDownload(KernelModel.GEMMA_4_E2B) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Retry failed model")
+                        }
+                    }
+                }
+
+                uiState.anyError -> {
+                    val errorMsg = when {
+                        uiState.gemmaDownloadState is DownloadState.Error ->
+                            (uiState.gemmaDownloadState as DownloadState.Error).message
+                        uiState.routerDownloadState is DownloadState.Error ->
+                            (uiState.routerDownloadState as DownloadState.Error).message
+                        else -> "Download failed"
+                    }
+                    Text(
+                        text = "Download error: $errorMsg",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -157,7 +183,58 @@ fun OnboardingScreen(
                         Text("Retry")
                     }
                 }
+
+                else -> {
+                    Button(
+                        onClick = { viewModel.startDownload(KernelModel.GEMMA_4_E2B) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Download Jandal AI models (2.7 GB)")
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Includes Gemma 4 E-2B and the routing model",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun ModelDownloadRow(label: String, state: DownloadState) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f),
+        )
+        when (state) {
+            is DownloadState.Downloaded -> Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp),
+            )
+            is DownloadState.Downloading -> Text(
+                text = "${(state.progress * 100).toInt()}%",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            is DownloadState.Error -> Text(
+                text = "Error",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            else -> Text(
+                text = "Waiting…",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -259,4 +336,3 @@ private fun OnboardingScreenSignedInPreview() {
         )
     }
 }
-
