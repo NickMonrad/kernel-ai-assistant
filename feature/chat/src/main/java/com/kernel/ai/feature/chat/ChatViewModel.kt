@@ -14,6 +14,7 @@ import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
@@ -134,12 +135,18 @@ class ChatViewModel @Inject constructor(
         inputState,
     ) { generation, downloadStates, input ->
         val allDownloaded = downloadManager.areRequiredModelsDownloaded()
-        val allRequired = KernelModel.entries.filter { it.isRequired }
+        val tier = downloadManager.deviceTier
+        val displayModels: List<KernelModel> = if (tier == HardwareTier.FLAGSHIP) {
+            KernelModel.entries.filter { it.isRequired && it != KernelModel.GEMMA_4_E2B } +
+                KernelModel.GEMMA_4_E4B
+        } else {
+            KernelModel.entries.filter { it.isRequired }
+        }
 
         when {
             !allDownloaded -> {
-                val anyDownloading = allRequired.any { downloadStates[it] is DownloadState.Downloading }
-                val progress = allRequired.map { model ->
+                val anyDownloading = displayModels.any { downloadStates[it] is DownloadState.Downloading }
+                val progress = displayModels.map { model ->
                     ModelDownloadProgress(
                         model = model,
                         displayName = model.displayName,

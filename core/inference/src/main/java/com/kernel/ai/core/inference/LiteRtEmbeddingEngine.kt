@@ -1,7 +1,6 @@
 package com.kernel.ai.core.inference
 
 import android.content.Context
-import android.os.Build
 import android.util.Log
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.isDownloaded
@@ -20,9 +19,9 @@ import javax.inject.Singleton
 /**
  * EmbeddingEngine backed by EmbeddingGemma-300M running via the TFLite Interpreter.
  *
- * Model selection priority:
- *   1. SM8550-optimised model (Snapdragon 8 Gen 2 / S23 Ultra) when [Build.BOARD] == "kalama"
- *   2. Generic mixed-precision model (GPU delegate, all devices)
+ * Model selection: generic mixed-precision model (GPU delegate, all devices).
+ * The SM8550-optimised variant was disabled due to LiteRT format incompatibility
+ * (DISPATCH_OP custom op requires Qualcomm AI Engine delegate which is not bundled).
  *
  * Tokenisation: pure-Kotlin [SentencePieceTokenizer] parsing the bundled `sentencepiece.model`.
  *
@@ -46,6 +45,17 @@ class LiteRtEmbeddingEngine @Inject constructor(
     private var _state: State? = null
     private val lock = Any()
 
+    init {
+        // Clean up the SM8550 variant — disabled due to LiteRT format incompatibility.
+        // Remove this once the upstream issue is resolved and the model is re-enabled.
+        KernelModel.EMBEDDING_GEMMA_300M_SM8550.localFile(context).let { f ->
+            if (f.exists()) {
+                f.delete()
+                Log.i(TAG, "Deleted broken SM8550 embedding variant: ${f.name}")
+            }
+        }
+    }
+
     override val dimensions: Int get() = synchronized(lock) { _state?.dimensions ?: 0 }
 
     private fun ensureState(): State? {
@@ -62,11 +72,10 @@ class LiteRtEmbeddingEngine @Inject constructor(
         }
     }
 
-    /** Ordered list of model files to try — SM8550 first, generic fallback. */
-    private fun modelFileCandidates(): List<File> = buildList {
-        if (isSm8550()) add(KernelModel.EMBEDDING_GEMMA_300M_SM8550.localFile(context))
-        add(KernelModel.EMBEDDING_GEMMA_300M.localFile(context))
-    }.filter { it.exists() }
+    /** Only the generic model is used — the SM8550 variant was disabled (LiteRT format incompatibility). */
+    private fun modelFileCandidates(): List<File> = listOf(
+        KernelModel.EMBEDDING_GEMMA_300M.localFile(context)
+    ).filter { it.exists() }
 
     /**
      * Try each candidate in order, returning the first that initialises successfully.
@@ -99,12 +108,6 @@ class LiteRtEmbeddingEngine @Inject constructor(
         Log.e(TAG, "All EmbeddingGemma model candidates failed")
         return null
     }
-
-    /**
-     * Returns true when running on Snapdragon 8 Gen 2 (SM8550).
-     * Board code: "kalama" (Qualcomm's internal name for SM8550).
-     */
-    private fun isSm8550(): Boolean = Build.BOARD.equals("kalama", ignoreCase = true)
 
     override suspend fun embed(text: String): FloatArray = withContext(Dispatchers.IO) {
         val state = ensureState() ?: return@withContext FloatArray(0)

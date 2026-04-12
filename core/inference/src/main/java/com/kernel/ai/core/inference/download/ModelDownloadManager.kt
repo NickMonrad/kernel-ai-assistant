@@ -64,6 +64,8 @@ class ModelDownloadManager @Inject constructor(
 
     val downloadStates: StateFlow<Map<KernelModel, DownloadState>> = _downloadStates.asStateFlow()
 
+    val deviceTier: HardwareTier get() = hardwareProfileDetector.profile.tier
+
     init {
         // Resume observing any in-progress workers that survived a process restart
         KernelModel.entries.forEach { model ->
