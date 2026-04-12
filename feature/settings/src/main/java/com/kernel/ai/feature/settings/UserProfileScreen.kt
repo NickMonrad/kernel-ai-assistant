@@ -70,7 +70,7 @@ fun UserProfileScreen(
             Spacer(Modifier.height(4.dp))
 
             Text(
-                text = "Tell Kernel about yourself. This is injected into every conversation so the assistant always has context about you.",
+                text = "Tell Jandal about yourself. This is injected into every conversation so Jandal always has context about you.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -1,7 +1,7 @@
 package com.kernel.ai.feature.chat
 
 /**
- * Fun themed loading messages for Kernel AI.
+ * Fun themed loading messages for Jandal AI.
  *
  * Model loading uses 3-step narrative sequences. Call [randomTheme] on each init to pick a theme,
  * then display step 1, 2, 3 sequentially as the engine warms up.
