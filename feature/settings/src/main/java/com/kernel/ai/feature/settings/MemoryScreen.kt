@@ -521,6 +521,7 @@ fun MemoryScreen(
     // ── Episodic Memory Detail Bottom Sheet ────────────────────────────────
     uiState.selectedEpisodicMemoryDetail?.let { memory ->
         val conversationTitle = uiState.conversationTitles[memory.conversationId] ?: "Unknown conversation"
+        var editText by remember(memory.id) { mutableStateOf(memory.content) }
         ModalBottomSheet(
             onDismissRequest = viewModel::closeEpisodicMemoryDetail,
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -531,8 +532,14 @@ fun MemoryScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Episodic Memory", style = MaterialTheme.typography.titleMedium)
-                Text(memory.content, style = MaterialTheme.typography.bodyMedium)
+                Text("Edit Episodic Memory", style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(
+                    value = editText,
+                    onValueChange = { editText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Content") },
+                    minLines = 3,
+                )
                 HorizontalDivider()
                 Text(
                     text = "Conversation: $conversationTitle",
@@ -547,8 +554,50 @@ fun MemoryScreen(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TextButton(onClick = viewModel::closeEpisodicMemoryDetail) { Text("Close") }
+                    // Destructive delete on the left
+                    var showDeleteConfirm by remember { mutableStateOf(false) }
+                    TextButton(
+                        onClick = { showDeleteConfirm = true },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
+                    ) { Text("Delete") }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = viewModel::closeEpisodicMemoryDetail) { Text("Cancel") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            val trimmed = editText.trim()
+                            if (trimmed.isNotBlank()) viewModel.saveEpisodicMemoryEdit(memory.id, trimmed)
+                            else viewModel.closeEpisodicMemoryDetail()
+                        },
+                        enabled = editText.trim().isNotBlank() && !uiState.isSubmitting,
+                    ) { Text("Save") }
+
+                    if (showDeleteConfirm) {
+                        AlertDialog(
+                            onDismissRequest = { showDeleteConfirm = false },
+                            title = { Text("Delete memory?") },
+                            text = { Text("This episodic memory will be permanently removed. This cannot be undone.") },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        showDeleteConfirm = false
+                                        viewModel.requestDeleteEpisodicMemory(memory.id)
+                                        viewModel.closeEpisodicMemoryDetail()
+                                    },
+                                    colors = ButtonDefaults.textButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.error,
+                                    ),
+                                ) { Text("Delete") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                            },
+                        )
+                    }
                 }
                 Spacer(Modifier.height(16.dp))
             }
