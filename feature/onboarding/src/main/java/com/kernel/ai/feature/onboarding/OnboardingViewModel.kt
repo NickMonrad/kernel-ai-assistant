@@ -31,11 +31,17 @@ class OnboardingViewModel @Inject constructor(
         if (hardwareProfileDetector.profile.tier == HardwareTier.FLAGSHIP) KernelModel.GEMMA_4_E4B
         else KernelModel.GEMMA_4_E2B
 
+    /** The EmbeddingGemma variant appropriate for this device — SM8550 on FLAGSHIP, generic otherwise. */
+    val preferredEmbeddingModel: KernelModel =
+        if (hardwareProfileDetector.profile.tier == HardwareTier.FLAGSHIP) KernelModel.EMBEDDING_GEMMA_300M_SM8550
+        else KernelModel.EMBEDDING_GEMMA_300M
+
     data class OnboardingUiState(
         val isAuthenticated: Boolean = false,
         val username: String? = null,
         val gemmaDownloadState: DownloadState = DownloadState.NotDownloaded,
         val routerDownloadState: DownloadState = DownloadState.NotDownloaded,
+        val embeddingDownloadState: DownloadState = DownloadState.NotDownloaded,
     ) {
         val overallProgress: Float
             get() {
@@ -49,18 +55,26 @@ class OnboardingViewModel @Inject constructor(
                     is DownloadState.Downloaded -> 1f
                     else -> 0f
                 }
-                // FunctionGemma is ~289MB, Gemma-4 E2B is ~2.4GB — weight accordingly
-                return (gemmaP * 0.89f) + (routerP * 0.11f)
+                val embeddingP = when (embeddingDownloadState) {
+                    is DownloadState.Downloading -> embeddingDownloadState.progress
+                    is DownloadState.Downloaded -> 1f
+                    else -> 0f
+                }
+                // Gemma-4 ~3.4GB, EmbeddingGemma ~350MB, FunctionGemma ~289MB → weights ~83%, 9%, 8%
+                return (gemmaP * 0.83f) + (embeddingP * 0.09f) + (routerP * 0.08f)
             }
         val allDownloaded: Boolean
             get() = gemmaDownloadState is DownloadState.Downloaded &&
-                    routerDownloadState is DownloadState.Downloaded
+                    routerDownloadState is DownloadState.Downloaded &&
+                    embeddingDownloadState is DownloadState.Downloaded
         val anyError: Boolean
             get() = gemmaDownloadState is DownloadState.Error ||
-                    routerDownloadState is DownloadState.Error
+                    routerDownloadState is DownloadState.Error ||
+                    embeddingDownloadState is DownloadState.Error
         val isDownloading: Boolean
             get() = gemmaDownloadState is DownloadState.Downloading ||
-                    routerDownloadState is DownloadState.Downloading
+                    routerDownloadState is DownloadState.Downloading ||
+                    embeddingDownloadState is DownloadState.Downloading
     }
 
     val uiState: StateFlow<OnboardingUiState> = combine(
@@ -73,6 +87,7 @@ class OnboardingViewModel @Inject constructor(
             username = username,
             gemmaDownloadState = downloadStates[preferredGemmaModel] ?: DownloadState.NotDownloaded,
             routerDownloadState = downloadStates[KernelModel.FUNCTION_GEMMA_270M] ?: DownloadState.NotDownloaded,
+            embeddingDownloadState = downloadStates[preferredEmbeddingModel] ?: DownloadState.NotDownloaded,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -119,6 +134,10 @@ class OnboardingViewModel @Inject constructor(
      *
      * Always queues [KernelModel.FUNCTION_GEMMA_270M] alongside the primary model so that
      * [com.kernel.ai.core.inference.FunctionGemmaRouter] can initialise correctly and skills fire.
+     *
+     * When downloading the preferred Gemma-4 model, also queues the hardware-appropriate
+     * EmbeddingGemma variant and its SentencePiece tokeniser so the RAG pipeline is ready.
+     * (Auth is already confirmed above — both embedding models are gated.)
      */
     fun startDownload(model: KernelModel) {
         if (model.isGated && !uiState.value.isAuthenticated) {
@@ -129,6 +148,12 @@ class OnboardingViewModel @Inject constructor(
         // FunctionGemma is always required and never gated — queue alongside any Gemma-4 download
         if (model != KernelModel.FUNCTION_GEMMA_270M) {
             modelDownloadManager.startDownload(KernelModel.FUNCTION_GEMMA_270M)
+        }
+        // EmbeddingGemma — queue if we're downloading the preferred Gemma-4 model.
+        // Auth is already confirmed above; SM8550 variant used on FLAGSHIP, generic otherwise.
+        if (model == preferredGemmaModel) {
+            modelDownloadManager.startDownload(preferredEmbeddingModel)
+            modelDownloadManager.startDownload(KernelModel.EMBEDDING_GEMMA_SP_MODEL)
         }
     }
 

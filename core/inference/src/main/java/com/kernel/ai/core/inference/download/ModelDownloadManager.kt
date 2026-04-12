@@ -83,8 +83,6 @@ class ModelDownloadManager @Inject constructor(
                 Log.i(TAG, "Auto-queuing ${model.displayName} for tier ${tier.name}")
                 startDownload(model)
             }
-        // EmbeddingGemma and its SentencePiece model are gated on HuggingFace — user must push
-        // them manually via ADB. Do not auto-queue them here.
     }
 
     // -------------------------------------------------------------------------

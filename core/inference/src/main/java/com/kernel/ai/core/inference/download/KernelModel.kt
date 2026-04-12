@@ -60,9 +60,9 @@ enum class KernelModel(
         fileName = "mobile_actions_q8_ekv1024.litertlm",
         downloadUrl = "https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions/resolve/main/mobile_actions_q8_ekv1024.litertlm",
         approxSizeBytes = 303_000_000L, // ~289 MB
-        // Not required for Phase 1 (basic chat). Needed for Phase 2 intent routing.
-        // Note: this HuggingFace repo is currently gated — public URL needed before enabling.
-        isRequired = false,
+        // Required — powers the intent router (FunctionGemmaRouter) so skills fire on every device.
+        // Public HuggingFace repo — no auth token needed.
+        isRequired = true,
         preferredForTier = null,
         isGated = false,
     ),
@@ -84,7 +84,8 @@ enum class KernelModel(
 
     /**
      * EmbeddingGemma-300M — high-quality 1024-dim embeddings for RAG memory.
-     * Generic build (CPU/GPU, all devices). Gated on HuggingFace — push manually via ADB.
+     * Generic build (CPU/GPU, all devices). Gated on HuggingFace — downloaded automatically
+     * during onboarding once the user has authenticated.
      * seq512 variant: balanced context window vs. inference speed.
      */
     EMBEDDING_GEMMA_300M(
@@ -92,35 +93,39 @@ enum class KernelModel(
         fileName = "embeddinggemma-300M_seq512_mixed-precision.tflite",
         downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq512_mixed-precision.tflite",
         approxSizeBytes = 350_000_000L,
-        isRequired = false,
+        // Required — powers the RAG memory pipeline on all non-flagship devices.
+        isRequired = true,
         preferredForTier = null,
         isGated = true,
     ),
 
     /**
      * EmbeddingGemma-300M — Qualcomm SM8550 (Snapdragon 8 Gen 2 / S23 Ultra) optimised build.
-     * Uses Hexagon NPU for faster embedding inference. Push manually via ADB.
+     * Uses Hexagon NPU for faster embedding inference. Auto-queued on FLAGSHIP devices.
      */
     EMBEDDING_GEMMA_300M_SM8550(
         displayName = "EmbeddingGemma 300M (SM8550)",
         fileName = "embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite",
         downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite",
         approxSizeBytes = 350_000_000L,
+        // Not globally required — falls back to EMBEDDING_GEMMA_300M on non-flagship devices.
+        // preferredForTier = FLAGSHIP causes ModelDownloadManager to auto-queue it on S23 Ultra etc.
         isRequired = false,
-        preferredForTier = null,
+        preferredForTier = HardwareTier.FLAGSHIP,
         isGated = true,
     ),
 
     /**
      * SentencePiece tokeniser vocabulary required by all EmbeddingGemma variants.
-     * Push manually alongside the embedding model via ADB.
+     * Downloaded automatically during onboarding alongside the embedding model.
      */
     EMBEDDING_GEMMA_SP_MODEL(
         displayName = "EmbeddingGemma SentencePiece model",
         fileName = "sentencepiece.model",
         downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/sentencepiece.model",
         approxSizeBytes = 4_500_000L,
-        isRequired = false,
+        // Required — every EmbeddingGemma variant needs this tokeniser to run.
+        isRequired = true,
         preferredForTier = null,
         isGated = true,
     );
