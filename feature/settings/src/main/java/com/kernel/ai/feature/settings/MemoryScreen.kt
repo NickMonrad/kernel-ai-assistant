@@ -470,6 +470,15 @@ fun MemoryScreen(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // Destructive delete on the left
+                    var showDeleteConfirm by remember { mutableStateOf(false) }
+                    TextButton(
+                        onClick = { showDeleteConfirm = true },
+                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
+                    ) { Text("Delete") }
+                    Spacer(Modifier.weight(1f))
                     TextButton(onClick = viewModel::closeCoreMemoryDetail) { Text("Cancel") }
                     Spacer(Modifier.width(8.dp))
                     Button(
@@ -480,6 +489,29 @@ fun MemoryScreen(
                         },
                         enabled = editText.trim().isNotBlank(),
                     ) { Text("Save") }
+
+                    if (showDeleteConfirm) {
+                        AlertDialog(
+                            onDismissRequest = { showDeleteConfirm = false },
+                            title = { Text("Delete memory?") },
+                            text = { Text("This core memory will be permanently removed. This cannot be undone.") },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        showDeleteConfirm = false
+                                        viewModel.requestDeleteCoreMemory(memory.id)
+                                        viewModel.closeCoreMemoryDetail()
+                                    },
+                                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.error,
+                                    ),
+                                ) { Text("Delete") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                            },
+                        )
+                    }
                 }
                 Spacer(Modifier.height(16.dp))
             }
