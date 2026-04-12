@@ -3,6 +3,7 @@ package com.kernel.ai.feature.settings
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -25,6 +26,7 @@ class SettingsViewModel @Inject constructor(
     private val hardwareProfileDetector: HardwareProfileDetector,
     private val modelDownloadManager: ModelDownloadManager,
     private val modelPreferences: ModelPreferences,
+    private val authRepository: HuggingFaceAuthRepository,
 ) : ViewModel() {
 
     data class SettingsUiState(
@@ -33,12 +35,18 @@ class SettingsViewModel @Inject constructor(
         val activeTier: String = "",
         val preferredModel: KernelModel? = null,   // null = auto
         val e4bDownloaded: Boolean = false,
+        /** True when a valid HF token is stored. */
+        val hfAuthenticated: Boolean = false,
+        /** HuggingFace username from OIDC id_token, or null. */
+        val hfUsername: String? = null,
     )
 
     val uiState: StateFlow<SettingsUiState> = combine(
         modelPreferences.preferredConversationModel,
         modelDownloadManager.downloadStates,
-    ) { preferredModel, downloadStates ->
+        authRepository.isAuthenticated,
+        authRepository.username,
+    ) { preferredModel, downloadStates, hfAuthenticated, hfUsername ->
         val profile = hardwareProfileDetector.profile
         val e4bDownloaded = downloadStates[KernelModel.GEMMA_4_E4B] is DownloadState.Downloaded
 
@@ -59,6 +67,8 @@ class SettingsViewModel @Inject constructor(
             activeTier = profile.tier.name,
             preferredModel = preferredModel,
             e4bDownloaded = e4bDownloaded,
+            hfAuthenticated = hfAuthenticated,
+            hfUsername = hfUsername,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -85,5 +95,11 @@ class SettingsViewModel @Inject constructor(
                 _saveError.tryEmit("Couldn't save preference — please try again")
             }
         }
+    }
+
+    /** Signs the user out of HuggingFace and clears the stored token. */
+    fun signOutHuggingFace() {
+        authRepository.signOut()
+        _saveSuccess.tryEmit("Signed out of HuggingFace")
     }
 }
