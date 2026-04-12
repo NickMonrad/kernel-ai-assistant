@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.inference.download.DownloadState
-import com.kernel.ai.core.inference.download.KernelModel
 
 /** Amber / HuggingFace brand colour. */
 private val HfOrange = Color(0xFFFF9D00)
@@ -135,13 +134,13 @@ fun OnboardingScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    ModelDownloadRow("Gemma 4 E-2B", uiState.gemmaDownloadState)
+                    ModelDownloadRow(viewModel.preferredGemmaModel.displayName, uiState.gemmaDownloadState)
                     Spacer(modifier = Modifier.height(4.dp))
                     ModelDownloadRow("Routing model", uiState.routerDownloadState)
                     if (uiState.anyError) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
-                            onClick = { viewModel.startDownload(KernelModel.GEMMA_4_E2B) },
+                            onClick = { viewModel.startPreferredDownload() },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text("Retry failed model")
@@ -163,21 +162,21 @@ fun OnboardingScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = { viewModel.startDownload(KernelModel.GEMMA_4_E2B) }) {
+                    Button(onClick = { viewModel.startPreferredDownload() }) {
                         Text("Retry")
                     }
                 }
 
                 else -> {
                     Button(
-                        onClick = { viewModel.startDownload(KernelModel.GEMMA_4_E2B) },
+                        onClick = { viewModel.startPreferredDownload() },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Download Jandal AI models (2.7 GB)")
+                        Text("Download Jandal AI models")
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Includes Gemma 4 E-2B and the routing model",
+                        text = "Includes ${viewModel.preferredGemmaModel.displayName} and the routing model",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

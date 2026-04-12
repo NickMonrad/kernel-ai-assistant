@@ -6,6 +6,8 @@ import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -21,7 +23,13 @@ import javax.inject.Inject
 class OnboardingViewModel @Inject constructor(
     private val modelDownloadManager: ModelDownloadManager,
     private val authRepository: HuggingFaceAuthRepository,
+    hardwareProfileDetector: HardwareProfileDetector,
 ) : ViewModel() {
+
+    /** The Gemma-4 variant appropriate for this device — E4B on FLAGSHIP, E2B otherwise. */
+    val preferredGemmaModel: KernelModel =
+        if (hardwareProfileDetector.profile.tier == HardwareTier.FLAGSHIP) KernelModel.GEMMA_4_E4B
+        else KernelModel.GEMMA_4_E2B
 
     data class OnboardingUiState(
         val isAuthenticated: Boolean = false,
@@ -63,7 +71,7 @@ class OnboardingViewModel @Inject constructor(
         OnboardingUiState(
             isAuthenticated = isAuthenticated,
             username = username,
-            gemmaDownloadState = downloadStates[KernelModel.GEMMA_4_E2B] ?: DownloadState.NotDownloaded,
+            gemmaDownloadState = downloadStates[preferredGemmaModel] ?: DownloadState.NotDownloaded,
             routerDownloadState = downloadStates[KernelModel.FUNCTION_GEMMA_270M] ?: DownloadState.NotDownloaded,
         )
     }.stateIn(
@@ -98,6 +106,12 @@ class OnboardingViewModel @Inject constructor(
     fun signOut() {
         authRepository.signOut()
     }
+
+    /**
+     * Starts downloading the tier-appropriate Gemma-4 model plus FunctionGemma.
+     * On FLAGSHIP devices (≥10 GB RAM) this downloads E-4B; otherwise E-2B.
+     */
+    fun startPreferredDownload() = startDownload(preferredGemmaModel)
 
     /**
      * Starts downloading a [model]. If the model is gated and the user is not signed in,
