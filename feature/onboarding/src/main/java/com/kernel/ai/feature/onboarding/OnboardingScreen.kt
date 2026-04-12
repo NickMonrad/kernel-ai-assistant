@@ -154,6 +154,15 @@ fun OnboardingScreen(
                     ModelDownloadRow("Gemma 4 E-2B", uiState.gemmaDownloadState)
                     Spacer(modifier = Modifier.height(4.dp))
                     ModelDownloadRow("Routing model", uiState.routerDownloadState)
+                    if (uiState.anyError) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { viewModel.startDownload(KernelModel.GEMMA_4_E2B) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Retry failed model")
+                        }
+                    }
                 }
 
                 uiState.anyError -> {
