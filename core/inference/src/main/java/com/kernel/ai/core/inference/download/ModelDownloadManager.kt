@@ -102,8 +102,14 @@ class ModelDownloadManager @Inject constructor(
     // -------------------------------------------------------------------------
 
     /**
-     * Enqueue a download for [model]. No-op if the model is already downloaded or
-     * a download is already in-flight. Set [force] = true to re-download a corrupt file.
+     * Enqueue a download for [model]. No-op if the model is already downloaded.
+     * Set [force] = true to re-download a corrupt file.
+     *
+     * Policy logic to fix Samsung battery-optimisation stuck-ENQUEUED issue (#206):
+     * - If a worker is genuinely RUNNING (has real progress) → [ExistingWorkPolicy.KEEP]
+     *   so we don't interrupt an active download.
+     * - Otherwise → [ExistingWorkPolicy.REPLACE] to unstick any stale ENQUEUED job that
+     *   Samsung's battery manager prevented from dispatching, and to restart FAILED jobs.
      */
     fun startDownload(model: KernelModel, force: Boolean = false) {
         if (!force && model.isDownloaded(context)) {
@@ -114,40 +120,52 @@ class ModelDownloadManager @Inject constructor(
         Log.i(TAG, "Enqueuing download for ${model.displayName}")
         updateState(model, DownloadState.Downloading())
 
-        val dataBuilder = Data.Builder()
-            .putString(KEY_DOWNLOAD_URL, model.downloadUrl)
-            .putString(KEY_FILE_NAME, model.fileName)
-            .putString(KEY_MODEL_DISPLAY_NAME, model.displayName)
-            .putLong(KEY_TOTAL_BYTES, model.approxSizeBytes)
-
-        // Attach HF access token for gated models so the worker can authenticate
-        if (model.isGated) {
-            val token = authRepository.getAccessToken()
-            if (token != null) {
-                dataBuilder.putString(KEY_HF_ACCESS_TOKEN, token)
-            } else {
-                Log.w(TAG, "Model ${model.displayName} is gated but no HF token available")
+        scope.launch {
+            val existingInfos: List<WorkInfo> = withContext(Dispatchers.IO) {
+                workManager.getWorkInfosForUniqueWork(model.workerTag).get()
             }
-        }
-
-        val inputData = dataBuilder.build()
-
-        val request = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
-            .setInputData(inputData)
-            .addTag(model.workerTag)
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
-                    .build()
+            val policy = when {
+                force -> ExistingWorkPolicy.REPLACE
+                existingInfos.any { it.state == WorkInfo.State.RUNNING } -> ExistingWorkPolicy.KEEP
+                else -> ExistingWorkPolicy.REPLACE // unstick stuck ENQUEUED or restart failed
+            }
+            Log.i(
+                TAG,
+                "Enqueuing ${model.displayName} with policy=$policy " +
+                    "(existingStates=${existingInfos.map { it.state }})"
             )
-            .build()
 
-        workManager.enqueueUniqueWork(
-            model.workerTag,
-            ExistingWorkPolicy.KEEP,
-            request,
-        )
+            val dataBuilder = Data.Builder()
+                .putString(KEY_DOWNLOAD_URL, model.downloadUrl)
+                .putString(KEY_FILE_NAME, model.fileName)
+                .putString(KEY_MODEL_DISPLAY_NAME, model.displayName)
+                .putLong(KEY_TOTAL_BYTES, model.approxSizeBytes)
+
+            // Attach HF access token for gated models so the worker can authenticate
+            if (model.isGated) {
+                val token = authRepository.getAccessToken()
+                if (token != null) {
+                    dataBuilder.putString(KEY_HF_ACCESS_TOKEN, token)
+                } else {
+                    Log.w(TAG, "Model ${model.displayName} is gated but no HF token available")
+                }
+            }
+
+            val inputData = dataBuilder.build()
+
+            val request = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
+                .setInputData(inputData)
+                .addTag(model.workerTag)
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build()
+                )
+                .build()
+
+            workManager.enqueueUniqueWork(model.workerTag, policy, request)
+        }
 
         scope.launch { observeWorkInfo(model) }
     }
