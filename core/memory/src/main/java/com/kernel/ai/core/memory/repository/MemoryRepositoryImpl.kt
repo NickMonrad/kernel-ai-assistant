@@ -162,7 +162,7 @@ class MemoryRepositoryImpl @Inject constructor(
     override suspend fun updateCoreMemory(id: String, newContent: String, newVector: FloatArray?) {
         coreDao.updateContent(id, newContent)
         if (newVector != null) {
-            val rowId = coreDao.getAll().find { it.id == id }?.rowId
+            val rowId = coreDao.getRowIdById(id)
             if (rowId != null && rowId > 0) {
                 ensureCoreVecTable(newVector.size)
                 vectorStore.upsert(CORE_VEC_TABLE, rowId, newVector)

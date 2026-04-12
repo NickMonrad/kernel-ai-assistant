@@ -95,13 +95,11 @@ class ConversationListViewModel @Inject constructor(
     }
 
     fun deleteSelected() {
-        val ids = _selectedConversationIds.value.toList()
+        val ids = _selectedConversationIds.value.toSet()
+        val entities = conversations.value.filter { it.id in ids }
         viewModelScope.launch {
             try {
-                ids.forEach { id ->
-                    val entity = conversations.value.find { it.id == id }
-                    if (entity != null) repository.deleteConversation(entity)
-                }
+                entities.forEach { entity -> repository.deleteConversation(entity) }
             } finally {
                 _showBulkDeleteConfirmation.value = false
                 _isInSelectionMode.value = false

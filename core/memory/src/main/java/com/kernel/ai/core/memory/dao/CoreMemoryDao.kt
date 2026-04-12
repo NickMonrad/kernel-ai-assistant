@@ -68,4 +68,7 @@ interface CoreMemoryDao {
 
     @Query("UPDATE core_memories SET content = :content WHERE id = :id")
     suspend fun updateContent(id: String, content: String)
+
+    @Query("SELECT rowId FROM core_memories WHERE id = :id LIMIT 1")
+    suspend fun getRowIdById(id: String): Long?
 }

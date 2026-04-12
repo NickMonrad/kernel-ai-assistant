@@ -3,6 +3,7 @@ package com.kernel.ai.feature.settings
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
@@ -10,6 +11,7 @@ import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 enum class MemorySection { CORE, EPISODIC, EMBEDDING_STATS }
@@ -34,6 +37,7 @@ class MemoryViewModel @Inject constructor(
     private val memoryRepository: MemoryRepository,
     private val conversationRepository: ConversationRepository,
     private val embeddingDao: MessageEmbeddingDao,
+    private val embeddingEngine: EmbeddingEngine,
 ) : ViewModel() {
 
     data class MessageEmbeddingStats(
@@ -438,10 +442,14 @@ class MemoryViewModel @Inject constructor(
     fun saveCoreMemoryEdit(id: String, newContent: String) {
         viewModelScope.launch {
             try {
-                memoryRepository.updateCoreMemory(id, newContent)
+                val newVector = withContext(Dispatchers.Default) {
+                    embeddingEngine.embed(newContent)
+                }
+                memoryRepository.updateCoreMemory(id, newContent, newVector)
                 _selectedCoreMemoryDetail.value = null
             } catch (e: Exception) {
-                Log.e("KernelAI", "saveCoreMemoryEdit failed", e)
+                Log.e("KernelAI", "saveCoreMemoryEdit failed: ${e.message}", e)
+                // Do NOT update _selectedCoreMemoryDetail on failure — sheet stays open
             }
         }
     }

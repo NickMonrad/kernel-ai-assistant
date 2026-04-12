@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -68,6 +69,11 @@ fun ConversationListScreen(
     var pendingRenameId by rememberSaveable { mutableStateOf<String?>(null) }
     val pendingRename = pendingRenameId?.let { id -> conversations.find { it.id == id } }
     var contextMenuTarget by remember { mutableStateOf<ConversationEntity?>(null) }
+
+    // Exit selection mode on system back instead of popping the screen
+    BackHandler(enabled = isInSelectionMode) {
+        viewModel.clearSelection()
+    }
 
     Scaffold(
         topBar = {
