@@ -70,7 +70,10 @@ class ModelDownloadManager @Inject constructor(
         }
         // Auto-queue all required models that aren't yet downloaded
         KernelModel.entries
-            .filter { it.isRequired && !it.isDownloaded(context) }
+            .filter {
+                it.isRequired && !it.isDownloaded(context) &&
+                (!it.isGated || authRepository.getAccessToken() != null)
+            }
             .forEach { model ->
                 Log.i(TAG, "Auto-queuing required model: ${model.displayName}")
                 startDownload(model)
@@ -78,13 +81,14 @@ class ModelDownloadManager @Inject constructor(
         // Auto-queue tier-specific optional models (e.g. E-4B on FLAGSHIP)
         val tier = hardwareProfileDetector.profile.tier
         KernelModel.entries
-            .filter { !it.isRequired && it.preferredForTier == tier && !it.isDownloaded(context) }
+            .filter {
+                !it.isRequired && it.preferredForTier == tier && !it.isDownloaded(context) &&
+                (!it.isGated || authRepository.getAccessToken() != null)
+            }
             .forEach { model ->
                 Log.i(TAG, "Auto-queuing ${model.displayName} for tier ${tier.name}")
                 startDownload(model)
             }
-        // EmbeddingGemma and its SentencePiece model are gated on HuggingFace — user must push
-        // them manually via ADB. Do not auto-queue them here.
     }
 
     // -------------------------------------------------------------------------
