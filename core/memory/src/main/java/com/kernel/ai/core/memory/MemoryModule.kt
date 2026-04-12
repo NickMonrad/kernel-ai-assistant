@@ -45,7 +45,7 @@ abstract class MemoryModule {
         @Singleton
         fun provideKernelDatabase(@ApplicationContext context: Context): KernelDatabase =
             Room.databaseBuilder(context, KernelDatabase::class.java, "kernel_db")
-                .addMigrations(KernelDatabase.MIGRATION_4_5, KernelDatabase.MIGRATION_5_6)
+                .addMigrations(KernelDatabase.MIGRATION_4_5, KernelDatabase.MIGRATION_5_6, KernelDatabase.MIGRATION_6_7)
                 .build()
 
         @Provides

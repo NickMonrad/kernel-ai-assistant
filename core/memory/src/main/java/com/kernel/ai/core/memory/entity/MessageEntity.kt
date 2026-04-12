@@ -25,4 +25,5 @@ data class MessageEntity(
     val content: String,
     val thinkingText: String?,
     val timestamp: Long,
+    val toolCallJson: String? = null,
 )

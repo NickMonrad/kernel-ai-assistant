@@ -27,4 +27,7 @@ interface MessageDao {
 
     @Query("UPDATE messages SET content = :content, thinkingText = :thinkingText WHERE id = :id")
     suspend fun updateContentAndThinking(id: String, content: String, thinkingText: String?)
+
+    @Query("UPDATE messages SET toolCallJson = :toolCallJson WHERE id = :id")
+    suspend fun updateToolCallJson(id: String, toolCallJson: String?)
 }

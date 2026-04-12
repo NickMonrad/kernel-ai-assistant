@@ -47,6 +47,7 @@ class ConversationRepository @Inject constructor(
         role: String,
         content: String,
         thinkingText: String? = null,
+        toolCallJson: String? = null,
     ): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -58,6 +59,7 @@ class ConversationRepository @Inject constructor(
                 content = content,
                 thinkingText = thinkingText,
                 timestamp = now,
+                toolCallJson = toolCallJson,
             )
         )
         conversationDao.touchUpdatedAt(conversationId, now)
