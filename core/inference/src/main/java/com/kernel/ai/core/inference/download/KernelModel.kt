@@ -100,18 +100,16 @@ enum class KernelModel(
     ),
 
     /**
-     * EmbeddingGemma-300M — Qualcomm SM8550 (Snapdragon 8 Gen 2 / S23 Ultra) optimised build.
-     * Uses Hexagon NPU for faster embedding inference. Auto-queued on FLAGSHIP devices.
+     * SM8550 optimised variant — currently disabled due to LiteRT "Unsupported file format" error
+     * on device. Keep isRequired=false and preferredForTier=null until upstream fix is available.
      */
     EMBEDDING_GEMMA_300M_SM8550(
         displayName = "EmbeddingGemma 300M (SM8550)",
         fileName = "embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite",
         downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite",
         approxSizeBytes = 350_000_000L,
-        // Not globally required — falls back to EMBEDDING_GEMMA_300M on non-flagship devices.
-        // preferredForTier = FLAGSHIP causes ModelDownloadManager to auto-queue it on S23 Ultra etc.
         isRequired = false,
-        preferredForTier = HardwareTier.FLAGSHIP,
+        preferredForTier = null,
         isGated = true,
     ),
 

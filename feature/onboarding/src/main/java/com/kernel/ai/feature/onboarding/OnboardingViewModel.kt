@@ -31,10 +31,8 @@ class OnboardingViewModel @Inject constructor(
         if (hardwareProfileDetector.profile.tier == HardwareTier.FLAGSHIP) KernelModel.GEMMA_4_E4B
         else KernelModel.GEMMA_4_E2B
 
-    /** The EmbeddingGemma variant appropriate for this device — SM8550 on FLAGSHIP, generic otherwise. */
-    val preferredEmbeddingModel: KernelModel =
-        if (hardwareProfileDetector.profile.tier == HardwareTier.FLAGSHIP) KernelModel.EMBEDDING_GEMMA_300M_SM8550
-        else KernelModel.EMBEDDING_GEMMA_300M
+    /** Always use the generic EmbeddingGemma — SM8550 variant is currently broken (LiteRT format error). */
+    val preferredEmbeddingModel: KernelModel = KernelModel.EMBEDDING_GEMMA_300M
 
     data class OnboardingUiState(
         val isAuthenticated: Boolean = false,
