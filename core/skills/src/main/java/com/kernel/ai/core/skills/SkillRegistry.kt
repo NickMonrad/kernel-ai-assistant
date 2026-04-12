@@ -19,21 +19,31 @@ class SkillRegistry @Inject constructor(
 
     /** Generates the function_declarations JSON array for FunctionGemma's system prompt. */
     fun buildFunctionDeclarationsJson(): String {
-        val declarations = registry.values.map { skill ->
-            buildString {
-                append("""{"name":"${skill.name}","description":"${skill.description}","parameters":{"type":"object","properties":{""")
-                skill.schema.parameters.entries.forEachIndexed { i, (paramName, param) ->
-                    if (i > 0) append(",")
-                    append(""""$paramName":{"type":"${param.type}","description":"${param.description}"""")
+        val declarations = org.json.JSONArray()
+        registry.values.forEach { skill ->
+            val properties = org.json.JSONObject()
+            skill.schema.parameters.forEach { (paramName, param) ->
+                val paramObj = org.json.JSONObject().apply {
+                    put("type", param.type)
+                    put("description", param.description)
                     if (!param.enum.isNullOrEmpty()) {
-                        append(""","enum":[${param.enum.joinToString(",") { "\"$it\"" }}]""")
+                        put("enum", org.json.JSONArray(param.enum))
                     }
-                    append("}")
                 }
-                append("""},"required":[${skill.schema.required.joinToString(",") { "\"$it\"" }}]}""")
-                append("}")
+                properties.put(paramName, paramObj)
             }
+            val parameters = org.json.JSONObject().apply {
+                put("type", "object")
+                put("properties", properties)
+                put("required", org.json.JSONArray(skill.schema.required))
+            }
+            val declaration = org.json.JSONObject().apply {
+                put("name", skill.name)
+                put("description", skill.description)
+                put("parameters", parameters)
+            }
+            declarations.put(declaration)
         }
-        return "[${declarations.joinToString(",")}]"
+        return declarations.toString()
     }
 }

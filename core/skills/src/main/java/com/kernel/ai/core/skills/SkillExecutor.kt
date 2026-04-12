@@ -37,7 +37,11 @@ class SkillExecutor @Inject constructor(
 
     private fun parseSkillCall(raw: String): SkillCall? {
         return try {
-            val json = org.json.JSONObject(raw.trim())
+            val cleaned = raw.trim()
+                .removePrefix("```json").removePrefix("```")
+                .removeSuffix("```")
+                .trim()
+            val json = org.json.JSONObject(cleaned)
             val name = json.optString("name").takeIf { it.isNotBlank() } ?: return null
             val argsObj = json.optJSONObject("arguments") ?: org.json.JSONObject()
             val args = mutableMapOf<String, String>()

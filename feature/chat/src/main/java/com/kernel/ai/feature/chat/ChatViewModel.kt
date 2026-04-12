@@ -53,6 +53,7 @@ class ChatViewModel @Inject constructor(
     private val episodicDistillationUseCase: EpisodicDistillationUseCase,
     private val modelSettingsRepository: ModelSettingsRepository,
     private val skillRegistry: SkillRegistry,
+    @Suppress("UnusedPrivateMember") // wired in next PR: FunctionGemma routing (#84)
     private val skillExecutor: SkillExecutor,
 ) : ViewModel() {
 
