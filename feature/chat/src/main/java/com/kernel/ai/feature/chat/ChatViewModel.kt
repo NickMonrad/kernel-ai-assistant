@@ -6,8 +6,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
+import com.kernel.ai.core.inference.FunctionGemmaRouter
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.LlmDispatcher
 import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
@@ -20,6 +22,7 @@ import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
@@ -53,8 +56,8 @@ class ChatViewModel @Inject constructor(
     private val episodicDistillationUseCase: EpisodicDistillationUseCase,
     private val modelSettingsRepository: ModelSettingsRepository,
     private val skillRegistry: SkillRegistry,
-    @Suppress("UnusedPrivateMember") // wired in next PR: FunctionGemma routing (#84)
     private val skillExecutor: SkillExecutor,
+    private val functionGemmaRouter: FunctionGemmaRouter,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -285,6 +288,34 @@ class ChatViewModel @Inject constructor(
         } catch (e: Exception) {
             _error.value = "Failed to load model: ${e.message}"
         }
+
+        // Initialise FunctionGemmaRouter in parallel — non-fatal if model is absent.
+        val routerPath = downloadManager.getModelPath(KernelModel.FUNCTION_GEMMA_270M)
+        if (routerPath != null) {
+            try {
+                functionGemmaRouter.initialize(routerPath, buildSkillContext())
+            } catch (e: Exception) {
+                Log.w("KernelAI", "FunctionGemmaRouter: init failed (non-fatal): ${e.message}", e)
+            }
+        } else {
+            Log.i("KernelAI", "FunctionGemmaRouter: model not downloaded — intent routing disabled")
+        }
+    }
+
+    /**
+     * Immediately appends a completed assistant message to the UI and persists it to Room.
+     * Used by the FunctionGemma skill-dispatch path where there is no streaming.
+     */
+    private suspend fun appendAssistantMessage(convId: String, content: String) {
+        val msgId = UUID.randomUUID().toString()
+        val msg = ChatMessage(
+            id = msgId,
+            role = ChatMessage.Role.ASSISTANT,
+            content = content,
+        )
+        _messages.update { it + msg }
+        val savedId = conversationRepository.addMessage(convId, "assistant", content)
+        ragRepository.indexMessage(savedId, convId, content)
     }
 
     fun retryDownload(model: KernelModel) {
@@ -337,7 +368,38 @@ class ChatViewModel @Inject constructor(
                 Log.d("KernelAI", "Set placeholder title for $convId: \"$placeholder\"")
             }
 
-            // Placeholder for the streaming assistant reply.
+            // 1. Route via FunctionGemma — fast CPU classifier decides skill vs. conversation.
+            val routeDecision = functionGemmaRouter.route(text)
+            when (routeDecision) {
+                is FunctionGemmaRouter.RouteDecision.SkillCall -> {
+                    val result = skillExecutor.execute(routeDecision.rawJson)
+                    when (result) {
+                        is SkillResult.Success -> {
+                            appendAssistantMessage(convId, result.content)
+                            needsHistoryReplay = true
+                            return@launch
+                        }
+                        is SkillResult.ParseError, is SkillResult.UnknownSkill -> {
+                            Log.w("KernelAI", "Skill routing failed: $result — falling back to Gemma-4")
+                            // fall through to Gemma-4
+                        }
+                        is SkillResult.Failure -> {
+                            appendAssistantMessage(
+                                convId,
+                                "I tried to do that but something went wrong: ${(result as SkillResult.Failure).error}",
+                            )
+                            needsHistoryReplay = true
+                            return@launch
+                        }
+                    }
+                }
+                is FunctionGemmaRouter.RouteDecision.PlainConversation,
+                is FunctionGemmaRouter.RouteDecision.RouterNotReady -> {
+                    // fall through to Gemma-4
+                }
+            }
+
+            // 2. Gemma-4 streaming inference path.
             val assistantMsgId = UUID.randomUUID().toString()
             val streamingPlaceholder = ChatMessage(
                 id = assistantMsgId,
@@ -637,6 +699,9 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { inferenceEngine.shutdown() }
+        CoroutineScope(LlmDispatcher).launch {
+            functionGemmaRouter.release()
+        }
     }
 }
 
