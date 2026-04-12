@@ -49,9 +49,9 @@ class HardwareProfileDetector @Inject constructor(
         }
 
         val recommendedMaxTokens = when (tier) {
-            HardwareTier.FLAGSHIP -> 8192
-            HardwareTier.MID_RANGE -> 2048
-            HardwareTier.LOW_POWER -> 1024
+            HardwareTier.FLAGSHIP -> 4000
+            HardwareTier.MID_RANGE -> 2000
+            HardwareTier.LOW_POWER -> 1000
         }
 
         val profile = HardwareProfile(

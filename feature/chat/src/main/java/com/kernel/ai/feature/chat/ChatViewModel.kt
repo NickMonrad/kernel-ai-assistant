@@ -114,7 +114,11 @@ class ChatViewModel @Inject constructor(
     /** Ensures at most one concurrent Gemma-4 initialisation attempt. */
     private val gemma4InitMutex = Mutex()
 
-    private data class GenerationState(val isGenerating: Boolean, val isLoadingModel: Boolean)
+    private data class EngineState(
+        val isReady: Boolean,
+        val isGenerating: Boolean,
+        val isLoadingModel: Boolean,
+    )
     private data class InputState(
         val messages: List<ChatMessage>,
         val inputText: String,
@@ -122,10 +126,13 @@ class ChatViewModel @Inject constructor(
         val conversationTitle: String?,
     )
 
-    private val generationState = combine(
+    private val engineState = combine(
+        inferenceEngine.isReady,
         inferenceEngine.isGenerating,
         _isLoadingModel,
-    ) { isGenerating, isLoadingModel -> GenerationState(isGenerating, isLoadingModel) }
+    ) { isReady, isGenerating, isLoadingModel ->
+        EngineState(isReady, isGenerating, isLoadingModel)
+    }
 
     private val inputState = combine(
         _messages,
@@ -135,10 +142,10 @@ class ChatViewModel @Inject constructor(
     ) { messages, inputText, error, title -> InputState(messages, inputText, error, title) }
 
     val uiState: StateFlow<ChatUiState> = combine(
-        generationState,
+        engineState,
         downloadManager.downloadStates,
         inputState,
-    ) { generation, downloadStates, input ->
+    ) { engine, downloadStates, input ->
         val allDownloaded = downloadManager.areRequiredModelsDownloaded()
         val tier = downloadManager.deviceTier
         val displayModels: List<KernelModel> = if (tier == HardwareTier.FLAGSHIP) {
@@ -161,14 +168,15 @@ class ChatViewModel @Inject constructor(
                 }
                 ChatUiState.ModelsNotReady(isDownloading = anyDownloading, modelProgress = progress)
             }
+            !engine.isReady -> ChatUiState.Loading
             else -> ChatUiState.Ready(
                 conversationId = conversationId ?: "",
                 conversationTitle = input.conversationTitle,
                 messages = input.messages,
-                isGenerating = generation.isGenerating,
+                isGenerating = engine.isGenerating,
                 inputText = input.inputText,
                 error = input.error,
-                isLoadingModel = generation.isLoadingModel,
+                isLoadingModel = engine.isLoadingModel,
             )
         }
     }.stateIn(
@@ -179,8 +187,10 @@ class ChatViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { initializeConversation() }
-        viewModelScope.launch { initFunctionGemmaRouter() }  // eager, fast
-        // Gemma-4 loads lazily on first sendMessage() that needs it
+        // FunctionGemma disabled — loading 289MB alongside E4B GPU init causes OOM.
+        // TODO: re-enable once lazy load-on-demand (after E4B is ready) is implemented.
+        // viewModelScope.launch { initFunctionGemmaRouter() }
+        viewModelScope.launch { initEngineWhenReady() }       // eager, shows loading screen
     }
 
     private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
@@ -273,7 +283,50 @@ class ChatViewModel @Inject constructor(
         }
         // else: new conversation, both flags stay false (defaults)
 
-        // Engine init is handled reactively by initEngineWhenReady().
+        // Engine init is handled eagerly by initEngineWhenReady() — shows loading screen.
+    }
+
+    /**
+     * Eagerly initialises the Gemma-4 [InferenceEngine] at startup.
+     *
+     * Waits for all required models to be on disk, then loads the preferred
+     * conversation model with a visible loading screen ([ChatUiState.Loading]).
+     * Releases FunctionGemma + EmbeddingGemma before GPU init to maximise
+     * available memory for the large conversation model.
+     */
+    private suspend fun initEngineWhenReady() {
+        // Wait until all required models are on disk.
+        downloadManager.downloadStates
+            .filter { states ->
+                KernelModel.entries.filter { it.isRequired }
+                    .all { states[it] is DownloadState.Downloaded }
+            }
+            .first()
+
+        if (inferenceEngine.isReady.value) return
+
+        val preferred = downloadManager.preferredConversationModel()
+        val modelPath = downloadManager.getModelPath(preferred) ?: return
+        activeModel = preferred
+        try {
+            // Release EmbeddingGemma before loading Gemma-4 to free memory.
+            embeddingEngine.close()
+            System.gc()
+            Log.i("KernelAI", "Released EmbeddingGemma for Gemma-4 GPU init")
+
+            val settings = modelSettingsRepository.getSettings(preferred.modelId)
+            inferenceEngine.initialize(ModelConfig(
+                modelPath = modelPath,
+                systemPrompt = buildSystemPrompt(),
+                maxTokens = settings.contextWindowSize,
+                temperature = settings.temperature,
+                topP = settings.topP,
+            ))
+            estimatedTokensUsed = 0
+            inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+        } catch (e: Exception) {
+            _error.value = "Failed to load model: ${e.message}"
+        }
     }
 
     /**
@@ -331,13 +384,10 @@ class ChatViewModel @Inject constructor(
             val modelPath = downloadManager.getModelPath(preferred) ?: return
             activeModel = preferred
             try {
-                // Release FunctionGemma + EmbeddingGemma before loading Gemma-4 to free memory.
-                // Edge Gallery only keeps one model in memory; holding multiple models during
-                // GPU init causes Samsung's lmkd to kill the process.
-                functionGemmaRouter.release()
+                // Release EmbeddingGemma before loading Gemma-4 to free memory.
                 embeddingEngine.close()
                 System.gc()
-                Log.i("KernelAI", "Released FunctionGemma + EmbeddingGemma for Gemma-4 GPU init")
+                Log.i("KernelAI", "Released EmbeddingGemma for Gemma-4 GPU init")
 
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
                 inferenceEngine.initialize(ModelConfig(
@@ -435,22 +485,9 @@ class ChatViewModel @Inject constructor(
                 Log.d("KernelAI", "Set placeholder title for $convId: \"$placeholder\"")
             }
 
-            // 1. Route via FunctionGemma — SDK calls @Tool methods natively.
-            //    ToolHandled  → a skill ran, display response, skip Gemma-4.
-            //    PlainResponse → FunctionGemma answered without a tool, fall through to Gemma-4
-            //                    so the user gets a high-quality conversational response.
-            //    NotReady     → router not initialised, fall through to Gemma-4.
-            when (val result = functionGemmaRouter.handle(text)) {
-                is FunctionGemmaRouter.HandleResult.ToolHandled -> {
-                    appendAssistantMessage(convId, result.response)
-                    needsHistoryReplay = true
-                    return@launch
-                }
-                is FunctionGemmaRouter.HandleResult.PlainResponse,
-                is FunctionGemmaRouter.HandleResult.NotReady -> {
-                    // fall through to Gemma-4
-                }
-            }
+            // FunctionGemma routing disabled — concurrent loading causes OOM during
+            // E4B GPU init. All queries go directly to Gemma-4 for now.
+            // TODO: re-enable with lazy load-on-demand after Gemma-4 is ready.
 
             // Lazy-init Gemma-4 if not yet loaded.
             if (!inferenceEngine.isReady.value) {

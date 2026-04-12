@@ -117,16 +117,17 @@ private fun ModelCard(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Context Window
+        // Context Window — steps of 500 to avoid exact powers-of-2 (4096, 8192)
+        // which trigger a GPU reshape alignment bug on some Adreno GPUs.
         SliderRow(
             label = "Context window",
             valueLabel = "${settings.contextWindowSize} tokens",
             value = settings.contextWindowSize.toFloat(),
-            valueRange = 2048f..32768f,
-            steps = ((32768 - 2048) / 1024) - 1,
+            valueRange = 2000f..32000f,
+            steps = ((32000 - 2000) / 500) - 1,
             isInteger = true,
             onValueChangeFinished = { newVal ->
-                val snapped = (newVal / 1024).roundToInt() * 1024
+                val snapped = (newVal / 500).roundToInt() * 500
                 onSettingsChanged(settings.copy(contextWindowSize = snapped))
             },
         )
@@ -270,7 +271,7 @@ private fun ModelSettingsScreenPreview() {
     MaterialTheme {
         val sampleSettings = ModelSettingsEntity(
             modelId = "gemma_4_e2b",
-            contextWindowSize = 4096,
+            contextWindowSize = 4000,
             temperature = 1.0f,
             topP = 0.95f,
         )

@@ -79,12 +79,15 @@ class LiteRtInferenceEngine @Inject constructor(
             val resolvedConfig = if (config.backendType == BackendType.AUTO) {
                 config.copy(
                     backendType = profile.recommendedBackend,
-                    maxTokens = config.maxTokens.coerceAtMost(profile.recommendedMaxTokens),
+                    maxTokens = safeTokenCount(config.maxTokens.coerceAtMost(profile.recommendedMaxTokens)),
                 )
-            } else config
+            } else {
+                config.copy(maxTokens = safeTokenCount(config.maxTokens))
+            }
 
             Log.i(TAG, "Initializing engine — model: ${resolvedConfig.modelPath}, " +
-                "backend: ${resolvedConfig.backendType}, tier: ${profile.tier}")
+                "backend: ${resolvedConfig.backendType}, tier: ${profile.tier}, " +
+                "maxTokens: ${resolvedConfig.maxTokens} (requested: ${config.maxTokens})")
 
             // Sanity-check quantization before spending 10-30s initializing.
             QuantizationVerifier.verify(
@@ -92,14 +95,22 @@ class LiteRtInferenceEngine @Inject constructor(
                 expectedBytes = estimateExpectedBytes(resolvedConfig.modelPath),
             )
 
-            val (eng, backendType) = createEngineWithFallback(resolvedConfig)
-            engine = eng
-            conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
-            currentConfig = resolvedConfig
-            _activeBackend.value = backendType
-            _isReady.value = true
+            // Start foreground service to keep process at high OOM priority during
+            // the ~20s GPU model load. Without this Samsung lmkd demotes the process
+            // to oom_score_adj 700 (cached) and kills it for memory watermark reasons.
+            InferenceLoadingService.start(context)
+            try {
+                val (eng, backendType) = createEngineWithFallback(resolvedConfig)
+                engine = eng
+                conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
+                currentConfig = resolvedConfig
+                _activeBackend.value = backendType
+                _isReady.value = true
 
-            Log.i(TAG, "Engine ready — backend: $backendType, maxTokens: ${resolvedConfig.maxTokens}")
+                Log.i(TAG, "Engine ready — backend: $backendType, maxTokens: ${resolvedConfig.maxTokens}")
+            } finally {
+                InferenceLoadingService.stop(context)
+            }
         }
     }
 
@@ -294,6 +305,7 @@ class LiteRtInferenceEngine @Inject constructor(
                     modelPath = config.modelPath,
                     backend = backendType.toBackend(context),
                     maxNumTokens = config.maxTokens,
+                    cacheDir = context.cacheDir.absolutePath,
                 )
                 val eng = Engine(engineConfig)
                 eng.initialize()
@@ -348,5 +360,24 @@ class LiteRtInferenceEngine @Inject constructor(
         return com.kernel.ai.core.inference.download.KernelModel.entries
             .firstOrNull { it.fileName == fileName }
             ?.approxSizeBytes ?: 0L
+    }
+
+    companion object {
+        /**
+         * Avoids exact powers-of-2 token counts that trigger a buffer-alignment bug
+         * in LiteRT's GPU `reshape::Eval` operation (observed on Adreno 740 / SM8550).
+         * Nudges e.g. 4096→4000, 8192→8000 while leaving non-power-of-2 values untouched.
+         */
+        internal fun safeTokenCount(tokens: Int): Int {
+            if (tokens <= 0) return tokens
+            // Check if tokens is an exact power of 2
+            if (tokens and (tokens - 1) == 0) {
+                val safe = (tokens * 125) / 128  // ~97.6% — e.g. 4096→4000, 8192→8000
+                Log.w("LiteRtInferenceEngine",
+                    "Adjusted maxTokens from $tokens to $safe (avoid GPU reshape alignment bug)")
+                return safe
+            }
+            return tokens
+        }
     }
 }
