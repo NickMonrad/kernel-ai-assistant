@@ -11,6 +11,7 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -68,18 +69,21 @@ class ModelDownloadManager @Inject constructor(
         KernelModel.entries.forEach { model ->
             scope.launch { observeWorkInfo(model) }
         }
+        val tier = hardwareProfileDetector.profile.tier  // hoist BEFORE the required-model loop
         // Auto-queue all required models that aren't yet downloaded
         KernelModel.entries
             .filter {
                 it.isRequired && !it.isDownloaded(context) &&
-                (!it.isGated || authRepository.getAccessToken() != null)
+                (!it.isGated || authRepository.getAccessToken() != null) &&
+                // On FLAGSHIP, skip E2B — E4B is auto-queued below as the tier-preferred model
+                !(it == KernelModel.GEMMA_4_E2B && tier == HardwareTier.FLAGSHIP)
             }
             .forEach { model ->
                 Log.i(TAG, "Auto-queuing required model: ${model.displayName}")
                 startDownload(model)
             }
         // Auto-queue tier-specific optional models (e.g. E-4B on FLAGSHIP)
-        val tier = hardwareProfileDetector.profile.tier
+        // NOTE: tier is already declared above
         KernelModel.entries
             .filter {
                 !it.isRequired && it.preferredForTier == tier && !it.isDownloaded(context) &&
@@ -160,11 +164,22 @@ class ModelDownloadManager @Inject constructor(
         return if (model.isDownloaded(context)) model.localFile(context).absolutePath else null
     }
 
-    /** True when all [KernelModel.isRequired] models are present on disk. */
-    fun areRequiredModelsDownloaded(): Boolean =
-        KernelModel.entries
-            .filter { it.isRequired }
+    /** True when all models required for this device tier are present on disk. */
+    fun areRequiredModelsDownloaded(): Boolean {
+        val tier = hardwareProfileDetector.profile.tier
+        // On FLAGSHIP, either E4B or E2B satisfies the conversation model requirement
+        val conversationModelReady = when (tier) {
+            HardwareTier.FLAGSHIP ->
+                KernelModel.GEMMA_4_E4B.isDownloaded(context) ||
+                KernelModel.GEMMA_4_E2B.isDownloaded(context)
+            else -> KernelModel.GEMMA_4_E2B.isDownloaded(context)
+        }
+        // All other required models must be present
+        val otherRequiredReady = KernelModel.entries
+            .filter { it.isRequired && it != KernelModel.GEMMA_4_E2B }
             .all { it.isDownloaded(context) }
+        return conversationModelReady && otherRequiredReady
+    }
 
     /**
      * Returns the best available conversation model.

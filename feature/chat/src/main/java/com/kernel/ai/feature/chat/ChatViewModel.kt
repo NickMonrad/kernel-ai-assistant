@@ -133,8 +133,8 @@ class ChatViewModel @Inject constructor(
         downloadManager.downloadStates,
         inputState,
     ) { generation, downloadStates, input ->
+        val allDownloaded = downloadManager.areRequiredModelsDownloaded()
         val allRequired = KernelModel.entries.filter { it.isRequired }
-        val allDownloaded = allRequired.all { downloadStates[it] is DownloadState.Downloaded }
 
         when {
             !allDownloaded -> {
