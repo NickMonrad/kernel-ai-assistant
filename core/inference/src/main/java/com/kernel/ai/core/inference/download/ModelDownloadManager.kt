@@ -13,8 +13,10 @@ import androidx.work.WorkManager
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +53,9 @@ class ModelDownloadManager @Inject constructor(
     private val workManager = WorkManager.getInstance(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    // Issue 3 fix: track active observer jobs to avoid accumulation on retries
+    private val observerJobs = ConcurrentHashMap<KernelModel, Job>()
+
     private val _downloadStates: MutableStateFlow<Map<KernelModel, DownloadState>> =
         MutableStateFlow(
             KernelModel.entries.associateWith { model ->
@@ -69,7 +74,7 @@ class ModelDownloadManager @Inject constructor(
     init {
         // Resume observing any in-progress workers that survived a process restart
         KernelModel.entries.forEach { model ->
-            scope.launch { observeWorkInfo(model) }
+            ensureObserving(model)
         }
         val tier = hardwareProfileDetector.profile.tier  // hoist BEFORE the required-model loop
         // Auto-queue all required models that aren't yet downloaded
@@ -118,56 +123,60 @@ class ModelDownloadManager @Inject constructor(
         }
 
         Log.i(TAG, "Enqueuing download for ${model.displayName}")
-        updateState(model, DownloadState.Downloading())
+        // updateState moved inside coroutine — don't reset progress to 0 if KEEP is chosen
 
         scope.launch {
-            val existingInfos: List<WorkInfo> = withContext(Dispatchers.IO) {
-                workManager.getWorkInfosForUniqueWork(model.workerTag).get()
-            }
-            val policy = when {
-                force -> ExistingWorkPolicy.REPLACE
-                existingInfos.any { it.state == WorkInfo.State.RUNNING } -> ExistingWorkPolicy.KEEP
-                else -> ExistingWorkPolicy.REPLACE // unstick stuck ENQUEUED or restart failed
-            }
-            Log.i(
-                TAG,
-                "Enqueuing ${model.displayName} with policy=$policy " +
-                    "(existingStates=${existingInfos.map { it.state }})"
-            )
-
-            val dataBuilder = Data.Builder()
-                .putString(KEY_DOWNLOAD_URL, model.downloadUrl)
-                .putString(KEY_FILE_NAME, model.fileName)
-                .putString(KEY_MODEL_DISPLAY_NAME, model.displayName)
-                .putLong(KEY_TOTAL_BYTES, model.approxSizeBytes)
-
-            // Attach HF access token for gated models so the worker can authenticate
-            if (model.isGated) {
-                val token = authRepository.getAccessToken()
-                if (token != null) {
-                    dataBuilder.putString(KEY_HF_ACCESS_TOKEN, token)
-                } else {
-                    Log.w(TAG, "Model ${model.displayName} is gated but no HF token available")
+            withContext(Dispatchers.IO) {
+                val existingInfos = workManager.getWorkInfosForUniqueWork(model.workerTag).get()
+                val policy = when {
+                    force -> ExistingWorkPolicy.REPLACE
+                    existingInfos.any { it.state == WorkInfo.State.RUNNING } -> ExistingWorkPolicy.KEEP
+                    else -> ExistingWorkPolicy.REPLACE // unstick stuck ENQUEUED or restart failed
                 }
-            }
 
-            val inputData = dataBuilder.build()
-
-            val request = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
-                .setInputData(inputData)
-                .addTag(model.workerTag)
-                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .build()
+                // Only reset state to Downloading(0) when actually starting fresh
+                if (policy == ExistingWorkPolicy.REPLACE) {
+                    updateState(model, DownloadState.Downloading())
+                }
+                Log.i(
+                    TAG,
+                    "Enqueuing ${model.displayName} with policy=$policy " +
+                        "(existingStates=${existingInfos.map { it.state }})"
                 )
-                .build()
 
-            workManager.enqueueUniqueWork(model.workerTag, policy, request)
+                // Build and enqueue inside same withContext block to shrink TOCTOU window
+                val dataBuilder = Data.Builder()
+                    .putString(KEY_DOWNLOAD_URL, model.downloadUrl)
+                    .putString(KEY_FILE_NAME, model.fileName)
+                    .putString(KEY_MODEL_DISPLAY_NAME, model.displayName)
+                    .putLong(KEY_TOTAL_BYTES, model.approxSizeBytes)
+
+                // Attach HF access token for gated models so the worker can authenticate
+                if (model.isGated) {
+                    val token = authRepository.getAccessToken()
+                    if (token != null) {
+                        dataBuilder.putString(KEY_HF_ACCESS_TOKEN, token)
+                    } else {
+                        Log.w(TAG, "Model ${model.displayName} is gated but no HF token available")
+                    }
+                }
+
+                val request = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
+                    .setInputData(dataBuilder.build())
+                    .addTag(model.workerTag)
+                    .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                    .setConstraints(
+                        Constraints.Builder()
+                            .setRequiredNetworkType(NetworkType.CONNECTED)
+                            .build()
+                    )
+                    .build()
+
+                workManager.enqueueUniqueWork(model.workerTag, policy, request)
+            }
         }
 
-        scope.launch { observeWorkInfo(model) }
+        ensureObserving(model)
     }
 
     /** Cancel an in-progress download. The partial `.tmp` file is preserved for resumption. */
@@ -233,6 +242,12 @@ class ModelDownloadManager @Inject constructor(
 
     private fun updateState(model: KernelModel, state: DownloadState) {
         _downloadStates.value = _downloadStates.value.toMutableMap().apply { put(model, state) }
+    }
+
+    // Issue 3 fix: guard against launching duplicate observeWorkInfo coroutines
+    private fun ensureObserving(model: KernelModel) {
+        if (observerJobs[model]?.isActive == true) return
+        observerJobs[model] = scope.launch { observeWorkInfo(model) }
     }
 
     /**
