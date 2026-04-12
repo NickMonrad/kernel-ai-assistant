@@ -9,6 +9,7 @@ import androidx.navigation.navArgument
 import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
 import com.kernel.ai.feature.settings.MemoryScreen
+import com.kernel.ai.feature.settings.ModelSettingsScreen
 import com.kernel.ai.feature.settings.SettingsScreen
 import com.kernel.ai.feature.settings.UserProfileScreen
 
@@ -17,6 +18,7 @@ private const val ROUTE_CHAT = "chat"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_USER_PROFILE = "settings/user_profile"
 private const val ROUTE_MEMORY = "settings/memory"
+private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
 private const val ARG_CONVERSATION_ID = "conversationId"
 
 @Composable
@@ -86,6 +88,9 @@ fun KernelNavHost() {
                 onNavigateToMemory = {
                     navController.navigate(ROUTE_MEMORY)
                 },
+                onNavigateToModelSettings = {
+                    navController.navigate(ROUTE_MODEL_SETTINGS)
+                },
             )
         }
 
@@ -97,6 +102,12 @@ fun KernelNavHost() {
 
         composable(ROUTE_MEMORY) {
             MemoryScreen(
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(ROUTE_MODEL_SETTINGS) {
+            ModelSettingsScreen(
                 onBack = { navController.popBackStack() },
             )
         }

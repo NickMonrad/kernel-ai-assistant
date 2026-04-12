@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -46,6 +47,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -523,6 +527,12 @@ private fun EmptyConversationHint(modifier: Modifier = Modifier) {
 private fun LoadingContent() {
     val theme = remember { LoadingMessages.randomTheme() }
     val steps = listOf(theme.first, theme.second, theme.third)
+    // Icons cycle through the three loading phases: model init → warmup → ready
+    val stepIcons = listOf(
+        Icons.Outlined.Memory,
+        Icons.Outlined.Bolt,
+        Icons.Outlined.CheckCircle,
+    )
     var step by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
@@ -532,7 +542,12 @@ private fun LoadingContent() {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center,
+    ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(horizontal = 32.dp),
@@ -546,14 +561,24 @@ private fun LoadingContent() {
                         (fadeOut(animationSpec = tween(200)) +
                             slideOutVertically(animationSpec = tween(200)) { -it / 2 })
                 },
-                modifier = Modifier.padding(top = 12.dp),
+                modifier = Modifier.padding(top = 16.dp),
                 label = "loadingStep",
             ) { currentStep ->
-                Text(
-                    text = steps[currentStep],
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = stepIcons[currentStep],
+                        contentDescription = null,
+                        modifier = Modifier
+                            .padding(bottom = 8.dp)
+                            .size(32.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = steps[currentStep],
+                        style = MaterialTheme.typography.titleLarge,
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
             Text(
                 text = "${step + 1} / ${steps.size}",

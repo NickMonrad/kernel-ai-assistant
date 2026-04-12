@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -44,6 +45,7 @@ fun SettingsScreen(
     onBack: () -> Unit = {},
     onNavigateToUserProfile: () -> Unit = {},
     onNavigateToMemory: () -> Unit = {},
+    onNavigateToModelSettings: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -210,6 +212,18 @@ fun SettingsScreen(
                 headlineContent = { Text("Memory") },
                 supportingContent = { Text("Manage stored memories") },
                 leadingContent = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
+
+            // ── Model Settings ────────────────────────────────────────────────────
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToModelSettings() },
+                headlineContent = { Text("Model Settings") },
+                supportingContent = { Text("Inference parameters for Gemma 4 models") },
+                leadingContent = { Icon(Icons.Default.Tune, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()

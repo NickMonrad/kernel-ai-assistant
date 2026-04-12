@@ -110,7 +110,19 @@ enum class KernelModel(
         approxSizeBytes = 4_500_000L,
         isRequired = false,
         preferredForTier = null,
-    ),
+    );
+
+    /**
+     * Stable, single-sourced identifier for this model, used as the Room primary key in
+     * `com.kernel.ai.core.memory.entity.ModelSettingsEntity`.
+     *
+     * Derived from the enum entry name in lowercase, e.g.:
+     * - [GEMMA_4_E2B] → `"gemma_4_e2b"`
+     * - [GEMMA_4_E4B] → `"gemma_4_e4b"`
+     *
+     * Never derive keys from [name] at call sites — always use this property.
+     */
+    val modelId: String get() = name.lowercase()
 }
 
 /** Absolute path to this model's file on external app storage (survives reinstall). */
