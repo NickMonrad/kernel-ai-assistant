@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
@@ -73,6 +74,17 @@ class OnboardingViewModel @Inject constructor(
 
     private val _events = MutableSharedFlow<OnboardingEvent>(extraBufferCapacity = 1)
     val events: SharedFlow<OnboardingEvent> = _events.asSharedFlow()
+
+    init {
+        // Forward authResult outcomes to the UI event bus so Onboarding screens can
+        // show success/error feedback without polling isAuthenticated.
+        viewModelScope.launch {
+            authRepository.authResult.collect { result ->
+                result.onSuccess { _events.tryEmit(OnboardingEvent.AuthSuccess) }
+                result.onFailure { e -> _events.tryEmit(OnboardingEvent.AuthError("Sign-in failed: ${e.message}")) }
+            }
+        }
+    }
 
     /**
      * Starts the HuggingFace OAuth flow by launching a Chrome Custom Tab via AppAuth.

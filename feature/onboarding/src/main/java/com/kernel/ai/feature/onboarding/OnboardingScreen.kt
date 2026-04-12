@@ -102,7 +102,7 @@ fun OnboardingScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // ── Download progress ─────────────────────────────────────────
-            val downloadState = uiState.downloadState
+            val downloadState = uiState.gemmaDownloadState
             when (downloadState) {
                 is DownloadState.NotDownloaded -> {
                     Button(

@@ -1,6 +1,7 @@
 package com.kernel.ai.core.inference.auth
 
 import android.content.Intent
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -27,6 +28,12 @@ interface HuggingFaceAuthRepository {
 
     /** Emits `true` when a valid access token is stored locally. */
     val isAuthenticated: StateFlow<Boolean>
+
+    /**
+     * Emits the outcome of each OAuth token exchange so that UI layers (Onboarding,
+     * Settings) can react to success or failure without polling [isAuthenticated].
+     */
+    val authResult: SharedFlow<Result<Unit>>
 
     /** HuggingFace username extracted from the OIDC id_token, or `null` if not signed in. */
     val username: StateFlow<String?>

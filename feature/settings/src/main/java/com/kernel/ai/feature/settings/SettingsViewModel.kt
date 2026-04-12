@@ -83,6 +83,16 @@ class SettingsViewModel @Inject constructor(
     private val _saveSuccess = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val saveSuccess: SharedFlow<String> = _saveSuccess.asSharedFlow()
 
+    init {
+        // Forward authResult outcomes so the Settings screen can surface sign-in feedback.
+        viewModelScope.launch {
+            authRepository.authResult.collect { result ->
+                result.onSuccess { _saveSuccess.tryEmit("Signed in to HuggingFace ✓") }
+                result.onFailure { e -> _saveError.tryEmit("Sign-in failed: ${e.message}") }
+            }
+        }
+    }
+
     fun setPreferredModel(model: KernelModel?) {
         viewModelScope.launch {
             val current = uiState.value.preferredModel
