@@ -33,6 +33,8 @@ const val KEY_PROGRESS_BYTES = "progress_bytes"
 const val KEY_DOWNLOAD_RATE = "download_rate_bps"
 const val KEY_REMAINING_MS = "remaining_ms"
 const val KEY_ERROR_MESSAGE = "error_message"
+/** Optional HuggingFace Bearer token — present when downloading a gated model. */
+const val KEY_HF_ACCESS_TOKEN = "hf_access_token"
 
 /**
  * WorkManager [CoroutineWorker] that downloads a single `.litertlm` model file.
@@ -66,6 +68,7 @@ class ModelDownloadWorker(
             ?: return@withContext Result.failure(errorData("Missing file name"))
         val displayName = inputData.getString(KEY_MODEL_DISPLAY_NAME) ?: fileName
         val totalBytes = inputData.getLong(KEY_TOTAL_BYTES, 0L)
+        val hfAccessToken = inputData.getString(KEY_HF_ACCESS_TOKEN)
 
         val modelsDir = (applicationContext.getExternalFilesDir("models")
             ?: File(applicationContext.filesDir, "models")).also { it.mkdirs() }
@@ -83,6 +86,7 @@ class ModelDownloadWorker(
                 outputFile = outputFile,
                 totalBytes = totalBytes,
                 displayName = displayName,
+                hfAccessToken = hfAccessToken,
             )
             Log.i(TAG, "Download complete: ${outputFile.absolutePath}")
             Result.success()
@@ -98,8 +102,14 @@ class ModelDownloadWorker(
         outputFile: File,
         totalBytes: Long,
         displayName: String,
+        hfAccessToken: String? = null,
     ) {
         val connection = URL(url).openConnection() as HttpURLConnection
+
+        // Attach Bearer token for gated HuggingFace models
+        if (!hfAccessToken.isNullOrBlank()) {
+            connection.setRequestProperty("Authorization", "Bearer $hfAccessToken")
+        }
 
         // Resume from partial download if tmp file exists
         val resumeFrom = tmpFile.length()

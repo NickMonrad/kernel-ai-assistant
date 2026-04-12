@@ -42,6 +42,10 @@ hiltWork = "1.3.0"
 # Debug
 leakcanary = "2.14"
 
+# Auth
+appauth = "0.11.1"
+securityCrypto = "1.1.0-alpha06"
+
 [libraries]
 # Compose BOM
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -97,6 +101,10 @@ coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-
 
 # Debug
 leakcanary = { group = "com.squareup.leakcanary", name = "leakcanary-android", version.ref = "leakcanary" }
+
+# Auth
+appauth = { group = "net.openid", name = "appauth", version.ref = "appauth" }
+security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

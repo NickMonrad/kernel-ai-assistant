@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Debug-variant manifest overlay.
+    Adds the com.kernel.ai.debug URI scheme to AppAuth's RedirectUriReceiverActivity so that
+    debug builds (applicationId = com.kernel.ai.debug) receive the OAuth callback correctly.
+    This entry is merged on top of the main AndroidManifest.xml by the manifest merger.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <activity
+            android:name="net.openid.appauth.RedirectUriReceiverActivity"
+            android:exported="true"
+            tools:node="merge">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="com.kernel.ai.debug"
+                    android:host="oauth"
+                    android:pathPrefix="/callback" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

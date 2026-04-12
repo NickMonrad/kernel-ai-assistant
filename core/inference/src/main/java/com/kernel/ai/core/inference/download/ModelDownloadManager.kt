@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +45,7 @@ class ModelDownloadManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val hardwareProfileDetector: com.kernel.ai.core.inference.hardware.HardwareProfileDetector,
     private val modelPreferences: com.kernel.ai.core.inference.prefs.ModelPreferences,
+    private val authRepository: HuggingFaceAuthRepository,
 ) {
     private val workManager = WorkManager.getInstance(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -102,12 +104,23 @@ class ModelDownloadManager @Inject constructor(
         Log.i(TAG, "Enqueuing download for ${model.displayName}")
         updateState(model, DownloadState.Downloading())
 
-        val inputData = Data.Builder()
+        val dataBuilder = Data.Builder()
             .putString(KEY_DOWNLOAD_URL, model.downloadUrl)
             .putString(KEY_FILE_NAME, model.fileName)
             .putString(KEY_MODEL_DISPLAY_NAME, model.displayName)
             .putLong(KEY_TOTAL_BYTES, model.approxSizeBytes)
-            .build()
+
+        // Attach HF access token for gated models so the worker can authenticate
+        if (model.isGated) {
+            val token = authRepository.getAccessToken()
+            if (token != null) {
+                dataBuilder.putString(KEY_HF_ACCESS_TOKEN, token)
+            } else {
+                Log.w(TAG, "Model ${model.displayName} is gated but no HF token available")
+            }
+        }
+
+        val inputData = dataBuilder.build()
 
         val request = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
             .setInputData(inputData)

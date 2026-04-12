@@ -23,6 +23,12 @@ enum class KernelModel(
      * Null means the model is suitable for any tier (or is not a conversation model).
      */
     val preferredForTier: HardwareTier?,
+    /**
+     * If `true`, this model is gated on HuggingFace and requires an authenticated
+     * access token to download. The [ModelDownloadManager] will attach a Bearer token
+     * to the download request when this is `true`.
+     */
+    val isGated: Boolean = false,
 ) {
     GEMMA_4_E2B(
         displayName = "Gemma 4 E-2B",
@@ -32,6 +38,7 @@ enum class KernelModel(
         isRequired = true,
         /** Suitable for all hardware tiers. */
         preferredForTier = null,
+        isGated = true,
     ),
 
     /**
@@ -45,6 +52,7 @@ enum class KernelModel(
         approxSizeBytes = 3_654_467_584L, // 3.4 GB
         isRequired = false,
         preferredForTier = HardwareTier.FLAGSHIP,
+        isGated = true,
     ),
 
     FUNCTION_GEMMA_270M(
@@ -56,6 +64,7 @@ enum class KernelModel(
         // Note: this HuggingFace repo is currently gated — public URL needed before enabling.
         isRequired = false,
         preferredForTier = null,
+        isGated = false,
     ),
 
     /**
@@ -70,6 +79,7 @@ enum class KernelModel(
         approxSizeBytes = 6_120_274L,
         isRequired = false,
         preferredForTier = null,
+        isGated = false,
     ),
 
     /**
@@ -84,6 +94,7 @@ enum class KernelModel(
         approxSizeBytes = 350_000_000L,
         isRequired = false,
         preferredForTier = null,
+        isGated = true,
     ),
 
     /**
@@ -97,6 +108,7 @@ enum class KernelModel(
         approxSizeBytes = 350_000_000L,
         isRequired = false,
         preferredForTier = null,
+        isGated = true,
     ),
 
     /**
@@ -110,6 +122,7 @@ enum class KernelModel(
         approxSizeBytes = 4_500_000L,
         isRequired = false,
         preferredForTier = null,
+        isGated = true,
     );
 
     /**

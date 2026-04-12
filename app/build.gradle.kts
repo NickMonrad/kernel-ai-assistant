@@ -18,6 +18,9 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "HF_CLIENT_ID", "\"2607cec6-3d70-4df0-ba39-eb9cef1ba8c8\"")
+        buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai://oauth/callback\"")
     }
 
     signingConfigs {
@@ -42,6 +45,7 @@ android {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
             signingConfig = signingConfigs.getByName("debugSigning")
+            buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai.debug://oauth/callback\"")
         }
     }
 
@@ -98,6 +102,10 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
     debugImplementation(libs.leakcanary)
+
+    // Auth — AppAuth + EncryptedSharedPreferences
+    implementation(libs.appauth)
+    implementation(libs.security.crypto)
 
     // Testing
     testImplementation(libs.junit.jupiter)

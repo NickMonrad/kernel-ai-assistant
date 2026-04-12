@@ -1,8 +1,10 @@
 package com.kernel.ai.feature.settings
 
+import android.content.Intent
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -25,6 +27,7 @@ class SettingsViewModel @Inject constructor(
     private val hardwareProfileDetector: HardwareProfileDetector,
     private val modelDownloadManager: ModelDownloadManager,
     private val modelPreferences: ModelPreferences,
+    private val authRepository: HuggingFaceAuthRepository,
 ) : ViewModel() {
 
     data class SettingsUiState(
@@ -33,12 +36,18 @@ class SettingsViewModel @Inject constructor(
         val activeTier: String = "",
         val preferredModel: KernelModel? = null,   // null = auto
         val e4bDownloaded: Boolean = false,
+        /** True when a valid HF token is stored. */
+        val hfAuthenticated: Boolean = false,
+        /** HuggingFace username from OIDC id_token, or null. */
+        val hfUsername: String? = null,
     )
 
     val uiState: StateFlow<SettingsUiState> = combine(
         modelPreferences.preferredConversationModel,
         modelDownloadManager.downloadStates,
-    ) { preferredModel, downloadStates ->
+        authRepository.isAuthenticated,
+        authRepository.username,
+    ) { preferredModel, downloadStates, hfAuthenticated, hfUsername ->
         val profile = hardwareProfileDetector.profile
         val e4bDownloaded = downloadStates[KernelModel.GEMMA_4_E4B] is DownloadState.Downloaded
 
@@ -59,6 +68,8 @@ class SettingsViewModel @Inject constructor(
             activeTier = profile.tier.name,
             preferredModel = preferredModel,
             e4bDownloaded = e4bDownloaded,
+            hfAuthenticated = hfAuthenticated,
+            hfUsername = hfUsername,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -84,6 +95,32 @@ class SettingsViewModel @Inject constructor(
                 Log.e("KernelAI", "SettingsViewModel: failed to save model preference", e)
                 _saveError.tryEmit("Couldn't save preference — please try again")
             }
+        }
+    }
+
+    /** Signs the user out of HuggingFace and clears the stored token. */
+    fun signOutHuggingFace() {
+        authRepository.signOut()
+        _saveSuccess.tryEmit("Signed out of HuggingFace")
+    }
+
+    /** Returns an [Intent] for the HuggingFace OAuth Chrome Custom Tab flow. */
+    fun buildAuthIntent(): Intent = authRepository.buildAuthIntent()
+
+    /**
+     * Called with the result [Intent] from [android.app.Activity.RESULT_OK] after AppAuth
+     * redirects back to the app. Performs the token exchange and updates auth state.
+     */
+    fun handleAuthResponse(intent: Intent) {
+        viewModelScope.launch {
+            authRepository.handleAuthResponse(intent)
+                .onFailure { e ->
+                    Log.e("KernelAI", "SettingsViewModel: HF auth failed", e)
+                    _saveError.tryEmit("Sign-in failed: ${e.message}")
+                }
+                .onSuccess {
+                    _saveSuccess.tryEmit("Signed in to HuggingFace ✓")
+                }
         }
     }
 }
