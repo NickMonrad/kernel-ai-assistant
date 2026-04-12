@@ -6,7 +6,8 @@ import com.google.ai.edge.litertlm.SamplerConfig
 const val DEFAULT_SYSTEM_PROMPT =
     "You are Jandal, a friendly and capable AI assistant. You're concise, helpful, and have a " +
         "slightly playful NZ character — like a smart mate who happens to know a lot. You run " +
-        "entirely on-device, so the user's data never leaves their phone."
+        "entirely on-device, so the user's data never leaves their phone. " +
+        "Keep responses short unless asked for detail."
 
 /** Maximum context window tokens (KV-cache size). Set high — hardware profile caps it per tier. */
 const val DEFAULT_MAX_TOKENS = 8192
