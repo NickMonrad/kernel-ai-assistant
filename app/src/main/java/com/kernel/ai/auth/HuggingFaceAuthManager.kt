@@ -264,9 +264,9 @@ class HuggingFaceAuthManager @Inject constructor(
                 }.onFailure { e -> Log.e(TAG, "HF sign-out: failed to clear prefs", e) }
                 _isAuthenticated.value = false
                 _username.value = null
+                Log.i(TAG, "HF auth: signed out")
             }
         }
-        Log.i(TAG, "HF auth: signed out")
     }
 
     // -------------------------------------------------------------------------
