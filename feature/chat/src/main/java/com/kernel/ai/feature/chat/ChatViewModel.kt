@@ -26,6 +26,7 @@ import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
+import com.kernel.ai.feature.chat.model.ToolCallInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -186,6 +187,10 @@ class ChatViewModel @Inject constructor(
                 }
                 append("[End of previous conversation context]")
             }
+            val skillDeclarations = skillRegistry.buildFunctionDeclarationsJson()
+            if (skillDeclarations != "[]") {
+                append("\n\n[Tool Use]\nYou have access to tools. When a user asks for something a tool can help with, output ONLY the following JSON — no explanation, no extra text:\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n\nAvailable tools:\n$skillDeclarations")
+            }
         }
     }
 
@@ -215,6 +220,20 @@ class ChatViewModel @Inject constructor(
                     role = if (entity.role == "user") ChatMessage.Role.USER else ChatMessage.Role.ASSISTANT,
                     content = entity.content,
                     thinkingText = entity.thinkingText,
+                    toolCall = entity.toolCallJson?.let { json ->
+                        try {
+                            val obj = org.json.JSONObject(json)
+                            ToolCallInfo(
+                                skillName = obj.getString("skillName"),
+                                requestJson = obj.getString("requestJson"),
+                                resultText = obj.getString("resultText"),
+                                isSuccess = obj.getBoolean("isSuccess"),
+                            )
+                        } catch (e: Exception) {
+                            Log.w("KernelAI", "Failed to deserialize toolCallJson: ${e.message}")
+                            null
+                        }
+                    },
                 )
             }
             // History is in Room but not in LiteRT's KV cache — replay on next send.
@@ -475,17 +494,52 @@ class ChatViewModel @Inject constructor(
                         }
 
                         is GenerationResult.Complete -> {
-                            _messages.update { msgs ->
-                                msgs.map { msg ->
-                                    if (msg.id == assistantMsgId) msg.copy(isStreaming = false) else msg
-                                }
-                            }
+                            val fullContent = accumulatedContent.toString()
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
-                            val savedAssistantMsgId = conversationRepository.addMessage(convId, "assistant", accumulatedContent.toString(), thinking)
-                            ragRepository.indexMessage(savedAssistantMsgId, convId, accumulatedContent.toString())
-                            // Track cumulative token usage for proactive context window management.
-                            estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
-                                contextWindowManager.estimateTokens(accumulatedContent.toString())
+
+                            // Detect if Gemma-4 output is a function call JSON
+                            val toolCallResult = tryExecuteToolCall(fullContent)
+                            if (toolCallResult != null) {
+                                val (toolCall, resultContent) = toolCallResult
+
+                                // Update streaming message with result text (not raw JSON)
+                                _messages.update { msgs ->
+                                    msgs.map { msg ->
+                                        if (msg.id == assistantMsgId) msg.copy(
+                                            content = resultContent,
+                                            isStreaming = false,
+                                            toolCall = toolCall,
+                                        ) else msg
+                                    }
+                                }
+
+                                // Persist with toolCallJson
+                                val toolCallJsonStr = org.json.JSONObject().apply {
+                                    put("skillName", toolCall.skillName)
+                                    put("requestJson", toolCall.requestJson)
+                                    put("resultText", toolCall.resultText)
+                                    put("isSuccess", toolCall.isSuccess)
+                                }.toString()
+                                val savedId = conversationRepository.addMessage(
+                                    convId, "assistant", resultContent,
+                                    thinkingText = thinking,
+                                    toolCallJson = toolCallJsonStr,
+                                )
+                                ragRepository.indexMessage(savedId, convId, resultContent)
+                                estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
+                                    contextWindowManager.estimateTokens(resultContent)
+                                needsHistoryReplay = true
+                            } else {
+                                // Normal text response
+                                _messages.update { msgs ->
+                                    msgs.map { if (it.id == assistantMsgId) it.copy(isStreaming = false) else it }
+                                }
+                                val savedAssistantMsgId = conversationRepository.addMessage(convId, "assistant", fullContent, thinking)
+                                ragRepository.indexMessage(savedAssistantMsgId, convId, fullContent)
+                                estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
+                                    contextWindowManager.estimateTokens(fullContent)
+                            }
+
                             // Clear streaming tracking now that the message is fully persisted.
                             activeStreamingMsgId = null
                             activeStreamingContent = StringBuilder()
@@ -671,6 +725,46 @@ class ChatViewModel @Inject constructor(
             // needsHistoryReplay is already true (set before the call) — KV cache may be
             // partially dirty from the prompt write, so the flag correctly stays set.
             // Silent failure — title stays null, user can rename manually.
+        }
+    }
+
+    /**
+     * Attempts to parse [raw] as a skill function call JSON and execute it.
+     * Returns a pair of (ToolCallInfo, humanReadableResult) if successful, null otherwise.
+     * Returns null for ParseError/UnknownSkill so Gemma-4 output is treated as plain text.
+     * Limits to 1 tool call per Gemma-4 response to prevent loops.
+     */
+    private suspend fun tryExecuteToolCall(raw: String): Pair<ToolCallInfo, String>? {
+        val trimmed = raw.trim()
+        // Quick check: must look like a JSON object
+        if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null
+        // Must contain "name" key (function call format)
+        if (!trimmed.contains("\"name\"")) return null
+
+        val result = skillExecutor.execute(trimmed)
+        return when (result) {
+            is SkillResult.Success -> {
+                val skillName = try {
+                    org.json.JSONObject(trimmed).optString("name", "unknown")
+                } catch (e: Exception) { "unknown" }
+                val toolCall = ToolCallInfo(
+                    skillName = skillName,
+                    requestJson = trimmed,
+                    resultText = result.content,
+                    isSuccess = true,
+                )
+                Pair(toolCall, result.content)
+            }
+            is SkillResult.Failure -> {
+                val toolCall = ToolCallInfo(
+                    skillName = result.skillName,
+                    requestJson = trimmed,
+                    resultText = result.error,
+                    isSuccess = false,
+                )
+                Pair(toolCall, "I tried to do that but something went wrong: ${result.error}")
+            }
+            is SkillResult.ParseError, is SkillResult.UnknownSkill -> null
         }
     }
 

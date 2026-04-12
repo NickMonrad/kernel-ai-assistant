@@ -6,6 +6,7 @@ data class ChatMessage(
     val content: String,
     val thinkingText: String? = null,
     val isStreaming: Boolean = false,
+    val toolCall: ToolCallInfo? = null,
 ) {
     enum class Role { USER, ASSISTANT }
 }

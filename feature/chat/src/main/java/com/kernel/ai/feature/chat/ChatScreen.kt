@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -43,6 +44,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -108,6 +111,7 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
+import com.kernel.ai.feature.chat.model.ToolCallInfo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -374,6 +378,16 @@ private fun MessageBubble(
                 style = MaterialTheme.typography.labelSmall.copy(fontStyle = FontStyle.Italic),
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.padding(bottom = 2.dp),
+            )
+        }
+
+        // Tool call chip (shown above message bubble for assistant messages)
+        if (!isUser && message.toolCall != null) {
+            ToolCallChip(
+                toolCall = message.toolCall,
+                modifier = Modifier
+                    .padding(bottom = 4.dp)
+                    .widthIn(max = 300.dp),
             )
         }
 
@@ -737,5 +751,52 @@ private fun formatEta(remainingMs: Long): String {
         totalSecs < 60 -> "~${totalSecs}s remaining"
         totalSecs < 3600 -> "~${totalSecs / 60}m ${totalSecs % 60}s remaining"
         else -> "~${totalSecs / 3600}h ${(totalSecs % 3600) / 60}m remaining"
+    }
+}
+
+@Composable
+private fun ToolCallChip(toolCall: ToolCallInfo, modifier: Modifier = Modifier) {
+    var expanded by remember { mutableStateOf(false) }
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 1.dp,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("🔧", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = if (toolCall.isSuccess) toolCall.skillName else "⚠ ${toolCall.skillName}",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            if (expanded) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Request: ${toolCall.requestJson}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Result: ${toolCall.resultText}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
