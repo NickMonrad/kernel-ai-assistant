@@ -1,6 +1,7 @@
 package com.kernel.ai.core.inference
 
 import android.content.Context
+import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.util.Log
@@ -78,6 +79,64 @@ class KernelAIToolSet @Inject constructor(
         Log.d(TAG, "ToolSet: saveMemory (${content.length} chars)")
         // TODO: wire to Room notes DB
         return mapOf("result" to "Memory saved: $content")
+    }
+
+    @Tool(description = "Runs an Android system action such as opening settings, setting an alarm, creating a calendar event, or sending an email")
+    fun runIntent(
+        @ToolParam(description = "The action to perform. One of: SET_ALARM, OPEN_WIFI_SETTINGS, OPEN_BLUETOOTH_SETTINGS, CREATE_CALENDAR_EVENT, SEND_EMAIL") action: String,
+        @ToolParam(description = "JSON string of parameters for the action, e.g. '{\"hours\":7,\"minutes\":30,\"message\":\"Wake up\"}' for SET_ALARM") parameters: String,
+    ): Map<String, String> {
+        toolCalledInThisTurn = true
+        Log.d(TAG, "ToolSet: runIntent action=$action params=$parameters")
+        return try {
+            val params = org.json.JSONObject(parameters.ifBlank { "{}" })
+            when (action.uppercase()) {
+                "SET_ALARM" -> {
+                    val intent = Intent(android.provider.AlarmClock.ACTION_SET_ALARM).apply {
+                        putExtra(android.provider.AlarmClock.EXTRA_HOUR, params.optInt("hours", 8))
+                        putExtra(android.provider.AlarmClock.EXTRA_MINUTES, params.optInt("minutes", 0))
+                        params.optString("message").takeIf { it.isNotEmpty() }?.let {
+                            putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, it)
+                        }
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(intent)
+                    mapOf("result" to "success", "action" to action)
+                }
+                "OPEN_WIFI_SETTINGS" -> {
+                    context.startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
+                    mapOf("result" to "success")
+                }
+                "OPEN_BLUETOOTH_SETTINGS" -> {
+                    context.startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
+                    mapOf("result" to "success")
+                }
+                "CREATE_CALENDAR_EVENT" -> {
+                    val intent = Intent(Intent.ACTION_INSERT).apply {
+                        data = android.provider.CalendarContract.Events.CONTENT_URI
+                        putExtra(android.provider.CalendarContract.Events.TITLE, params.optString("title", "New Event"))
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(intent)
+                    mapOf("result" to "success")
+                }
+                "SEND_EMAIL" -> {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "message/rfc822"
+                        putExtra(Intent.EXTRA_EMAIL, arrayOf(params.optString("to", "")))
+                        putExtra(Intent.EXTRA_SUBJECT, params.optString("subject", ""))
+                        putExtra(Intent.EXTRA_TEXT, params.optString("body", ""))
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(intent)
+                    mapOf("result" to "success")
+                }
+                else -> mapOf("result" to "error", "error" to "Unknown action: $action")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "runIntent failed: ${e.message}", e)
+            mapOf("result" to "error", "error" to (e.message ?: "Unknown error"))
+        }
     }
 
     // -------------------------------------------------------------------------
