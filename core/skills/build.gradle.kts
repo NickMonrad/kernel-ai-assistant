@@ -32,6 +32,9 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.coroutines.android)
+    implementation(libs.okhttp)
+    implementation(libs.play.services.location)
+    implementation(libs.security.crypto)
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)
