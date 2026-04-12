@@ -40,6 +40,26 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <!--
+            AppAuth redirect receiver — handles com.kernel.ai://oauth/callback (release).
+            The debug scheme (com.kernel.ai.debug://...) is added via app/src/debug/AndroidManifest.xml
+            so it does not pollute the release manifest.
+        -->
+        <activity
+            android:name="net.openid.appauth.RedirectUriReceiverActivity"
+            android:exported="true"
+            tools:node="replace">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="com.kernel.ai"
+                    android:host="oauth"
+                    android:pathPrefix="/callback" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>
