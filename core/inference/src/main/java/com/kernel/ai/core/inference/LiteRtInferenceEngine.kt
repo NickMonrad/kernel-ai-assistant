@@ -12,6 +12,7 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
+import com.google.ai.edge.litertlm.SamplerConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
@@ -93,7 +94,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
             val (eng, backendType) = createEngineWithFallback(resolvedConfig)
             engine = eng
-            conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig.systemPrompt))
+            conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
             currentConfig = resolvedConfig
             _activeBackend.value = backendType
             _isReady.value = true
@@ -109,7 +110,7 @@ class LiteRtInferenceEngine @Inject constructor(
             val backend = _activeBackend.value ?: BackendType.CPU
 
             safeClose(conversation, "conversation")
-            conversation = eng.createConversation(buildConversationConfig(backend, config.systemPrompt))
+            conversation = eng.createConversation(buildConversationConfig(backend, config))
             _isGenerating.value = false
             Log.i(TAG, "Conversation reset")
         }
@@ -123,7 +124,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
             currentConfig = config.copy(systemPrompt = systemPrompt)
             safeClose(conversation, "conversation")
-            conversation = eng.createConversation(buildConversationConfig(backend, systemPrompt))
+            conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
             _isGenerating.value = false
             Log.i(TAG, "System prompt updated and conversation reset")
         }
@@ -313,11 +314,15 @@ class LiteRtInferenceEngine @Inject constructor(
 
     private fun buildConversationConfig(
         backendType: BackendType,
-        systemPrompt: String?,
+        config: ModelConfig,
     ): ConversationConfig {
         // NPU uses hardware sampler — setting SamplerConfig causes a crash
-        val samplerConfig = if (backendType == BackendType.NPU) null else DEFAULT_SAMPLER_CONFIG
-        val systemInstruction = systemPrompt
+        val samplerConfig = if (backendType == BackendType.NPU) null else SamplerConfig(
+            topK = 40,
+            topP = config.topP.toDouble(),
+            temperature = config.temperature.toDouble(),
+        )
+        val systemInstruction = config.systemPrompt
             ?.takeIf { it.isNotBlank() }
             ?.let { Contents.of(Content.Text(it)) }
 

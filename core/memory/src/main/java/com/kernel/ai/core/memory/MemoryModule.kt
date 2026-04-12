@@ -7,9 +7,12 @@ import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
+import com.kernel.ai.core.memory.dao.ModelSettingsDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.MemoryRepositoryImpl
+import com.kernel.ai.core.memory.repository.ModelSettingsRepository
+import com.kernel.ai.core.memory.repository.ModelSettingsRepositoryImpl
 import com.kernel.ai.core.memory.vector.SqliteVecStore
 import com.kernel.ai.core.memory.vector.VectorStore
 import dagger.Binds
@@ -32,13 +35,17 @@ abstract class MemoryModule {
     @Singleton
     abstract fun bindMemoryRepository(impl: MemoryRepositoryImpl): MemoryRepository
 
+    @Binds
+    @Singleton
+    abstract fun bindModelSettingsRepository(impl: ModelSettingsRepositoryImpl): ModelSettingsRepository
+
     companion object {
 
         @Provides
         @Singleton
         fun provideKernelDatabase(@ApplicationContext context: Context): KernelDatabase =
             Room.databaseBuilder(context, KernelDatabase::class.java, "kernel_db")
-                .addMigrations(KernelDatabase.MIGRATION_4_5)
+                .addMigrations(KernelDatabase.MIGRATION_4_5, KernelDatabase.MIGRATION_5_6)
                 .build()
 
         @Provides
@@ -58,5 +65,8 @@ abstract class MemoryModule {
 
         @Provides
         fun provideCoreMemoryDao(db: KernelDatabase): CoreMemoryDao = db.coreMemoryDao()
+
+        @Provides
+        fun provideModelSettingsDao(db: KernelDatabase): ModelSettingsDao = db.modelSettingsDao()
     }
 }

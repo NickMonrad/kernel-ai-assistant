@@ -90,6 +90,30 @@ internal object LoadingMessages {
             "Reversing the polarity of the neutron flow…",
             "Rerouting auxiliary power to the logic sub-routines.",
         ),
+        // 🥝 Kiwi Warmup
+        Triple(
+            "Sharpening my rugby knowledge…",
+            "Checking the weather in Wellington…",
+            "Dusting off my Māori vocab.",
+        ),
+        // 🧠 Neural Wrangling
+        Triple(
+            "Wrangling the neural weights…",
+            "Asking the kiwi birds for wisdom…",
+            "Loading up on pavlova energy.",
+        ),
+        // ☕ Flat White Fuel
+        Triple(
+            "Running on pure flat white fuel…",
+            "Tuning the model, mate…",
+            "Almost there — just like waiting for a pie to cool.",
+        ),
+        // 🍪 Biscuit Break
+        Triple(
+            "Your AI is having a quick biscuit…",
+            "Brushing the crumbs off the keyboard…",
+            "Back on deck, sweet as.",
+        ),
     )
 
     /** Shown when something goes sideways — Scotty/McCoy energy. */
