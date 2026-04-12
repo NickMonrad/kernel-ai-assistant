@@ -240,6 +240,13 @@ fun ConversationListScreen(
                                     onDismissRequest = { contextMenuTarget = null },
                                 ) {
                                     DropdownMenuItem(
+                                        text = { Text("Select") },
+                                        onClick = {
+                                            contextMenuTarget = null
+                                            viewModel.enterSelectionMode(conversation.id)
+                                        },
+                                    )
+                                    DropdownMenuItem(
                                         text = { Text("Rename") },
                                         onClick = {
                                             pendingRenameId = conversation.id
