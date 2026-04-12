@@ -1,5 +1,7 @@
 package com.kernel.ai.feature.settings
 
+import com.kernel.ai.core.inference.EmbeddingEngine
+import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
@@ -38,6 +40,8 @@ class MemoryViewModelTest {
 
     private val memoryRepository: MemoryRepository = mockk()
     private val conversationRepository: ConversationRepository = mockk()
+    private val embeddingDao: MessageEmbeddingDao = mockk()
+    private val embeddingEngine: EmbeddingEngine = mockk()
 
     private val coreMemoriesFlow = MutableStateFlow<List<CoreMemoryEntity>>(emptyList())
     private val episodicCountFlow = MutableStateFlow(0)
@@ -53,7 +57,7 @@ class MemoryViewModelTest {
         every { memoryRepository.observeEpisodicCount() } returns episodicCountFlow
         every { memoryRepository.observeEpisodicMemories() } returns episodicMemoriesFlow
         every { conversationRepository.observeConversations() } returns conversationsFlow
-        viewModel = MemoryViewModel(memoryRepository, conversationRepository)
+        viewModel = MemoryViewModel(memoryRepository, conversationRepository, embeddingDao, embeddingEngine)
     }
 
     @AfterEach

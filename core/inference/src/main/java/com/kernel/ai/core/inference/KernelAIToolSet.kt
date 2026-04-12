@@ -77,7 +77,7 @@ class KernelAIToolSet @Inject constructor(
         }
     }
 
-    @Tool(description = "Gets the current date and time on the device")
+    @Tool(description = "Gets the current local time and date. Use this when the user asks 'what time is it', 'what is the time', 'what is the date', or 'what day is it'")
     fun getCurrentTime(): Map<String, String> {
         toolCalledInThisTurn = true
         Log.d(TAG, "ToolSet: getCurrentTime")
