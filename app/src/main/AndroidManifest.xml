@@ -12,6 +12,21 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Location permissions for GetWeatherSkill GPS fallback -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Required on some OEM clock apps that still check this deprecated permission -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
+    <!--
+        Android 11+ package visibility: declare which implicit intents we resolve
+        so that PackageManager.resolveActivity() returns non-null for these actions.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+    </queries>
 
     <application
         android:name=".KernelAIApplication"
