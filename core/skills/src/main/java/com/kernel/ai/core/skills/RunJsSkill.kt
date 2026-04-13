@@ -29,8 +29,9 @@ class RunJsSkill @Inject constructor(
 
     override val name = "run_js"
     override val description =
-        "Run a built-in JavaScript skill by name. Use for web queries like Wikipedia " +
-            "lookups, city weather (current or forecast). " +
+        "Run a built-in JavaScript skill by name. Use for web queries like Wikipedia lookups " +
+            "or weather for a known city name. " +
+            "For weather at the user's current/GPS location, use the native get_weather skill instead. " +
             "For weather forecasts pass forecast_days (1–7) to get a daily forecast."
 
     override val schema = SkillSchema(

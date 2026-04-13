@@ -33,6 +33,13 @@ class GetWeatherSkill @Inject constructor(
     override val description =
         "Get current weather conditions for the user's location or a named city. " +
             "Use when the user asks about weather, temperature, rain, forecast, or conditions."
+    private val strToken = "<|" + "\"" + "|>"
+
+    override val examples = listOf(
+        "GPS/current location: <|tool_call>call:get_weather{location:${strToken}current${strToken}}<tool_call|>",
+        "Named city: <|tool_call>call:get_weather{location:${strToken}Auckland${strToken}}<tool_call|>",
+    )
+
     override val schema = SkillSchema(
         parameters = mapOf(
             "location" to SkillParameter(
@@ -121,26 +128,29 @@ class GetWeatherSkill @Inject constructor(
     // ── Geocoding ─────────────────────────────────────────────────────────────
 
     private suspend fun fetchByCity(city: String): SkillResult = withContext(Dispatchers.IO) {
+        val result = geocodeAndFetch(city)
+        if (result != null) return@withContext result
+
+        // Retry with just the first comma-separated component (e.g. "Murrumba Downs, QLD, Australia" → "Murrumba Downs")
+        val simplified = city.substringBefore(",").trim()
+        if (simplified != city) {
+            val retryResult = geocodeAndFetch(simplified)
+            if (retryResult != null) return@withContext retryResult
+        }
+
+        SkillResult.Failure(name, "Couldn't find location '$city'. Try a different city name.")
+    }
+
+    private suspend fun geocodeAndFetch(city: String): SkillResult? = withContext(Dispatchers.IO) {
         val url = "https://geocoding-api.open-meteo.com/v1/search" +
             "?name=${java.net.URLEncoder.encode(city, "UTF-8")}&count=1&language=en&format=json"
         val request = Request.Builder().url(url).build()
         httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                return@withContext SkillResult.Failure(
-                    name,
-                    "Geocoding API returned ${response.code}.",
-                )
-            }
-            val body = response.body?.string()
-                ?: return@withContext SkillResult.Failure(name, "Empty geocoding response.")
+            if (!response.isSuccessful) return@withContext null
+            val body = response.body?.string() ?: return@withContext null
             val json = JSONObject(body)
             val results = json.optJSONArray("results")
-            if (results == null || results.length() == 0) {
-                return@withContext SkillResult.Failure(
-                    name,
-                    "Couldn't find location '$city'. Try a different city name.",
-                )
-            }
+            if (results == null || results.length() == 0) return@withContext null
             val place = results.getJSONObject(0)
             val lat = place.getDouble("latitude")
             val lon = place.getDouble("longitude")
