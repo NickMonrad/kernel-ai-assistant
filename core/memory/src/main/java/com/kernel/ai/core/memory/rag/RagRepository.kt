@@ -21,7 +21,8 @@ import javax.inject.Singleton
  * - Index each message into the sqlite-vec vector store after it is saved.
  * - Retrieve the most semantically relevant past messages for a given query.
  * - Format retrieved context into a prefix that can be prepended to the user prompt,
- *   merging both core memories and episodic (message) memories.
+ *   merging core memories, distilled episodic conversation summaries, and per-message
+ *   episodic memories.
  *
  * The embedding table is created lazily on first use, once the [EmbeddingEngine] has
  * loaded its model and the embedding dimensions are known.
@@ -82,8 +83,10 @@ class RagRepository @Inject constructor(
      * Returns a formatted context block ready to prepend to a prompt, or an
      * empty string when no relevant context is available.
      *
-     * @param conversationId Only episodic (message) memories from this conversation are
-     *   considered, preventing memories from unrelated conversations from leaking in.
+     * @param conversationId Only message history from this conversation is
+     *   considered for the [Message History] section, preventing messages from
+     *   unrelated conversations from leaking in. Episodic memories (distilled
+     *   conversation summaries) are cross-conversation by design.
      * @param excludeMessageIds Message IDs to exclude (e.g. the current turn's user message).
      * @param maxTokens Maximum token budget for the returned context block (estimated at chars/3).
      *   Results are truncated to fit within the budget. Defaults to [ContextWindowManager.EPISODIC_BUDGET].
@@ -105,13 +108,19 @@ class RagRepository @Inject constructor(
         val framingTokenCost = (framingHeader.length + charsPerToken - 1) / charsPerToken
         var tokenBudgetRemaining = maxTokens - framingTokenCost
 
-        // --- Core Memories ---
+        // --- Core + Distilled Episodic Memories ---
         val coreMemoryLines = mutableListOf<String>()
+        val distilledMemoryLines = mutableListOf<String>()
         runCatching {
-            val coreResults = memoryRepository.searchMemories(queryVector, coreTopK = 10, episodicTopK = 0)
+            val allMemoryResults = memoryRepository.searchMemories(queryVector, coreTopK = 10, episodicTopK = 3)
+            val coreResults = allMemoryResults
                 .filter { it.source == "core" }
                 // Primary: semantic relevance. Secondary: recency (recently-accessed facts win ties).
                 .sortedWith(compareByDescending<MemorySearchResult> { it.score }.thenByDescending { it.lastAccessedAt })
+            val distilledResults = allMemoryResults
+                .filter { it.source == "episodic" }
+                .sortedByDescending { it.score }
+
             val coreHeader = "[Core Memories — permanent facts about the user]\n"
             val coreFooter = "[End of core memories]"
             val coreOverhead = (coreHeader.length + coreFooter.length + charsPerToken - 1) / charsPerToken
@@ -126,7 +135,22 @@ class RagRepository @Inject constructor(
             if (coreMemoryLines.isNotEmpty()) {
                 tokenBudgetRemaining = coreBudget
             }
-        }.onFailure { Log.w(TAG, "Core memory retrieval failed: ${it.message}") }
+
+            val distilledHeader = "[Episodic Memories — summaries of past conversations]\n"
+            val distilledFooter = "[End of episodic memories]"
+            val distilledOverhead = (distilledHeader.length + distilledFooter.length + charsPerToken - 1) / charsPerToken
+            var distilledBudget = tokenBudgetRemaining - distilledOverhead
+            for (result in distilledResults) {
+                val line = result.content.take(400)
+                val cost = (line.length + 1 + charsPerToken - 1) / charsPerToken
+                if (distilledBudget - cost < 0) break
+                distilledMemoryLines.add(line)
+                distilledBudget -= cost
+            }
+            if (distilledMemoryLines.isNotEmpty()) {
+                tokenBudgetRemaining = distilledBudget
+            }
+        }.onFailure { Log.w(TAG, "Core/distilled memory retrieval failed: ${it.message}") }
 
         // --- Episodic (message) Memories ---
         val episodicLines = mutableListOf<String>()
@@ -165,7 +189,7 @@ class RagRepository @Inject constructor(
             }.onFailure { Log.w(TAG, "Episodic retrieval failed: ${it.message}") }
         }
 
-        if (coreMemoryLines.isEmpty() && episodicLines.isEmpty()) return@withContext ""
+        if (coreMemoryLines.isEmpty() && distilledMemoryLines.isEmpty() && episodicLines.isEmpty()) return@withContext ""
 
         buildString {
             append(framingHeader)
@@ -174,11 +198,17 @@ class RagRepository @Inject constructor(
                 coreMemoryLines.forEach { appendLine(it) }
                 append("[End of core memories]")
             }
-            if (episodicLines.isNotEmpty()) {
+            if (distilledMemoryLines.isNotEmpty()) {
                 if (coreMemoryLines.isNotEmpty()) append("\n\n")
-                append("[Episodic Memories — recalled from a past conversation]\n")
-                episodicLines.forEach { appendLine(it) }
+                append("[Episodic Memories — summaries of past conversations]\n")
+                distilledMemoryLines.forEach { appendLine(it) }
                 append("[End of episodic memories]")
+            }
+            if (episodicLines.isNotEmpty()) {
+                if (coreMemoryLines.isNotEmpty() || distilledMemoryLines.isNotEmpty()) append("\n\n")
+                append("[Message History — earlier in this conversation]\n")
+                episodicLines.forEach { appendLine(it) }
+                append("[End of message history]")
             }
         }
     }

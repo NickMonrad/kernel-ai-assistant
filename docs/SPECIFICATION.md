@@ -121,19 +121,29 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 ```
 [System Prompt]          ← persona, date/time, runtime info
 [User Profile]           ← always injected (structured identity fields)
-[Core Memories]          ← retrieved by RAG (CORE_MAX_DISTANCE=0.55, topK=10)
-[Episodic Memories]      ← retrieved by RAG (top 3–5 by cosine similarity)
+[Core Memories]          ← permanent facts (CORE_MAX_DISTANCE=0.55, topK=10)
+[Episodic Memories]      ← distilled conversation summaries (EPISODIC_MAX_DISTANCE=0.40, topK=3)
+[Message History]        ← semantically relevant messages from current conversation (MAX_DISTANCE=0.40, topK=5)
 [Conversation Window]    ← selected recent turns (75% token budget)
 [Current User Message]   ← with RAG context prepended
 ```
+
+All three memory sections are conditionally included — omitted entirely if no results meet their distance threshold. Token budget is allocated sequentially: Core → Episodic → Message History.
 
 ### 3.3 Long-Term (Semantic) Memory
 
 - **Vector store:** sqlite-vec (compiled via NDK for arm64-v8a), bundled as `libkernelvec.so`
 - **Embedding model:** EmbeddingGemma-300M — 768-dim vectors (256-dim on 8GB via Matryoshka)
-- **Two vec0 tables:** `episodic_memories_vec` (conversation summaries) and `core_memories_vec` (permanent facts)
+- **Three vec0 tables:**
+  - `core_memories_vec` — permanent facts about the user (visible in Settings → Core Memories)
+  - `episodic_memories_vec` — distilled conversation summaries from `EpisodicDistillationUseCase` (visible in Settings → Episodic Memories)
+  - `message_embeddings` — per-message vectors for intra-conversation fuzzy recall (visible in Settings → Message History (RAG))
 - **Retrieval:** `vec_distance_cosine()` similarity search per query; top results injected into prompt
 - **Separate databases:** Room (`kernel_db.db`) for relational data; native SQLite (`kernel_vectors.db`) for vectors (Room doesn't support vec0 virtual tables)
+- **TTL & pruning:** `prune()` runs on every write with two independent passes:
+  1. **TTL pass** — deletes episodic memories where both `createdAt` and `lastAccessedAt` are older than 30 days. Accessing a memory resets `lastAccessedAt`, keeping it alive past the 30-day TTL for as long as it remains in use.
+  2. **LRU overflow pass** — if count still exceeds 500 after TTL pass, evicts the least-recently-accessed entries (ordered by `lastAccessedAt ASC`). `lastAccessedAt` is updated on every RAG retrieval, so frequently recalled memories survive overflow eviction even if old.
+  - Core memories: no TTL, capped at 200 entries, evicted by `createdAt` order (no LRU — core memories are considered permanent).
 
 ### 3.4 Episodic Distillation
 
