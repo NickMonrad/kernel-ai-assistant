@@ -102,8 +102,16 @@ async function fetchForecast(lat, lon, displayName, days) {
     const d = w.daily;
     if (!d || !d.time || d.time.length === 0) return "No forecast data for: " + displayName;
 
+    const expectedLen = d.time.length;
+    if (!d.temperature_2m_max || d.temperature_2m_max.length !== expectedLen ||
+        !d.temperature_2m_min || d.temperature_2m_min.length !== expectedLen ||
+        !d.weather_code || d.weather_code.length !== expectedLen ||
+        !d.precipitation_sum || d.precipitation_sum.length !== expectedLen) {
+        return "Incomplete forecast data for: " + displayName;
+    }
+
     const lines = [displayName + " forecast:"];
-    for (let i = 0; i < d.time.length; i++) {
+    for (let i = 0; i < expectedLen; i++) {
         const emoji = wmoEmoji(d.weather_code[i]);
         const tmax = d.temperature_2m_max[i].toFixed(0);
         const tmin = d.temperature_2m_min[i].toFixed(0);
