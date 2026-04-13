@@ -33,6 +33,7 @@ import com.kernel.ai.feature.chat.model.ToolCallInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -45,6 +46,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -187,10 +189,13 @@ class ChatViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { initializeConversation() }
-        // FunctionGemma disabled — loading 289MB alongside E4B GPU init causes OOM.
-        // TODO: re-enable once lazy load-on-demand (after E4B is ready) is implemented.
-        // viewModelScope.launch { initFunctionGemmaRouter() }
-        viewModelScope.launch { initEngineWhenReady() }       // eager, shows loading screen
+        viewModelScope.launch {
+            // E4B first — GPU compilation needs every byte of headroom.
+            // FG's 289MB on CPU is enough to tip OOM during GPU init.
+            // Once E4B is stable, FG loads in ~0.4s with no memory pressure.
+            initEngineWhenReady()
+            initFunctionGemmaRouter()
+        }
     }
 
     private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
@@ -310,6 +315,8 @@ class ChatViewModel @Inject constructor(
         activeModel = preferred
         try {
             // Release EmbeddingGemma before loading Gemma-4 to free memory.
+            // FunctionGemma stays resident — it's only 289MB on CPU and loaded
+            // sequentially before E4B, so no OOM risk.
             embeddingEngine.close()
             System.gc()
             Log.i("KernelAI", "Released EmbeddingGemma for Gemma-4 GPU init")
@@ -384,7 +391,6 @@ class ChatViewModel @Inject constructor(
             val modelPath = downloadManager.getModelPath(preferred) ?: return
             activeModel = preferred
             try {
-                // Release EmbeddingGemma before loading Gemma-4 to free memory.
                 embeddingEngine.close()
                 System.gc()
                 Log.i("KernelAI", "Released EmbeddingGemma for Gemma-4 GPU init")

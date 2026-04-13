@@ -67,7 +67,8 @@ class ActionsViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                // 1. Lazy-load FunctionGemma if not yet ready
+                // FG is loaded eagerly at app start by ChatViewModel (CPU, ~0.4s).
+                // If not ready yet, lazy-load it here.
                 if (!functionGemmaRouter.isReady.value) {
                     _uiState.value = UiState.LoadingModel
                     val modelPath = downloadManager.getModelPath(KernelModel.FUNCTION_GEMMA_270M)

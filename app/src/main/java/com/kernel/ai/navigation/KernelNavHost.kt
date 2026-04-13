@@ -1,5 +1,6 @@
 package com.kernel.ai.navigation
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
@@ -79,27 +80,32 @@ fun KernelNavHost() {
             }
         },
     ) { innerPadding ->
+        // Only apply bottom nav padding to routes that show the nav bar.
+        // Chat/settings screens handle their own padding via their own Scaffold.
         NavHost(
             navController = navController,
             startDestination = ROUTE_LIST,
-            modifier = Modifier.padding(innerPadding),
         ) {
             composable(ROUTE_LIST) {
-                ConversationListScreen(
-                    onOpenConversation = { id ->
-                        navController.navigate("$ROUTE_CHAT/$id")
-                    },
-                    onNewConversation = {
-                        navController.navigate(ROUTE_CHAT)
-                    },
-                    onNavigateToSettings = {
-                        navController.navigate(ROUTE_SETTINGS)
-                    },
-                )
+                Box(modifier = Modifier.padding(innerPadding)) {
+                    ConversationListScreen(
+                        onOpenConversation = { id ->
+                            navController.navigate("$ROUTE_CHAT/$id")
+                        },
+                        onNewConversation = {
+                            navController.navigate(ROUTE_CHAT)
+                        },
+                        onNavigateToSettings = {
+                            navController.navigate(ROUTE_SETTINGS)
+                        },
+                    )
+                }
             }
 
             composable(ROUTE_ACTIONS) {
-                ActionsScreen()
+                Box(modifier = Modifier.padding(innerPadding)) {
+                    ActionsScreen()
+                }
             }
 
             // New conversation (no conversationId arg)
