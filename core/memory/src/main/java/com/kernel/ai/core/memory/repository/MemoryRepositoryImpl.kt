@@ -139,6 +139,7 @@ class MemoryRepositoryImpl @Inject constructor(
                             source = "episodic",
                             score = 1f - (distanceMap[entity.rowId] ?: 1f),
                             lastAccessedAt = entity.lastAccessedAt,
+                            conversationId = entity.conversationId,
                         )
                     )
                 }
