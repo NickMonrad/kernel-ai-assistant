@@ -10,6 +10,7 @@ import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.FunctionGemmaRouter
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.KernelAIToolSet
 import com.kernel.ai.core.inference.LlmDispatcher
 import com.kernel.ai.core.inference.ModelConfig
@@ -69,6 +70,7 @@ class ChatViewModel @Inject constructor(
     private val functionGemmaRouter: FunctionGemmaRouter,
     private val kernelAIToolSet: KernelAIToolSet,
     private val embeddingEngine: EmbeddingEngine,
+    private val jandalPersona: JandalPersona,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -189,6 +191,7 @@ class ChatViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { initializeConversation() }
+        viewModelScope.launch { seedKiwiTruthsIfNeeded() }
         viewModelScope.launch {
             // E4B first — GPU compilation needs every byte of headroom.
             // FG's 289MB on CPU is enough to tip OOM during GPU init.
@@ -198,12 +201,22 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private suspend fun seedKiwiTruthsIfNeeded() {
+        if (jandalPersona.isTruthsSeeded) return
+        jandalPersona.truths.forEach { truth ->
+            memoryRepository.addCoreMemory(truth, source = "jandal_persona")
+        }
+        jandalPersona.markTruthsSeeded()
+        Log.i("ChatViewModel", "Seeded ${jandalPersona.truths.size} Kiwi truths into core memory")
+    }
+
     private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
         val profile = userProfileRepository.get()
         val dateTime = LocalDateTime.now()
             .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))
         return buildString {
             append(DEFAULT_SYSTEM_PROMPT)
+            append("\n\n${jandalPersona.getGreeting()} ${jandalPersona.buildSessionVocab()}")
             append("\n\n[Current date and time]\n$dateTime")
             // Runtime info fetched dynamically via get_system_info skill at query time
             if (profile.isNotBlank()) {
