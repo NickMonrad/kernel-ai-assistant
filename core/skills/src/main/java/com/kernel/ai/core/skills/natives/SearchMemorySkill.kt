@@ -18,10 +18,15 @@ import javax.inject.Singleton
 private const val TAG = "KernelAI"
 
 /**
- * Skill that searches the user's cross-conversation message history for content
- * semantically similar to a query.
+ * Skill that searches the user's saved memories (core and episodic) as well as their
+ * cross-conversation message history for content semantically similar to a query.
  *
- * Two usage modes:
+ * Three result sources are merged:
+ * - **Core memories**: permanent facts saved explicitly by the user via `save_memory`.
+ * - **Episodic memories**: distilled summaries of past conversations.
+ * - **Message history**: individual messages from past conversations.
+ *
+ * Two usage modes for message history:
  * - No [conversationId]: cross-conversation search across all past messages.
  * - With [conversationId]: scoped search within a specific conversation, useful for
  *   the summary-to-detail path where the model has an episodic summary and wants the
@@ -34,23 +39,24 @@ class SearchMemorySkill @Inject constructor(
 
     override val name = "search_memory"
     override val description =
-        "Search your saved message history for information about a topic. Use when the user " +
-            "asks what you remember about something, asks you to recall a past conversation, " +
-            "or asks 'what did we discuss about X'. Optionally scope to a specific " +
-            "conversationId from an episodic summary for detail retrieval."
+        "Search your saved memories and message history for information about a topic. Use when " +
+            "the user asks what you remember about something, wants to recall a fact they told you, " +
+            "asks you to recall a past conversation, or asks 'what did we discuss about X'. " +
+            "Searches both explicitly saved memories (core/episodic) and raw message history. " +
+            "Optionally scope to a specific conversationId from an episodic summary for detail retrieval."
     override val schema = SkillSchema(
         parameters = mapOf(
             "query" to SkillParameter(
                 type = "string",
-                description = "The topic or phrase to search for in past messages."
+                description = "The topic or phrase to search for in saved memories and past messages."
             ),
             "conversationId" to SkillParameter(
                 type = "string",
-                description = "Optional. Restrict search to this conversation ID (from an episodic summary)."
+                description = "Optional. Restrict message-history search to this conversation ID (from an episodic summary)."
             ),
             "topK" to SkillParameter(
                 type = "integer",
-                description = "Maximum number of results to return. Defaults to 5."
+                description = "Maximum number of results to return per source. Defaults to 5."
             ),
         ),
         required = listOf("query"),
@@ -60,6 +66,7 @@ class SearchMemorySkill @Inject constructor(
         "User asks 'what do you remember about my project?' → Call: <|tool_call>call:search_memory{query:<|\"project\"|>}<tool_call|>",
         "User asks 'what did we decide last week?' → Call: <|tool_call>call:search_memory{query:<|\"decision last week\"|>}<tool_call|>",
         "Drill into an episodic summary tagged conversation:abc-123 → Call: <|tool_call>call:search_memory{query:<|\"topic\"|>,conversationId:<|\"abc-123\"|>}<tool_call|>",
+        "User asks 'what do you remember about my family?' → Call: <|tool_call>call:search_memory{query:<|\"family\"|>}<tool_call|>",
     )
 
     override suspend fun execute(call: SkillCall): SkillResult {
@@ -70,21 +77,41 @@ class SearchMemorySkill @Inject constructor(
 
         return withContext(Dispatchers.Default) {
             try {
-                val results = ragRepository.searchMessages(query, conversationId, topK)
-                Log.d(TAG, "SearchMemorySkill: query='${query.take(60)}' conversationId=$conversationId → ${results.size} results")
+                val messageResults = ragRepository.searchMessages(query, conversationId, topK)
+                val memoryResults = ragRepository.searchCoreAndEpisodic(query, topK)
+                Log.d(
+                    TAG,
+                    "SearchMemorySkill: query='${query.take(60)}' conversationId=$conversationId " +
+                        "→ ${memoryResults.size} memory results, ${messageResults.size} message results",
+                )
 
-                if (results.isEmpty()) {
+                if (memoryResults.isEmpty() && messageResults.isEmpty()) {
                     return@withContext SkillResult.Success("No memories found matching '$query'.")
                 }
 
                 val fmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-                val sb = StringBuilder("Here's what I found in our past conversations:\n\n")
-                results.forEachIndexed { i, result ->
-                    val role = if (result.role == "user") "You" else "Me"
-                    val date = fmt.format(Date(result.timestamp))
-                    sb.appendLine("${i + 1}. [$date — conversation:${result.conversationId.take(8)}]")
-                    sb.appendLine("   $role: ${result.content.take(300)}")
+                val sb = StringBuilder("Here's what I found in memory:\n\n")
+                var index = 1
+
+                // Explicitly saved facts first — these are the most direct answer to "what do you remember".
+                memoryResults.forEach { result ->
+                    val sourceTag = if (result.source == "core") "Core Memory" else "Episodic Memory"
+                    val date = fmt.format(Date(result.lastAccessedAt.takeIf { it > 0L } ?: System.currentTimeMillis()))
+                    sb.appendLine("${index++}. [$sourceTag — $date]")
+                    sb.appendLine("   ${result.content.take(300)}")
                 }
+
+                // Message history results follow.
+                if (messageResults.isNotEmpty()) {
+                    if (memoryResults.isNotEmpty()) sb.appendLine()
+                    messageResults.forEach { result ->
+                        val role = if (result.role == "user") "You" else "Me"
+                        val date = fmt.format(Date(result.timestamp))
+                        sb.appendLine("${index++}. [Message — $date — conversation:${result.conversationId.take(8)}]")
+                        sb.appendLine("   $role: ${result.content.take(300)}")
+                    }
+                }
+
                 SkillResult.Success(sb.toString().trimEnd())
             } catch (e: Exception) {
                 Log.e(TAG, "SearchMemorySkill failed", e)
