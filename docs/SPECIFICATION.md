@@ -141,7 +141,7 @@ All three memory sections are conditionally included — omitted entirely if no 
 - **Retrieval:** `vec_distance_cosine()` similarity search per query; top results injected into prompt
 - **Separate databases:** Room (`kernel_db.db`) for relational data; native SQLite (`kernel_vectors.db`) for vectors (Room doesn't support vec0 virtual tables)
 - **TTL & pruning:** `prune()` runs on every write with two independent passes:
-  1. **TTL pass** — deletes episodic memories where `createdAt` is older than 30 days. Accessing a memory does **not** reset the TTL; it is fixed from creation time.
+  1. **TTL pass** — deletes episodic memories where both `createdAt` and `lastAccessedAt` are older than 30 days. Accessing a memory resets `lastAccessedAt`, keeping it alive past the 30-day TTL for as long as it remains in use.
   2. **LRU overflow pass** — if count still exceeds 500 after TTL pass, evicts the least-recently-accessed entries (ordered by `lastAccessedAt ASC`). `lastAccessedAt` is updated on every RAG retrieval, so frequently recalled memories survive overflow eviction even if old.
   - Core memories: no TTL, capped at 200 entries, evicted by `createdAt` order (no LRU — core memories are considered permanent).
 
