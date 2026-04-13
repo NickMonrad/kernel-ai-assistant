@@ -38,7 +38,8 @@ enum class KernelModel(
         isRequired = true,
         /** Suitable for all hardware tiers. */
         preferredForTier = null,
-        isGated = true,
+        // Ungated since Apr 2026 — no auth token required.
+        isGated = false,
     ),
 
     /**
@@ -52,7 +53,8 @@ enum class KernelModel(
         approxSizeBytes = 3_654_467_584L, // 3.4 GB
         isRequired = false,
         preferredForTier = HardwareTier.FLAGSHIP,
-        isGated = true,
+        // Ungated since Apr 2026 — no auth token required.
+        isGated = false,
     ),
 
     FUNCTION_GEMMA_270M(

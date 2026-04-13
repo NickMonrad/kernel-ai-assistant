@@ -35,6 +35,7 @@ class SettingsViewModel @Inject constructor(
         val activeBackend: String = "",
         val activeTier: String = "",
         val preferredModel: KernelModel? = null,   // null = auto
+        val e2bDownloaded: Boolean = false,
         val e4bDownloaded: Boolean = false,
         /** True when a valid HF token is stored. */
         val hfAuthenticated: Boolean = false,
@@ -50,6 +51,7 @@ class SettingsViewModel @Inject constructor(
     ) { preferredModel, downloadStates, hfAuthenticated, hfUsername ->
         val profile = hardwareProfileDetector.profile
         val e4bDownloaded = downloadStates[KernelModel.GEMMA_4_E4B] is DownloadState.Downloaded
+        val e2bDownloaded = downloadStates[KernelModel.GEMMA_4_E2B] is DownloadState.Downloaded
 
         fun isDownloadedInStates(model: KernelModel) = downloadStates[model] is DownloadState.Downloaded
 
@@ -67,6 +69,7 @@ class SettingsViewModel @Inject constructor(
             activeBackend = profile.recommendedBackend.name,
             activeTier = profile.tier.name,
             preferredModel = preferredModel,
+            e2bDownloaded = e2bDownloaded,
             e4bDownloaded = e4bDownloaded,
             hfAuthenticated = hfAuthenticated,
             hfUsername = hfUsername,
@@ -106,6 +109,11 @@ class SettingsViewModel @Inject constructor(
                 _saveError.tryEmit("Couldn't save preference — please try again")
             }
         }
+    }
+
+    fun downloadModel(model: KernelModel) {
+        modelDownloadManager.startDownload(model)
+        _saveSuccess.tryEmit("Downloading ${model.displayName}…")
     }
 
     /** Signs the user out of HuggingFace and clears the stored token. */

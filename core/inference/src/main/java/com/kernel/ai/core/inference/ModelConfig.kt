@@ -11,7 +11,7 @@ const val DEFAULT_SYSTEM_PROMPT =
         "Keep responses short unless asked for detail."
 
 /** Maximum context window tokens (KV-cache size). Set high — hardware profile caps it per tier. */
-const val DEFAULT_MAX_TOKENS = 8192
+const val DEFAULT_MAX_TOKENS = 8000
 
 /** Sampler defaults for CPU/GPU backends. NPU requires null samplerConfig. */
 val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7)
