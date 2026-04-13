@@ -264,6 +264,34 @@ class RagRepository @Inject constructor(
         }
     }
 
+    /**
+     * Search [core_memories_vec] and [episodic_memories_vec] for memories semantically
+     * similar to [query]. This is the path used by [SearchMemorySkill] to surface facts
+     * that were explicitly saved via `save_memory`.
+     *
+     * @param query Natural-language search query.
+     * @param topK Maximum results per tier (core and episodic each contribute up to this many).
+     * @return Combined list of matching memories; empty if the embedding engine is not ready
+     *   or no results pass the relevance threshold.
+     */
+    suspend fun searchCoreAndEpisodic(
+        query: String,
+        topK: Int = DEFAULT_TOP_K,
+    ): List<MemorySearchResult> = withContext(Dispatchers.IO) {
+        val queryVector = embeddingEngine.embed(query)
+        if (queryVector.isEmpty()) return@withContext emptyList()
+        runCatching {
+            memoryRepository.searchMemories(
+                queryVector = queryVector,
+                coreTopK = topK,
+                episodicTopK = topK,
+            )
+        }.getOrElse {
+            Log.w(TAG, "searchCoreAndEpisodic failed: ${it.message}")
+            emptyList()
+        }
+    }
+
     private fun ensureTable(dimensions: Int) {
         if (!tableCreated) {
             vectorStore.createTable(TABLE, dimensions)
