@@ -1,6 +1,7 @@
-***
+> **This document has moved.**  
+> The authoritative technical specification is now at **[docs/SPECIFICATION.md](docs/SPECIFICATION.md)**.
 
-# Technical Specification: Jandal AI — Local-First Android AI Assistant ("Project Gemma-Mobile")
+
 
 ## 1. Executive Summary
 This document outlines the architecture for a privacy-centric, on-device mobile assistant. By leveraging the Google AI Edge (LiteRT) ecosystem and the Gemma-4 family of models, the assistant provides reasoning, memory retrieval, and device actions without relying on cloud APIs. The system uses a tiered hardware approach to ensure performance across a wide range of Android devices while maintaining a modular "Skill" framework for extensibility.
