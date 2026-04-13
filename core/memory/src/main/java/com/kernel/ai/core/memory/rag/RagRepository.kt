@@ -168,10 +168,9 @@ class RagRepository @Inject constructor(
                         .sortedBy { candidates.indexOf(it.rowId) }
                         .take(topK)
 
-                    val messages = filteredEntities.mapNotNull { entity ->
-                        messageDao.getByConversation(entity.conversationId)
-                            .firstOrNull { it.id == entity.messageId }
-                    }
+                    val fetchedMsgIds = filteredEntities.map { it.messageId }
+                    val fetchedMsgMap = messageDao.getByIds(fetchedMsgIds).associateBy { it.id }
+                    val messages = filteredEntities.mapNotNull { fetchedMsgMap[it.messageId] }
 
                     val episodicHeader = "[Episodic Memories — recalled from a past conversation]\n"
                     val episodicFooter = "[End of episodic memories]"
@@ -247,10 +246,11 @@ class RagRepository @Inject constructor(
                 .sortedBy { rawResults.indexOf(it.rowId) }
                 .take(topK)
 
+            val messageIds = entities.map { it.messageId }
+            val fetchedMessages = messageDao.getByIds(messageIds).associateBy { it.id }
+
             entities.mapNotNull { entity ->
-                val msg = messageDao.getByConversation(entity.conversationId)
-                    .firstOrNull { it.id == entity.messageId }
-                    ?: return@mapNotNull null
+                val msg = fetchedMessages[entity.messageId] ?: return@mapNotNull null
                 MessageSearchResult(
                     role = msg.role,
                     content = msg.content,
