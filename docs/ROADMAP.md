@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-04-13
+> **Last updated:** 2026-04-13 (updated post-PR #257/#262/#263)
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -147,8 +147,11 @@ User Input (voice/text)
 | Fun loading screens v2 ([#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96)) | ✅ Done | Folded into Jandal visual identity (#226) |
 | Jandal personality: Kiwi prompt, dynamic vocab, Kiwi truths ([#225](https://github.com/NickMonrad/kernel-ai-assistant/issues/225)) | ⬜ Pending | Bump FLAGSHIP token cap 4000→8000 first; time-of-day greetings, vocab injection |
 | Jandal visual identity: Fern Green palette, Paua loading states ([#226](https://github.com/NickMonrad/kernel-ai-assistant/issues/226)) | ⬜ Pending | Pure UI — Dynamic Colour fallback, Paua shimmer, 🩴 throughout |
+| Jandal cultural identity — knows his own NZ/Kiwi culture ([#264](https://github.com/NickMonrad/kernel-ai-assistant/issues/264)) | ⬜ Pending | Model denies any cultural identity; needs persona prompt update + identity facts in system prompt |
 | Review UI patterns ([#71](https://github.com/NickMonrad/kernel-ai-assistant/issues/71)) | ⬜ Pending | Audit and refine UI patterns across the app |
 | Copy chat content ([#78](https://github.com/NickMonrad/kernel-ai-assistant/issues/78)) | ✅ Done | — |
+| Copy tool call content for debugging ([#260](https://github.com/NickMonrad/kernel-ai-assistant/issues/260)) | ⬜ Pending | Tap-to-copy on tool call chip; full message copy should exclude tool call block |
+| Skill discoverability UI ([#261](https://github.com/NickMonrad/kernel-ai-assistant/issues/261)) | ⬜ Pending | Settings screen listing skills with enable/disable toggles + config navigation (run_intents non-disableable) |
 
 ### Resident Agent — Tier 2: QuickIntentRouter
 
@@ -160,24 +163,30 @@ User Input (voice/text)
 | Quick Actions tab UI (#221) | ✅ Done | History list, FAB (⚡), bottom sheet input, Room persistence |
 | Bottom nav bar (Chats / Actions) | ✅ Done | PR #221 |
 
-### 🔥 TOP PRIORITY — Resident Agent — Tier 3: E4B Baseline Skills + Rich UI ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222))
+### Resident Agent — Tier 3: E4B Baseline Skills + Rich UI ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222))
 
 | Task | Status | Notes |
 |------|--------|-------|
-| E4B native tool calling ([#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84)) | ✅ Done | `tryExecuteToolCall()` + `SkillExecutor` pipeline; tool schemas injected via `buildSystemPrompt()` |
-| Tool system prompt injection | ✅ Done | `SkillRegistry.buildFunctionDeclarationsJson()` injected into system prompt at init and on every model reload |
+| E4B native tool calling ([#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84)) | ✅ Done | `extractNativeToolCall()` + Gemma-4 token format; tool schemas + examples injected via `buildNativeDeclarations()` |
+| Tool system prompt injection | ✅ Done | `SkillRegistry.buildNativeDeclarations()` injected into system prompt; concrete `<\|tool_call>` examples per skill |
+| JS skill execution layer — WebView gateway ([#239](https://github.com/NickMonrad/kernel-ai-assistant/issues/239)) | ✅ Done | `JsSkillRunner` + hidden WebView; `run_js` gateway (#247/#251) |
 | `get_system_info` skill | ✅ Done | Runtime device/model/backend info |
-| `get_weather` skill — Open-Meteo + GPS | ✅ Done | GPS or city geocoding → Open-Meteo; no API key; confirmed working |
-| `save_memory` skill | ✅ Done | Persists to `MemoryRepository.addCoreMemory`; confirmed working |
+| `get_weather` JS skill — Open-Meteo + GPS | ✅ Done | GPS or city geocoding → Open-Meteo; Nominatim reverse geocode for GPS display name (#257) |
+| `query_wikipedia` JS skill | ✅ Done | Full article fetch via REST summary API (#257) |
+| `save_memory` skill | ✅ Done | Persists to `MemoryRepository.addCoreMemory`; explicit trigger enforced in system prompt (#257) |
+| `set_alarm` via `run_intent` | ✅ Done | `AlarmClock.ACTION_SET_ALARM`; package visibility fix (#262); hallucination rule (#263) |
+| `set_timer` via `run_intent` | ✅ Done | `AlarmClock.ACTION_SET_TIMER` (#257/#262) |
+| `toggle_flashlight_on/off` via `run_intent` | ✅ Done | `CameraManager.setTorchMode()` (#247) |
+| `send_email` via `run_intent` | ✅ Done | `ACTION_SEND` mail chooser; recipient NOT pre-filled (exfiltration guard) (#247) |
+| `send_sms` via `run_intent` | ✅ Done | `ACTION_SENDTO smsto:`; message pre-filled (#247) |
 | **Rich tool result UI** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Replace 🔧 debug chip with weather card, confirmation chips, list cards per skill type |
-| **Weather card + GPS display name fix** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Reverse-geocode GPS coords → suburb/city name; WMO emoji; visual card |
-| **`set_timer` / `set_alarm`** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Wire to `AlarmClock.ACTION_SET_TIMER` / `ACTION_SET_ALARM` |
-| **`set_flashlight`** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | `CameraManager.setTorchMode()` |
-| **`set_do_not_disturb`** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | `NotificationManager.setInterruptionFilter()` |
-| **`send_email` / `send_sms` / `create_contact`** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Intent-based dispatch |
-| **`create_calendar_event` / `show_map_location`** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Intent-based dispatch |
-| **`add_to_shopping_list`** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Room-backed local list with list card UI |
-| **WiFi / Bluetooth / Airplane / Hotspot toggles** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Settings intent fallbacks where direct API removed |
+| **`set_do_not_disturb`** | ⬜ Pending | `NotificationManager.setInterruptionFilter()` |
+| **`create_calendar_event`** ([#265](https://github.com/NickMonrad/kernel-ai-assistant/issues/265)) | ⬜ Pending | `CalendarContract.Events.CONTENT_URI` insert intent; opens edit screen for user to confirm/add attendees |
+| **Maps & location intents** ([#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258)) | ⬜ Pending | `navigate_to` → `geo:` intent; `open_in_maps` → Maps app; JS skill for nearby search (Phase 5) |
+| **`send_sms` / `send_email` recipient from contacts** ([#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256)) | ⬜ Pending | `READ_CONTACTS` + `ContactsContract` lookup before composing |
+| **Weather forecast** ([#255](https://github.com/NickMonrad/kernel-ai-assistant/issues/255)) | ⬜ Pending | Open-Meteo `daily` params for tomorrow / next N days |
+| **`add_to_shopping_list`** | ⬜ Pending | Room-backed local list with list card UI |
+| **WiFi / Bluetooth / Airplane / Hotspot toggles** | ⬜ Pending | Settings intent fallbacks where direct API removed |
 | Gated model download handling ([#38](https://github.com/NickMonrad/kernel-ai-assistant/issues/38)) | ✅ Done | HuggingFace OAuth PendingIntent for Samsung |
 
 ### Memory & Distillation
@@ -188,7 +197,7 @@ User Input (voice/text)
 | Fix: message_embeddings_vec orphan cleanup ([#163](https://github.com/NickMonrad/kernel-ai-assistant/issues/163)) | ✅ Done | — |
 | Message embedding stats in Memory screen ([#164](https://github.com/NickMonrad/kernel-ai-assistant/issues/164)) | ✅ Done | — |
 | Bulk delete core memories ([#110](https://github.com/NickMonrad/kernel-ai-assistant/issues/110)) | ✅ Done | — |
-| Memory tool gaps: save_memory triggers + search_memory skill ([#223](https://github.com/NickMonrad/kernel-ai-assistant/issues/223)) | ⬜ Pending | Broaden save_memory trigger phrases; add search_memory skill for user-initiated recall |
+| Memory tool gaps: save_memory triggers + search_memory skill ([#223](https://github.com/NickMonrad/kernel-ai-assistant/issues/223)) / ([#236](https://github.com/NickMonrad/kernel-ai-assistant/issues/236)) | ⬜ Pending | save_memory trigger phrases tightened (#257 — explicit only); search_memory as native Kotlin Skill querying `RagRepository` without conversation filter still pending |
 
 ### Voice Interface
 
@@ -316,10 +325,21 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#163](https://github.com/NickMonrad/kernel-ai-assistant/issues/163) | message_embeddings_vec orphan cleanup on conversation delete | Phase 3 | ✅ Done |
 | [#164](https://github.com/NickMonrad/kernel-ai-assistant/issues/164) | Message embedding stats in Memory screen | Phase 3 | ✅ Done |
 | [#165](https://github.com/NickMonrad/kernel-ai-assistant/issues/165) | Episodic memory distillation on conversation close | Phase 3 | ✅ Done |
-| [#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222) | E4B baseline skills + rich tool result UI | Phase 3 | ⬜ Pending |
-| [#223](https://github.com/NickMonrad/kernel-ai-assistant/issues/223) | Memory tool gaps: save_memory triggers + search_memory skill | Phase 3 | ⬜ Pending |
-| [#225](https://github.com/NickMonrad/kernel-ai-assistant/issues/225) | Jandal personality: Kiwi prompt, dynamic vocab, Kiwi truths | Phase 3 | ⬜ Pending |
-| [#226](https://github.com/NickMonrad/kernel-ai-assistant/issues/226) | Jandal visual identity: Fern Green palette, Paua loading states | Phase 3 | ⬜ Pending |
+| [#229](https://github.com/NickMonrad/kernel-ai-assistant/issues/229) | Cannot copy tool call output | Phase 3 | Superseded by [#260](https://github.com/NickMonrad/kernel-ai-assistant/issues/260) |
+| [#236](https://github.com/NickMonrad/kernel-ai-assistant/issues/236) | Cross-conversation search_memory skill | Phase 3 | ⬜ Pending — see #223 |
+| [#239](https://github.com/NickMonrad/kernel-ai-assistant/issues/239) | JS skill execution layer (WebView gateway) | Phase 3 | ✅ Done — #247/#251 |
+| [#240](https://github.com/NickMonrad/kernel-ai-assistant/issues/240) | Unit tests for extractToolCallJson / tryExecuteToolCall | Phase 3 | ⬜ Pending |
+| [#248](https://github.com/NickMonrad/kernel-ai-assistant/issues/248) | "Morena" used at wrong time of day | Phase 3 | ✅ Fixed — #252 |
+| [#250](https://github.com/NickMonrad/kernel-ai-assistant/issues/250) | Wrong emoji on chat background | Phase 3 | ✅ Fixed — #252 |
+| [#253](https://github.com/NickMonrad/kernel-ai-assistant/issues/253) | set_timer intent | Phase 3 | ✅ Done — #257/#262 |
+| [#254](https://github.com/NickMonrad/kernel-ai-assistant/issues/254) | GPS weather location name (Nominatim) | Phase 3 | ✅ Done — #257 |
+| [#255](https://github.com/NickMonrad/kernel-ai-assistant/issues/255) | Weather forecast for tomorrow / next N days | Phase 3 | ⬜ Pending |
+| [#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256) | SMS/email — pre-populate recipient from contact name | Phase 3 | ⬜ Pending |
+| [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Maps & location skills (navigate, open, find nearby) | Phase 3/5 | ⬜ Pending — native intents Phase 3; JS nearby search Phase 5 |
+| [#260](https://github.com/NickMonrad/kernel-ai-assistant/issues/260) | Copy tool call content for debugging | Phase 3 | ⬜ Pending |
+| [#261](https://github.com/NickMonrad/kernel-ai-assistant/issues/261) | Skill discoverability UI | Phase 3 | ⬜ Pending |
+| [#264](https://github.com/NickMonrad/kernel-ai-assistant/issues/264) | Jandal doesn't know his own culture | Phase 3 | ⬜ Pending |
+| [#265](https://github.com/NickMonrad/kernel-ai-assistant/issues/265) | Calendar event intent | Phase 3 | ⬜ Pending |
 
 ---
 
