@@ -342,6 +342,7 @@ class ChatViewModel @Inject constructor(
                     maxTokens = settings.contextWindowSize,
                     temperature = settings.temperature,
                     topP = settings.topP,
+                    toolSet = kernelAIToolSet,
                 ))
                 estimatedTokensUsed = 0
                 inferenceEngine.updateSystemPrompt(buildSystemPrompt())
@@ -417,6 +418,7 @@ class ChatViewModel @Inject constructor(
                     maxTokens = settings.contextWindowSize,
                     temperature = settings.temperature,
                     topP = settings.topP,
+                    toolSet = kernelAIToolSet,
                 ))
                 estimatedTokensUsed = 0
                 // Rebuild system prompt now that activeBackend is resolved (backend field
@@ -578,7 +580,8 @@ class ChatViewModel @Inject constructor(
             }
 
             try {
-                inferenceEngine.generate(prompt).collect { result ->
+                kernelAIToolSet.resetTurnState()
+            inferenceEngine.generate(prompt).collect { result ->
                     when (result) {
                         is GenerationResult.Token -> {
                             accumulatedContent.append(result.text)
