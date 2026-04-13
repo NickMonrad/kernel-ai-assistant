@@ -340,7 +340,6 @@ class LiteRtInferenceEngine @Inject constructor(
         return ConversationConfig(
             samplerConfig = samplerConfig,
             systemInstruction = systemInstruction,
-            toolSet = config.toolSet,
         )
     }
 
