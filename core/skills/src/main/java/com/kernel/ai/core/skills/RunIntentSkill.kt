@@ -49,7 +49,8 @@ class RunIntentSkill @Inject constructor(
         "Flashlight off:  <|tool_call>call:run_intent{intent_name:${STR}toggle_flashlight_off${STR}}<tool_call|>",
         "Send email:      <|tool_call>call:run_intent{intent_name:${STR}send_email${STR},subject:${STR}Subject${STR},body:${STR}Body${STR}}<tool_call|>",
         "Send SMS:        <|tool_call>call:run_intent{intent_name:${STR}send_sms${STR},message:${STR}Hello${STR}}<tool_call|>",
-        "Set alarm 7:30:  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}7${STR},minutes:${STR}30${STR}}<tool_call|>",
+        "Set alarm 7:30:        <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}7${STR},minutes:${STR}30${STR}}<tool_call|>",
+        "Set alarm with label:  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}7${STR},minutes:${STR}30${STR},label:${STR}Wake Up${STR}}<tool_call|>",
         "Set timer 3 min: <|tool_call>call:run_intent{intent_name:${STR}set_timer${STR},duration_seconds:${STR}180${STR}}<tool_call|>",
     )
 
