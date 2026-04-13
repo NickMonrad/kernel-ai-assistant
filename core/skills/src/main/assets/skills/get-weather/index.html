@@ -6,54 +6,79 @@
  * Kernel AI — get-weather JS skill
  * Compatible with Google AI Edge Gallery's ai_edge_gallery_get_result() contract.
  *
- * Args: { location: string }  (city name — GPS not available from JS skills)
- * Returns: Plain-text current weather for the requested city.
+ * Args:
+ *   location / city / query  (string) — city name (GPS not available from JS skills)
+ *   forecast_days            (int, 1–7, optional) — if present, return daily forecast
+ *   query_type               ("current" | "forecast", optional) — alias for forecast_days
+ *
+ * Returns: Plain-text current weather or multi-day forecast for the requested city.
  *
  * Note: For GPS-based weather, the native GetWeatherSkill (Kotlin) is preferred.
  * This JS skill is for named-city lookups when invoked via run_js.
  */
-async function ai_edge_gallery_get_result(data) {
-    const location = (data.location || data.city || "").trim();
-    if (!location) return "No location provided. Try 'weather in Auckland'.";
 
-    // Geocoding
-    const geoResp = await fetch(
+const WMO_DESCRIPTIONS = {
+    0:"Clear sky",1:"Mainly clear",2:"Partly cloudy",3:"Overcast",
+    45:"Fog",48:"Icy fog",51:"Light drizzle",53:"Drizzle",55:"Heavy drizzle",
+    61:"Light rain",63:"Rain",65:"Heavy rain",
+    71:"Light snow",73:"Snow",75:"Heavy snow",77:"Snow grains",
+    80:"Rain showers",81:"Rain showers",82:"Heavy rain showers",
+    85:"Snow showers",86:"Heavy snow showers",
+    95:"Thunderstorm",96:"Thunderstorm with hail",99:"Thunderstorm with heavy hail"
+};
+
+const WMO_EMOJI = {
+    0:"☀️",1:"🌤️",2:"⛅",3:"☁️",
+    45:"🌫️",48:"🌫️",51:"🌦️",53:"🌦️",55:"🌧️",
+    61:"🌧️",63:"🌧️",65:"🌧️",
+    71:"🌨️",73:"❄️",75:"❄️",77:"🌨️",
+    80:"🌦️",81:"🌦️",82:"⛈️",
+    85:"🌨️",86:"❄️",
+    95:"⛈️",96:"⛈️",99:"⛈️"
+};
+
+const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function wmoEmoji(code) { return WMO_EMOJI[code] || "🌡️"; }
+function wmoDesc(code)  { return WMO_DESCRIPTIONS[code] || "Unknown"; }
+
+function formatDate(dateStr) {
+    // dateStr is "YYYY-MM-DD"
+    const d = new Date(dateStr + "T12:00:00");
+    return DAY_NAMES[d.getDay()] + " " + d.getDate() + " " + MONTH_NAMES[d.getMonth()];
+}
+
+async function geocode(location) {
+    const resp = await fetch(
         "https://geocoding-api.open-meteo.com/v1/search?name=" +
         encodeURIComponent(location) + "&count=1&language=en&format=json"
     );
-    if (!geoResp.ok) return "Geocoding failed for: " + location;
-
-    const geoData = await geoResp.json();
-    const results = geoData && geoData.results;
-    if (!results || results.length === 0) {
-        return "Couldn't find location: " + location;
-    }
-
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const results = data && data.results;
+    if (!results || results.length === 0) return null;
     const place = results[0];
-    const lat = place.latitude;
-    const lon = place.longitude;
-    const displayName = place.name + (place.country_code ? ", " + place.country_code : "");
+    return {
+        lat: place.latitude,
+        lon: place.longitude,
+        name: place.name + (place.country_code ? ", " + place.country_code : "")
+    };
+}
 
-    // Weather fetch
-    const weatherResp = await fetch(
+async function fetchCurrentWeather(lat, lon, displayName) {
+    const resp = await fetch(
         "https://api.open-meteo.com/v1/forecast" +
         "?latitude=" + lat + "&longitude=" + lon +
         "&current=temperature_2m,apparent_temperature,relative_humidity_2m," +
         "weather_code,wind_speed_10m,precipitation_probability" +
         "&wind_speed_unit=ms"
     );
-    if (!weatherResp.ok) return "Weather API failed for: " + displayName;
+    if (!resp.ok) return "Weather API failed for: " + displayName;
 
-    const w = await weatherResp.json();
+    const w = await resp.json();
     const c = w.current;
-    const wmoDescriptions = {
-        0:"Clear sky",1:"Mainly clear",2:"Partly cloudy",3:"Overcast",
-        45:"Fog",48:"Fog",51:"Drizzle",53:"Drizzle",55:"Drizzle",
-        61:"Rain",63:"Rain",65:"Rain",71:"Snow",73:"Snow",75:"Snow",
-        80:"Rain showers",81:"Rain showers",82:"Rain showers",
-        95:"Thunderstorm",96:"Thunderstorm with hail",99:"Thunderstorm with hail"
-    };
-    const desc = wmoDescriptions[c.weather_code] || "Unknown";
+    const desc = wmoDesc(c.weather_code);
 
     return "Weather in " + displayName + ": " + desc + ".\n" +
         "Temperature: " + c.temperature_2m.toFixed(1) + "°C" +
@@ -61,6 +86,61 @@ async function ai_edge_gallery_get_result(data) {
         "Humidity: " + c.relative_humidity_2m + "%.\n" +
         "Wind: " + c.wind_speed_10m.toFixed(1) + " m/s.\n" +
         "Precipitation chance: " + c.precipitation_probability + "%.";
+}
+
+async function fetchForecast(lat, lon, displayName, days) {
+    const clampedDays = Math.min(Math.max(parseInt(days, 10) || 3, 1), 7);
+    const resp = await fetch(
+        "https://api.open-meteo.com/v1/forecast" +
+        "?latitude=" + lat + "&longitude=" + lon +
+        "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code" +
+        "&timezone=auto&forecast_days=" + clampedDays
+    );
+    if (!resp.ok) return "Forecast API failed for: " + displayName;
+
+    const w = await resp.json();
+    const d = w.daily;
+    if (!d || !d.time || d.time.length === 0) return "No forecast data for: " + displayName;
+
+    const expectedLen = d.time.length;
+    if (!d.temperature_2m_max || d.temperature_2m_max.length !== expectedLen ||
+        !d.temperature_2m_min || d.temperature_2m_min.length !== expectedLen ||
+        !d.weather_code || d.weather_code.length !== expectedLen ||
+        !d.precipitation_sum || d.precipitation_sum.length !== expectedLen) {
+        return "Incomplete forecast data for: " + displayName;
+    }
+
+    const lines = [displayName + " forecast:"];
+    for (let i = 0; i < expectedLen; i++) {
+        const emoji = wmoEmoji(d.weather_code[i]);
+        const tmax = d.temperature_2m_max[i].toFixed(0);
+        const tmin = d.temperature_2m_min[i].toFixed(0);
+        const rain = (d.precipitation_sum[i] || 0).toFixed(0);
+        lines.push(
+            formatDate(d.time[i]) + ": " + emoji + " " +
+            tmax + "°C / " + tmin + "°C, " + rain + "mm rain"
+        );
+    }
+    return lines.join("\n");
+}
+
+async function ai_edge_gallery_get_result(data) {
+    const location = (data.location || data.city || data.query || "").trim();
+    if (!location) return "No location provided. Try 'weather in Auckland'.";
+
+    const place = await geocode(location);
+    if (!place) return "Couldn't find location: " + location;
+
+    const isForecast =
+        (data.query_type === "forecast") ||
+        (data.forecast_days && parseInt(data.forecast_days, 10) > 0);
+
+    if (isForecast) {
+        const days = data.forecast_days || 3;
+        return await fetchForecast(place.lat, place.lon, place.name, days);
+    } else {
+        return await fetchCurrentWeather(place.lat, place.lon, place.name);
+    }
 }
 </script>
 </body>
