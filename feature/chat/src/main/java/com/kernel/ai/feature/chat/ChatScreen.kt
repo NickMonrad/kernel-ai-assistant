@@ -548,7 +548,7 @@ private fun EmptyConversationHint(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "\uD83E\uDEF4",
+                text = "\uD83E\uDE74",
                 style = MaterialTheme.typography.displayMedium,
             )
             Text(
