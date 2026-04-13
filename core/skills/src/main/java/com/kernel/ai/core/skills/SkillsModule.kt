@@ -28,4 +28,8 @@ abstract class SkillsModule {
     @Binds
     @IntoSet
     abstract fun bindRunIntentSkill(skill: RunIntentSkill): Skill
+
+    @Binds
+    @IntoSet
+    abstract fun bindRunJsSkill(skill: RunJsSkill): Skill
 }

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+/**
+ * Kernel AI — query-wikipedia JS skill
+ * Compatible with Google AI Edge Gallery's ai_edge_gallery_get_result() contract.
+ *
+ * Args: { query: string }
+ * Returns: A plain-text Wikipedia summary for the query.
+ */
+async function ai_edge_gallery_get_result(data) {
+    const query = (data.query || data.topic || data.search || "").trim();
+    if (!query) return "No search query provided.";
+
+    const encoded = encodeURIComponent(query);
+
+    // Try direct summary endpoint first
+    const summaryResp = await fetch(
+        "https://en.wikipedia.org/api/rest_v1/page/summary/" + encoded
+    );
+
+    if (summaryResp.ok) {
+        const json = await summaryResp.json();
+        const title = json.title || query;
+        const extract = json.extract || "";
+        const pageUrl = (json.content_urls && json.content_urls.desktop)
+            ? json.content_urls.desktop.page : "";
+
+        if (!extract) return "Wikipedia has no summary for: " + query;
+
+        const trimmed = extract.length > 900
+            ? extract.substring(0, 900) + "..."
+            : extract;
+
+        return title + "\n\n" + trimmed + (pageUrl ? "\n\nRead more: " + pageUrl : "");
+    }
+
+    // Fallback: search API
+    const searchResp = await fetch(
+        "https://en.wikipedia.org/w/api.php?action=query&list=search" +
+        "&srsearch=" + encoded + "&format=json&origin=*&srlimit=3"
+    );
+
+    if (!searchResp.ok) return "Wikipedia search failed for: " + query;
+
+    const searchData = await searchResp.json();
+    const results = searchData && searchData.query && searchData.query.search;
+
+    if (!results || results.length === 0) {
+        return "No Wikipedia results found for: " + query;
+    }
+
+    return "Wikipedia results for '" + query + "':\n" +
+        results.map(function(r) {
+            return "• " + r.title + ": " + r.snippet.replace(/<[^>]+>/g, "");
+        }).join("\n");
+}
+</script>
+</body>
+</html>
