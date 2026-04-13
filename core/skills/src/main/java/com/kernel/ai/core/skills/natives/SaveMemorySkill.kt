@@ -27,7 +27,9 @@ class SaveMemorySkill @Inject constructor(
     override val name = "save_memory"
     override val description =
         "Saves an important fact or preference to the user's long-term core memory " +
-            "for future conversations."
+            "for future conversations. Use when the user says 'remember', 'save', " +
+            "'note that', 'don't forget', 'keep that in mind', 'store this', " +
+            "or asks you to save something. Always call this tool — never just say you saved it."
     override val schema = SkillSchema(
         parameters = mapOf(
             "content" to SkillParameter(
