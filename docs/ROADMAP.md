@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-04-11
+> **Last updated:** 2026-04-13
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -20,7 +20,8 @@
 | **Inference** | LiteRT + LiteRT-LM |
 | **Chat model** | Gemma-4 E-4B / E-2B |
 | **Embeddings** | EmbeddingGemma-300M (SentencePiece + TFLite) |
-| **Intent router** | FunctionGemma-270M-FT-Mobile-Actions |
+| **Intent router (simple)** | `QuickIntentRouter` (Kotlin regex, zero memory, <5ms) |
+| **Intent router (complex)** | Gemma-4 native JSON tool-call format |
 | **Vector search** | sqlite-vec 0.1.9 via bundled SQLite 3.49.2 |
 | **Wasm runtime** | Chicory (pure JVM) |
 | **Test device** | Samsung Galaxy S23 Ultra (SD 8 Gen 2, 12GB RAM) |
@@ -39,10 +40,13 @@ Working chat app with Gemma-4 running entirely on-device.
 | Chat UI (streaming tokens, thinking mode, conversations) | ✅ Done | #7, #8 |
 | Hardware tier detection (Flagship/Mid/Compat) | ✅ Done | #8 |
 | ADB device testing on S23 Ultra | ✅ Done | — |
+| GPU alignment guard (`safeTokenCount`) — avoids LiteRT reshape::Eval bug at powers-of-2 token counts | ✅ Done | #221 |
+| GPU kernel cache (serialized OpenCL kernels) | ✅ Done | #221 |
+| Foreground service OOM protection during GPU init | ✅ Done | #221 |
 
 ---
 
-## Phase 2: Local Semantic Memory (RAG) 🔄 In Progress
+## Phase 2: Local Semantic Memory (RAG) ✅ Complete
 
 The assistant remembers facts across sessions using on-device vector search, with a
 tri-tiered memory architecture inspired by the
@@ -101,65 +105,94 @@ tri-tiered memory architecture inspired by the
 
 ---
 
-## Phase 3: Brand + FunctionGemma Intent Router + Native Skills
+## Phase 3: Resident Agent Architecture + Native Skills 🔄 In Progress
 
-Brand refresh to Jandal AI, FunctionGemma for fast intent routing, native skills, and voice.
+> **Architecture pivot (Apr 2026):** FunctionGemma-270M has been deprecated from the
+> startup sequence. Its 289MB footprint causes lmkd to terminate the process during
+> Gemma-4's GPU kernel compilation peak (~4–5GB transient). After exhaustive testing (#219),
+> the architecture was redesigned to a three-tier **Resident Agent** pattern (#220).
 
-| Task | Status | Notes |
-|------|--------|-------|
-| Brand pass: Jandal AI ([#21](https://github.com/NickMonrad/kernel-ai-assistant/issues/21)) | ⬜ Pending | App name, package rename `com.kernel.ai` → `com.jandal.ai`, Kiwi persona, Fern Green palette |
-| Fun loading screens v2 ([#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96)) | ⬜ Pending | Dark AMOLED background, bigger text, per-phase icons, expanded Kiwi-themed messages — bundle with brand pass |
-| Gated model download handling ([#38](https://github.com/NickMonrad/kernel-ai-assistant/issues/38)) | ⬜ Pending | HuggingFace token flow, graceful error for 401/403 gated models |
-| Review UI patterns ([#71](https://github.com/NickMonrad/kernel-ai-assistant/issues/71)) | ⬜ Pending | Audit and refine UI patterns across the app |
-| Copy chat content ([#78](https://github.com/NickMonrad/kernel-ai-assistant/issues/78)) | ⬜ Pending | Copy individual messages or entire conversations |
-| Live mode ([#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64)) | ⬜ Pending | Real-time streaming / continuous interaction mode |
-| Episodic memory distillation ([#165](https://github.com/NickMonrad/kernel-ai-assistant/issues/165)) | ⬜ Pending | Gemma-4 distils each conversation into 3–5 episodic memory sentences on conversation close. Populates `episodic_memories_vec`. No WorkManager needed — triggered inline. |
-| Message embedding stats in Memory screen ([#164](https://github.com/NickMonrad/kernel-ai-assistant/issues/164)) | ⬜ Pending | Show indexed message count and conversation count in Memory screen so RAG activity is visible during testing. |
-| Fix: message_embeddings_vec orphan cleanup on conversation delete ([#163](https://github.com/NickMonrad/kernel-ai-assistant/issues/163)) | ⬜ Pending | Clean up vec entries when conversation deleted. |
-
-### Phase 3 continued: FunctionGemma Intent Router + Native Skills
-
-FunctionGemma routes user intents to native Android actions without loading the large model.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| FunctionGemma integration | ⬜ Pending | Pre-fine-tuned LiteRT model, ~154 tk/s on CPU |
-| Gemma 4 native tool calling ([#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84)) | ⬜ Pending | Leverage Gemma 4's built-in function calling instead of separate FunctionGemma |
-| GetSystemInfo native skill ([#86](https://github.com/NickMonrad/kernel-ai-assistant/issues/86)) | ⬜ Pending | Runtime device/model/backend info via callable skill, replaces static `[Runtime]` block |
-| SaveMemory native skill ([#103](https://github.com/NickMonrad/kernel-ai-assistant/issues/103)) | ⬜ Pending | Agent-initiated `addEpisodicMemory()` / `addCoreMemory()` — model decides what to remember |
-| Skill registry + JSON schema generation | ⬜ Pending | Uses LiteRT-LM's `@Tool`/`@ToolParam` annotations |
-| Native skills (8+ Kotlin skills) | ⬜ Pending | Flashlight, DND, Bluetooth, Alarms, SMS, Notes, Media |
-| Model cascade orchestrator | ⬜ Pending | FunctionGemma → skill exec OR escalate to Gemma-4 |
-| Model settings UI ([#46](https://github.com/NickMonrad/kernel-ai-assistant/issues/46)) | ⬜ Pending | Full model management UI (download, delete, info) |
-| Permission handling | ⬜ Pending | Per-skill runtime permissions with graceful degradation |
-
-### Phase 3: Voice Interface
-
-| Task | Status | Notes |
-|------|--------|-------|
-| Voice input/output | ⬜ Pending | Android `SpeechRecognizer` + `TextToSpeech` |
-| "Hey Jandal" wake word ([#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65)) | ⬜ Pending | Always-listening wake word trigger |
-
-### Model Cascade Architecture
+### Three-Tier Intent Architecture
 
 ```
 User Input (voice/text)
     │
     ▼
-┌─────────────────────────┐
-│  FunctionGemma-270M-IT  │  ← Always loaded (~135MB), near-instant
-│  "Intent Router"        │
-└────────┬────────────────┘
+┌─────────────────────────────┐
+│  Tier 1: Wake Word          │  ← Always-on, ~0MB (future: Picovoice Porcupine)
+│  "Hey Jandal"               │
+└────────┬────────────────────┘
          │
-    ┌────┴─────────────────────────────┐
-    │                                  │
-    ▼ (high confidence)                ▼ (low confidence / complex)
-┌──────────────┐              ┌──────────────────────┐
-│ Native Skill │              │ Gemma-4 E-4B/E-2B    │
-│ or Wasm Skill│              │ + RAG memory context  │
-│ (direct exec)│              └──────────────────────┘
-└──────────────┘
+         ▼
+┌─────────────────────────────┐
+│  Tier 2: QuickIntentRouter  │  ← Pure Kotlin regex, ~0MB, <5ms
+│  Torch / Timer / DND /      │    Deterministic matching for ~8 simple actions
+│  Bluetooth / WiFi / Time /  │    No ML model, no GPU, instantly available
+│  Battery / Alarm            │
+└────────┬────────────────────┘
+         │ no match
+         ▼
+┌─────────────────────────────┐
+│  Tier 3: Gemma-4 E-4B/E-2B │  ← Resident on GPU, TTFT ~2.3s
+│  Native tool calling        │    Complex NLU: weather, calendar, email,
+│  + RAG memory context       │    multi-step reasoning, conversation
+└─────────────────────────────┘
 ```
+
+### Brand & Polish
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Brand pass: Jandal AI ([#21](https://github.com/NickMonrad/kernel-ai-assistant/issues/21)) | ⬜ Pending | App name, Kiwi persona, Fern Green palette |
+| Fun loading screens v2 ([#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96)) | ⬜ Pending | Dark AMOLED background, bigger text, per-phase icons |
+| Review UI patterns ([#71](https://github.com/NickMonrad/kernel-ai-assistant/issues/71)) | ⬜ Pending | Audit and refine UI patterns across the app |
+| Copy chat content ([#78](https://github.com/NickMonrad/kernel-ai-assistant/issues/78)) | ⬜ Pending | Copy individual messages or entire conversations |
+
+### Resident Agent — Tier 2: QuickIntentRouter
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `QuickIntentRouter` — Kotlin regex matcher | ⬜ Pending | Zero memory, <5ms, deterministic. Replaces FunctionGemma for simple actions |
+| Wire real OS actions in `KernelAIToolSet` | ⬜ Pending | `setTimer` → `AlarmClock.ACTION_SET_TIMER` + `EXTRA_SKIP_UI`; battery → `BatteryManager`; DND → `NotificationManager` |
+| Refactor Actions tab to use `QuickIntentRouter` | ⬜ Pending | Remove `FunctionGemmaRouter` dependency from `ActionsViewModel` |
+| Quick Actions tab UI (#221) | ✅ Done | History list, FAB (⚡), bottom sheet input, Room persistence |
+| Bottom nav bar (Chats / Actions) | ✅ Done | PR #221 |
+
+### Resident Agent — Tier 3: E4B Native Tool Calling
+
+| Task | Status | Notes |
+|------|--------|-------|
+| E4B native tool calling ([#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84)) | ⬜ Pending | `tryExecuteToolCall()` + `SkillExecutor` pipeline exists — needs system prompt engineering |
+| Tool system prompt injection | ⬜ Pending | Inject `SkillRegistry` schemas into system prompt so E4B knows available tools |
+| GetSystemInfo native skill ([#86](https://github.com/NickMonrad/kernel-ai-assistant/issues/86)) | ✅ Done | Runtime device/model/backend info via callable skill |
+| SaveMemory native skill ([#103](https://github.com/NickMonrad/kernel-ai-assistant/issues/103)) | ⬜ Pending | Agent-initiated memory persistence |
+| Weather skill (location + API) | ⬜ Pending | Location permission done (#221); needs real weather API |
+| Gated model download handling ([#38](https://github.com/NickMonrad/kernel-ai-assistant/issues/38)) | ⬜ Pending | HuggingFace token flow |
+
+### Memory & Distillation
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Episodic memory distillation ([#165](https://github.com/NickMonrad/kernel-ai-assistant/issues/165)) | ✅ Done | Gemma-4 distils conversations into episodic memories on close |
+| Fix: message_embeddings_vec orphan cleanup ([#163](https://github.com/NickMonrad/kernel-ai-assistant/issues/163)) | ⬜ Pending | Clean up vec entries when conversation deleted |
+| Message embedding stats in Memory screen ([#164](https://github.com/NickMonrad/kernel-ai-assistant/issues/164)) | ⬜ Pending | Show indexed message / conversation count |
+| Bulk delete core memories ([#110](https://github.com/NickMonrad/kernel-ai-assistant/issues/110)) | ⬜ Pending | Multi-select + delete in Memory screen |
+
+### Voice Interface
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Voice input (push-to-talk) | ⬜ Pending | Android `SpeechRecognizer` + `TextToSpeech` |
+| Live mode ([#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64)) | ⬜ Pending | Real-time streaming / continuous interaction mode |
+| "Hey Jandal" wake word ([#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65)) | ⬜ Pending | Always-on local detection (Picovoice Porcupine) → `QuickIntentRouter` → E4B |
+
+### Known Issues / Decisions
+
+| Issue | Description |
+|-------|-------------|
+| [#218](https://github.com/NickMonrad/kernel-ai-assistant/issues/218) | FunctionGemma limited scope — only ~6 actions, parameter extraction unreliable |
+| [#219](https://github.com/NickMonrad/kernel-ai-assistant/issues/219) | FG + E4B cannot coexist during GPU init — 289MB causes lmkd OOM |
+| [#220](https://github.com/NickMonrad/kernel-ai-assistant/issues/220) | Resident Agent Architecture — approved design |
 
 ---
 

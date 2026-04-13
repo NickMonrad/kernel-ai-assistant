@@ -4,11 +4,11 @@ A high-performance, **local-first** intelligent agent for Android. All inference
 
 ## How It Works
 
-The app operates on a **Brain–Memory–Action** triad:
+The app operates on a **Brain–Memory–Action** triad using a three-tier Resident Agent Architecture:
 
-* **The Brain:** A three-model cascade that adapts to your hardware. **FunctionGemma** (270M) handles instant intent routing, while **Gemma-4 E-4B/E-2B** is loaded on-demand for complex reasoning — delivering flagship-class AI on 8–12GB devices.
-* **The Memory:** A local **RAG (Retrieval-Augmented Generation)** system using **sqlite-vec** and **EmbeddingGemma-300M**. The assistant remembers personal facts, preferences, and conversation history across sessions with zero data leaving the device.
-* **The Action:** A modular skill framework. Native **Kotlin** skills handle high-privilege OS integrations (SMS, device controls, media). Community-extensible **WebAssembly** skills run in a sandboxed **Chicory** runtime for safe extensibility.
+* **The Brain:** **Gemma-4 E-4B/E-2B** runs resident on GPU via LiteRT — always loaded, always ready. A lightweight **`QuickIntentRouter`** (pure Kotlin regex, zero memory) handles instant device actions (<5ms). Complex queries go straight to Gemma-4 for full reasoning with native tool calling.
+* **The Memory:** A local **RAG (Retrieval-Augmented Generation)** system using **sqlite-vec** and **EmbeddingGemma-300M**. The assistant remembers personal facts, preferences, and conversation history across sessions with zero data leaving the device. Episodic distillation consolidates each conversation into long-term memories.
+* **The Action:** A modular skill framework. **Tier 2** native Kotlin actions execute instantly (torch, timer, DND, bluetooth). **Tier 3** complex skills (weather, calendar, email) are handled by the resident Gemma-4 model via its native JSON tool-call format. Community-extensible **WebAssembly** skills run sandboxed via **Chicory** for safe extensibility.
 
 ## Tech Stack
 
@@ -17,8 +17,9 @@ The app operates on a **Brain–Memory–Action** triad:
 | Language | Kotlin |
 | UI | Jetpack Compose, Material 3 Dynamic Color |
 | Inference | Google AI Edge (LiteRT + LiteRT-LM) |
-| Reasoning | Gemma-4 E-4B / E-2B (INT4 quantized) |
-| Intent Router | FunctionGemma-270M (Mobile Actions fine-tune) |
+| Reasoning | Gemma-4 E-4B / E-2B (INT4 quantized, GPU resident) |
+| Quick Actions | `QuickIntentRouter` (Kotlin regex, zero memory) |
+| Complex Tool Calling | Gemma-4 native JSON tool-call format |
 | Embeddings | EmbeddingGemma-300M (768-dim) |
 | Vector Search | sqlite-vec (NDK) |
 | Wasm Runtime | Chicory (pure JVM) |
@@ -29,7 +30,7 @@ The app operates on a **Brain–Memory–Action** triad:
 ## Features
 
 ### Delivered
-- 🧠 **On-device reasoning** — Gemma-4 running on GPU/NPU via LiteRT, no internet required
+- 🧠 **On-device reasoning** — Gemma-4 E-4B running on GPU via LiteRT, no internet required
 - 💾 **Persistent memory** — RAG-powered recall across conversations using sqlite-vec semantic search
 - 🔒 **100% private** — No cloud APIs, no telemetry, all data stays on device
 - 💬 **Full markdown rendering** — headings, bold, italic, inline code, code blocks, tables, links, lists
@@ -41,16 +42,19 @@ The app operates on a **Brain–Memory–Action** triad:
 - 🎬 **Fun loading screens** — 13 themed animated narratives
 - 🖼️ **Context window management** — structured prompt assembly with KV cache management and recursive summarisation
 - 📊 **Runtime info** — shows active model, backend (GPU/NPU/CPU), and device tier in chat
+- ⚡ **Quick Actions tab** — instant device commands (torch, timer, DND, bluetooth) via zero-overhead Kotlin pattern matcher
+- 💭 **Episodic memory distillation** — Gemma-4 summarises each conversation into long-term memories
 
 ### Coming Soon
 - 🗣️ **Voice + text input** — tap-to-talk with auto-stop *(Phase 3)*
-- 🔧 **Native skills** — Flashlight, DND, Bluetooth, Alarms, SMS, Email, Media Control, Notes *(Phase 3)*
-- 💭 **Episodic memory distillation** — Gemma-4 summarises each conversation into long-term memories *(Phase 3)*
+- 🔧 **Full native skills** — Alarms, SMS, Email, Media Control, Notes, Weather *(Phase 3)*
 - 🌙 **Dreaming Engine** — overnight WorkManager consolidation (Light Sleep → REM → Deep Sleep) *(Phase 4)*
 - ⚡ **Semantic cache** — instant responses for repeated knowledge queries, bypassing main LLM *(Phase 4)*
 - 🪪 **Self-healing identity** — structured user profile, LLM-managed via Dreaming cycle *(Phase 4)*
-- 🧩 **Wasm skill store** — community-extensible plugins (Rust → Wasm) with sandboxed execution *(Phase 5)*
-- 🏠 **Home Assistant** — smart home control via Wasm skill *(Phase 5)*
+- 🧩 **Wasm skill store** — community-extensible plugins (Rust → Wasm) with sandboxed execution *(Phase 4)*
+- 🏠 **Home Assistant** — smart home control via Wasm skill *(Phase 4)*
+- 📱 **8GB device optimisation** — dynamic weight loading/unloading, E2B fallback *(Phase 5)*
+- 🎙️ **"Hey Jandal" wake word** — always-on local detection → instant action routing *(Phase 5)*
 
 ## Roadmap
 

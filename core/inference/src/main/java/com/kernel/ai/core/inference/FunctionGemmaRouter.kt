@@ -14,6 +14,8 @@ import com.google.ai.edge.litertlm.tool
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -66,52 +68,51 @@ class FunctionGemmaRouter @Inject constructor(
     private val _isReady = MutableStateFlow(false)
     val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
 
+    /** Prevents concurrent double-init from ChatViewModel + ActionsViewModel. */
+    private val initMutex = Mutex()
+
     /**
-     * Initialises FunctionGemma on [LlmDispatcher].
-     *
-     * Always forces CPU/XNNPACK backend — FunctionGemma-270M is the always-hot router and
-     * must not compete with the main model on GPU/NPU resources.
-     *
-     * Tools are registered via [KernelAIToolSet] through the SDK's native `ToolProvider`
-     * mechanism — the model sees the tool declarations directly with no system-prompt hacking.
-     *
-     * @param functionGemmaPath Absolute path to the `.litertlm` model file on disk.
+     * Initialises FunctionGemma on [LlmDispatcher]. Idempotent — if already ready,
+     * returns immediately without re-loading. Protected by [initMutex] so concurrent
+     * calls from [ActionsViewModel] and [ChatViewModel] serialize safely.
      */
     suspend fun initialize(functionGemmaPath: String) {
-        withContext(LlmDispatcher) {
-            _isReady.value = false
-            // Close any previously-held resources before re-initialising to avoid native memory leaks.
-            try { conversation?.close() } catch (e: Exception) { Log.w(TAG, "FunctionGemmaRouter: close prev conv: ${e.message}") }
-            try { engine?.close() } catch (e: Exception) { Log.w(TAG, "FunctionGemmaRouter: close prev engine: ${e.message}") }
-            conversation = null
-            engine = null
-            try {
-                Log.i(TAG, "FunctionGemmaRouter: initialising from $functionGemmaPath")
-
-                val engineConfig = EngineConfig(
-                    modelPath = functionGemmaPath,
-                    backend = BackendType.CPU.toBackend(context),
-                    maxNumTokens = MAX_TOKENS,
-                )
-                val eng = Engine(engineConfig)
-                eng.initialize()
-
-                val toolProvider = tool(toolSet)
-                val samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0)
-                val convConfig = ConversationConfig(
-                    samplerConfig = samplerConfig,
-                    systemInstruction = buildSystemPrompt(),
-                    tools = listOf(toolProvider),
-                )
-                val conv = eng.createConversation(convConfig)
-
-                engine = eng
-                conversation = conv
-                _isReady.value = true
-                Log.i(TAG, "FunctionGemmaRouter: ready (CPU/XNNPACK, maxTokens=$MAX_TOKENS)")
-            } catch (e: Exception) {
-                Log.e(TAG, "FunctionGemmaRouter: initialisation failed — ${e.message}", e)
+        initMutex.withLock {
+            if (_isReady.value) return
+            withContext(LlmDispatcher) {
                 _isReady.value = false
+                try { conversation?.close() } catch (e: Exception) { Log.w(TAG, "FunctionGemmaRouter: close prev conv: ${e.message}") }
+                try { engine?.close() } catch (e: Exception) { Log.w(TAG, "FunctionGemmaRouter: close prev engine: ${e.message}") }
+                conversation = null
+                engine = null
+                try {
+                    Log.i(TAG, "FunctionGemmaRouter: initialising from $functionGemmaPath")
+
+                    val engineConfig = EngineConfig(
+                        modelPath = functionGemmaPath,
+                        backend = BackendType.CPU.toBackend(context),
+                        maxNumTokens = MAX_TOKENS,
+                    )
+                    val eng = Engine(engineConfig)
+                    eng.initialize()
+
+                    val toolProvider = tool(toolSet)
+                    val samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0)
+                    val convConfig = ConversationConfig(
+                        samplerConfig = samplerConfig,
+                        systemInstruction = buildSystemPrompt(),
+                        tools = listOf(toolProvider),
+                    )
+                    val conv = eng.createConversation(convConfig)
+
+                    engine = eng
+                    conversation = conv
+                    _isReady.value = true
+                    Log.i(TAG, "FunctionGemmaRouter: ready (CPU/XNNPACK, maxTokens=$MAX_TOKENS)")
+                } catch (e: Exception) {
+                    Log.e(TAG, "FunctionGemmaRouter: initialisation failed — ${e.message}", e)
+                    _isReady.value = false
+                }
             }
         }
     }

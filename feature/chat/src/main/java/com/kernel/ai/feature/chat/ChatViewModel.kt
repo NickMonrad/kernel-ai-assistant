@@ -296,11 +296,12 @@ class ChatViewModel @Inject constructor(
      *
      * Waits for all required models to be on disk, then loads the preferred
      * conversation model with a visible loading screen ([ChatUiState.Loading]).
-     * Releases FunctionGemma + EmbeddingGemma before GPU init to maximise
-     * available memory for the large conversation model.
+     *
+     * Protected by [gemma4InitMutex] — the same lock used by [initGemma4] — so a concurrent
+     * [sendMessage] call during the ~20s GPU init cannot race here, double-close
+     * EmbeddingGemma, or orphan the GPU engine allocation.
      */
     private suspend fun initEngineWhenReady() {
-        // Wait until all required models are on disk.
         downloadManager.downloadStates
             .filter { states ->
                 KernelModel.entries.filter { it.isRequired }
@@ -308,31 +309,30 @@ class ChatViewModel @Inject constructor(
             }
             .first()
 
-        if (inferenceEngine.isReady.value) return
+        gemma4InitMutex.withLock {
+            if (inferenceEngine.isReady.value) return
 
-        val preferred = downloadManager.preferredConversationModel()
-        val modelPath = downloadManager.getModelPath(preferred) ?: return
-        activeModel = preferred
-        try {
-            // Release EmbeddingGemma before loading Gemma-4 to free memory.
-            // FunctionGemma stays resident — it's only 289MB on CPU and loaded
-            // sequentially before E4B, so no OOM risk.
-            embeddingEngine.close()
-            System.gc()
-            Log.i("KernelAI", "Released EmbeddingGemma for Gemma-4 GPU init")
+            val preferred = downloadManager.preferredConversationModel()
+            val modelPath = downloadManager.getModelPath(preferred) ?: return
+            activeModel = preferred
+            try {
+                embeddingEngine.close()
+                System.gc()
+                Log.i("KernelAI", "Released EmbeddingGemma for Gemma-4 GPU init")
 
-            val settings = modelSettingsRepository.getSettings(preferred.modelId)
-            inferenceEngine.initialize(ModelConfig(
-                modelPath = modelPath,
-                systemPrompt = buildSystemPrompt(),
-                maxTokens = settings.contextWindowSize,
-                temperature = settings.temperature,
-                topP = settings.topP,
-            ))
-            estimatedTokensUsed = 0
-            inferenceEngine.updateSystemPrompt(buildSystemPrompt())
-        } catch (e: Exception) {
-            _error.value = "Failed to load model: ${e.message}"
+                val settings = modelSettingsRepository.getSettings(preferred.modelId)
+                inferenceEngine.initialize(ModelConfig(
+                    modelPath = modelPath,
+                    systemPrompt = buildSystemPrompt(),
+                    maxTokens = settings.contextWindowSize,
+                    temperature = settings.temperature,
+                    topP = settings.topP,
+                ))
+                estimatedTokensUsed = 0
+                inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+            } catch (e: Exception) {
+                _error.value = "Failed to load model: ${e.message}"
+            }
         }
     }
 
