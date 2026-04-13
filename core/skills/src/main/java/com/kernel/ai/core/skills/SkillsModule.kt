@@ -3,6 +3,7 @@ package com.kernel.ai.core.skills
 import com.kernel.ai.core.skills.natives.GetSystemInfoSkill
 import com.kernel.ai.core.skills.natives.GetWeatherSkill
 import com.kernel.ai.core.skills.natives.SaveMemorySkill
+import com.kernel.ai.core.skills.natives.SearchMemorySkill
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -20,6 +21,10 @@ abstract class SkillsModule {
     @Binds
     @IntoSet
     abstract fun bindSaveMemorySkill(skill: SaveMemorySkill): Skill
+
+    @Binds
+    @IntoSet
+    abstract fun bindSearchMemorySkill(skill: SearchMemorySkill): Skill
 
     @Binds
     @IntoSet

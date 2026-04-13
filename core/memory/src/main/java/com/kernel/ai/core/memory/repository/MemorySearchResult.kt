@@ -6,4 +6,5 @@ data class MemorySearchResult(
     val source: String,       // "episodic" or "core"
     val score: Float,
     val lastAccessedAt: Long = 0L, // populated for core memories; used as tiebreaker when truncating
+    val conversationId: String? = null, // populated for episodic memories; used for summary-to-detail retrieval
 )
