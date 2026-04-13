@@ -49,18 +49,6 @@ class MemoryRepositoryImplTest {
     // ─────────────────────────────── addEpisodicMemory ───────────────────────────────
 
     @Test
-    fun `addEpisodicMemory without embedding — inserts entity, no vec upsert`() = runTest {
-        coEvery { episodicDao.insert(any()) } returns 1L
-        stubPrune()
-
-        val id = repository.addEpisodicMemory("conv-1", "test content")
-
-        assertTrue(id.isNotBlank(), "Returned ID should not be blank")
-        coVerify(exactly = 1) { episodicDao.insert(any()) }
-        verify(exactly = 0) { vectorStore.upsert(any(), any(), any()) }
-    }
-
-    @Test
     fun `addEpisodicMemory with embedding — inserts entity AND upserts to vec table`() = runTest {
         coEvery { episodicDao.insert(any()) } returns 42L
         every { vectorStore.createTable(any(), any()) } just Runs
@@ -100,18 +88,6 @@ class MemoryRepositoryImplTest {
     }
 
     // ─────────────────────────────── addCoreMemory ───────────────────────────────────
-
-    @Test
-    fun `addCoreMemory without embedding — inserts entity, no vec upsert`() = runTest {
-        coEvery { coreDao.insert(any()) } returns 1L
-        stubPrune()
-
-        val id = repository.addCoreMemory("user preference content")
-
-        assertTrue(id.isNotBlank(), "Returned ID should not be blank")
-        coVerify(exactly = 1) { coreDao.insert(any()) }
-        verify(exactly = 0) { vectorStore.upsert(any(), any(), any()) }
-    }
 
     @Test
     fun `addCoreMemory with embedding — inserts entity AND upserts to vec`() = runTest {

@@ -85,6 +85,7 @@ class MemoryViewModelTest {
 
     @Test
     fun `addCoreMemory calls repository with trimmed text`() = runTest {
+        every { embeddingEngine.embed(any()) } returns floatArrayOf(0.1f, 0.2f)
         coEvery { memoryRepository.addCoreMemory(any(), any(), any()) } returns "id-1"
 
         viewModel.openAddDialog()
@@ -93,7 +94,11 @@ class MemoryViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         coVerify(exactly = 1) {
-            memoryRepository.addCoreMemory(content = "remember this", source = "user")
+            memoryRepository.addCoreMemory(
+                content = "remember this",
+                source = "user",
+                embeddingVector = floatArrayOf(0.1f, 0.2f),
+            )
         }
     }
 
@@ -101,6 +106,18 @@ class MemoryViewModelTest {
     fun `addCoreMemory does not call repository when text is blank`() = runTest {
         viewModel.openAddDialog()
         viewModel.onAddDialogTextChange("   ")
+        viewModel.addCoreMemory()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { memoryRepository.addCoreMemory(any(), any(), any()) }
+    }
+
+    @Test
+    fun `addCoreMemory does not call repository when embedding engine returns empty`() = runTest {
+        every { embeddingEngine.embed(any()) } returns floatArrayOf()
+
+        viewModel.openAddDialog()
+        viewModel.onAddDialogTextChange("some text")
         viewModel.addCoreMemory()
         testDispatcher.scheduler.advanceUntilIdle()
 

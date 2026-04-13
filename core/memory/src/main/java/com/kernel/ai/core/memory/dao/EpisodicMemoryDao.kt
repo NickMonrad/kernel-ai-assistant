@@ -79,4 +79,10 @@ interface EpisodicMemoryDao {
         if (rowId != null) deleteById(id)
         return rowId
     }
+
+    @Query("SELECT * FROM episodic_memories WHERE vectorized = 0")
+    suspend fun getUnvectorized(): List<EpisodicMemoryEntity>
+
+    @Query("UPDATE episodic_memories SET vectorized = 1 WHERE rowId = :rowId")
+    suspend fun markVectorized(rowId: Long)
 }

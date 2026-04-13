@@ -256,7 +256,14 @@ class MemoryViewModel @Inject constructor(
         }
         viewModelScope.launch {
             try {
-                memoryRepository.addCoreMemory(content = text, source = "user")
+                val vector = withContext(Dispatchers.Default) {
+                    embeddingEngine.embed(text)
+                }.takeIf { it.isNotEmpty() } ?: run {
+                    Log.w("KernelAI", "addCoreMemory: embedding engine not ready, aborting")
+                    _isSubmitting.value = false
+                    return@launch
+                }
+                memoryRepository.addCoreMemory(content = text, source = "user", embeddingVector = vector)
                 dismissAddDialog()
             } finally {
                 _isSubmitting.value = false
