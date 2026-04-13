@@ -241,7 +241,16 @@ class ChatViewModel @Inject constructor(
             }
             val nativeDeclarations = skillRegistry.buildNativeDeclarations()
             if (nativeDeclarations.isNotBlank()) {
-                append("\n\n[Tool Use]\nWhen you need to perform a device action, output ONLY a tool call token with NO text before or after.\nUse the exact function name from the list below.\n\nNo-argument format: <|tool_call>call:FUNCTION_NAME{}<tool_call|>\nWith-argument format: <|tool_call>call:FUNCTION_NAME{param:<|\"|>value<|\"|>}<tool_call|>\n\n$nativeDeclarations")
+                append(
+                    "\n\n[Tool Use]\n" +
+                        "When you need to perform a device action, output ONLY a tool call token with NO text before or after.\n" +
+                        "Use the exact function name from the list below.\n\n" +
+                        "No-argument format: <|tool_call>call:FUNCTION_NAME{}<tool_call|>\n" +
+                        "With-argument format: <|tool_call>call:FUNCTION_NAME{param:<|\"|>value<|\"|>}<tool_call|>\n\n" +
+                        "Memory rule: whenever the user shares a personal fact, preference, name, or anything worth remembering, " +
+                        "call save_memory immediately — do NOT just acknowledge without using the tool.\n\n" +
+                        nativeDeclarations
+                )
             }
         }
     }
