@@ -9,6 +9,10 @@ interface MemoryRepository {
     suspend fun addEpisodicMemory(conversationId: String, content: String, embeddingVector: FloatArray): String
     /** Store a permanent cross-conversation memory. */
     suspend fun addCoreMemory(content: String, source: String = "user", embeddingVector: FloatArray): String
+    /** Backfill vector for an existing core memory that was saved without one (used by MemoryEmbeddingWorker). */
+    suspend fun backfillCoreVector(rowId: Long, vector: FloatArray)
+    /** Backfill vector for an existing episodic memory that was saved without one (used by MemoryEmbeddingWorker). */
+    suspend fun backfillEpisodicVector(rowId: Long, vector: FloatArray)
     /** Search BOTH tiers; core ranked above episodic. */
     suspend fun searchMemories(
         queryVector: FloatArray,

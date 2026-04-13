@@ -8,7 +8,7 @@ import androidx.work.WorkerParameters
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
-import com.kernel.ai.core.memory.vector.VectorStore
+import com.kernel.ai.core.memory.repository.MemoryRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +17,16 @@ import kotlinx.coroutines.withContext
 private const val TAG = "MemoryEmbeddingWorker"
 const val WORK_NAME_BACKFILL = "memory_embedding_backfill"
 
+/**
+ * WorkManager [CoroutineWorker] that backfills embedding vectors for any core or episodic
+ * memories saved before vector embedding was made mandatory.
+ *
+ * Enqueued as a one-time unique work at app startup (ExistingWorkPolicy.KEEP), so it runs
+ * once after an upgrade and is a no-op on subsequent launches once all memories are vectorized.
+ *
+ * Future extension: schedule as a PeriodicWorkRequest with charging + idle constraints
+ * for nightly re-embedding (e.g. after a model upgrade) or episodic distillation.
+ */
 @HiltWorker
 class MemoryEmbeddingWorker @AssistedInject constructor(
     @Assisted context: Context,
@@ -24,19 +34,13 @@ class MemoryEmbeddingWorker @AssistedInject constructor(
     private val embeddingEngine: EmbeddingEngine,
     private val coreMemoryDao: CoreMemoryDao,
     private val episodicMemoryDao: EpisodicMemoryDao,
-    private val vectorStore: VectorStore,
+    private val memoryRepository: MemoryRepository,
 ) : CoroutineWorker(context, params) {
-
-    companion object {
-        private const val CORE_VEC_TABLE = "core_memories_vec"
-        private const val EPISODIC_VEC_TABLE = "episodic_memories_vec"
-    }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             var backfilled = 0
 
-            // Backfill core memories
             val unvectorizedCore = coreMemoryDao.getUnvectorized()
             for (entity in unvectorizedCore) {
                 val vector = embeddingEngine.embed(entity.content)
@@ -44,12 +48,10 @@ class MemoryEmbeddingWorker @AssistedInject constructor(
                     Log.w(TAG, "Embedding engine not ready — skipping core memory rowId=${entity.rowId}")
                     continue
                 }
-                vectorStore.upsert(CORE_VEC_TABLE, entity.rowId, vector)
-                coreMemoryDao.markVectorized(entity.rowId)
+                memoryRepository.backfillCoreVector(entity.rowId, vector)
                 backfilled++
             }
 
-            // Backfill episodic memories
             val unvectorizedEpisodic = episodicMemoryDao.getUnvectorized()
             for (entity in unvectorizedEpisodic) {
                 val vector = embeddingEngine.embed(entity.content)
@@ -57,8 +59,7 @@ class MemoryEmbeddingWorker @AssistedInject constructor(
                     Log.w(TAG, "Embedding engine not ready — skipping episodic memory rowId=${entity.rowId}")
                     continue
                 }
-                vectorStore.upsert(EPISODIC_VEC_TABLE, entity.rowId, vector)
-                episodicMemoryDao.markVectorized(entity.rowId)
+                memoryRepository.backfillEpisodicVector(entity.rowId, vector)
                 backfilled++
             }
 
@@ -70,3 +71,4 @@ class MemoryEmbeddingWorker @AssistedInject constructor(
         }
     }
 }
+

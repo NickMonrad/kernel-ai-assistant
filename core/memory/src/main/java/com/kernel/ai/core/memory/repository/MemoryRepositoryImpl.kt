@@ -52,12 +52,13 @@ class MemoryRepositoryImpl @Inject constructor(
             conversationId = conversationId,
             content = content,
             createdAt = now,
-            vectorized = true,
+            vectorized = false,
         )
         val rowId = episodicDao.insert(entity)
         if (rowId > 0) {
             ensureEpisodicVecTable(embeddingVector.size)
             vectorStore.upsert(EPISODIC_VEC_TABLE, rowId, embeddingVector)
+            episodicDao.markVectorized(rowId)
         }
         prune()
         Log.d(TAG, "Added episodic memory id=$id rowId=$rowId")
@@ -77,16 +78,29 @@ class MemoryRepositoryImpl @Inject constructor(
             createdAt = now,
             lastAccessedAt = now,
             source = source,
-            vectorized = true,
+            vectorized = false,
         )
         val rowId = coreDao.insert(entity)
         if (rowId > 0) {
             ensureCoreVecTable(embeddingVector.size)
             vectorStore.upsert(CORE_VEC_TABLE, rowId, embeddingVector)
+            coreDao.markVectorized(rowId)
         }
         prune()
         Log.d(TAG, "Added core memory id=$id rowId=$rowId source=$source")
         return id
+    }
+
+    override suspend fun backfillCoreVector(rowId: Long, vector: FloatArray) {
+        ensureCoreVecTable(vector.size)
+        vectorStore.upsert(CORE_VEC_TABLE, rowId, vector)
+        coreDao.markVectorized(rowId)
+    }
+
+    override suspend fun backfillEpisodicVector(rowId: Long, vector: FloatArray) {
+        ensureEpisodicVecTable(vector.size)
+        vectorStore.upsert(EPISODIC_VEC_TABLE, rowId, vector)
+        episodicDao.markVectorized(rowId)
     }
 
     // Remove flag-guards: persisted vec tables must be searched after app restart.
