@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-04-13
+> **Last updated:** 2026-04-13 (revised post-PR #247/#251/#257/#262/#263)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -180,39 +180,95 @@ If no pattern matches → query falls through to Tier 3 (Gemma-4).
 
 ### 4.2 Tier 3: E4B Native Tool Calling
 
-Gemma-4 emits JSON function-call blocks when it determines a tool should be used:
-```json
-{"name": "get_weather", "arguments": {"location": "Auckland"}}
+Gemma-4 emits tool call tokens in its native format when it determines a tool should be used:
+
+```
+<|tool_call>call:run_intent{intent_name:<|"|>set_alarm<|"|>,hours:<|"|>7<|"|>,minutes:<|"|>30<|"|>}<tool_call|>
 ```
 
-`ChatViewModel.tryExecuteToolCall()` detects this pattern in the model's output, hands it to
-`SkillExecutor`, which parses the JSON, looks up the skill in `SkillRegistry`, validates required
-parameters, and calls `Skill.execute(call)`.
+`ChatViewModel.extractNativeToolCall()` detects this token pattern in the streamed output,
+extracts the function name and key-value params, looks up the skill in `SkillRegistry`,
+and calls `Skill.execute(call)`. Tool definitions and concrete `<|tool_call>` examples are
+injected into the system prompt via `SkillRegistry.buildNativeDeclarations()`.
+
+> **Format note:** String values are wrapped in `<|"|>` tokens (Gemma-4's string delimiter).
+> In Kotlin source, the token is split to avoid triggering the compiler:
+> `"<|" + "\"" + "|>"`. The tool call block is bounded by `<|tool_call>` … `<tool_call|>`.
 
 **Skill interface:**
 ```kotlin
 interface Skill {
     val name: String
     val description: String
-    val schema: SkillSchema       // JSON Schema for parameter validation
+    val schema: SkillSchema           // parameter definitions + required list
+    val examples: List<String>        // optional concrete <|tool_call> examples injected into prompt
     suspend fun execute(call: SkillCall): SkillResult
 }
 ```
 
-**Registered skills:**
+**Two-gateway architecture (post #247):**
+
+All Tier 3 tool calls funnel through exactly **two** skill names:
+
+| Gateway | Skill name | Dispatcher | Use for |
+|---------|-----------|-----------|---------|
+| Native | `run_intent` | `NativeIntentHandler.kt` | Any Android OS intent (alarm, timer, email, SMS, torch, calendar, maps) |
+| WebView JS | `run_js` | `JsSkillRunner.kt` | JS skills in `assets/skills/<name>/index.html` (weather, Wikipedia, etc.) |
+
+This means the model only needs two function names; new native intents are added by extending
+`NativeIntentHandler` and new JS skills by dropping an `index.html` into `assets/skills/`.
+
+**Registered `run_intent` intents:**
+
+| `intent_name` | Action | OS API | Status |
+|---------------|--------|--------|--------|
+| `toggle_flashlight_on` | Torch on | `CameraManager.setTorchMode(true)` | ✅ |
+| `toggle_flashlight_off` | Torch off | `CameraManager.setTorchMode(false)` | ✅ |
+| `send_email` | Email composer | `ACTION_SEND` + `message/rfc822` | ✅ |
+| `send_sms` | SMS composer | `ACTION_SENDTO` + `smsto:` | ✅ |
+| `set_alarm` | Set alarm | `AlarmClock.ACTION_SET_ALARM` | ✅ |
+| `set_timer` | Countdown timer | `AlarmClock.ACTION_SET_TIMER` | ✅ |
+
+> **Package visibility (Android 11+):** `ACTION_SET_ALARM` and `ACTION_SET_TIMER` are declared
+> in a `<queries>` block in `AndroidManifest.xml` so `PackageManager.resolveActivity()` returns
+> non-null (#262). Without this, the guard always triggers "No clock app found" regardless of
+> whether a clock app is installed.
+
+> **Alarm hallucination guard:** The system prompt `[Tool Use]` section includes an explicit
+> "Alarm rule" forcing `run_intent` for alarm requests (#263), matching the pattern used for
+> `save_memory`. The model's Siri/Google training bias would otherwise cause it to verbally
+> confirm alarms without ever calling the tool.
+
+**Registered JS skills (`run_js`):**
+
+| `skill_name` | Location | Status |
+|-------------|----------|--------|
+| `get_weather` | `assets/skills/get-weather/index.html` | ✅ |
+| `query_wikipedia` | `assets/skills/query-wikipedia/index.html` | ✅ |
+
+JS skills expose a single async entry point:
+```javascript
+async function ai_edge_gallery_get_result(args) { /* ... */ return resultString; }
+```
+`JsSkillRunner` injects args as a JSON string, evaluates the function in a hidden WebView,
+and awaits the result with a 15s timeout.
+
+**Non-gateway skills (direct Skill implementations):**
 
 | Skill name | Description | Status |
 |------------|-------------|--------|
-| `get_weather` | Current weather via Open-Meteo (free, no API key). Uses device GPS (`current`) or geocodes a city name. Returns temp, feels-like, humidity, wind speed, precipitation chance. | ✅ Wired |
-| `get_system_info` | Device/model/backend/battery stats | ✅ Wired |
-| `save_memory` | Persist a note/fact to Room | ⚠️ Partial |
-| `set_timer` | Set a countdown timer | ⚠️ Needs AlarmManager wire-up |
-| `run_intent` | OS intent dispatch (SET_ALARM, SEND_EMAIL, etc.) | ✅ Wired |
+| `get_system_info` | Device/model/backend/battery stats | ✅ |
+| `save_memory` | Persist a note/fact to `core_memories_vec` | ✅ (explicit trigger only — see memory rule below) |
 
-Tool definitions (name, description, parameter schema) are injected into the system prompt via
-`SkillRegistry.buildFunctionDeclarationsJson()` so Gemma-4 knows available tools and expected output format.
+> **save_memory trigger:** Works reliably when the user explicitly says "remember", "save",
+> or "don't forget". Does not activate proactively from implicit personal facts shared in
+> conversation — small model limitation. The system prompt encodes this as a hard rule.
 
-### 4.3 Extensible Skills (WebAssembly)
+**System prompt `[Tool Use]` rules (enforced in `ChatViewModel.buildSystemPrompt()`):**
+- Memory rule: user says "remember/save/don't forget" → MUST call `save_memory`
+- Alarm rule: user asks to set an alarm → MUST call `run_intent{intent_name: set_alarm}`
+
+### 4.4 Extensible Skills (WebAssembly — Phase 5)
 
 Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime, v1.0+).
 
@@ -232,7 +288,7 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 | **Wasm sandboxing** | Non-negotiable: no direct OS capabilities in Wasm modules |
 | **Network in Wasm** | Domain-scoped bridge functions with URL allowlist validation |
 | **Email exfiltration guard** | `EXTRA_EMAIL` never populated from LLM output — user enters recipient manually |
-| **Prompt injection** | FunctionGemma output always validated against SkillRegistry schema before execution |
+| **Prompt injection** | All tool call output validated against `SkillRegistry` schema before execution; `run_intent` params validated before OS dispatch |
 | **Sideloaded skills** | Wasm import section audited; user must acknowledge "Accept Risk" |
 | **LeakCanary** | Integrated from day one — model weight leaks caught early |
 
@@ -292,7 +348,7 @@ is behind an interface and mocked in all tests. Models (~3GB) are never download
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM chat + GPU/NPU + GPU alignment fixes + OOM protection | ✅ Complete |
 | 2 | sqlite-vec RAG + EmbeddingGemma + episodic distillation + memory UI | ✅ Complete |
-| 3 | Resident Agent Architecture: QuickIntentRouter + E4B tool calling + Voice I/O | 🔄 In Progress |
+| 3 | Resident Agent Architecture: two-gateway skills (run_intent + run_js), E4B tool calling, alarm/timer/torch/email/SMS, Wikipedia, weather GPS | 🔄 In Progress |
 | 4 | Dreaming Engine (overnight distillation) + Semantic Cache + Self-Healing Identity | ⬜ Planned |
 | 5 | Chicory Wasm Runtime + GitHub Skill Store | ⬜ Planned |
 | 6 | 8GB device optimisation (dynamic weight loading, E2B auto-select) + wake word | ⬜ Planned |
