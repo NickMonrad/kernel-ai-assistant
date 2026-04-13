@@ -13,4 +13,5 @@ data class CoreMemoryEntity(
     val lastAccessedAt: Long,
     val accessCount: Int = 0,
     val source: String,  // "user" or "dreaming"
+    val vectorized: Boolean = false,
 )

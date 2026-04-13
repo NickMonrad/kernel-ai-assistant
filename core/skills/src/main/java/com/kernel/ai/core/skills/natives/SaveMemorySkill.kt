@@ -47,15 +47,16 @@ class SaveMemorySkill @Inject constructor(
         return withContext(Dispatchers.IO) {
             try {
                 val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
-                if (vector == null) {
-                    Log.w(TAG, "SaveMemorySkill: embedding engine not ready — saving without vector")
-                }
+                    ?: run {
+                        Log.w(TAG, "SaveMemorySkill: embedding engine not ready, skipping")
+                        return@withContext SkillResult.Failure(name, "Embedding engine not ready")
+                    }
                 memoryRepository.addCoreMemory(
                     content = content,
                     source = "agent",
                     embeddingVector = vector,
                 )
-                Log.d(TAG, "SaveMemorySkill: stored core memory (vector=${vector != null}) — '${content.take(60)}'")
+                Log.d(TAG, "SaveMemorySkill: stored core memory — '${content.take(60)}'")
                 SkillResult.Success("✓ Saved to memory.")
             } catch (e: Exception) {
                 Log.e(TAG, "SaveMemorySkill failed", e)
