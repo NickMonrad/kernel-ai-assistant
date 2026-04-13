@@ -243,10 +243,10 @@ This means the model only needs two function names; new native intents are added
 
 | `skill_name` | Location | Status |
 |-------------|----------|--------|
-| `get_weather` | `assets/skills/get-weather/index.html` | ✅ (current + forecast) |
+| `get-weather-city` | `assets/skills/get-weather-city/index.html` | ✅ (current + forecast) |
 | `query_wikipedia` | `assets/skills/query-wikipedia/index.html` | ✅ |
 
-> **`get_weather` forecast support (PR #269):** Pass `forecast_days` (integer 1–7) for a
+> **`get-weather-city` forecast support (PR #269):** Pass `forecast_days` (integer 1–7) for a
 > day-by-day forecast instead of current conditions. When `forecast_days > 0` or
 > `query_type = "forecast"`, the skill calls the Open-Meteo `daily` API
 > (`temperature_2m_max`, `temperature_2m_min`, `precipitation_sum`, `weather_code`,

@@ -68,7 +68,8 @@ If no pattern matches, the query falls through to Tier 3 (Gemma-4 reasoning).
 The resident Gemma-4 model handles complex tool calls requiring NLU and reasoning. When the model outputs a JSON function-call block (`{"name": "skill_name", "arguments": {...}}`), `SkillExecutor` parses it and dispatches to the registered `Skill` implementation. This enables multi-step reasoning before action execution.
 
 **Supported skills (via `SkillRegistry`):**
-* `get_weather` — geolocation + weather API
+* `get_weather_gps` — GPS-based current weather + forecast
+* `run_js{get-weather-city}` — named city weather + forecast via Open-Meteo
 * `get_system_info` — battery, connectivity, device stats
 * `save_memory` — persist notes/facts to Room
 * `set_timer`, `run_intent` — OS action delegation
