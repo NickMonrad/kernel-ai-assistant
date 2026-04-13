@@ -923,7 +923,7 @@ class ChatViewModel @Inject constructor(
      *   duration:5
      */
     private fun parseNativeArgs(raw: String, out: org.json.JSONObject) {
-        val strToken = "<|"|>"
+        val strToken = """<|"|>"""
         var i = 0
         while (i < raw.length) {
             val colonIdx = raw.indexOf(':', i)
