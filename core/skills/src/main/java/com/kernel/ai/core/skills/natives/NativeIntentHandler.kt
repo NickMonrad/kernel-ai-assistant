@@ -100,6 +100,9 @@ class NativeIntentHandler @Inject constructor(
     private fun setAlarm(params: Map<String, String>): SkillResult {
         val hours = params["hours"]?.toIntOrNull() ?: 8
         val minutes = params["minutes"]?.toIntOrNull() ?: 0
+        // NOTE: AlarmClock.EXTRA_DAYS is intentionally NOT used here.
+        // EXTRA_DAYS creates a repeating weekly alarm, not a one-time future alarm.
+        // The clock app opens pre-filled with the time; the user confirms the date.
         val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
             putExtra(AlarmClock.EXTRA_HOUR, hours)
             putExtra(AlarmClock.EXTRA_MINUTES, minutes)
@@ -113,7 +116,9 @@ class NativeIntentHandler @Inject constructor(
         }
         return try {
             context.startActivity(intent)
-            SkillResult.Success("Alarm set for %02d:%02d.".format(hours, minutes))
+            val dayLabel = params["day"]?.takeIf { it.isNotBlank() }
+                ?.let { " for ${it.replaceFirstChar { c -> c.uppercase() }}" } ?: ""
+            SkillResult.Success("Clock app opened — alarm$dayLabel at %02d:%02d. Please confirm in your clock app.".format(hours, minutes))
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("run_intent", "No clock app found to set an alarm.")
         }
