@@ -82,6 +82,7 @@ class ChatViewModel @Inject constructor(
     private val _conversationTitle = MutableStateFlow<String?>(null)
     private var conversationId: String? = null
     private val contextWindowManager = ContextWindowManager()
+    private val truthsSeedingMutex = Mutex()
 
     /** Tracks the timestamp of the last episodic distillation for the current conversation. */
     private var lastDistilledAt: Long? = null
@@ -202,12 +203,14 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun seedKiwiTruthsIfNeeded() {
-        if (jandalPersona.isTruthsSeeded) return
-        jandalPersona.truths.forEach { truth ->
-            memoryRepository.addCoreMemory(truth, source = "jandal_persona")
+        truthsSeedingMutex.withLock {
+            if (jandalPersona.isTruthsSeeded) return
+            jandalPersona.truths.forEach { truth ->
+                memoryRepository.addCoreMemory(truth, source = "jandal_persona")
+            }
+            jandalPersona.markTruthsSeeded()
+            Log.i("ChatViewModel", "Seeded ${jandalPersona.truths.size} Kiwi truths into core memory")
         }
-        jandalPersona.markTruthsSeeded()
-        Log.i("ChatViewModel", "Seeded ${jandalPersona.truths.size} Kiwi truths into core memory")
     }
 
     private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
@@ -238,9 +241,8 @@ class ChatViewModel @Inject constructor(
             }
             val skillDeclarations = skillRegistry.buildFunctionDeclarationsJson()
             if (skillDeclarations != "[]") {
-                append("\n\n[Tool Use]\nYou have access to tools. When a user asks for something a tool can help with, output ONLY the following JSON — no explanation, no extra text:\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n\nAvailable tools:\n$skillDeclarations")
+                append("\n\n[Tool Use]\nYou have access to tools. To call a tool, output ONLY the raw JSON below — no explanation, no text before or after it. Never say you used a tool without outputting the JSON first. Never fabricate a tool result.\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n\nAvailable tools:\n$skillDeclarations")
             }
-            append("\n\n[Available tools]\nflashlight on/off, set timer, get current time, save memory, set alarm, open settings, create calendar event, send email")
         }
     }
 
