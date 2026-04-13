@@ -159,6 +159,10 @@ class GetWeatherSkill @Inject constructor(
 
         val len = dates.length()
         if (len == 0) return SkillResult.Failure(name, "No forecast data returned.")
+        if (maxTemps.length() != len || minTemps.length() != len ||
+            precip.length() != len || codes.length() != len) {
+            return SkillResult.Failure(name, "Incomplete forecast data (mismatched array lengths).")
+        }
 
         val locationLabel = displayName ?: "GPS location"
         val text = buildString {
@@ -287,7 +291,8 @@ class GetWeatherSkill @Inject constructor(
         66, 67 -> "Freezing rain"
         71, 73, 75 -> "Snow"
         77 -> "Snow grains"
-        80, 81, 82 -> "Rain showers"
+        80, 81 -> "Rain showers"
+        82 -> "Heavy rain showers"
         85, 86 -> "Snow showers"
         95 -> "Thunderstorm"
         96, 99 -> "Thunderstorm with hail"
