@@ -10,6 +10,7 @@ import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.FunctionGemmaRouter
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.KernelAIToolSet
 import com.kernel.ai.core.inference.LlmDispatcher
 import com.kernel.ai.core.inference.ModelConfig
@@ -69,6 +70,7 @@ class ChatViewModel @Inject constructor(
     private val functionGemmaRouter: FunctionGemmaRouter,
     private val kernelAIToolSet: KernelAIToolSet,
     private val embeddingEngine: EmbeddingEngine,
+    private val jandalPersona: JandalPersona,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -80,6 +82,7 @@ class ChatViewModel @Inject constructor(
     private val _conversationTitle = MutableStateFlow<String?>(null)
     private var conversationId: String? = null
     private val contextWindowManager = ContextWindowManager()
+    private val truthsSeedingMutex = Mutex()
 
     /** Tracks the timestamp of the last episodic distillation for the current conversation. */
     private var lastDistilledAt: Long? = null
@@ -189,6 +192,7 @@ class ChatViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { initializeConversation() }
+        viewModelScope.launch { seedKiwiTruthsIfNeeded() }
         viewModelScope.launch {
             // E4B first — GPU compilation needs every byte of headroom.
             // FG's 289MB on CPU is enough to tip OOM during GPU init.
@@ -198,12 +202,24 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private suspend fun seedKiwiTruthsIfNeeded() {
+        truthsSeedingMutex.withLock {
+            if (jandalPersona.isTruthsSeeded) return
+            jandalPersona.truths.forEach { truth ->
+                memoryRepository.addCoreMemory(truth, source = "jandal_persona")
+            }
+            jandalPersona.markTruthsSeeded()
+            Log.i("ChatViewModel", "Seeded ${jandalPersona.truths.size} Kiwi truths into core memory")
+        }
+    }
+
     private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
         val profile = userProfileRepository.get()
         val dateTime = LocalDateTime.now()
             .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))
         return buildString {
             append(DEFAULT_SYSTEM_PROMPT)
+            append("\n\n${jandalPersona.getGreeting()} ${jandalPersona.buildSessionVocab()}")
             append("\n\n[Current date and time]\n$dateTime")
             // Runtime info fetched dynamically via get_system_info skill at query time
             if (profile.isNotBlank()) {
@@ -225,9 +241,8 @@ class ChatViewModel @Inject constructor(
             }
             val skillDeclarations = skillRegistry.buildFunctionDeclarationsJson()
             if (skillDeclarations != "[]") {
-                append("\n\n[Tool Use]\nYou have access to tools. When a user asks for something a tool can help with, output ONLY the following JSON — no explanation, no extra text:\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n\nAvailable tools:\n$skillDeclarations")
+                append("\n\n[Tool Use]\nYou have access to tools. To call a tool, output ONLY the raw JSON below — no explanation, no text before or after it. Never say you used a tool without outputting the JSON first. Never fabricate a tool result.\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n\nAvailable tools:\n$skillDeclarations")
             }
-            append("\n\n[Available tools]\nflashlight on/off, set timer, get current time, save memory, set alarm, open settings, create calendar event, send email")
         }
     }
 
