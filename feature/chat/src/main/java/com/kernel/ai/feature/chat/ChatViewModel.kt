@@ -239,9 +239,9 @@ class ChatViewModel @Inject constructor(
                 }
                 append("[End of previous conversation context]")
             }
-            val skillDeclarations = skillRegistry.buildFunctionDeclarationsJson()
-            if (skillDeclarations != "[]") {
-                append("\n\n[Tool Use]\nWhen you need to call a tool, output ONLY the native call token — no prose before or after.\nString args: <|tool_call>call:tool_name{param:<|\"|>value<|\"|>}<tool_call|>\nNumeric args: <|tool_call>call:tool_name{count:3}<tool_call|>\nNEVER say you called a tool without emitting the call token. NEVER fabricate a result.\n\nAvailable tools:\n$skillDeclarations")
+            val nativeDeclarations = skillRegistry.buildNativeDeclarations()
+            if (nativeDeclarations.isNotBlank()) {
+                append("\n\n[Tool Use]\nWhen you need to perform a device action, output ONLY a tool call token with NO text before or after.\nUse the exact function name from the list below.\n\nNo-argument format: <|tool_call>call:FUNCTION_NAME{}<tool_call|>\nWith-argument format: <|tool_call>call:FUNCTION_NAME{param:<|\"|>value<|\"|>}<tool_call|>\n\n$nativeDeclarations")
             }
         }
     }
@@ -894,18 +894,28 @@ class ChatViewModel @Inject constructor(
         val endIdx = text.indexOf(endTag, innerStart)
         if (endIdx < 0) return null
 
-        val inner = text.substring(innerStart, endIdx).trim() // "call:name{args}"
+        // inner = "call:name{args}" or "call:name" (no braces for no-arg tools)
+        val inner = text.substring(innerStart, endIdx).trim()
         if (!inner.startsWith("call:")) return null
 
-        val braceIdx = inner.indexOf('{')
-        if (braceIdx < 0) return null
+        val afterCall = inner.substring("call:".length)
+        val braceIdx = afterCall.indexOf('{')
 
-        val rawName = inner.substring("call:".length, braceIdx).trim()
-        val argsBlock = inner.substring(braceIdx + 1, inner.lastIndexOf('}')).trim()
-        val snakeName = camelToSnake(rawName)
-
+        val rawName: String
         val argsJson = org.json.JSONObject()
-        if (argsBlock.isNotBlank()) parseNativeArgs(argsBlock, argsJson)
+        if (braceIdx < 0) {
+            rawName = afterCall.trim()
+        } else {
+            rawName = afterCall.substring(0, braceIdx).trim()
+            val lastBrace = afterCall.lastIndexOf('}')
+            if (lastBrace > braceIdx) {
+                val argsBlock = afterCall.substring(braceIdx + 1, lastBrace).trim()
+                if (argsBlock.isNotBlank()) parseNativeArgs(argsBlock, argsJson)
+            }
+        }
+
+        if (rawName.isBlank()) return null
+        val snakeName = camelToSnake(rawName)
 
         return org.json.JSONObject()
             .put("name", snakeName)
