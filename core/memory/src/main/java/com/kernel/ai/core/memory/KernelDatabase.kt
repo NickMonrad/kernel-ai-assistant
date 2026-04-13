@@ -11,6 +11,7 @@ import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.dao.ModelSettingsDao
+import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
@@ -18,6 +19,7 @@ import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
 import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
 import com.kernel.ai.core.memory.entity.MessageEntity
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
+import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.memory.entity.UserProfileEntity
 
 @Database(
@@ -29,8 +31,9 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         EpisodicMemoryEntity::class,
         CoreMemoryEntity::class,
         ModelSettingsEntity::class,
+        QuickActionEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -44,6 +47,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun episodicMemoryDao(): EpisodicMemoryDao
     abstract fun coreMemoryDao(): CoreMemoryDao
     abstract fun modelSettingsDao(): ModelSettingsDao
+    abstract fun quickActionDao(): QuickActionDao
 
     companion object {
         /** Adds lastDistilledAt to conversations (#165) and lastAccessedAt to episodic_memories (#167). */
@@ -76,6 +80,24 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE messages ADD COLUMN toolCallJson TEXT DEFAULT NULL")
+            }
+        }
+
+        /** Creates quick_actions table for FunctionGemma action history (#actions). */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS quick_actions (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        userQuery TEXT NOT NULL,
+                        skillName TEXT DEFAULT NULL,
+                        resultText TEXT NOT NULL,
+                        isSuccess INTEGER NOT NULL,
+                        timestamp INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
             }
         }
     }

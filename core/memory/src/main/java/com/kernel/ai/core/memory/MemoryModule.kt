@@ -8,6 +8,7 @@ import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.dao.ModelSettingsDao
+import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.MemoryRepositoryImpl
@@ -45,7 +46,12 @@ abstract class MemoryModule {
         @Singleton
         fun provideKernelDatabase(@ApplicationContext context: Context): KernelDatabase =
             Room.databaseBuilder(context, KernelDatabase::class.java, "kernel_db")
-                .addMigrations(KernelDatabase.MIGRATION_4_5, KernelDatabase.MIGRATION_5_6, KernelDatabase.MIGRATION_6_7)
+                .addMigrations(
+                    KernelDatabase.MIGRATION_4_5,
+                    KernelDatabase.MIGRATION_5_6,
+                    KernelDatabase.MIGRATION_6_7,
+                    KernelDatabase.MIGRATION_7_8,
+                )
                 .build()
 
         @Provides
@@ -68,5 +74,8 @@ abstract class MemoryModule {
 
         @Provides
         fun provideModelSettingsDao(db: KernelDatabase): ModelSettingsDao = db.modelSettingsDao()
+
+        @Provides
+        fun provideQuickActionDao(db: KernelDatabase): QuickActionDao = db.quickActionDao()
     }
 }

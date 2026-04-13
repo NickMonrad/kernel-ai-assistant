@@ -141,15 +141,56 @@ fun SettingsScreen(
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { viewModel.setPreferredModel(KernelModel.GEMMA_4_E2B) },
-                headlineContent = { Text("E2B — Gemma 4 E-2B") },
-                supportingContent = { Text("2.4 GB · Efficient, runs on all devices") },
+                    .clickable {
+                        if (uiState.e2bDownloaded) {
+                            viewModel.setPreferredModel(KernelModel.GEMMA_4_E2B)
+                        } else {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("E2B not downloaded")
+                            }
+                        }
+                    },
+                headlineContent = {
+                    Text(
+                        text = "E2B — Gemma 4 E-2B",
+                        color = if (uiState.e2bDownloaded)
+                            MaterialTheme.colorScheme.onSurface
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        text = if (uiState.e2bDownloaded) "2.4 GB · Efficient, runs on all devices"
+                               else "Not downloaded · 2.4 GB",
+                        color = if (uiState.e2bDownloaded)
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        else
+                            MaterialTheme.colorScheme.error,
+                    )
+                },
                 leadingContent = {
                     RadioButton(
                         selected = uiState.preferredModel == KernelModel.GEMMA_4_E2B,
-                        onClick = { viewModel.setPreferredModel(KernelModel.GEMMA_4_E2B) },
+                        onClick = {
+                            if (uiState.e2bDownloaded) {
+                                viewModel.setPreferredModel(KernelModel.GEMMA_4_E2B)
+                            } else {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("E2B not downloaded")
+                                }
+                            }
+                        },
+                        enabled = uiState.e2bDownloaded,
                     )
                 },
+                trailingContent = if (!uiState.e2bDownloaded) {
+                    {
+                        TextButton(onClick = { viewModel.downloadModel(KernelModel.GEMMA_4_E2B) }) {
+                            Text("Download")
+                        }
+                    }
+                } else null,
             )
 
             // E4B option
@@ -161,7 +202,7 @@ fun SettingsScreen(
                             viewModel.setPreferredModel(KernelModel.GEMMA_4_E4B)
                         } else {
                             scope.launch {
-                                snackbarHostState.showSnackbar("E4B not downloaded — using E2B")
+                                snackbarHostState.showSnackbar("E4B not downloaded")
                             }
                         }
                     },
@@ -177,7 +218,7 @@ fun SettingsScreen(
                 supportingContent = {
                     Text(
                         text = if (uiState.e4bDownloaded) "3.4 GB · Higher quality, flagship devices"
-                               else "Not downloaded",
+                               else "Not downloaded · 3.4 GB",
                         color = if (uiState.e4bDownloaded)
                             MaterialTheme.colorScheme.onSurfaceVariant
                         else
@@ -192,13 +233,20 @@ fun SettingsScreen(
                                 viewModel.setPreferredModel(KernelModel.GEMMA_4_E4B)
                             } else {
                                 scope.launch {
-                                    snackbarHostState.showSnackbar("E4B not downloaded — using E2B")
+                                    snackbarHostState.showSnackbar("E4B not downloaded")
                                 }
                             }
                         },
                         enabled = uiState.e4bDownloaded,
                     )
                 },
+                trailingContent = if (!uiState.e4bDownloaded) {
+                    {
+                        TextButton(onClick = { viewModel.downloadModel(KernelModel.GEMMA_4_E4B) }) {
+                            Text("Download")
+                        }
+                    }
+                } else null,
             )
 
             HorizontalDivider()

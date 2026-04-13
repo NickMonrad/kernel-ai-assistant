@@ -7,6 +7,7 @@
     <!-- Foreground service for download progress notification -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Notification permission (required on API 33+; minSdk=35 so always required) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Location permissions for GetWeatherSkill GPS fallback -->
@@ -44,6 +45,15 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <!-- Foreground service to keep process alive during GPU model init -->
+        <service
+            android:name="com.kernel.ai.core.inference.InferenceLoadingService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false" />
+        <property
+            android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+            android:value="On-device AI model inference loading via LiteRT GPU" />
 
         <!--
             AppAuth redirect receiver — handles com.kernel.ai://oauth/callback (release).
