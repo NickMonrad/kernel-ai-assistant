@@ -162,11 +162,11 @@ User Input (voice/text)
 
 | Task | Status | Notes |
 |------|--------|-------|
-| E4B native tool calling ([#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84)) | ⬜ Pending | `tryExecuteToolCall()` + `SkillExecutor` pipeline exists — needs system prompt engineering |
-| Tool system prompt injection | ⬜ Pending | Inject `SkillRegistry` schemas into system prompt so E4B knows available tools |
+| E4B native tool calling ([#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84)) | ✅ Done | `tryExecuteToolCall()` + `SkillExecutor` pipeline; tool schemas injected via `buildSystemPrompt()` |
+| Tool system prompt injection | ✅ Done | `SkillRegistry.buildFunctionDeclarationsJson()` injected into system prompt at init and on every model reload |
 | GetSystemInfo native skill ([#86](https://github.com/NickMonrad/kernel-ai-assistant/issues/86)) | ✅ Done | Runtime device/model/backend info via callable skill |
-| SaveMemory native skill ([#103](https://github.com/NickMonrad/kernel-ai-assistant/issues/103)) | ⬜ Pending | Agent-initiated memory persistence |
-| Weather skill (location + API) | ⬜ Pending | Location permission done (#221); needs real weather API |
+| Weather skill — Open-Meteo + GPS | ✅ Done | GPS (`current`) or city geocoding → Open-Meteo API; no API key required; falls back to named city gracefully |
+| SaveMemory native skill ([#103](https://github.com/NickMonrad/kernel-ai-assistant/issues/103)) | ⚠️ Partial | Skill class exists; Room persistence wiring incomplete |
 | Gated model download handling ([#38](https://github.com/NickMonrad/kernel-ai-assistant/issues/38)) | ⬜ Pending | HuggingFace token flow |
 
 ### Memory & Distillation

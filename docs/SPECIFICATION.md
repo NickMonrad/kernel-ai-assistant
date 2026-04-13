@@ -193,14 +193,14 @@ interface Skill {
 
 | Skill name | Description | Status |
 |------------|-------------|--------|
-| `get_weather` | Current weather for a location | ⚠️ Placeholder (needs weather API) |
+| `get_weather` | Current weather via Open-Meteo (free, no API key). Uses device GPS (`current`) or geocodes a city name. Returns temp, feels-like, humidity, wind speed, precipitation chance. | ✅ Wired |
 | `get_system_info` | Device/model/backend/battery stats | ✅ Wired |
 | `save_memory` | Persist a note/fact to Room | ⚠️ Partial |
 | `set_timer` | Set a countdown timer | ⚠️ Needs AlarmManager wire-up |
 | `run_intent` | OS intent dispatch (SET_ALARM, SEND_EMAIL, etc.) | ✅ Wired |
 
-Tool definitions are injected into the system prompt so Gemma-4 knows available tools and
-expected output format.
+Tool definitions (name, description, parameter schema) are injected into the system prompt via
+`SkillRegistry.buildFunctionDeclarationsJson()` so Gemma-4 knows available tools and expected output format.
 
 ### 4.3 Extensible Skills (WebAssembly)
 
