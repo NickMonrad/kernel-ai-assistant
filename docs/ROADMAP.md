@@ -158,15 +158,24 @@ User Input (voice/text)
 | Quick Actions tab UI (#221) | ✅ Done | History list, FAB (⚡), bottom sheet input, Room persistence |
 | Bottom nav bar (Chats / Actions) | ✅ Done | PR #221 |
 
-### Resident Agent — Tier 3: E4B Native Tool Calling
+### 🔥 TOP PRIORITY — Resident Agent — Tier 3: E4B Baseline Skills + Rich UI ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222))
 
 | Task | Status | Notes |
 |------|--------|-------|
 | E4B native tool calling ([#84](https://github.com/NickMonrad/kernel-ai-assistant/issues/84)) | ✅ Done | `tryExecuteToolCall()` + `SkillExecutor` pipeline; tool schemas injected via `buildSystemPrompt()` |
 | Tool system prompt injection | ✅ Done | `SkillRegistry.buildFunctionDeclarationsJson()` injected into system prompt at init and on every model reload |
-| GetSystemInfo native skill ([#86](https://github.com/NickMonrad/kernel-ai-assistant/issues/86)) | ✅ Done | Runtime device/model/backend info via callable skill |
-| Weather skill — Open-Meteo + GPS | ✅ Done | GPS (`current`) or city geocoding → Open-Meteo API; no API key required; falls back to named city gracefully |
-| SaveMemory native skill ([#103](https://github.com/NickMonrad/kernel-ai-assistant/issues/103)) | ⚠️ Partial | Skill class exists; Room persistence wiring incomplete |
+| `get_system_info` skill | ✅ Done | Runtime device/model/backend info |
+| `get_weather` skill — Open-Meteo + GPS | ✅ Done | GPS or city geocoding → Open-Meteo; no API key; confirmed working |
+| `save_memory` skill | ✅ Done | Persists to `MemoryRepository.addCoreMemory`; confirmed working |
+| **Rich tool result UI** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Replace 🔧 debug chip with weather card, confirmation chips, list cards per skill type |
+| **Weather card + GPS display name fix** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Reverse-geocode GPS coords → suburb/city name; WMO emoji; visual card |
+| **`set_timer` / `set_alarm`** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Wire to `AlarmClock.ACTION_SET_TIMER` / `ACTION_SET_ALARM` |
+| **`set_flashlight`** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | `CameraManager.setTorchMode()` |
+| **`set_do_not_disturb`** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | `NotificationManager.setInterruptionFilter()` |
+| **`send_email` / `send_sms` / `create_contact`** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Intent-based dispatch |
+| **`create_calendar_event` / `show_map_location`** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Intent-based dispatch |
+| **`add_to_shopping_list`** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Room-backed local list with list card UI |
+| **WiFi / Bluetooth / Airplane / Hotspot toggles** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Settings intent fallbacks where direct API removed |
 | Gated model download handling ([#38](https://github.com/NickMonrad/kernel-ai-assistant/issues/38)) | ⬜ Pending | HuggingFace token flow |
 
 ### Memory & Distillation
