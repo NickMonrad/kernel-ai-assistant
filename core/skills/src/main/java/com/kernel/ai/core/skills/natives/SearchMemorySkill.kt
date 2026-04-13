@@ -48,7 +48,9 @@ class SearchMemorySkill @Inject constructor(
         parameters = mapOf(
             "query" to SkillParameter(
                 type = "string",
-                description = "The topic or phrase to search for in saved memories and past messages."
+                description = "The topic or phrase to search for in saved memories and past messages. " +
+                    "Replace first-person pronouns with the user's actual name if known from their profile " +
+                    "(e.g. 'my ancestor' → 'Nick\\'s ancestor', 'my job' → 'Nick\\'s job')."
             ),
             "conversationId" to SkillParameter(
                 type = "string",

@@ -48,7 +48,8 @@ class RunJsSkill @Inject constructor(
             "forecast_days" to SkillParameter(
                 type = "integer",
                 description = "For get-weather-city only: number of forecast days (1–7). " +
-                    "Omit for current weather.",
+                    "Omit for current weather. When the user asks for a forecast without " +
+                    "specifying a number of days, use 3.",
             ),
         ),
         required = listOf("skill_name", "query"),
@@ -61,6 +62,7 @@ class RunJsSkill @Inject constructor(
         "Weather (current, named city): <|tool_call>call:run_js{skill_name:${strToken}get-weather-city${strToken},query:${strToken}Auckland${strToken}}<tool_call|>",
         "Weather (forecast 3 days, named city): <|tool_call>call:run_js{skill_name:${strToken}get-weather-city${strToken},query:${strToken}Auckland${strToken},forecast_days:${strToken}3${strToken}}<tool_call|>",
         "Weather (tomorrow, named city): <|tool_call>call:run_js{skill_name:${strToken}get-weather-city${strToken},query:${strToken}London${strToken},forecast_days:${strToken}1${strToken}}<tool_call|>",
+        "Weather (forecast no days specified — default 3): <|tool_call>call:run_js{skill_name:${strToken}get-weather-city${strToken},query:${strToken}Sydney${strToken},forecast_days:${strToken}3${strToken}}<tool_call|>",
     )
 
     override suspend fun execute(call: SkillCall): SkillResult {
