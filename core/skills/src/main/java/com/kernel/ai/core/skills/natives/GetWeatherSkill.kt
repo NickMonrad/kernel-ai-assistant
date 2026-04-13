@@ -76,7 +76,37 @@ class GetWeatherSkill @Inject constructor(
                 name,
                 "Couldn't get device location. Try asking about a specific city.",
             )
-        return fetchWeather(lat = loc.latitude, lon = loc.longitude, displayName = null)
+        return fetchWeather(lat = loc.latitude, lon = loc.longitude, displayName = reverseGeocode(loc.latitude, loc.longitude))
+    }
+
+    private suspend fun reverseGeocode(lat: Double, lon: Double): String? = withContext(Dispatchers.IO) {
+        try {
+            val url = "https://nominatim.openstreetmap.org/reverse" +
+                "?lat=$lat&lon=$lon&format=json"
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "KernelAI/1.0 (Android)")
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val body = response.body?.string() ?: return@withContext null
+                val json = JSONObject(body)
+                val address = json.optJSONObject("address") ?: return@withContext null
+                val city = address.optString("city").takeIf { it.isNotBlank() }
+                    ?: address.optString("town").takeIf { it.isNotBlank() }
+                    ?: address.optString("village").takeIf { it.isNotBlank() }
+                    ?: address.optString("suburb").takeIf { it.isNotBlank() }
+                val country = address.optString("country_code").uppercase().takeIf { it.isNotBlank() }
+                when {
+                    city != null && country != null -> "$city, $country"
+                    city != null -> city
+                    else -> null
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Reverse geocode failed", e)
+            null
+        }
     }
 
     @Suppress("MissingPermission")
