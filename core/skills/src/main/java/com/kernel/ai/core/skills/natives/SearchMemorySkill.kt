@@ -96,8 +96,8 @@ class SearchMemorySkill @Inject constructor(
                 // Explicitly saved facts first — these are the most direct answer to "what do you remember".
                 memoryResults.forEach { result ->
                     val sourceTag = if (result.source == "core") "Core Memory" else "Episodic Memory"
-                    val date = fmt.format(Date(result.lastAccessedAt.takeIf { it > 0L } ?: System.currentTimeMillis()))
-                    sb.appendLine("${index++}. [$sourceTag — $date]")
+                    val dateStr = if (result.lastAccessedAt > 0L) fmt.format(Date(result.lastAccessedAt)) else "date unknown"
+                    sb.appendLine("${index++}. [$sourceTag — $dateStr]")
                     sb.appendLine("   ${result.content.take(300)}")
                 }
 
