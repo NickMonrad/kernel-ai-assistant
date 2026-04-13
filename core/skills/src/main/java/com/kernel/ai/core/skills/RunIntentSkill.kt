@@ -24,7 +24,8 @@ class RunIntentSkill @Inject constructor(
     override val name = "run_intent"
     override val description =
         "Perform a native Android device action. Use for flashlight control, sending email, " +
-            "sending SMS, setting an alarm, or setting a countdown timer."
+            "sending SMS, setting an alarm (supports optional day name for tomorrow/weekday alarms), " +
+            "or setting a countdown timer."
 
     override val schema = SkillSchema(
         parameters = mapOf(
@@ -51,6 +52,8 @@ class RunIntentSkill @Inject constructor(
         "Send SMS:        <|tool_call>call:run_intent{intent_name:${STR}send_sms${STR},message:${STR}Hello${STR}}<tool_call|>",
         "Set alarm 7:30:        <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}7${STR},minutes:${STR}30${STR}}<tool_call|>",
         "Set alarm with label:  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}7${STR},minutes:${STR}30${STR},label:${STR}Wake Up${STR}}<tool_call|>",
+        "Set alarm tomorrow 8am: <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}8${STR},minutes:${STR}0${STR},day:${STR}tuesday${STR}}<tool_call|>",
+        "Set alarm next monday:  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}7${STR},minutes:${STR}0${STR},day:${STR}monday${STR}}<tool_call|>",
         "Set timer 3 min: <|tool_call>call:run_intent{intent_name:${STR}set_timer${STR},duration_seconds:${STR}180${STR}}<tool_call|>",
     )
 

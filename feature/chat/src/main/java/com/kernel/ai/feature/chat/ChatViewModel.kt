@@ -252,7 +252,9 @@ class ChatViewModel @Inject constructor(
                         "If the user says 'save it' or 'remember that', infer what 'it'/'that' refers to from the recent conversation and use that as the content. " +
                         "Do NOT ask the user what they want to save — always infer from context and call the tool.\n" +
                         "Alarm rule: whenever the user asks to set an alarm for a specific time, " +
-                        "you MUST call run_intent with intent_name=set_alarm — NEVER say 'alarm set' or confirm it without using the tool.\n\n" +
+                        "you MUST call run_intent with intent_name=set_alarm — NEVER say 'alarm set' or confirm it without using the tool. " +
+                        "If the user specifies a day (e.g. 'tomorrow', 'next Monday', 'on Friday'), include day=<day_name> in the call — " +
+                        "use the current date shown above to resolve 'tomorrow' to the actual day name (e.g. if today is Monday, tomorrow=tuesday).\n\n" +
                         nativeDeclarations
                 )
             }

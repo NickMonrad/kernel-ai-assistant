@@ -106,6 +106,10 @@ class NativeIntentHandler @Inject constructor(
             params["label"]?.takeIf { it.isNotBlank() }?.let {
                 putExtra(AlarmClock.EXTRA_MESSAGE, it)
             }
+            params["day"]?.takeIf { it.isNotBlank() }?.let { dayStr ->
+                val calDay = resolveDayOfWeek(dayStr)
+                if (calDay != null) putExtra(AlarmClock.EXTRA_DAYS, arrayListOf(calDay))
+            }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         if (context.packageManager.resolveActivity(intent, 0) == null) {
@@ -113,9 +117,34 @@ class NativeIntentHandler @Inject constructor(
         }
         return try {
             context.startActivity(intent)
-            SkillResult.Success("Alarm set for %02d:%02d.".format(hours, minutes))
+            val dayLabel = params["day"]?.takeIf { it.isNotBlank() }?.let { " on ${it.replaceFirstChar { c -> c.uppercase() }}" } ?: ""
+            SkillResult.Success("Alarm set for %02d:%02d%s.".format(hours, minutes, dayLabel))
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("run_intent", "No clock app found to set an alarm.")
+        }
+    }
+
+    /**
+     * Resolves a day name string to a [java.util.Calendar] day-of-week constant.
+     * Accepts full names ("monday"), abbreviations ("mon"), and "tomorrow".
+     * Returns null if the string cannot be resolved.
+     */
+    private fun resolveDayOfWeek(day: String): Int? {
+        val normalized = day.trim().lowercase()
+        if (normalized == "tomorrow") {
+            val cal = java.util.Calendar.getInstance()
+            cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+            return cal.get(java.util.Calendar.DAY_OF_WEEK)
+        }
+        return when {
+            normalized.startsWith("sun") -> java.util.Calendar.SUNDAY
+            normalized.startsWith("mon") -> java.util.Calendar.MONDAY
+            normalized.startsWith("tue") -> java.util.Calendar.TUESDAY
+            normalized.startsWith("wed") -> java.util.Calendar.WEDNESDAY
+            normalized.startsWith("thu") -> java.util.Calendar.THURSDAY
+            normalized.startsWith("fri") -> java.util.Calendar.FRIDAY
+            normalized.startsWith("sat") -> java.util.Calendar.SATURDAY
+            else -> null
         }
     }
 
