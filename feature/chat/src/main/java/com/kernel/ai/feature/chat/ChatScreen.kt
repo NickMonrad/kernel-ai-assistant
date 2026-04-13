@@ -548,11 +548,11 @@ private fun EmptyConversationHint(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "👋",
+                text = "\uD83E\uDEF4",
                 style = MaterialTheme.typography.displayMedium,
             )
             Text(
-                text = "Hi, I'm Jandal. How can I help?",
+                text = "Kia ora! What can I help with?",
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.padding(top = 8.dp),
             )
@@ -643,7 +643,7 @@ private fun OnboardingContent(
         ) {
             Text(text = "🧠", style = MaterialTheme.typography.displayLarge)
             Text(
-                text = "Welcome to Jandal",
+                text = "Kia ora, welcome to Jandal",
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(top = 16.dp),
             )
