@@ -124,7 +124,7 @@ class MemoryRepositoryImpl @Inject constructor(
         }.onFailure { Log.w(TAG, "Core memory search failed: ${it.message}") }
 
         runCatching {
-            if (episodicTopK <= 0) return@runCatching  // skip until Dreaming Engine populates the table
+            if (episodicTopK <= 0) return@runCatching
             val episodicResults = vectorStore.search(EPISODIC_VEC_TABLE, queryVector, episodicTopK)
                 .filter { it.distance <= EPISODIC_MAX_DISTANCE }
             val rowIds = episodicResults.map { it.rowId }
