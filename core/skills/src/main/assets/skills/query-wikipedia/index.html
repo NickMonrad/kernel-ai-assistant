@@ -8,6 +8,10 @@
  *
  * Args: { query: string }
  * Returns: A plain-text Wikipedia summary for the query.
+ *
+ * Strategy:
+ *  1. Try direct summary endpoint (works for exact article titles)
+ *  2. If that 404s, search for top result then fetch its full summary
  */
 async function ai_edge_gallery_get_result(data) {
     const query = (data.query || data.topic || data.search || "").trim();
@@ -15,46 +19,43 @@ async function ai_edge_gallery_get_result(data) {
 
     const encoded = encodeURIComponent(query);
 
-    // Try direct summary endpoint first
+    // 1. Try direct summary lookup
     const summaryResp = await fetch(
         "https://en.wikipedia.org/api/rest_v1/page/summary/" + encoded
     );
-
     if (summaryResp.ok) {
-        const json = await summaryResp.json();
-        const title = json.title || query;
-        const extract = json.extract || "";
-        const pageUrl = (json.content_urls && json.content_urls.desktop)
-            ? json.content_urls.desktop.page : "";
-
-        if (!extract) return "Wikipedia has no summary for: " + query;
-
-        const trimmed = extract.length > 900
-            ? extract.substring(0, 900) + "..."
-            : extract;
-
-        return title + "\n\n" + trimmed + (pageUrl ? "\n\nRead more: " + pageUrl : "");
+        return formatSummary(await summaryResp.json());
     }
 
-    // Fallback: search API
+    // 2. Search for top result, then fetch its summary
     const searchResp = await fetch(
         "https://en.wikipedia.org/w/api.php?action=query&list=search" +
-        "&srsearch=" + encoded + "&format=json&origin=*&srlimit=3"
+        "&srsearch=" + encoded + "&format=json&origin=*&srlimit=1"
     );
-
     if (!searchResp.ok) return "Wikipedia search failed for: " + query;
 
     const searchData = await searchResp.json();
     const results = searchData && searchData.query && searchData.query.search;
+    if (!results || results.length === 0) return "No Wikipedia results found for: " + query;
 
-    if (!results || results.length === 0) {
-        return "No Wikipedia results found for: " + query;
-    }
+    const topTitle = results[0].title;
+    const articleResp = await fetch(
+        "https://en.wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(topTitle)
+    );
+    if (!articleResp.ok) return "Couldn't fetch Wikipedia article for: " + topTitle;
 
-    return "Wikipedia results for '" + query + "':\n" +
-        results.map(function(r) {
-            return "• " + r.title + ": " + r.snippet.replace(/<[^>]+>/g, "");
-        }).join("\n");
+    return formatSummary(await articleResp.json());
+}
+
+function formatSummary(json) {
+    const title = json.title || "";
+    const extract = json.extract || "";
+    const pageUrl = json.content_urls && json.content_urls.desktop
+        ? json.content_urls.desktop.page : "";
+
+    if (!extract) return "Wikipedia has no summary for: " + title;
+
+    return title + "\n\n" + extract + (pageUrl ? "\n\nRead more: " + pageUrl : "");
 }
 </script>
 </body>

@@ -1,5 +1,6 @@
 package com.kernel.ai.core.skills.natives
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
@@ -26,6 +27,7 @@ private const val TAG = "KernelAI"
  *   send_email             — ACTION_SEND mail chooser (params: subject, body)
  *   send_sms               — ACTION_SENDTO SMS composer (params: message)
  *   set_alarm              — AlarmClock.ACTION_SET_ALARM (params: hours, minutes, label)
+ *   set_timer              — AlarmClock.ACTION_SET_TIMER (params: duration_seconds, label)
  */
 @Singleton
 class NativeIntentHandler @Inject constructor(
@@ -41,6 +43,7 @@ class NativeIntentHandler @Inject constructor(
                 "send_email" -> sendEmail(params)
                 "send_sms" -> sendSms(params)
                 "set_alarm" -> setAlarm(params)
+                "set_timer" -> setTimer(params)
                 else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
             }
         } catch (e: Exception) {
@@ -105,7 +108,45 @@ class NativeIntentHandler @Inject constructor(
             }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        context.startActivity(intent)
-        return SkillResult.Success("Alarm set for %02d:%02d.".format(hours, minutes))
+        if (context.packageManager.resolveActivity(intent, 0) == null) {
+            return SkillResult.Failure("run_intent", "No clock app found to set an alarm.")
+        }
+        return try {
+            context.startActivity(intent)
+            SkillResult.Success("Alarm set for %02d:%02d.".format(hours, minutes))
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("run_intent", "No clock app found to set an alarm.")
+        }
+    }
+
+    // ── Timer ─────────────────────────────────────────────────────────────────
+
+    private fun setTimer(params: Map<String, String>): SkillResult {
+        val seconds = params["duration_seconds"]?.toIntOrNull()
+            ?: return SkillResult.Failure("run_intent", "duration_seconds is required and must be an integer.")
+        val intent = Intent(AlarmClock.ACTION_SET_TIMER).apply {
+            putExtra(AlarmClock.EXTRA_LENGTH, seconds)
+            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+            params["label"]?.takeIf { it.isNotBlank() }?.let {
+                putExtra(AlarmClock.EXTRA_MESSAGE, it)
+            }
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        if (context.packageManager.resolveActivity(intent, 0) == null) {
+            return SkillResult.Failure("run_intent", "No clock app found to set a timer.")
+        }
+        return try {
+            context.startActivity(intent)
+            val mins = seconds / 60
+            val secs = seconds % 60
+            val label = when {
+                mins > 0 && secs > 0 -> "$mins min $secs sec"
+                mins > 0 -> "$mins minute${if (mins != 1) "s" else ""}"
+                else -> "$seconds seconds"
+            }
+            SkillResult.Success("Timer set for $label.")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("run_intent", "No clock app found to set a timer.")
+        }
     }
 }

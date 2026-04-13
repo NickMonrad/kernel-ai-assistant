@@ -24,7 +24,7 @@ class RunIntentSkill @Inject constructor(
     override val name = "run_intent"
     override val description =
         "Perform a native Android device action. Use for flashlight control, sending email, " +
-            "sending SMS, or setting an alarm."
+            "sending SMS, setting an alarm, or setting a countdown timer."
 
     override val schema = SkillSchema(
         parameters = mapOf(
@@ -37,6 +37,7 @@ class RunIntentSkill @Inject constructor(
                     "send_email",
                     "send_sms",
                     "set_alarm",
+                    "set_timer",
                 ),
             ),
         ),
@@ -49,6 +50,7 @@ class RunIntentSkill @Inject constructor(
         "Send email:      <|tool_call>call:run_intent{intent_name:${STR}send_email${STR},subject:${STR}Subject${STR},body:${STR}Body${STR}}<tool_call|>",
         "Send SMS:        <|tool_call>call:run_intent{intent_name:${STR}send_sms${STR},message:${STR}Hello${STR}}<tool_call|>",
         "Set alarm 7:30:  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}7${STR},minutes:${STR}30${STR}}<tool_call|>",
+        "Set timer 3 min: <|tool_call>call:run_intent{intent_name:${STR}set_timer${STR},duration_seconds:${STR}180${STR}}<tool_call|>",
     )
 
     override suspend fun execute(call: SkillCall): SkillResult {
