@@ -43,7 +43,7 @@ class MemoryRepositoryImpl @Inject constructor(
     override suspend fun addEpisodicMemory(
         conversationId: String,
         content: String,
-        embeddingVector: FloatArray?,
+        embeddingVector: FloatArray,
     ): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -52,9 +52,10 @@ class MemoryRepositoryImpl @Inject constructor(
             conversationId = conversationId,
             content = content,
             createdAt = now,
+            vectorized = true,
         )
         val rowId = episodicDao.insert(entity)
-        if (embeddingVector != null && rowId > 0) {
+        if (rowId > 0) {
             ensureEpisodicVecTable(embeddingVector.size)
             vectorStore.upsert(EPISODIC_VEC_TABLE, rowId, embeddingVector)
         }
@@ -66,7 +67,7 @@ class MemoryRepositoryImpl @Inject constructor(
     override suspend fun addCoreMemory(
         content: String,
         source: String,
-        embeddingVector: FloatArray?,
+        embeddingVector: FloatArray,
     ): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -76,9 +77,10 @@ class MemoryRepositoryImpl @Inject constructor(
             createdAt = now,
             lastAccessedAt = now,
             source = source,
+            vectorized = true,
         )
         val rowId = coreDao.insert(entity)
-        if (embeddingVector != null && rowId > 0) {
+        if (rowId > 0) {
             ensureCoreVecTable(embeddingVector.size)
             vectorStore.upsert(CORE_VEC_TABLE, rowId, embeddingVector)
         }

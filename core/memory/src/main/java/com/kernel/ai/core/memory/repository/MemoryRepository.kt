@@ -6,9 +6,9 @@ import kotlinx.coroutines.flow.Flow
 
 interface MemoryRepository {
     /** Store a volatile, conversation-scoped memory. */
-    suspend fun addEpisodicMemory(conversationId: String, content: String, embeddingVector: FloatArray? = null): String
+    suspend fun addEpisodicMemory(conversationId: String, content: String, embeddingVector: FloatArray): String
     /** Store a permanent cross-conversation memory. */
-    suspend fun addCoreMemory(content: String, source: String = "user", embeddingVector: FloatArray? = null): String
+    suspend fun addCoreMemory(content: String, source: String = "user", embeddingVector: FloatArray): String
     /** Search BOTH tiers; core ranked above episodic. */
     suspend fun searchMemories(
         queryVector: FloatArray,

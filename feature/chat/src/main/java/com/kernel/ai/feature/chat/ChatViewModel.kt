@@ -206,7 +206,9 @@ class ChatViewModel @Inject constructor(
         truthsSeedingMutex.withLock {
             if (jandalPersona.isTruthsSeeded) return
             jandalPersona.truths.forEach { truth ->
-                memoryRepository.addCoreMemory(truth, source = "jandal_persona")
+                val vector = embeddingEngine.embed(truth).takeIf { it.isNotEmpty() }
+                    ?: return@forEach  // skip if engine not ready
+                memoryRepository.addCoreMemory(truth, source = "jandal_persona", embeddingVector = vector)
             }
             jandalPersona.markTruthsSeeded()
             Log.i("ChatViewModel", "Seeded ${jandalPersona.truths.size} Kiwi truths into core memory")

@@ -71,4 +71,10 @@ interface CoreMemoryDao {
 
     @Query("SELECT rowId FROM core_memories WHERE id = :id LIMIT 1")
     suspend fun getRowIdById(id: String): Long?
+
+    @Query("SELECT * FROM core_memories WHERE vectorized = 0")
+    suspend fun getUnvectorized(): List<CoreMemoryEntity>
+
+    @Query("UPDATE core_memories SET vectorized = 1 WHERE rowId = :rowId")
+    suspend fun markVectorized(rowId: Long)
 }
