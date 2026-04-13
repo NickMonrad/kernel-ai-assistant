@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+/**
+ * Kernel AI — get-weather JS skill
+ * Compatible with Google AI Edge Gallery's ai_edge_gallery_get_result() contract.
+ *
+ * Args: { location: string }  (city name — GPS not available from JS skills)
+ * Returns: Plain-text current weather for the requested city.
+ *
+ * Note: For GPS-based weather, the native GetWeatherSkill (Kotlin) is preferred.
+ * This JS skill is for named-city lookups when invoked via run_js.
+ */
+async function ai_edge_gallery_get_result(data) {
+    const location = (data.location || data.city || "").trim();
+    if (!location) return "No location provided. Try 'weather in Auckland'.";
+
+    // Geocoding
+    const geoResp = await fetch(
+        "https://geocoding-api.open-meteo.com/v1/search?name=" +
+        encodeURIComponent(location) + "&count=1&language=en&format=json"
+    );
+    if (!geoResp.ok) return "Geocoding failed for: " + location;
+
+    const geoData = await geoResp.json();
+    const results = geoData && geoData.results;
+    if (!results || results.length === 0) {
+        return "Couldn't find location: " + location;
+    }
+
+    const place = results[0];
+    const lat = place.latitude;
+    const lon = place.longitude;
+    const displayName = place.name + (place.country_code ? ", " + place.country_code : "");
+
+    // Weather fetch
+    const weatherResp = await fetch(
+        "https://api.open-meteo.com/v1/forecast" +
+        "?latitude=" + lat + "&longitude=" + lon +
+        "&current=temperature_2m,apparent_temperature,relative_humidity_2m," +
+        "weather_code,wind_speed_10m,precipitation_probability" +
+        "&wind_speed_unit=ms"
+    );
+    if (!weatherResp.ok) return "Weather API failed for: " + displayName;
+
+    const w = await weatherResp.json();
+    const c = w.current;
+    const wmoDescriptions = {
+        0:"Clear sky",1:"Mainly clear",2:"Partly cloudy",3:"Overcast",
+        45:"Fog",48:"Fog",51:"Drizzle",53:"Drizzle",55:"Drizzle",
+        61:"Rain",63:"Rain",65:"Rain",71:"Snow",73:"Snow",75:"Snow",
+        80:"Rain showers",81:"Rain showers",82:"Rain showers",
+        95:"Thunderstorm",96:"Thunderstorm with hail",99:"Thunderstorm with hail"
+    };
+    const desc = wmoDescriptions[c.weather_code] || "Unknown";
+
+    return "Weather in " + displayName + ": " + desc + ".\n" +
+        "Temperature: " + c.temperature_2m.toFixed(1) + "°C" +
+        " (feels like " + c.apparent_temperature.toFixed(1) + "°C).\n" +
+        "Humidity: " + c.relative_humidity_2m + "%.\n" +
+        "Wind: " + c.wind_speed_10m.toFixed(1) + " m/s.\n" +
+        "Precipitation chance: " + c.precipitation_probability + "%.";
+}
+</script>
+</body>
+</html>
