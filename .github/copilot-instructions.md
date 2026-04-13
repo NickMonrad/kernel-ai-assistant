@@ -31,24 +31,44 @@ An Android-native, **local-first AI assistant** with zero cloud dependencies. Al
 
 ## Architecture
 
-### Brain — Model Cascade
+### Brain — Resident Agent (Three-Tier)
 
-Three models with a cascading strategy:
+The architecture uses a three-tier Resident Agent pattern — FunctionGemma is **deprecated** and no longer loaded at startup:
+
+```
+User input
+    │
+    ▼
+┌─────────────────────────────┐
+│  Tier 2: QuickIntentRouter  │  ← Pure Kotlin regex, ~0MB, <5ms (⬜ pending)
+│  Torch / Timer / DND etc.   │    Deterministic matching for ~8 simple actions
+└────────┬────────────────────┘
+         │ no match
+         ▼
+┌─────────────────────────────┐
+│  Tier 3: Gemma-4 E-4B/E-2B │  ← Resident on GPU, TTFT ~2.3s
+│  Native JSON tool calling   │    Complex NLU + tool calling via SkillExecutor
+│  + RAG memory context       │    Confirmed working: weather, save_memory, get_system_info
+└─────────────────────────────┘
+```
+
+**Model inventory:**
 
 | Model | Role | Size | Loading |
 |-------|------|------|---------|
-| FunctionGemma-270M-FT-Mobile-Actions | Intent router (always-hot) | 289MB | Loaded at splash screen (~1-2s) |
-| Gemma-4 E-4B (Performance) / E-2B (Compat) | Reasoning | ~1.5-2.5GB | Lazy-loaded on first complex query |
-| EmbeddingGemma-300M | Semantic embeddings | <200MB | Loaded when RAG pipeline activates |
+| Gemma-4 E-4B (Performance) / E-2B (Compat) | Resident reasoning + tool calling | ~3.4GB | Eager at startup — E4B-first to guarantee full GPU headroom |
+| EmbeddingGemma-300M | Semantic embeddings (RAG) | <200MB | Lazy — loads on first RAG-triggering query |
+| FunctionGemma-270M | ~~Intent router~~ **Deprecated** | 289MB | Not loaded at startup; class retained for future reference |
 
-- All models use **quantized weights** (INT4/INT8) via LiteRT with GPU + NPU delegates
-- FunctionGemma runs on **CPU via XNNPACK** (4 threads, ~154 tk/s) — always ready
-- **Model Manager** handles warm-up/teardown: never hold EmbeddingGemma + Gemma-4 simultaneously on 8GB devices
+- All models use **quantized weights** (INT4/INT8) via LiteRT
+- E4B runs on **GPU (OpenCL / Adreno 740)** — loaded first with full memory headroom
+- `safeTokenCount()` guard: nudges powers-of-2 down ~2.4% to avoid LiteRT `reshape::Eval` buffer-alignment bug on Adreno (4096→4000, 8192→8000)
+- **E4B-first loading:** E4B initialises on GPU before FunctionGemma is considered — prevents lmkd OOM during ~20s GPU kernel compilation peak
 - Backend fallback chain: NPU → GPU → CPU
 
 ### Memory — Local RAG
 
-**Short-term (session):** LiteRT-LM KV Cache — 4,096 tokens (Performance) / 2,048 tokens (Compatibility). At 80% capacity, the reasoning model generates a recursive summary injected back into the prompt.
+**Short-term (session):** LiteRT-LM KV Cache — 4,000 tokens (Performance) / 2,000 tokens (Compatibility). At 80% capacity, the reasoning model generates a recursive summary injected back into the prompt.
 
 **Long-term (semantic):** sqlite-vec (compiled via NDK for arm64-v8a) with Room entities. Every user query triggers cosine-similarity search via `vec_distance_cosine()`; top 3–5 memory fragments prepended to system prompt. EmbeddingGemma-300M generates 768-dim vectors (256-dim on 8GB tier via Matryoshka reduction).
 
@@ -71,14 +91,16 @@ Three models with a cascading strategy:
 ### Architecture
 - **Kotlin is the host language.** All orchestration, OS integration, and JNI bridges are Kotlin/JVM. Wasm is guest-only.
 - **No external LLM APIs.** Never introduce network calls to cloud inference endpoints; all model inference must go through LiteRT.
-- **Contract-first skill development.** Define the JSON schema for every skill before writing logic. The schema is the source of truth for both FunctionGemma (routing) and the Kotlin/Wasm implementation (execution). Any skill change starts with a version bump in the manifest.
-- **Context window is managed, not truncated.** When approaching the token limit, trigger recursive summarization — do not simply drop history.
+- **Contract-first skill development.** Define the JSON schema (`SkillSchema`) for every skill before writing logic. The schema is injected into the system prompt via `SkillRegistry.buildFunctionDeclarationsJson()` so E4B knows available tools. Any skill change starts with a version bump in the manifest.
+- **Context window is managed, not truncated.** When approaching the token limit, trigger recursive summarisation — do not simply drop history.
+- **FunctionGemma is deprecated.** Do not load FunctionGemma at startup or wire new features to it. All intent routing goes through `QuickIntentRouter` (Tier 2) or Gemma-4 E4B native tool calling (Tier 3).
 
 ### Performance & Safety
-- **Dedicated LLM Dispatcher.** All inference runs on a custom coroutine dispatcher (dedicated thread pool), never `Dispatchers.Main`. Keep UI responsive while NPU is saturated.
-- **Hallucination guardrails.** Always validate FunctionGemma's output against the skill registry schema. If malformed, retry once with the error fed back to the model. If still invalid, fall back to a text response from Gemma-4.
+- **Dedicated LLM Dispatcher.** All inference runs on a custom coroutine dispatcher (dedicated thread pool), never `Dispatchers.Main`. Keep UI responsive while GPU is saturated.
+- **E4B tool call validation.** `tryExecuteToolCall()` in `ChatViewModel` parses E4B JSON output and dispatches to `SkillExecutor`. If the skill name is unknown or JSON is malformed, fall through to plain text response — do not crash.
 - **Verify quantization.** Use LiteRT Metadata Extractor to confirm models are actually running at the expected bit-depth. An accidental FP32 model will OOM on 8GB devices.
 - **LeakCanary from day one.** Integrate early to catch model weight leaks — weights that linger after a conversation closes.
+- **`gemma4InitMutex`** guards all E4B init paths — both `initEngineWhenReady()` and `initGemma4()` must hold this lock to prevent concurrent double-init and GPU engine orphaning.
 
 ### Security
 - **Explicit Intents only.** When triggering native Android actions (SMS, email, etc.), never use implicit intents that could be intercepted by other apps.
@@ -86,9 +108,9 @@ Three models with a cascading strategy:
 - **Domain-scoped network access.** Wasm skills needing HTTP get domain-specific bridge functions (e.g., `fetchHomeAssistant(path)`) with URL validation against an allowlist — never a generic `fetch()`.
 
 ### Cold Start Strategy
-- Splash screen loads FunctionGemma (~1-2s) — simple commands work immediately
-- Gemma-4 lazy-loads on first complex query ("Thinking..." indicator shown)
-- EmbeddingGemma loads on first RAG-triggering query
+- E4B loads eagerly on GPU at startup (~20s first boot, ~2s with kernel cache) — all features available immediately once ready
+- EmbeddingGemma loads lazily on first RAG-triggering query
+- "Thinking…" indicator shown while E4B is initialising
 
 ## UI/UX
 
@@ -246,8 +268,8 @@ The script verifies SHA256 hashes after download. Models directory: `models/` (g
 
 ## Implementation Phases
 
-1. Core LiteRT-LM integration with GPU/NPU acceleration for Gemma-4
-2. sqlite-vec + EmbeddingGemma for local semantic search (RAG)
-3. FunctionGemma Intent Router + initial Native Skills + Voice I/O
+1. ✅ Core LiteRT-LM integration with GPU/NPU acceleration for Gemma-4
+2. ✅ sqlite-vec + EmbeddingGemma for local semantic search (RAG)
+3. 🔄 Resident Agent Architecture: QuickIntentRouter (Tier 2) + E4B native tool calling (Tier 3) + Voice I/O — **top priority: #222 (baseline skills + rich UI), #223 (memory tools)**
 4. Chicory Wasm Runtime + GitHub-based Skill Store
 5. 8GB device optimization (dynamic weight loading/unloading)
