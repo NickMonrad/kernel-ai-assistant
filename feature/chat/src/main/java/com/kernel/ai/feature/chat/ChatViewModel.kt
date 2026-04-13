@@ -254,7 +254,7 @@ class ChatViewModel @Inject constructor(
                         "Alarm rule: whenever the user asks to set an alarm for a specific time, " +
                         "you MUST call run_intent with intent_name=set_alarm — NEVER say 'alarm set' or confirm it without using the tool. " +
                         "If the user specifies a day (e.g. 'tomorrow', 'next Monday', 'on Friday'), include day=<day_name> in the call — " +
-                        "use the current date shown above to resolve 'tomorrow' to the actual day name (e.g. if today is Monday, tomorrow=tuesday).\n\n" +
+                        "pass the day exactly as the user said it (e.g. day='tomorrow', day='monday').\n\n" +
                         nativeDeclarations
                 )
             }
