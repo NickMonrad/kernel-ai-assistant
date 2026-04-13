@@ -29,30 +29,33 @@ class GetWeatherSkill @Inject constructor(
     private val httpClient: OkHttpClient,
 ) : Skill {
 
-    override val name = "get_weather"
+    override val name = "get_weather_gps"
     override val description =
-        "Get current weather conditions for the user's location or a named city. " +
-            "Use when the user asks about weather, temperature, rain, forecast, or conditions."
+        "Get current weather or a multi-day forecast using the device's GPS location. " +
+            "Use this when the user asks about their current location weather or doesn't specify a city. " +
+            "For weather in a named city, use run_js with skill_name='get-weather-city' instead."
+    private val strToken = "<|" + "\"" + "|>"
+
+    override val examples = listOf(
+        "Current location weather: <|tool_call>call:get_weather_gps{}<tool_call|>",
+        "GPS location forecast 3 days: <|tool_call>call:get_weather_gps{forecast_days:${strToken}3${strToken}}<tool_call|>",
+    )
+
     override val schema = SkillSchema(
         parameters = mapOf(
-            "location" to SkillParameter(
-                type = "string",
-                description = "City name (e.g. 'Auckland') or 'current' to use device GPS. " +
-                    "Defaults to 'current' if not specified.",
+            "forecast_days" to SkillParameter(
+                type = "integer",
+                description = "Number of forecast days (1–7). Omit for current conditions only.",
             ),
         ),
         required = emptyList(),
     )
 
     override suspend fun execute(call: SkillCall): SkillResult {
-        val location = call.arguments["location"]?.takeIf { it.isNotBlank() } ?: "current"
+        val forecastDays = call.arguments["forecast_days"]?.trim()?.toIntOrNull()?.coerceIn(1, 7) ?: 0
 
         return try {
-            if (location.equals("current", ignoreCase = true)) {
-                fetchByDeviceLocation()
-            } else {
-                fetchByCity(location)
-            }
+            fetchByDeviceLocation(forecastDays)
         } catch (e: Exception) {
             Log.e(TAG, "GetWeatherSkill failed", e)
             SkillResult.Failure(name, "Couldn't fetch weather: ${e.message}")
@@ -61,14 +64,14 @@ class GetWeatherSkill @Inject constructor(
 
     // ── Location ──────────────────────────────────────────────────────────────
 
-    private suspend fun fetchByDeviceLocation(): SkillResult {
+    private suspend fun fetchByDeviceLocation(forecastDays: Int = 0): SkillResult {
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
             return SkillResult.Failure(
                 name,
-                "Location permission not granted. Try asking about weather in a specific city, " +
-                    "e.g. 'weather in Auckland'.",
+                "Location permission not granted. Try asking about weather in a specific city " +
+                    "using run_js with skill_name='get-weather-city'.",
             )
         }
         val loc = getLastKnownLocation()
@@ -76,7 +79,12 @@ class GetWeatherSkill @Inject constructor(
                 name,
                 "Couldn't get device location. Try asking about a specific city.",
             )
-        return fetchWeather(lat = loc.latitude, lon = loc.longitude, displayName = reverseGeocode(loc.latitude, loc.longitude))
+        val displayName = reverseGeocode(loc.latitude, loc.longitude)
+        return if (forecastDays > 0) {
+            fetchForecast(lat = loc.latitude, lon = loc.longitude, displayName = displayName, days = forecastDays)
+        } else {
+            fetchWeather(lat = loc.latitude, lon = loc.longitude, displayName = displayName)
+        }
     }
 
     private suspend fun reverseGeocode(lat: Double, lon: Double): String? = withContext(Dispatchers.IO) {
@@ -118,36 +126,80 @@ class GetWeatherSkill @Inject constructor(
                 .addOnFailureListener { cont.resumeWith(Result.success(null)) }
         }
 
-    // ── Geocoding ─────────────────────────────────────────────────────────────
+    // ── Forecast fetch ────────────────────────────────────────────────────────
 
-    private suspend fun fetchByCity(city: String): SkillResult = withContext(Dispatchers.IO) {
-        val url = "https://geocoding-api.open-meteo.com/v1/search" +
-            "?name=${java.net.URLEncoder.encode(city, "UTF-8")}&count=1&language=en&format=json"
-        val request = Request.Builder().url(url).build()
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                return@withContext SkillResult.Failure(
-                    name,
-                    "Geocoding API returned ${response.code}.",
-                )
+    private suspend fun fetchForecast(lat: Double, lon: Double, displayName: String?, days: Int): SkillResult =
+        withContext(Dispatchers.IO) {
+            val url = "https://api.open-meteo.com/v1/forecast" +
+                "?latitude=$lat&longitude=$lon" +
+                "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code" +
+                "&timezone=auto&forecast_days=$days&wind_speed_unit=ms"
+            val request = Request.Builder().url(url).build()
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext SkillResult.Failure(
+                        name,
+                        "Forecast API returned ${response.code}.",
+                    )
+                }
+                val body = response.body?.string()
+                    ?: return@withContext SkillResult.Failure(name, "Empty forecast response.")
+                parseForecastResponse(body, displayName)
             }
-            val body = response.body?.string()
-                ?: return@withContext SkillResult.Failure(name, "Empty geocoding response.")
-            val json = JSONObject(body)
-            val results = json.optJSONArray("results")
-            if (results == null || results.length() == 0) {
-                return@withContext SkillResult.Failure(
-                    name,
-                    "Couldn't find location '$city'. Try a different city name.",
-                )
+        }
+
+    private fun parseForecastResponse(json: String, displayName: String?): SkillResult {
+        val obj = JSONObject(json)
+        val daily = obj.getJSONObject("daily")
+        val dates = daily.getJSONArray("time")
+        val maxTemps = daily.getJSONArray("temperature_2m_max")
+        val minTemps = daily.getJSONArray("temperature_2m_min")
+        val precip = daily.getJSONArray("precipitation_sum")
+        val codes = daily.getJSONArray("weather_code")
+
+        val len = dates.length()
+        if (len == 0) return SkillResult.Failure(name, "No forecast data returned.")
+        if (maxTemps.length() != len || minTemps.length() != len ||
+            precip.length() != len || codes.length() != len) {
+            return SkillResult.Failure(name, "Incomplete forecast data (mismatched array lengths).")
+        }
+
+        val locationLabel = displayName ?: "GPS location"
+        val text = buildString {
+            append("$locationLabel forecast:\n")
+            for (i in 0 until len) {
+                val dateStr = dates.getString(i)          // "YYYY-MM-DD"
+                val formattedDate = formatForecastDate(dateStr)
+                val code = codes.optInt(i, -1)
+                val emoji = wmoEmoji(code)
+                val desc = wmoDescription(code)
+                val high = maxTemps.optDouble(i, Double.NaN)
+                val low = minTemps.optDouble(i, Double.NaN)
+                val rain = precip.optDouble(i, 0.0)
+                val highStr = if (!high.isNaN()) "%.0f°C".format(high) else "?°C"
+                val lowStr = if (!low.isNaN()) "%.0f°C".format(low) else "?°C"
+                val rainStr = "%.0fmm rain".format(rain)
+                append("$formattedDate: $emoji $desc $highStr / $lowStr, $rainStr\n")
             }
-            val place = results.getJSONObject(0)
-            val lat = place.getDouble("latitude")
-            val lon = place.getDouble("longitude")
-            val resolvedName = place.optString("name", city)
-            val country = place.optString("country_code", "")
-            val displayName = if (country.isNotBlank()) "$resolvedName, $country" else resolvedName
-            fetchWeather(lat = lat, lon = lon, displayName = displayName)
+        }.trimEnd()
+
+        Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast for $locationLabel")
+        return SkillResult.Success(text)
+    }
+
+    private fun formatForecastDate(dateStr: String): String {
+        return try {
+            val parts = dateStr.split("-")
+            if (parts.size != 3) return dateStr
+            val year = parts[0].toInt()
+            val month = parts[1].toInt() - 1  // 0-based
+            val day = parts[2].toInt()
+            val cal = java.util.Calendar.getInstance().apply { set(year, month, day) }
+            val dayNames = arrayOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+            val monthNames = arrayOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+            "${dayNames[cal.get(java.util.Calendar.DAY_OF_WEEK) - 1]} $day ${monthNames[month]}"
+        } catch (e: Exception) {
+            dateStr
         }
     }
 
@@ -207,7 +259,26 @@ class GetWeatherSkill @Inject constructor(
         return SkillResult.Success(text)
     }
 
-    // ── WMO code → description ────────────────────────────────────────────────
+    // ── WMO code → description / emoji ───────────────────────────────────────
+
+    private fun wmoEmoji(code: Int): String = when (code) {
+        0 -> "☀️"
+        1 -> "🌤️"
+        2 -> "⛅"
+        3 -> "☁️"
+        45, 48 -> "🌫️"
+        51, 53 -> "🌦️"
+        55 -> "🌧️"
+        61, 63, 65 -> "🌧️"
+        66, 67 -> "🌧️"
+        71, 73, 75 -> "❄️"
+        77 -> "🌨️"
+        80, 81 -> "🌦️"
+        82 -> "⛈️"
+        85, 86 -> "🌨️"
+        95, 96, 99 -> "⛈️"
+        else -> "🌡️"
+    }
 
     private fun wmoDescription(code: Int): String = when (code) {
         0 -> "Clear sky"
@@ -220,7 +291,8 @@ class GetWeatherSkill @Inject constructor(
         66, 67 -> "Freezing rain"
         71, 73, 75 -> "Snow"
         77 -> "Snow grains"
-        80, 81, 82 -> "Rain showers"
+        80, 81 -> "Rain showers"
+        82 -> "Heavy rain showers"
         85, 86 -> "Snow showers"
         95 -> "Thunderstorm"
         96, 99 -> "Thunderstorm with hail"
