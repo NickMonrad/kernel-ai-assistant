@@ -219,7 +219,7 @@ class ChatViewModel @Inject constructor(
             .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))
         return buildString {
             append(DEFAULT_SYSTEM_PROMPT)
-            append("\n\n${jandalPersona.getGreeting()} ${jandalPersona.buildSessionVocab()}")
+            append("\n\n${jandalPersona.buildGreetingInstruction()} ${jandalPersona.buildSessionVocab()}")
             append("\n\n[Current date and time]\n$dateTime")
             // Runtime info fetched dynamically via get_system_info skill at query time
             if (profile.isNotBlank()) {

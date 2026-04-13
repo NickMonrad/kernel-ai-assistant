@@ -47,13 +47,20 @@ class JandalPersona @Inject constructor(
     }
 
     /**
-     * Returns a time-appropriate greeting.
-     * - 05:00-11:59 -> "Morena!" (good morning in Maori)
-     * - All other hours -> "Kia ora!"
+     * Returns an explicit time-aware instruction about when Morena is appropriate.
+     * This replaces the bare greeting word injection so the model understands the
+     * time constraint rather than treating "Morena!" as a general-purpose greeting.
+     *
+     * - 05:00-11:59 → permit Morena, explain it means good morning
+     * - All other hours → explicitly forbid Morena, direct model to use Kia ora
      */
-    fun getGreeting(): String {
+    fun buildGreetingInstruction(): String {
         val hour = LocalTime.now().hour
-        return if (hour in 5..11) "Morena!" else "Kia ora!"
+        return if (hour in 5..11) {
+            "It is morning. You may greet with 'Morena' (good morning in Māori) where natural."
+        } else {
+            "Do not say 'Morena' — it means good morning and it is not morning. Greet with 'Kia ora' instead."
+        }
     }
 
     /**
