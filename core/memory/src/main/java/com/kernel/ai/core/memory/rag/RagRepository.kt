@@ -141,7 +141,8 @@ class RagRepository @Inject constructor(
             val distilledOverhead = (distilledHeader.length + distilledFooter.length + charsPerToken - 1) / charsPerToken
             var distilledBudget = tokenBudgetRemaining - distilledOverhead
             for (result in distilledResults) {
-                val line = result.content.take(400)
+                val prefix = result.conversationId?.let { "conversation:$it | " } ?: ""
+                val line = "$prefix${result.content.take(400)}"
                 val cost = (line.length + 1 + charsPerToken - 1) / charsPerToken
                 if (distilledBudget - cost < 0) break
                 distilledMemoryLines.add(line)
@@ -167,10 +168,9 @@ class RagRepository @Inject constructor(
                         .sortedBy { candidates.indexOf(it.rowId) }
                         .take(topK)
 
-                    val messages = filteredEntities.mapNotNull { entity ->
-                        messageDao.getByConversation(entity.conversationId)
-                            .firstOrNull { it.id == entity.messageId }
-                    }
+                    val fetchedMsgIds = filteredEntities.map { it.messageId }
+                    val fetchedMsgMap = messageDao.getByIds(fetchedMsgIds).associateBy { it.id }
+                    val messages = filteredEntities.mapNotNull { fetchedMsgMap[it.messageId] }
 
                     val episodicHeader = "[Episodic Memories — recalled from a past conversation]\n"
                     val episodicFooter = "[End of episodic memories]"
@@ -210,6 +210,57 @@ class RagRepository @Inject constructor(
                 episodicLines.forEach { appendLine(it) }
                 append("[End of message history]")
             }
+        }
+    }
+
+    /**
+     * Search [message_embeddings] for messages semantically similar to [query].
+     *
+     * @param query Natural-language search query to embed and compare against stored messages.
+     * @param conversationId When provided, restricts results to that conversation (summary-to-detail
+     *   path). When null, searches across all conversations (cross-conversation recall).
+     * @param topK Maximum number of results to return.
+     * @return List of matching messages with role, content, and conversationId; empty if none found
+     *   or if the embedding engine is not ready.
+     */
+    suspend fun searchMessages(
+        query: String,
+        conversationId: String? = null,
+        topK: Int = DEFAULT_TOP_K,
+    ): List<MessageSearchResult> = withContext(Dispatchers.IO) {
+        val queryVector = embeddingEngine.embed(query)
+        if (queryVector.isEmpty()) return@withContext emptyList()
+        if (!tableCreated) return@withContext emptyList()
+
+        runCatching {
+            val rawResults = vectorStore.search(TABLE, queryVector, topK * 2)
+                .filter { it.distance <= MAX_DISTANCE }
+                .map { it.rowId }
+            if (rawResults.isEmpty()) return@runCatching emptyList()
+
+            val entities = if (conversationId != null) {
+                embeddingDao.getByRowIdsForConversation(rawResults, conversationId)
+            } else {
+                embeddingDao.getByRowIds(rawResults)
+            }
+                .sortedBy { rawResults.indexOf(it.rowId) }
+                .take(topK)
+
+            val messageIds = entities.map { it.messageId }
+            val fetchedMessages = messageDao.getByIds(messageIds).associateBy { it.id }
+
+            entities.mapNotNull { entity ->
+                val msg = fetchedMessages[entity.messageId] ?: return@mapNotNull null
+                MessageSearchResult(
+                    role = msg.role,
+                    content = msg.content,
+                    conversationId = entity.conversationId,
+                    timestamp = msg.timestamp,
+                )
+            }
+        }.getOrElse {
+            Log.w(TAG, "searchMessages failed: ${it.message}")
+            emptyList()
         }
     }
 
