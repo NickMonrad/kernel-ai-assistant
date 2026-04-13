@@ -829,21 +829,19 @@ class ChatViewModel @Inject constructor(
      * Limits to 1 tool call per Gemma-4 response to prevent loops.
      */
     private suspend fun tryExecuteToolCall(raw: String): Pair<ToolCallInfo, String>? {
-        val trimmed = raw.trim()
-        // Quick check: must look like a JSON object
-        if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null
-        // Must contain "name" key (function call format)
-        if (!trimmed.contains("\"name\"")) return null
+        // E4B often wraps the JSON tool call in prose. Extract the first valid
+        // {"name": ..., "arguments": ...} block from anywhere in the response.
+        val extracted = extractToolCallJson(raw) ?: return null
 
-        val result = skillExecutor.execute(trimmed)
+        val result = skillExecutor.execute(extracted)
         return when (result) {
             is SkillResult.Success -> {
                 val skillName = try {
-                    org.json.JSONObject(trimmed).optString("name", "unknown")
+                    org.json.JSONObject(extracted).optString("name", "unknown")
                 } catch (e: Exception) { "unknown" }
                 val toolCall = ToolCallInfo(
                     skillName = skillName,
-                    requestJson = trimmed,
+                    requestJson = extracted,
                     resultText = result.content,
                     isSuccess = true,
                 )
@@ -852,7 +850,7 @@ class ChatViewModel @Inject constructor(
             is SkillResult.Failure -> {
                 val toolCall = ToolCallInfo(
                     skillName = result.skillName,
-                    requestJson = trimmed,
+                    requestJson = extracted,
                     resultText = result.error,
                     isSuccess = false,
                 )
@@ -860,6 +858,43 @@ class ChatViewModel @Inject constructor(
             }
             is SkillResult.ParseError, is SkillResult.UnknownSkill -> null
         }
+    }
+
+    /**
+     * Scans [text] for the first balanced {...} block that contains a "name" key and
+     * can be parsed as a valid skill call JSON. Handles responses where E4B emits the
+     * tool call JSON embedded in conversational prose rather than as a standalone object.
+     */
+    private fun extractToolCallJson(text: String): String? {
+        var i = 0
+        while (i < text.length) {
+            val start = text.indexOf('{', i)
+            if (start == -1) break
+            var depth = 0
+            var j = start
+            var inString = false
+            var escape = false
+            while (j < text.length) {
+                val c = text[j]
+                when {
+                    escape -> escape = false
+                    c == '\\' && inString -> escape = true
+                    c == '"' -> inString = !inString
+                    !inString && c == '{' -> depth++
+                    !inString && c == '}' -> {
+                        depth--
+                        if (depth == 0) {
+                            val candidate = text.substring(start, j + 1)
+                            if (candidate.contains("\"name\"")) return candidate
+                            break
+                        }
+                    }
+                }
+                j++
+            }
+            i = start + 1
+        }
+        return null
     }
 
     override fun onCleared() {
