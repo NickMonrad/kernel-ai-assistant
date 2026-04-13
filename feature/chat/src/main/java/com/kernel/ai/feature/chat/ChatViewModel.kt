@@ -241,7 +241,7 @@ class ChatViewModel @Inject constructor(
             }
             val skillDeclarations = skillRegistry.buildFunctionDeclarationsJson()
             if (skillDeclarations != "[]") {
-                append("\n\n[Tool Use]\nYou have access to tools. To call a tool, output ONLY the raw JSON below — no explanation, no text before or after it. Never say you used a tool without outputting the JSON first. Never fabricate a tool result.\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n\nAvailable tools:\n$skillDeclarations")
+                append("\n\n[Tool Use]\nWhen you need to call a tool, output ONLY the native call token — no prose before or after.\nString args: <|tool_call>call:tool_name{param:<|\"|>value<|\"|>}<tool_call|>\nNumeric args: <|tool_call>call:tool_name{count:3}<tool_call|>\nNEVER say you called a tool without emitting the call token. NEVER fabricate a result.\n\nAvailable tools:\n$skillDeclarations")
             }
         }
     }
@@ -342,6 +342,7 @@ class ChatViewModel @Inject constructor(
                     maxTokens = settings.contextWindowSize,
                     temperature = settings.temperature,
                     topP = settings.topP,
+                    toolSet = kernelAIToolSet,
                 ))
                 estimatedTokensUsed = 0
                 inferenceEngine.updateSystemPrompt(buildSystemPrompt())
@@ -417,6 +418,7 @@ class ChatViewModel @Inject constructor(
                     maxTokens = settings.contextWindowSize,
                     temperature = settings.temperature,
                     topP = settings.topP,
+                    toolSet = kernelAIToolSet,
                 ))
                 estimatedTokensUsed = 0
                 // Rebuild system prompt now that activeBackend is resolved (backend field
@@ -578,7 +580,8 @@ class ChatViewModel @Inject constructor(
             }
 
             try {
-                inferenceEngine.generate(prompt).collect { result ->
+                kernelAIToolSet.resetTurnState()
+            inferenceEngine.generate(prompt).collect { result ->
                     when (result) {
                         is GenerationResult.Token -> {
                             accumulatedContent.append(result.text)
@@ -846,7 +849,7 @@ class ChatViewModel @Inject constructor(
     private suspend fun tryExecuteToolCall(raw: String): Pair<ToolCallInfo, String>? {
         // E4B often wraps the JSON tool call in prose. Extract the first valid
         // {"name": ..., "arguments": ...} block from anywhere in the response.
-        val extracted = extractToolCallJson(raw) ?: return null
+        val extracted = extractNativeToolCall(raw) ?: extractToolCallJson(raw) ?: return null
 
         val result = skillExecutor.execute(extracted)
         return when (result) {
@@ -872,6 +875,74 @@ class ChatViewModel @Inject constructor(
                 Pair(toolCall, "I tried to do that but something went wrong: ${result.error}")
             }
             is SkillResult.ParseError, is SkillResult.UnknownSkill -> null
+        }
+    }
+
+
+    /**
+     * Scans [text] for a Gemma 4 native tool call token:
+     *   <|tool_call>call:name{key:<|"|>value<|"|>,key2:numval}<tool_call|>
+     * If found, normalises it to {"name": "name", "arguments": {...}} JSON
+     * so it can be dispatched via the existing [SkillExecutor] path.
+     */
+    private fun extractNativeToolCall(text: String): String? {
+        val startTag = "<|tool_call>"
+        val endTag = "<tool_call|>"
+        val startIdx = text.indexOf(startTag)
+        if (startIdx < 0) return null
+        val innerStart = startIdx + startTag.length
+        val endIdx = text.indexOf(endTag, innerStart)
+        if (endIdx < 0) return null
+
+        val inner = text.substring(innerStart, endIdx).trim() // "call:name{args}"
+        if (!inner.startsWith("call:")) return null
+
+        val braceIdx = inner.indexOf('{')
+        if (braceIdx < 0) return null
+
+        val rawName = inner.substring("call:".length, braceIdx).trim()
+        val argsBlock = inner.substring(braceIdx + 1, inner.lastIndexOf('}')).trim()
+        val snakeName = camelToSnake(rawName)
+
+        val argsJson = org.json.JSONObject()
+        if (argsBlock.isNotBlank()) parseNativeArgs(argsBlock, argsJson)
+
+        return org.json.JSONObject()
+            .put("name", snakeName)
+            .put("arguments", argsJson)
+            .toString()
+    }
+
+    /** Converts camelCase to snake_case for mapping native tool names to SkillRegistry names. */
+    private fun camelToSnake(name: String): String =
+        name.replace(Regex("([A-Z])")) { "_${it.value.lowercase()}" }.trimStart('_')
+
+    /**
+     * Parses the Gemma 4 native arg block, e.g.:
+     *   location:<|"|>London<|"|>,unit:<|"|>celsius<|"|>
+     *   duration:5
+     */
+    private fun parseNativeArgs(raw: String, out: org.json.JSONObject) {
+        val strToken = """<|"|>"""
+        var i = 0
+        while (i < raw.length) {
+            val colonIdx = raw.indexOf(':', i)
+            if (colonIdx < 0) break
+            val key = raw.substring(i, colonIdx).trim()
+            val rest = raw.substring(colonIdx + 1)
+            if (rest.startsWith(strToken)) {
+                val valueStart = strToken.length
+                val valueEnd = rest.indexOf(strToken, valueStart)
+                if (valueEnd < 0) break
+                out.put(key, rest.substring(valueStart, valueEnd))
+                i = colonIdx + 1 + valueEnd + strToken.length
+                if (i < raw.length && raw[i] == ',') i++
+            } else {
+                val commaIdx = rest.indexOf(',')
+                val rawVal = if (commaIdx < 0) rest.trim() else rest.substring(0, commaIdx).trim()
+                out.put(key, rawVal.toLongOrNull() ?: rawVal.toDoubleOrNull() ?: rawVal)
+                i = colonIdx + 1 + (if (commaIdx < 0) rest.length else commaIdx + 1)
+            }
         }
     }
 
