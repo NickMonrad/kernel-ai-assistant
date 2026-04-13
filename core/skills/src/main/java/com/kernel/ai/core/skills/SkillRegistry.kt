@@ -41,13 +41,17 @@ class SkillRegistry @Inject constructor(
                     "$k:$exVal"
                 }.joinToString(",")
             }
-            sb.append("  Call: <|tool_call>call:${skill.name}{$exampleArgs}<tool_call|>\n")
-            if (skill.schema.parameters.isNotEmpty()) {
-                skill.schema.required.forEach { req ->
-                    val p = skill.schema.parameters[req]
-                    if (p != null) {
-                        val enumNote = if (!p.enum.isNullOrEmpty()) " [${p.enum!!.joinToString("/")}]" else ""
-                        sb.append("  $req (${p.type}$enumNote): ${p.description}\n")
+            if (skill.examples.isNotEmpty()) {
+                skill.examples.forEach { sb.append("  $it\n") }
+            } else {
+                sb.append("  Call: <|tool_call>call:${skill.name}{$exampleArgs}<tool_call|>\n")
+                if (skill.schema.parameters.isNotEmpty()) {
+                    skill.schema.required.forEach { req ->
+                        val p = skill.schema.parameters[req]
+                        if (p != null) {
+                            val enumNote = if (!p.enum.isNullOrEmpty()) " [${p.enum!!.joinToString("/")}]" else ""
+                            sb.append("  $req (${p.type}$enumNote): ${p.description}\n")
+                        }
                     }
                 }
             }
