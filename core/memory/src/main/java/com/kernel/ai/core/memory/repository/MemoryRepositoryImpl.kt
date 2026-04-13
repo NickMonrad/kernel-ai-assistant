@@ -178,7 +178,7 @@ class MemoryRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateCoreMemory(id: String, newContent: String, newVector: FloatArray?) {
-        coreDao.updateContent(id, newContent)
+        // update vec first; only write content if vec succeeds (matches updateEpisodicMemory pattern)
         if (newVector != null) {
             val rowId = coreDao.getRowIdById(id)
             if (rowId != null && rowId > 0) {
@@ -186,6 +186,7 @@ class MemoryRepositoryImpl @Inject constructor(
                 vectorStore.upsert(CORE_VEC_TABLE, rowId, newVector)
             }
         }
+        coreDao.updateContent(id, newContent)
         Log.d(TAG, "Updated core memory id=$id")
     }
 
