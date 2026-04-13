@@ -42,7 +42,7 @@ class JandalPersona @Inject constructor(
 
     /** Call after seeding to mark as done. */
     fun markTruthsSeeded() {
-        prefs.edit().putBoolean(KEY_TRUTHS_SEEDED, true).apply()
+        prefs.edit().putBoolean(KEY_TRUTHS_SEEDED, true).commit() // synchronous — must be persisted before mutex releases
         Log.i(TAG, "Kiwi truths marked as seeded")
     }
 
