@@ -83,8 +83,10 @@ class RagRepository @Inject constructor(
      * Returns a formatted context block ready to prepend to a prompt, or an
      * empty string when no relevant context is available.
      *
-     * @param conversationId Only episodic (message) memories from this conversation are
-     *   considered, preventing memories from unrelated conversations from leaking in.
+     * @param conversationId Only message history from this conversation is
+     *   considered for the [Message History] section, preventing messages from
+     *   unrelated conversations from leaking in. Episodic memories (distilled
+     *   conversation summaries) are cross-conversation by design.
      * @param excludeMessageIds Message IDs to exclude (e.g. the current turn's user message).
      * @param maxTokens Maximum token budget for the returned context block (estimated at chars/3).
      *   Results are truncated to fit within the budget. Defaults to [ContextWindowManager.EPISODIC_BUDGET].
@@ -134,8 +136,8 @@ class RagRepository @Inject constructor(
                 tokenBudgetRemaining = coreBudget
             }
 
-            val distilledHeader = "[Distilled Memories — summaries of past conversations]\n"
-            val distilledFooter = "[End of distilled memories]"
+            val distilledHeader = "[Episodic Memories — summaries of past conversations]\n"
+            val distilledFooter = "[End of episodic memories]"
             val distilledOverhead = (distilledHeader.length + distilledFooter.length + charsPerToken - 1) / charsPerToken
             var distilledBudget = tokenBudgetRemaining - distilledOverhead
             for (result in distilledResults) {
@@ -198,15 +200,15 @@ class RagRepository @Inject constructor(
             }
             if (distilledMemoryLines.isNotEmpty()) {
                 if (coreMemoryLines.isNotEmpty()) append("\n\n")
-                append("[Distilled Memories — summaries of past conversations]\n")
+                append("[Episodic Memories — summaries of past conversations]\n")
                 distilledMemoryLines.forEach { appendLine(it) }
-                append("[End of distilled memories]")
+                append("[End of episodic memories]")
             }
             if (episodicLines.isNotEmpty()) {
                 if (coreMemoryLines.isNotEmpty() || distilledMemoryLines.isNotEmpty()) append("\n\n")
-                append("[Episodic Memories — recalled from a past conversation]\n")
+                append("[Message History — earlier in this conversation]\n")
                 episodicLines.forEach { appendLine(it) }
-                append("[End of episodic memories]")
+                append("[End of message history]")
             }
         }
     }
