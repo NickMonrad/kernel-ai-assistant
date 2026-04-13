@@ -77,8 +77,18 @@ class SearchMemorySkill @Inject constructor(
 
         return withContext(Dispatchers.Default) {
             try {
-                val messageResults = ragRepository.searchMessages(query, conversationId, topK)
-                val memoryResults = ragRepository.searchCoreAndEpisodic(query, topK)
+                val messageResults = runCatching {
+                    ragRepository.searchMessages(query, conversationId, topK)
+                }.getOrElse { e ->
+                    Log.w(TAG, "searchMessages failed: ${e.message}", e)
+                    emptyList()
+                }
+                val memoryResults = runCatching {
+                    ragRepository.searchCoreAndEpisodic(query, topK)
+                }.getOrElse { e ->
+                    Log.w(TAG, "searchCoreAndEpisodic failed: ${e.message}", e)
+                    emptyList()
+                }
                 Log.d(
                     TAG,
                     "SearchMemorySkill: query='${query.take(60)}' conversationId=$conversationId " +
