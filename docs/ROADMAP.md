@@ -171,7 +171,7 @@ User Input (voice/text)
 | Tool system prompt injection | ✅ Done | `SkillRegistry.buildNativeDeclarations()` injected into system prompt; concrete `<\|tool_call>` examples per skill |
 | JS skill execution layer — WebView gateway ([#239](https://github.com/NickMonrad/kernel-ai-assistant/issues/239)) | ✅ Done | `JsSkillRunner` + hidden WebView; `run_js` gateway (#247/#251) |
 | `get_system_info` skill | ✅ Done | Runtime device/model/backend info |
-| `get_weather` JS skill — Open-Meteo + GPS | ✅ Done | GPS or city geocoding → Open-Meteo; Nominatim reverse geocode for GPS display name (#257) |
+| `get_weather` JS skill — Open-Meteo + GPS | ✅ Done | Renamed to `get_weather_gps` (native) and `get-weather-city` (JS). GPS skill now supports forecast (#272) |
 | `query_wikipedia` JS skill | ✅ Done | Full article fetch via REST summary API (#257) |
 | `save_memory` skill | ✅ Done | Persists to `MemoryRepository.addCoreMemory`; explicit trigger enforced in system prompt (#257) |
 | `set_alarm` via `run_intent` | ✅ Done | `AlarmClock.ACTION_SET_ALARM`; package visibility fix (#262); hallucination rule (#263) |

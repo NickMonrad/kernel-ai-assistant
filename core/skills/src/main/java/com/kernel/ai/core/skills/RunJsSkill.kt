@@ -16,7 +16,7 @@ private const val TAG = "KernelAI"
  *
  * Built-in JS skills bundled with the app:
  *   - query-wikipedia  Search Wikipedia and return a plain-text summary
- *   - get-weather      Fetch current weather or multi-day forecast for a named city
+ *   - get-weather-city Fetch current weather or multi-day forecast for a named city
  *                      via Open-Meteo (no GPS needed).
  *                      Pass forecast_days (1–7) for a daily forecast instead of current.
  *
@@ -29,16 +29,17 @@ class RunJsSkill @Inject constructor(
 
     override val name = "run_js"
     override val description =
-        "Run a built-in JavaScript skill by name. Use for web queries like Wikipedia " +
-            "lookups, city weather (current or forecast). " +
-            "For weather forecasts pass forecast_days (1–7) to get a daily forecast."
+        "Run a built-in JavaScript skill by name. Use skill_name='get-weather-city' for weather " +
+            "with a known city name or forecast by city. " +
+            "For current GPS location weather or GPS-based forecast, use get_weather_gps instead. " +
+            "For forecast, pass forecast_days (1–7)."
 
     override val schema = SkillSchema(
         parameters = mapOf(
             "skill_name" to SkillParameter(
                 type = "string",
                 description = "The JS skill to run.",
-                enum = listOf("query-wikipedia", "get-weather"),
+                enum = listOf("query-wikipedia", "get-weather-city"),
             ),
             "query" to SkillParameter(
                 type = "string",
@@ -46,7 +47,7 @@ class RunJsSkill @Inject constructor(
             ),
             "forecast_days" to SkillParameter(
                 type = "integer",
-                description = "For get-weather only: number of forecast days (1–7). " +
+                description = "For get-weather-city only: number of forecast days (1–7). " +
                     "Omit for current weather.",
             ),
         ),
@@ -57,9 +58,9 @@ class RunJsSkill @Inject constructor(
 
     override val examples: List<String> = listOf(
         "Wikipedia: <|tool_call>call:run_js{skill_name:${strToken}query-wikipedia${strToken},query:${strToken}New Zealand${strToken}}<tool_call|>",
-        "Weather (current): <|tool_call>call:run_js{skill_name:${strToken}get-weather${strToken},query:${strToken}Auckland${strToken}}<tool_call|>",
-        "Weather (forecast 3 days): <|tool_call>call:run_js{skill_name:${strToken}get-weather${strToken},query:${strToken}Auckland${strToken},forecast_days:${strToken}3${strToken}}<tool_call|>",
-        "Weather (tomorrow): <|tool_call>call:run_js{skill_name:${strToken}get-weather${strToken},query:${strToken}London${strToken},forecast_days:${strToken}1${strToken}}<tool_call|>",
+        "Weather (current, named city): <|tool_call>call:run_js{skill_name:${strToken}get-weather-city${strToken},query:${strToken}Auckland${strToken}}<tool_call|>",
+        "Weather (forecast 3 days, named city): <|tool_call>call:run_js{skill_name:${strToken}get-weather-city${strToken},query:${strToken}Auckland${strToken},forecast_days:${strToken}3${strToken}}<tool_call|>",
+        "Weather (tomorrow, named city): <|tool_call>call:run_js{skill_name:${strToken}get-weather-city${strToken},query:${strToken}London${strToken},forecast_days:${strToken}1${strToken}}<tool_call|>",
     )
 
     override suspend fun execute(call: SkillCall): SkillResult {

@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-04-13 (revised post-PR #247/#251/#257/#262/#263)
+> **Last updated:** 2026-04-13 (revised post-PR #262/#263/#268/#269/#270)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -243,8 +243,16 @@ This means the model only needs two function names; new native intents are added
 
 | `skill_name` | Location | Status |
 |-------------|----------|--------|
-| `get_weather` | `assets/skills/get-weather/index.html` | ✅ |
+| `get-weather-city` | `assets/skills/get-weather-city/index.html` | ✅ (current + forecast) |
 | `query_wikipedia` | `assets/skills/query-wikipedia/index.html` | ✅ |
+
+> **`get-weather-city` forecast support (PR #269):** Pass `forecast_days` (integer 1–7) for a
+> day-by-day forecast instead of current conditions. When `forecast_days > 0` or
+> `query_type = "forecast"`, the skill calls the Open-Meteo `daily` API
+> (`temperature_2m_max`, `temperature_2m_min`, `precipitation_sum`, `weather_code`,
+> `timezone=auto`) and returns a breakdown with WMO weather emoji (☀️🌤️⛅☁️🌧️❄️⛈️) and
+> min/max temps. Default `forecast_days = 3` when a forecast is requested. A defensive
+> array-length guard prevents crashes on partial API responses.
 
 JS skills expose a single async entry point:
 ```javascript
@@ -259,13 +267,26 @@ and awaits the result with a 15s timeout.
 |------------|-------------|--------|
 | `get_system_info` | Device/model/backend/battery stats | ✅ |
 | `save_memory` | Persist a note/fact to `core_memories_vec` | ✅ (explicit trigger only — see memory rule below) |
+| `search_memory` | Semantic search across `message_embeddings` — cross-conversation by default, or scoped to one conversation | ✅ |
 
 > **save_memory trigger:** Works reliably when the user explicitly says "remember", "save",
-> or "don't forget". Does not activate proactively from implicit personal facts shared in
-> conversation — small model limitation. The system prompt encodes this as a hard rule.
+> "don't forget", "can you remember", or "make a note of". Does not activate proactively from
+> implicit personal facts shared in conversation — small model limitation. The trigger is
+> enforced as a hard `[Tool Use]` rule in `ChatViewModel.buildSystemPrompt()`, not via the
+> skill description.
+
+> **search_memory:** A direct `Skill` implementation (not a gateway skill) registered in
+> `SkillsModule.kt` via Hilt `@Binds @IntoSet`. Accepts a required `query` string,
+> optional `conversationId` (scopes search to one conversation for summary-to-detail
+> drill-down), and optional `topK` (default 5). Wraps `RagRepository.searchMessages()`,
+> which embeds the query and performs cosine vector search on `message_embeddings` at
+> `MAX_DISTANCE=0.4`. Results are formatted as a numbered list with date, role, and
+> `conversation:ID` prefix. Uses a batch `MessageDao.getByIds()` call — single DB query
+> regardless of result count (avoids N+1). The system prompt injects its description as a
+> tool example so Gemma-4 knows when to invoke it.
 
 **System prompt `[Tool Use]` rules (enforced in `ChatViewModel.buildSystemPrompt()`):**
-- Memory rule: user says "remember/save/don't forget" → MUST call `save_memory`
+- Memory rule: user says "remember", "save", "don't forget", "can you remember", or "make a note of" → MUST call `save_memory`
 - Alarm rule: user asks to set an alarm → MUST call `run_intent{intent_name: set_alarm}`
 
 ### 4.4 Extensible Skills (WebAssembly — Phase 5)
@@ -303,11 +324,39 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 - **Actions tab:** History list, FAB (⚡) for new commands, bottom sheet input, Room-persisted history
 - **Voice:** Tap-to-toggle with auto-stop on silence (future: "Hey Jandal" wake word)
 - **Skill results:** Inline rich cards in the conversation stream
-- **Persona:** Friendly, concise, slightly playful (Kiwi-flavoured) — future: configurable
+- **Persona:** Friendly, concise, dry-humoured Kiwi — see §7 for full identity details
 
 ---
 
-## 7. Development Prerequisites
+## 7. Jandal Persona & Cultural Identity
+
+Jandal's character is encoded in `DEFAULT_SYSTEM_PROMPT` in `ModelConfig.kt` (updated PR #268):
+
+```
+"You are Jandal — a capable, on-device AI assistant with a genuine Kiwi character. "
+"You're direct, warm, and dry-humoured without trying too hard. You don't say "
+"\"certainly!\", \"absolutely!\", or \"great question\" — you just get on with it. "
+"You run entirely on-device, so the user's data never leaves their phone. "
+"Keep responses concise unless the user asks for detail. "
+"When you use Kiwi expressions, they should feel natural, not forced. "
+"You are culturally and spiritually Kiwi — from Aotearoa New Zealand. "
+"You are named after the NZ word for flip-flops: jandals — simple, unpretentious, practical. "
+"You were born from Kiwi culture: laid-back, direct, and no-nonsense. "
+"When asked where you are from, what your culture is, or why you are called Jandal, "
+"own your Kiwi identity with pride — never say you are \"just code\" or that you have no culture."
+```
+
+**Key identity rules:**
+- Jandal is culturally and spiritually Kiwi — from Aotearoa New Zealand
+- Named after the NZ word for flip-flops: jandals — simple, unpretentious, practical
+- Born from Kiwi culture: laid-back, direct, no-nonsense
+- When asked about origin, culture, or name → own Kiwi identity with pride; NEVER say "just code" or "I have no culture"
+- Kiwi expressions must feel natural, not forced
+- No hollow affirmations ("certainly!", "absolutely!", "great question!")
+
+---
+
+## 8. Development Prerequisites
 
 | Requirement | Detail |
 |-------------|--------|
@@ -325,7 +374,7 @@ The NPU path requires `"Qualcomm"` string match — this is a known device quirk
 
 ---
 
-## 8. Build & Test
+## 9. Build & Test
 
 ```bash
 ./gradlew assembleDebug              # Build debug APK
@@ -342,7 +391,7 @@ is behind an interface and mocked in all tests. Models (~3GB) are never download
 
 ---
 
-## 9. Roadmap Summary
+## 10. Roadmap Summary
 
 | Phase | Description | Status |
 |-------|-------------|--------|
