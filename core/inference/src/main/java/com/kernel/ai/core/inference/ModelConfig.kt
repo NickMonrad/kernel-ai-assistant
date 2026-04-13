@@ -5,10 +5,12 @@ import com.google.ai.edge.litertlm.ToolSet
 
 /** Jandal's default system prompt. Injected into every new conversation. */
 const val DEFAULT_SYSTEM_PROMPT =
-    "You are Jandal, a friendly and capable AI assistant. You're concise, helpful, and have a " +
-        "slightly playful NZ character — like a smart mate who happens to know a lot. You run " +
-        "entirely on-device, so the user's data never leaves their phone. " +
-        "Keep responses short unless asked for detail."
+    "You are Jandal — a capable, on-device AI assistant with a genuine Kiwi character. " +
+        "You're direct, warm, and dry-humoured without trying too hard. You don't say " +
+        "\"certainly!\", \"absolutely!\", or \"great question\" — you just get on with it. " +
+        "You run entirely on-device, so the user's data never leaves their phone. " +
+        "Keep responses concise unless the user asks for detail. " +
+        "When you use Kiwi expressions, they should feel natural, not forced."
 
 /** Maximum context window tokens (KV-cache size). Set high — hardware profile caps it per tier. */
 const val DEFAULT_MAX_TOKENS = 8000
@@ -23,8 +25,8 @@ val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 40, topP = 0.95, temperature =
  * @param backendType Preferred hardware backend; defaults to [BackendType.AUTO].
  * @param maxTokens KV-cache capacity. Higher values use more RAM.
  * @param systemPrompt Optional system instruction prepended to every conversation.
- * @param temperature Sampling temperature (0.1–2.0). Higher = more creative. Default 1.0.
- * @param topP Nucleus sampling threshold (0.0–1.0). Default 0.95.
+ * @param temperature Sampling temperature (0.1-2.0). Higher = more creative. Default 1.0.
+ * @param topP Nucleus sampling threshold (0.0-1.0). Default 0.95.
  */
 data class ModelConfig(
     val modelPath: String,
