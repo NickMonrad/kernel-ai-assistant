@@ -16,7 +16,9 @@ private const val TAG = "KernelAI"
  *
  * Built-in JS skills bundled with the app:
  *   - query-wikipedia  Search Wikipedia and return a plain-text summary
- *   - get-weather      Fetch weather for a named city via open-meteo (no GPS needed)
+ *   - get-weather      Fetch current weather or multi-day forecast for a named city
+ *                      via Open-Meteo (no GPS needed).
+ *                      Pass forecast_days (1–7) for a daily forecast instead of current.
  *
  * Phase 3 (future): user-loadable skills from URLs — prerequisite for #177.
  */
@@ -28,7 +30,8 @@ class RunJsSkill @Inject constructor(
     override val name = "run_js"
     override val description =
         "Run a built-in JavaScript skill by name. Use for web queries like Wikipedia " +
-            "lookups or city weather when GPS is not needed."
+            "lookups, city weather (current or forecast). " +
+            "For weather forecasts pass forecast_days (1–7) to get a daily forecast."
 
     override val schema = SkillSchema(
         parameters = mapOf(
@@ -39,7 +42,12 @@ class RunJsSkill @Inject constructor(
             ),
             "query" to SkillParameter(
                 type = "string",
-                description = "The search query or input for the skill.",
+                description = "The search query or input for the skill (city name for weather).",
+            ),
+            "forecast_days" to SkillParameter(
+                type = "integer",
+                description = "For get-weather only: number of forecast days (1–7). " +
+                    "Omit for current weather.",
             ),
         ),
         required = listOf("skill_name", "query"),
@@ -49,7 +57,9 @@ class RunJsSkill @Inject constructor(
 
     override val examples: List<String> = listOf(
         "Wikipedia: <|tool_call>call:run_js{skill_name:${strToken}query-wikipedia${strToken},query:${strToken}New Zealand${strToken}}<tool_call|>",
-        "Weather:   <|tool_call>call:run_js{skill_name:${strToken}get-weather${strToken},query:${strToken}Auckland${strToken}}<tool_call|>",
+        "Weather (current): <|tool_call>call:run_js{skill_name:${strToken}get-weather${strToken},query:${strToken}Auckland${strToken}}<tool_call|>",
+        "Weather (forecast 3 days): <|tool_call>call:run_js{skill_name:${strToken}get-weather${strToken},query:${strToken}Auckland${strToken},forecast_days:${strToken}3${strToken}}<tool_call|>",
+        "Weather (tomorrow): <|tool_call>call:run_js{skill_name:${strToken}get-weather${strToken},query:${strToken}London${strToken},forecast_days:${strToken}1${strToken}}<tool_call|>",
     )
 
     override suspend fun execute(call: SkillCall): SkillResult {
