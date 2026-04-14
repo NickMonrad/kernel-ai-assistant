@@ -74,6 +74,8 @@ Java_com_kernel_ai_core_memory_vector_VectorStoreJni_exec(
 }
 
 // ── upsert ───────────────────────────────────────────────────────────────────
+// sqlite-vec vec0 virtual tables do not support conflict-resolution clauses
+// (INSERT OR REPLACE), so we use DELETE + INSERT inside a savepoint instead.
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_kernel_ai_core_memory_vector_VectorStoreJni_upsert(
         JNIEnv* env, jobject, jlong handle, jstring jtable, jlong rowId, jfloatArray jembedding) {
@@ -83,17 +85,35 @@ Java_com_kernel_ai_core_memory_vector_VectorStoreJni_upsert(
     jsize dims = env->GetArrayLength(jembedding);
     jfloat* floats = env->GetFloatArrayElements(jembedding, nullptr);
 
-    char sql[256];
-    snprintf(sql, sizeof(sql),
-             "INSERT OR REPLACE INTO %s(rowid, embedding) VALUES (?, ?)", table);
+    sqlite3_exec(db, "SAVEPOINT vec_upsert", nullptr, nullptr, nullptr);
 
+    // Delete any existing row first (no-op if absent)
+    char del_sql[256];
+    snprintf(del_sql, sizeof(del_sql), "DELETE FROM %s WHERE rowid = ?", table);
+    sqlite3_stmt* del_stmt = nullptr;
+    if (sqlite3_prepare_v2(db, del_sql, -1, &del_stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int64(del_stmt, 1, rowId);
+        sqlite3_step(del_stmt);
+        sqlite3_finalize(del_stmt);
+    }
+
+    // Insert the new vector
+    char ins_sql[256];
+    snprintf(ins_sql, sizeof(ins_sql),
+             "INSERT INTO %s(rowid, embedding) VALUES (?, ?)", table);
     sqlite3_stmt* stmt = nullptr;
-    int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(db, ins_sql, -1, &stmt, nullptr);
     if (rc == SQLITE_OK) {
         sqlite3_bind_int64(stmt, 1, rowId);
         sqlite3_bind_blob(stmt, 2, floats, dims * sizeof(float), SQLITE_STATIC);
         rc = sqlite3_step(stmt);
         sqlite3_finalize(stmt);
+    }
+
+    if (rc == SQLITE_DONE) {
+        sqlite3_exec(db, "RELEASE vec_upsert", nullptr, nullptr, nullptr);
+    } else {
+        sqlite3_exec(db, "ROLLBACK TO vec_upsert", nullptr, nullptr, nullptr);
     }
 
     env->ReleaseFloatArrayElements(jembedding, floats, JNI_ABORT);
