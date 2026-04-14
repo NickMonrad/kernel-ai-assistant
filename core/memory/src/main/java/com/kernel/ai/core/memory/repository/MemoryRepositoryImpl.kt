@@ -113,8 +113,9 @@ class MemoryRepositoryImpl @Inject constructor(
         val results = mutableListOf<MemorySearchResult>()
 
         runCatching {
-            val coreResults = vectorStore.search(CORE_VEC_TABLE, queryVector, coreTopK)
-                .filter { it.distance <= CORE_MAX_DISTANCE }
+            val rawCoreResults = vectorStore.search(CORE_VEC_TABLE, queryVector, coreTopK)
+            Log.d(TAG, "Core vec search: ${rawCoreResults.size} raw results, distances=${rawCoreResults.map { "%.3f".format(it.distance) }}")
+            val coreResults = rawCoreResults.filter { it.distance <= CORE_MAX_DISTANCE }
             val rowIds = coreResults.map { it.rowId }
             if (rowIds.isNotEmpty()) {
                 val entities = coreDao.getAll().filter { it.rowId in rowIds }
