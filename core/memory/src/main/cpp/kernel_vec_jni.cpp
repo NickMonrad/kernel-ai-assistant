@@ -169,7 +169,9 @@ Java_com_kernel_ai_core_memory_vector_VectorStoreJni_search(
     jdoubleArray result = env->NewDoubleArray(0);
 
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
-    if (rc == SQLITE_OK) {
+    if (rc != SQLITE_OK) {
+        LOGE("search prepare failed for '%s': %s", table, sqlite3_errmsg(db));
+    } else {
         sqlite3_bind_blob(stmt, 1, queryFloats, dims * sizeof(float), SQLITE_STATIC);
         sqlite3_bind_int(stmt, 2, k);
 
@@ -178,9 +180,11 @@ Java_com_kernel_ai_core_memory_vector_VectorStoreJni_search(
         while (sqlite3_step(stmt) == SQLITE_ROW && count < k) {
             rows[count * 2]     = static_cast<double>(sqlite3_column_int64(stmt, 0));
             rows[count * 2 + 1] = sqlite3_column_double(stmt, 1);
+            LOGI("search '%s': rowid=%.0f dist=%.4f", table, rows[count*2], rows[count*2+1]);
             count++;
         }
         sqlite3_finalize(stmt);
+        LOGI("search '%s': %d results for k=%d dims=%d", table, count, k, (int)dims);
 
         result = env->NewDoubleArray(count * 2);
         if (count > 0) {
