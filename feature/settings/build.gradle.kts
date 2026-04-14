@@ -51,6 +51,8 @@ dependencies {
 
     debugImplementation(libs.compose.ui.tooling)
 
+    implementation(libs.datastore.preferences)
+
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)

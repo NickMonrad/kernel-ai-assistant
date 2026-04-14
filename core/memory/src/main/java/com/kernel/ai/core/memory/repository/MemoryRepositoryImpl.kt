@@ -28,10 +28,14 @@ class MemoryRepositoryImpl @Inject constructor(
         private const val EPISODIC_MAX = 500
         private const val CORE_MAX = 200
         private const val EPISODIC_TTL_MS = 30L * 24 * 60 * 60 * 1000  // 30 days
-        /** Looser threshold for core memories — user deliberately added these, cast a wide net. */
-        private const val CORE_MAX_DISTANCE = 0.55f
-        /** Stricter threshold for episodic memories — only surface clearly relevant past exchanges. */
-        private const val EPISODIC_MAX_DISTANCE = 0.40f
+        // sqlite-vec returns L2 distance, not cosine distance.
+        // For unit-normalized 768-dim vectors: L2 = sqrt(2 * (1 - cos_sim))
+        // Original intent: core cos_sim ≥ 0.45, episodic cos_sim ≥ 0.60
+        // L2 equivalent:   core  = sqrt(2 * 0.55) ≈ 1.05, episodic = sqrt(2 * 0.40) ≈ 0.89
+        /** Loose threshold for core memories — cos_sim ≥ 0.45 equivalent in L2 space. */
+        private const val CORE_MAX_DISTANCE = 1.10f
+        /** Stricter threshold for episodic memories — cos_sim ≥ 0.60 equivalent in L2 space. */
+        private const val EPISODIC_MAX_DISTANCE = 0.89f
     }
 
     // AtomicBoolean + Mutex for thread-safe lazy table creation

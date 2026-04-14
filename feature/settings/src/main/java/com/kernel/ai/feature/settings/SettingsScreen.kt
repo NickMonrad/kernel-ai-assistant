@@ -15,11 +15,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -58,6 +58,7 @@ fun SettingsScreen(
     onNavigateToUserProfile: () -> Unit = {},
     onNavigateToMemory: () -> Unit = {},
     onNavigateToModelSettings: () -> Unit = {},
+    onNavigateToAbout: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -284,6 +285,18 @@ fun SettingsScreen(
                 headlineContent = { Text("Model Settings") },
                 supportingContent = { Text("Inference parameters for Gemma 4 models") },
                 leadingContent = { Icon(Icons.Default.Tune, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
+
+            // ── About ─────────────────────────────────────────────────────────
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToAbout() },
+                headlineContent = { Text("About") },
+                supportingContent = { Text("Build info and debug tools") },
+                leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()
