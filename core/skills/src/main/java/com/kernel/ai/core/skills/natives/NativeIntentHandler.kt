@@ -180,6 +180,9 @@ class NativeIntentHandler @Inject constructor(
 
         val timeStr = params["time"]?.takeIf { it.isNotBlank() }
         val durationMinutes = params["duration_minutes"]?.toIntOrNull() ?: 60
+        if (durationMinutes <= 0) {
+            return SkillResult.Failure("run_intent", "duration_minutes must be greater than 0 (received: $durationMinutes).")
+        }
         val zone = ZoneId.systemDefault()
 
         val (beginMillis, endMillis) = if (timeStr != null) {
