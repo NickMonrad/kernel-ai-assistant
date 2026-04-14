@@ -256,6 +256,12 @@ This means the model only needs two function names; new native intents are added
 > `resolveTime` applies a three-step pre-processor: (1) strip extra trailing digits, (2) pad
 > single-digit minutes (`9:0` → `9:00`), (3) expand bare hour+meridiem (`10pm` → `10:00pm`).
 > Order is critical — padding must precede format-string matching (#319, #320, #321).
+>
+> **Alarm `hours` parameter is 24h format (0–23):** The model must convert PM times — 10pm=22,
+> 9pm=21, 8pm=20, 1pm=13, 12pm=12, 12am=0. The skill description and alarm rule both explicitly
+> state this conversion. Examples added for `"Set alarm 10pm"` (hours:22) and
+> `"Remind me at 09:05"` (hours:9,minutes:5) so the model doesn't rely on implicit conversion
+> (#335, #336).
 
 **Registered JS skills (`run_js`):**
 
