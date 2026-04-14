@@ -75,7 +75,9 @@ class AboutViewModel @Inject constructor(
                     val process = Runtime.getRuntime().exec(
                         arrayOf("logcat", "-d", "-v", "threadtime", "--pid=$pid", "-t", "500"),
                     )
-                    val logText = process.inputStream.bufferedReader().readText()
+                    val logText = process.inputStream.bufferedReader().use { it.readText() }
+                    process.errorStream.bufferedReader().use { it.readText() } // drain stderr to avoid deadlock
+                    process.waitFor()
                     val logFile = File(context.cacheDir, "kernel_debug_log.txt")
                     logFile.writeText(logText)
                     val uri = FileProvider.getUriForFile(

@@ -30,9 +30,12 @@ class MemoryRepositoryImpl @Inject constructor(
         private const val EPISODIC_TTL_MS = 30L * 24 * 60 * 60 * 1000  // 30 days
         // sqlite-vec returns L2 distance, not cosine distance.
         // For unit-normalized 768-dim vectors: L2 = sqrt(2 * (1 - cos_sim))
-        // Original intent: core cos_sim ≥ 0.45, episodic cos_sim ≥ 0.60
-        // L2 equivalent:   core  = sqrt(2 * 0.55) ≈ 1.05, episodic = sqrt(2 * 0.40) ≈ 0.89
-        /** Loose threshold for core memories — cos_sim ≥ 0.45 equivalent in L2 space. */
+        // Thresholds calibrated from on-device measurements (EmbeddingGemma-300M):
+        //   ancestor memory: best match dist=1.0996 (cos_sim ≈ 0.40) — must pass
+        //   aubergine memory: best match dist=0.9398 (cos_sim ≈ 0.56) — must pass
+        // Core: 1.10 = sqrt(2 * 0.605) → cos_sim ≥ 0.395 — wide net for explicit memories
+        // Episodic: 0.89 = sqrt(2 * 0.396) → cos_sim ≥ 0.60 — tighter for episodic
+        /** Loose threshold for core memories — covers cos_sim ≥ 0.40 in L2 space. */
         private const val CORE_MAX_DISTANCE = 1.10f
         /** Stricter threshold for episodic memories — cos_sim ≥ 0.60 equivalent in L2 space. */
         private const val EPISODIC_MAX_DISTANCE = 0.89f
