@@ -325,5 +325,8 @@ private fun restartApp(context: android.content.Context) {
     val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
         ?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK) }
     if (intent != null) context.startActivity(intent)
+    // Brief pause to let Android register the new activity and allow Room's WAL checkpoint
+    // to flush before the process terminates.
+    Thread.sleep(200)
     exitProcess(0)
 }
