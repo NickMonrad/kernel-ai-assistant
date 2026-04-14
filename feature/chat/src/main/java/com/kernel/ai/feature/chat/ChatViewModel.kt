@@ -215,12 +215,15 @@ class ChatViewModel @Inject constructor(
 
     private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
         val profile = userProfileRepository.get()
-        val dateTime = LocalDateTime.now()
-            .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))
+        val now = LocalDateTime.now()
+        val dateTime = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))
+        // ISO date injected alongside the human-readable date so the model can copy it directly
+        // when generating calendar event dates without having to reformat the year.
+        val isoDate = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ENGLISH))
         return buildString {
             append(DEFAULT_SYSTEM_PROMPT)
             append("\n\n${jandalPersona.buildGreetingInstruction()} ${jandalPersona.buildSessionVocab()}")
-            append("\n\n[Current date and time]\n$dateTime")
+            append("\n\n[Current date and time]\n$dateTime (ISO: $isoDate)")
             // Runtime info fetched dynamically via get_system_info skill at query time
             if (profile.isNotBlank()) {
                 // Truncate profile to context-window-aware budget (10% of context window, max 3000 chars).
