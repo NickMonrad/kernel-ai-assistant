@@ -98,19 +98,32 @@ internal object ToolCallExtractor {
      * Parses the Gemma 4 native arg block, e.g.:
      *   location:<|"|>London<|"|>,unit:<|"|>celsius<|"|>
      *   duration:5
+     *
+     * Model occasionally wraps parameter keys in <|"|> delimiters. We strip them from the key
+     * after extraction. Leading commas/whitespace are skipped at the loop level so the key
+     * extraction never includes them.
      */
     internal fun parseNativeArgs(raw: String, out: org.json.JSONObject) {
         val strToken = """<|"|>"""
         var i = 0
         while (i < raw.length) {
+            // Skip commas and whitespace between parameters (root cause of leading-comma key names).
+            while (i < raw.length && (raw[i] == ',' || raw[i] == ' ')) i++
+            if (i >= raw.length) break
+
             val colonIdx = raw.indexOf(':', i)
             if (colonIdx < 0) break
+            // Strip <|"|> delimiters from key names — model sometimes wraps keys in them.
             val key = raw.substring(i, colonIdx).trim()
+                .removePrefix(strToken)
+                .removeSuffix(strToken)
+                .trim()
+            if (key.isBlank()) { i = colonIdx + 1; continue }
             val rest = raw.substring(colonIdx + 1)
             if (rest.startsWith(strToken)) {
                 val valueStart = strToken.length
                 val valueEnd = rest.indexOf(strToken, valueStart)
-                if (valueEnd < 0) break
+                if (valueEnd < 0 || valueEnd < valueStart) break
                 out.put(key, rest.substring(valueStart, valueEnd))
                 i = colonIdx + 1 + valueEnd + strToken.length
                 if (i < raw.length && raw[i] == ',') i++

@@ -109,8 +109,12 @@ class NativeIntentHandler @Inject constructor(
     // ── Alarm ─────────────────────────────────────────────────────────────────
 
     private fun setAlarm(params: Map<String, String>): SkillResult {
-        val hours = params["hours"]?.toIntOrNull() ?: 8
-        val minutes = params["minutes"]?.toIntOrNull() ?: 0
+        // Prefer `time` string (e.g. "10pm", "09:05") over raw hours/minutes so the model
+        // never has to do 12h→24h conversion — resolveTime() handles it reliably in Kotlin.
+        val timePair = params["time"]?.let { t ->
+            resolveTime(t)?.let { it.hour to it.minute }
+        } ?: ((params["hours"]?.toIntOrNull() ?: 8) to (params["minutes"]?.toIntOrNull() ?: 0))
+        val (hours, minutes) = timePair
         val day = params["day"]?.trim()?.lowercase()
         val isTomorrow = day == "tomorrow"
 
@@ -349,9 +353,11 @@ class NativeIntentHandler @Inject constructor(
             "${m.groupValues[1]}:0${m.groupValues[2]}${m.groupValues[3]}"
         }
 
-        // 3. Insert ":00" for bare hour+meridiem (e.g. "10pm" → "10:00pm", "9 AM" → "9:00 AM").
+        // 3. Insert ":00" for bare hour+meridiem — only for valid 12h range (1-12).
+        //    Reject "13pm" / "0am" here so we don't produce a string that silently fails later.
         val input = Regex("""^(\d{1,2})\s*(am|pm|AM|PM)$""").replace(padded) { m ->
-            "${m.groupValues[1]}:00${m.groupValues[2]}"
+            val h = m.groupValues[1].toIntOrNull() ?: 0
+            if (h in 1..12) "${m.groupValues[1]}:00${m.groupValues[2]}" else m.value
         }.trim()
 
         val formatters = listOf(
@@ -368,6 +374,7 @@ class NativeIntentHandler @Inject constructor(
                 return LocalTime.parse(input, fmt)
             } catch (_: DateTimeParseException) { /* try next */ }
         }
+        Log.w(TAG, "resolveTime: could not parse '$raw' (normalized to '$input')")
         return null
     }
 }
