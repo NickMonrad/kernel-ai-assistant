@@ -284,21 +284,27 @@ class NativeIntentHandler @Inject constructor(
      * Parses a time string from the model into a [LocalTime], trying multiple common formats so
      * minor model hallucinations (extra zeros, missing padding) don't hard-fail the call.
      *
+     * Pre-processing: strips trailing extra zeros after a valid HH:mm prefix, e.g. "18:0000" → "18:00".
+     * The `HH:mmss` pattern is intentionally NOT used — it would silently misparse "18:1234" as 18:12:34.
+     *
      * Tried in order:
      *   HH:mm        — 18:00  (canonical)
      *   H:mm         — 9:00   (no hour padding)
      *   HH:mm:ss     — 18:00:00
-     *   HH:mmss      — 18:0000  (extra zeros — observed model output)
      *   h:mm a       — 6:00 PM (12-hour with AM/PM)
      *   h:mma        — 6:00PM  (no space)
      */
     private fun resolveTime(timeStr: String): LocalTime? {
-        val input = timeStr.trim()
+        // Strip extra digits after a valid HH:mm or H:mm prefix (e.g. "18:0000" → "18:00").
+        // Regex: optional 1-2 digit hour, colon, exactly 2 minute digits, then any trailing chars.
+        val normalized = Regex("""^(\d{1,2}:\d{2})\d+(.*)$""").replace(timeStr.trim()) { m ->
+            m.groupValues[1] + m.groupValues[2]
+        }
+        val input = normalized.trim()
         val formatters = listOf(
             DateTimeFormatter.ofPattern("HH:mm"),
             DateTimeFormatter.ofPattern("H:mm"),
             DateTimeFormatter.ofPattern("HH:mm:ss"),
-            DateTimeFormatter.ofPattern("HH:mmss"),
             DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.ENGLISH),
             DateTimeFormatter.ofPattern("h:mma", java.util.Locale.ENGLISH),
         )
