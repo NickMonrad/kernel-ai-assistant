@@ -75,7 +75,7 @@ The assistant is built on a **Brain–Memory–Action** triad, orchestrated cent
 > **FunctionGemma-270M deprecated (Apr 2026):** Its 289MB footprint causes lmkd to
 > terminate the process during Gemma-4's GPU kernel compilation peak (~4–5GB transient).
 > After testing 5 loading strategies (#219), simple device actions were migrated to a
-> zero-memory `QuickIntentRouter`; complex tool calls use Gemma-4 natively (#218, #219, #220).
+> zero-memory `QuickIntentRouter`; complex tool calls use Gemma-4 natively (#218, #219; see #220 — now closed, superseded by #341).
 
 ### 2.3 Hardware Tiering
 
@@ -194,6 +194,12 @@ Gemma-4 emits tool call tokens in its native format when it determines a tool sh
 extracts the function name and key-value params, looks up the skill in `SkillRegistry`,
 and calls `Skill.execute(call)`. Tool definitions and concrete `<|tool_call>` examples are
 injected into the system prompt via `SkillRegistry.buildNativeDeclarations()`.
+
+> **Planned: Lazy skill loading (#341):** The current approach injects all tool definitions
+> (~500+ tokens) into every turn's system prompt, diluting attention. A planned refactor will
+> adopt AI Edge Gallery's pattern: inject only skill names + one-line descriptions, then load
+> full instructions on-demand via a `load_skill` tool call. This reduces baseline prompt to
+> ~100 tokens and should improve tool call accuracy.
 
 > **Format note:** String values are wrapped in `<|"|>` tokens (Gemma-4's string delimiter).
 > In Kotlin source, the token is split to avoid triggering the compiler:
