@@ -80,6 +80,7 @@ class ChatViewModel @Inject constructor(
     private val _conversationTitle = MutableStateFlow<String?>(null)
     private var conversationId: String? = null
     private val contextWindowManager = ContextWindowManager()
+    private var activeContextWindowSize: Int = 4096
     private val truthsSeedingMutex = Mutex()
 
     /** Tracks the timestamp of the last episodic distillation for the current conversation. */
@@ -359,6 +360,7 @@ class ChatViewModel @Inject constructor(
                 Log.i("KernelAI", "Released EmbeddingGemma for Gemma-4 GPU init")
 
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
+                activeContextWindowSize = settings.contextWindowSize
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
                     systemPrompt = buildSystemPrompt(),
@@ -401,6 +403,7 @@ class ChatViewModel @Inject constructor(
                 Log.i("KernelAI", "Released EmbeddingGemma for Gemma-4 GPU init")
 
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
+                activeContextWindowSize = settings.contextWindowSize
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
                     systemPrompt = buildSystemPrompt(),
@@ -533,13 +536,13 @@ class ChatViewModel @Inject constructor(
             val ragContext = ragRepository.getRelevantContext(
                 query = text,
                 conversationId = convId,
-                maxTokens = ContextWindowManager.EPISODIC_BUDGET,
+                maxTokens = ContextWindowManager.episodicBudget(activeContextWindowSize),
             )
             val ragTokenCost = contextWindowManager.estimateTokens(ragContext)
 
             // Proactive context reset: if we're at ~75% of the token budget, reset
             // the conversation and replay history to avoid LiteRT locking up.
-            val tokenBudget = ContextWindowManager.MAX_CONTEXT_TOKENS
+            val tokenBudget = activeContextWindowSize
             val proactiveReset = estimatedTokensUsed > (tokenBudget * 0.75).toInt()
 
             if (needsHistoryReplay || proactiveReset) {
@@ -548,7 +551,7 @@ class ChatViewModel @Inject constructor(
                 val turns = contextWindowManager.extractTurns(
                     allMessages.map { it.content to (it.role == ChatMessage.Role.USER) }
                 )
-                val selected = contextWindowManager.selectHistory(turns)
+                val selected = contextWindowManager.selectHistory(turns, ContextWindowManager.historyBudget(activeContextWindowSize))
                 // Inject history into the system prompt so Gemma treats it as background context.
                 val systemPromptWithHistory = buildSystemPrompt(selected)
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
