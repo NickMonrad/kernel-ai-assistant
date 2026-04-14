@@ -257,12 +257,17 @@ class ChatViewModel @Inject constructor(
                         "you MUST immediately call save_memory — NEVER output 'Got it', 'I'll remember that', 'I've already saved that', or any confirmation text without a tool call token. " +
                         "If the user says 'save it' or 'remember that', infer what 'it'/'that' refers to from the recent conversation and use that as the content. " +
                         "Do NOT ask the user what they want to save — always infer from context and call the tool.\n" +
-                        "Recall rule: whenever the user asks what you remember about something, asks you to recall a fact, or uses words like 'recall', 'do you remember', 'what do you know about', or 'remind me' — " +
+                        "Recall rule: whenever the user asks what you remember about something, asks you to recall a fact, or uses words like 'recall', 'do you remember', 'what do you know about', or 'remind me about' — " +
                         "you MUST call search_memory first before answering. Never answer from your own knowledge without calling the tool first.\n" +
-                        "Alarm rule: whenever the user asks to set an alarm for a specific time, " +
-                        "you MUST call run_intent with intent_name=set_alarm — NEVER say 'alarm set' or confirm it without using the tool. " +
-                        "If the user specifies a day (e.g. 'tomorrow', 'next Monday', 'on Friday'), include day=<day_name> in the call — " +
-                        "pass the day exactly as the user said it (e.g. day='tomorrow', day='monday').\n" +
+                        "Alarm rule: whenever the user says 'set alarm', 'set an alarm', 'alarm for', 'alarm at', 'wake me up at', " +
+                        "or 'remind me at [specific clock time]' (e.g. 'remind me at 9am', 'remind me at 09:05') — " +
+                        "you MUST call run_intent with intent_name=set_alarm. " +
+                        "NEVER output text like 'I\\'ve set an alarm', 'alarm set for', or any alarm confirmation without a tool call token first — " +
+                        "the ONLY correct response to an alarm request is the tool call token and nothing else. " +
+                        "NOTE: 'remind me in X minutes' is a timer (set_timer), NOT an alarm. " +
+                        "'Remind me at [specific time]' is an alarm (set_alarm). " +
+                        "If the user specifies a day (e.g. 'tomorrow', 'next Monday', '20 April'), include day=<day_value> in the call — " +
+                        "pass the day exactly as the user said it (e.g. day=<|\"|>tomorrow<|\"|>, day=<|\"|>monday<|\"|>).\n" +
                         "Calendar rule: whenever the user says 'add a calendar entry', 'create a calendar event', 'add an event', " +
                         "'add a reminder for [topic] on [date]', or 'schedule [topic] on [date]' — you MUST call run_intent with " +
                         "intent_name=create_calendar_event. Resolve any relative date (e.g. 'tomorrow', 'next Friday') to an absolute " +
