@@ -779,6 +779,7 @@ private fun formatEta(remainingMs: Long): String {
 @Composable
 private fun ToolCallChip(toolCall: ToolCallInfo, modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
+    val clipboardManager = LocalClipboardManager.current
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.small,
@@ -818,6 +819,26 @@ private fun ToolCallChip(toolCall: ToolCallInfo, modifier: Modifier = Modifier) 
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    IconButton(
+                        onClick = {
+                            val text = "[Tool: ${toolCall.skillName}]\nRequest: ${toolCall.requestJson}\nResult: ${toolCall.resultText}"
+                            clipboardManager.setText(AnnotatedString(text))
+                        },
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.ContentCopy,
+                            contentDescription = "Copy tool call",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }

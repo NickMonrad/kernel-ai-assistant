@@ -262,51 +262,89 @@ class NativeIntentHandler @Inject constructor(
             return today.with(TemporalAdjusters.next(targetDow))
         }
 
-        // Strict ISO first, then progressively more lenient formats
-        val formatters = listOf(
-            DateTimeFormatter.ISO_LOCAL_DATE,                    // 2026-04-16
-            DateTimeFormatter.ofPattern("yyyy-M-d"),             // 2026-4-16  (missing zero padding)
-            DateTimeFormatter.ofPattern("d-M-yyyy"),             // 16-4-2026
-            DateTimeFormatter.ofPattern("dd-MM-yyyy"),           // 16-04-2026
-            DateTimeFormatter.ofPattern("d/M/yyyy"),             // 16/4/2026
-            DateTimeFormatter.ofPattern("M/d/yyyy"),             // 4/16/2026
-            DateTimeFormatter.ofPattern("yyyy/MM/dd"),           // 2026/04/16
+        // Strict ISO first, then progressively more lenient formats.
+        // Year-defaulting formats (no year in string) use today's year.
+        val today2 = today // capture for use in lambda below
+        val formatters: List<Pair<DateTimeFormatter, ((java.time.temporal.TemporalAccessor) -> LocalDate)?>> = listOf(
+            DateTimeFormatter.ISO_LOCAL_DATE to null,                           // 2026-04-16
+            DateTimeFormatter.ofPattern("yyyy-M-d") to null,                    // 2026-4-16
+            DateTimeFormatter.ofPattern("d-M-yyyy") to null,                    // 16-4-2026
+            DateTimeFormatter.ofPattern("dd-MM-yyyy") to null,                  // 16-04-2026
+            DateTimeFormatter.ofPattern("d/M/yyyy") to null,                    // 16/4/2026
+            DateTimeFormatter.ofPattern("M/d/yyyy") to null,                    // 4/16/2026
+            DateTimeFormatter.ofPattern("yyyy/MM/dd") to null,                  // 2026/04/16
+            DateTimeFormatter.ofPattern("d MMMM yyyy", java.util.Locale.ENGLISH) to null,  // 20 April 2026
+            DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH) to null,   // 20 Apr 2026
+            DateTimeFormatter.ofPattern("MMMM d, yyyy", java.util.Locale.ENGLISH) to null, // April 20, 2026
+            DateTimeFormatter.ofPattern("MMMM d yyyy", java.util.Locale.ENGLISH) to null,  // April 20 2026
+            // No-year variants — default to current year
+            DateTimeFormatter.ofPattern("d MMMM", java.util.Locale.ENGLISH) to
+                { t: java.time.temporal.TemporalAccessor ->
+                    LocalDate.of(today2.year, java.time.Month.from(t), java.time.MonthDay.from(t).dayOfMonth)
+                },
+            DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH) to
+                { t: java.time.temporal.TemporalAccessor ->
+                    LocalDate.of(today2.year, java.time.Month.from(t), java.time.MonthDay.from(t).dayOfMonth)
+                },
+            DateTimeFormatter.ofPattern("MMMM d", java.util.Locale.ENGLISH) to
+                { t: java.time.temporal.TemporalAccessor ->
+                    LocalDate.of(today2.year, java.time.Month.from(t), java.time.MonthDay.from(t).dayOfMonth)
+                },
         )
-        for (fmt in formatters) {
+        for ((fmt, resolver) in formatters) {
             try {
-                return LocalDate.parse(input, fmt)
+                val parsed = fmt.parse(input)
+                return resolver?.invoke(parsed) ?: LocalDate.from(parsed)
             } catch (_: DateTimeParseException) { /* try next */ }
+            catch (_: java.time.DateTimeException) { /* try next */ }
         }
         return null
     }
 
     /**
      * Parses a time string from the model into a [LocalTime], trying multiple common formats so
-     * minor model hallucinations (extra zeros, missing padding) don't hard-fail the call.
+     * minor model hallucinations (extra zeros, missing padding, no-colon AM/PM) don't hard-fail.
      *
-     * Pre-processing: strips trailing extra zeros after a valid HH:mm prefix, e.g. "18:0000" → "18:00".
-     * The `HH:mmss` pattern is intentionally NOT used — it would silently misparse "18:1234" as 18:12:34.
+     * Pre-processing (applied in order):
+     *  1. Strip trailing extra digits after HH:mm prefix — "18:0000" → "18:00"
+     *  2. Pad a single-digit minute — "09:0" → "09:00", "9:5" → "9:05"
+     *  3. Insert ":00" into bare hour+meridiem — "10pm" → "10:00pm", "9am" → "9:00am"
      *
      * Tried in order:
      *   HH:mm        — 18:00  (canonical)
      *   H:mm         — 9:00   (no hour padding)
      *   HH:mm:ss     — 18:00:00
-     *   h:mm a       — 6:00 PM (12-hour with AM/PM)
+     *   h:mm a       — 6:00 PM
      *   h:mma        — 6:00PM  (no space)
+     *   hh:mm a      — 06:00 PM
+     *   hh:mma       — 06:00PM
      */
     private fun resolveTime(timeStr: String): LocalTime? {
-        // Strip extra digits after a valid HH:mm or H:mm prefix (e.g. "18:0000" → "18:00").
-        // Regex: optional 1-2 digit hour, colon, exactly 2 minute digits, then any trailing chars.
-        val normalized = Regex("""^(\d{1,2}:\d{2})\d+(.*)$""").replace(timeStr.trim()) { m ->
+        val raw = timeStr.trim()
+
+        // 1. Strip extra trailing digits after a valid HH:mm prefix (e.g. "18:0000" → "18:00").
+        val stripped = Regex("""^(\d{1,2}:\d{2})\d+(.*)$""").replace(raw) { m ->
             m.groupValues[1] + m.groupValues[2]
         }
-        val input = normalized.trim()
+
+        // 2. Pad a single-digit minute value (e.g. "09:0" → "09:00", "9:5" → "9:05").
+        val padded = Regex("""^(\d{1,2}):(\d)(?!\d)(.*)$""").replace(stripped) { m ->
+            "${m.groupValues[1]}:0${m.groupValues[2]}${m.groupValues[3]}"
+        }
+
+        // 3. Insert ":00" for bare hour+meridiem (e.g. "10pm" → "10:00pm", "9 AM" → "9:00 AM").
+        val input = Regex("""^(\d{1,2})\s*(am|pm|AM|PM)$""").replace(padded) { m ->
+            "${m.groupValues[1]}:00${m.groupValues[2]}"
+        }.trim()
+
         val formatters = listOf(
             DateTimeFormatter.ofPattern("HH:mm"),
             DateTimeFormatter.ofPattern("H:mm"),
             DateTimeFormatter.ofPattern("HH:mm:ss"),
             DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.ENGLISH),
             DateTimeFormatter.ofPattern("h:mma", java.util.Locale.ENGLISH),
+            DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.ENGLISH),
+            DateTimeFormatter.ofPattern("hh:mma", java.util.Locale.ENGLISH),
         )
         for (fmt in formatters) {
             try {
