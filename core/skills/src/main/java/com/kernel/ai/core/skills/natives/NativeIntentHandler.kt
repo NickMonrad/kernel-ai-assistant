@@ -188,11 +188,8 @@ class NativeIntentHandler @Inject constructor(
         val zone = ZoneId.systemDefault()
 
         val (beginMillis, endMillis) = if (timeStr != null) {
-            val time = try {
-                LocalTime.parse(timeStr, DateTimeFormatter.ofPattern("HH:mm"))
-            } catch (e: DateTimeParseException) {
-                return SkillResult.Failure("run_intent", "Invalid time format '$timeStr' — expected HH:MM (24h).")
-            }
+            val time = resolveTime(timeStr)
+                ?: return SkillResult.Failure("run_intent", "Invalid time format '$timeStr' — expected HH:MM (24h).")
             val begin = LocalDateTime.of(date, time).atZone(zone).toInstant().toEpochMilli()
             val end = begin + durationMinutes * 60_000L
             begin to end
@@ -278,6 +275,36 @@ class NativeIntentHandler @Inject constructor(
         for (fmt in formatters) {
             try {
                 return LocalDate.parse(input, fmt)
+            } catch (_: DateTimeParseException) { /* try next */ }
+        }
+        return null
+    }
+
+    /**
+     * Parses a time string from the model into a [LocalTime], trying multiple common formats so
+     * minor model hallucinations (extra zeros, missing padding) don't hard-fail the call.
+     *
+     * Tried in order:
+     *   HH:mm        — 18:00  (canonical)
+     *   H:mm         — 9:00   (no hour padding)
+     *   HH:mm:ss     — 18:00:00
+     *   HH:mmss      — 18:0000  (extra zeros — observed model output)
+     *   h:mm a       — 6:00 PM (12-hour with AM/PM)
+     *   h:mma        — 6:00PM  (no space)
+     */
+    private fun resolveTime(timeStr: String): LocalTime? {
+        val input = timeStr.trim()
+        val formatters = listOf(
+            DateTimeFormatter.ofPattern("HH:mm"),
+            DateTimeFormatter.ofPattern("H:mm"),
+            DateTimeFormatter.ofPattern("HH:mm:ss"),
+            DateTimeFormatter.ofPattern("HH:mmss"),
+            DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.ENGLISH),
+            DateTimeFormatter.ofPattern("h:mma", java.util.Locale.ENGLISH),
+        )
+        for (fmt in formatters) {
+            try {
+                return LocalTime.parse(input, fmt)
             } catch (_: DateTimeParseException) { /* try next */ }
         }
         return null
