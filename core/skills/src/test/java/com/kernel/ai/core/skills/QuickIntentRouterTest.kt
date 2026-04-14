@@ -72,6 +72,56 @@ class QuickIntentRouterTest {
                 "what time is it", "current time", "what's the time",
                 "what date is it", "what day is it", "tell me the time",
             ),
+            "set_volume" to listOf(
+                "set volume to 50", "volume 7", "turn volume up", "volume at 60",
+                "increase volume", "lower the volume",
+            ),
+            "toggle_wifi" to listOf(
+                "turn on wifi", "wifi off", "enable wireless", "disable wifi", "switch wifi on",
+            ),
+            "toggle_bluetooth" to listOf(
+                "turn on bluetooth", "bluetooth off", "enable bluetooth", "disable bt",
+            ),
+            "toggle_airplane_mode" to listOf(
+                "airplane mode on", "turn on flight mode", "enable airplane mode",
+                "airplane mode off",
+            ),
+            "toggle_hotspot" to listOf(
+                "turn on hotspot", "enable hotspot", "mobile hotspot on", "hotspot off",
+                "tethering on",
+            ),
+            "play_plex" to listOf(
+                "play on plex", "watch on plex", "plex breaking bad", "stream plex",
+            ),
+            "play_media_album" to listOf(
+                "play album", "play the album", "album by artist", "play dark side of the moon",
+            ),
+            "play_media_playlist" to listOf(
+                "play playlist", "my workout playlist", "play chill vibes playlist",
+            ),
+            "play_media" to listOf(
+                "play music", "play a song", "play thriller", "play bohemian rhapsody",
+            ),
+            "navigate_to" to listOf(
+                "navigate to", "directions to", "take me to", "drive to work",
+                "get me to the airport",
+            ),
+            "find_nearby" to listOf(
+                "find cafes nearby", "near me", "close by", "find something near me",
+            ),
+            "make_call" to listOf(
+                "call mum", "ring dad", "phone the office", "dial sarah", "call john",
+            ),
+            "add_to_list" to listOf(
+                "add to shopping list", "add milk to list", "shopping list", "add to my list",
+            ),
+            "smart_home_on" to listOf(
+                "turn on bedroom light", "switch on the fan", "turn on the TV",
+                "turn on living room lights",
+            ),
+            "smart_home_off" to listOf(
+                "turn off bedroom TV", "switch off the fan", "turn off all lights",
+            ),
         )
 
         override fun classify(input: String): QuickIntentRouter.IntentClassifier.Classification? {
@@ -322,6 +372,413 @@ class QuickIntentRouterTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // VOLUME TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Set Volume")
+    inner class SetVolume {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → value={1}, is_percent={2}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#volumeRegexPhrases")
+        fun `should match via regex with correct params`(
+            input: String,
+            expectedValue: String,
+            expectedIsPercent: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "set_volume", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedValue, intent.params["value"], "value for '$input'")
+            assertEquals(expectedIsPercent, intent.params["is_percent"], "is_percent for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#volumeClassifierPhrases")
+        fun `should match via classifier`(input: String) {
+            val regexResult = regexOnlyRouter.route(input)
+            val hybridResult = hybridRouter.route(input)
+            assertFallThrough(regexResult, input)
+            assertClassifierOrFallthrough(hybridResult, "set_volume", input)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // WIFI TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Toggle WiFi")
+    inner class ToggleWifi {
+
+        @ParameterizedTest(name = "Regex ON: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#wifiOnRegexPhrases")
+        fun `should match wifi on via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "toggle_wifi", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("on", intent.params["state"], "state for '$input'")
+        }
+
+        @ParameterizedTest(name = "Regex OFF: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#wifiOffRegexPhrases")
+        fun `should match wifi off via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "toggle_wifi", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("off", intent.params["state"], "state for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#wifiClassifierPhrases")
+        fun `should match wifi via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "toggle_wifi", input)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // BLUETOOTH TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Toggle Bluetooth")
+    inner class ToggleBluetooth {
+
+        @ParameterizedTest(name = "Regex ON: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#bluetoothOnRegexPhrases")
+        fun `should match bluetooth on via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "toggle_bluetooth", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("on", intent.params["state"], "state for '$input'")
+        }
+
+        @ParameterizedTest(name = "Regex OFF: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#bluetoothOffRegexPhrases")
+        fun `should match bluetooth off via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "toggle_bluetooth", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("off", intent.params["state"], "state for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#bluetoothClassifierPhrases")
+        fun `should match bluetooth via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "toggle_bluetooth", input)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // AIRPLANE MODE TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Toggle Airplane Mode")
+    inner class ToggleAirplaneMode {
+
+        @ParameterizedTest(name = "Regex ON: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#airplaneModeOnRegexPhrases")
+        fun `should match airplane mode on via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "toggle_airplane_mode", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("on", intent.params["state"], "state for '$input'")
+        }
+
+        @ParameterizedTest(name = "Regex OFF: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#airplaneModeOffRegexPhrases")
+        fun `should match airplane mode off via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "toggle_airplane_mode", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("off", intent.params["state"], "state for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#airplaneModeClassifierPhrases")
+        fun `should match airplane mode via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "toggle_airplane_mode", input)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // HOTSPOT TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Toggle Hotspot")
+    inner class ToggleHotspot {
+
+        @ParameterizedTest(name = "Regex ON: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#hotspotOnRegexPhrases")
+        fun `should match hotspot on via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "toggle_hotspot", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("on", intent.params["state"], "state for '$input'")
+        }
+
+        @ParameterizedTest(name = "Regex OFF: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#hotspotOffRegexPhrases")
+        fun `should match hotspot off via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "toggle_hotspot", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("off", intent.params["state"], "state for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#hotspotClassifierPhrases")
+        fun `should match hotspot via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "toggle_hotspot", input)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MEDIA TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Play Plex")
+    inner class PlayPlex {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → title={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#playPlexRegexPhrases")
+        fun `should match via regex with correct title`(input: String, expectedTitle: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "play_plex", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedTitle, intent.params["title"], "title for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#playPlexClassifierPhrases")
+        fun `should match via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "play_plex", input)
+        }
+    }
+
+    @Nested
+    @DisplayName("Play Media Album")
+    inner class PlayMediaAlbum {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → album={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#playAlbumRegexPhrases")
+        fun `should match via regex with correct album`(input: String, expectedAlbum: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "play_media_album", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedAlbum, intent.params["album"], "album for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#playAlbumClassifierPhrases")
+        fun `should match via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "play_media_album", input)
+        }
+    }
+
+    @Nested
+    @DisplayName("Play Media Playlist")
+    inner class PlayMediaPlaylist {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → playlist={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#playPlaylistRegexPhrases")
+        fun `should match via regex with correct playlist`(input: String, expectedPlaylist: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "play_media_playlist", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedPlaylist, intent.params["playlist"], "playlist for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#playPlaylistClassifierPhrases")
+        fun `should match via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "play_media_playlist", input)
+        }
+    }
+
+    @Nested
+    @DisplayName("Play Media")
+    inner class PlayMedia {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → query={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#playMediaRegexPhrases")
+        fun `should match via regex with correct query`(input: String, expectedQuery: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "play_media", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedQuery, intent.params["query"], "query for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#playMediaClassifierPhrases")
+        fun `should match via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "play_media", input)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // NAVIGATION TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Navigate To")
+    inner class NavigateTo {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → destination={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#navigateToRegexPhrases")
+        fun `should match via regex with correct destination`(
+            input: String,
+            expectedDestination: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "navigate_to", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedDestination, intent.params["destination"], "destination for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#navigateToClassifierPhrases")
+        fun `should match via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "navigate_to", input)
+        }
+    }
+
+    @Nested
+    @DisplayName("Find Nearby")
+    inner class FindNearby {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → query={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#findNearbyRegexPhrases")
+        fun `should match via regex with correct query`(input: String, expectedQuery: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "find_nearby", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedQuery, intent.params["query"], "query for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#findNearbyClassifierPhrases")
+        fun `should match via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "find_nearby", input)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // COMMUNICATION TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Make Call")
+    inner class MakeCall {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → contact={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#makeCallRegexPhrases")
+        fun `should match via regex with correct contact`(input: String, expectedContact: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "make_call", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedContact, intent.params["contact"], "contact for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#makeCallClassifierPhrases")
+        fun `should match via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "make_call", input)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LIST TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Add to List")
+    inner class AddToList {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → item={1}, list={2}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#addToListRegexPhrases")
+        fun `should match via regex with correct item and list`(
+            input: String,
+            expectedItem: String,
+            expectedList: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "add_to_list", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedItem, intent.params["item"], "item for '$input'")
+            assertEquals(expectedList, intent.params["list_name"], "list_name for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#addToListClassifierPhrases")
+        fun `should match via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "add_to_list", input)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SMART HOME TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Smart Home ON")
+    inner class SmartHomeOn {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → device={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#smartHomeOnRegexPhrases")
+        fun `should match via regex with correct device`(input: String, expectedDevice: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "smart_home_on", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedDevice, intent.params["device"], "device for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#smartHomeOnClassifierPhrases")
+        fun `should match via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "smart_home_on", input)
+        }
+    }
+
+    @Nested
+    @DisplayName("Smart Home OFF")
+    inner class SmartHomeOff {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → device={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#smartHomeOffRegexPhrases")
+        fun `should match via regex with correct device`(input: String, expectedDevice: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "smart_home_off", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedDevice, intent.params["device"], "device for '$input'")
+        }
+
+        @ParameterizedTest(name = "Classifier: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#smartHomeOffClassifierPhrases")
+        fun `should match via classifier`(input: String) {
+            val hybridResult = hybridRouter.route(input)
+            assertClassifierOrFallthrough(hybridResult, "smart_home_off", input)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // COVERAGE REPORT — runs all phrasings and prints a summary
     // ═══════════════════════════════════════════════════════════════════════════
 
@@ -364,6 +821,40 @@ class QuickIntentRouterTest {
         addCases(batteryClassifierPhrases(), "get_battery", "Battery (classifier)")
         addCases(timeRegexPhrases(), "get_time", "Time (regex)")
         addCases(timeClassifierPhrases(), "get_time", "Time (classifier)")
+        addCases(volumeRegexPhrases(), "set_volume", "Volume (regex)")
+        addCases(volumeClassifierPhrases(), "set_volume", "Volume (classifier)")
+        addCases(wifiOnRegexPhrases(), "toggle_wifi", "WiFi ON (regex)")
+        addCases(wifiOffRegexPhrases(), "toggle_wifi", "WiFi OFF (regex)")
+        addCases(wifiClassifierPhrases(), "toggle_wifi", "WiFi (classifier)")
+        addCases(bluetoothOnRegexPhrases(), "toggle_bluetooth", "Bluetooth ON (regex)")
+        addCases(bluetoothOffRegexPhrases(), "toggle_bluetooth", "Bluetooth OFF (regex)")
+        addCases(bluetoothClassifierPhrases(), "toggle_bluetooth", "Bluetooth (classifier)")
+        addCases(airplaneModeOnRegexPhrases(), "toggle_airplane_mode", "Airplane Mode ON (regex)")
+        addCases(airplaneModeOffRegexPhrases(), "toggle_airplane_mode", "Airplane Mode OFF (regex)")
+        addCases(airplaneModeClassifierPhrases(), "toggle_airplane_mode", "Airplane Mode (classifier)")
+        addCases(hotspotOnRegexPhrases(), "toggle_hotspot", "Hotspot ON (regex)")
+        addCases(hotspotOffRegexPhrases(), "toggle_hotspot", "Hotspot OFF (regex)")
+        addCases(hotspotClassifierPhrases(), "toggle_hotspot", "Hotspot (classifier)")
+        addCases(playPlexRegexPhrases(), "play_plex", "Play Plex (regex)")
+        addCases(playPlexClassifierPhrases(), "play_plex", "Play Plex (classifier)")
+        addCases(playAlbumRegexPhrases(), "play_media_album", "Play Album (regex)")
+        addCases(playAlbumClassifierPhrases(), "play_media_album", "Play Album (classifier)")
+        addCases(playPlaylistRegexPhrases(), "play_media_playlist", "Play Playlist (regex)")
+        addCases(playPlaylistClassifierPhrases(), "play_media_playlist", "Play Playlist (classifier)")
+        addCases(playMediaRegexPhrases(), "play_media", "Play Media (regex)")
+        addCases(playMediaClassifierPhrases(), "play_media", "Play Media (classifier)")
+        addCases(navigateToRegexPhrases(), "navigate_to", "Navigate To (regex)")
+        addCases(navigateToClassifierPhrases(), "navigate_to", "Navigate To (classifier)")
+        addCases(findNearbyRegexPhrases(), "find_nearby", "Find Nearby (regex)")
+        addCases(findNearbyClassifierPhrases(), "find_nearby", "Find Nearby (classifier)")
+        addCases(makeCallRegexPhrases(), "make_call", "Make Call (regex)")
+        addCases(makeCallClassifierPhrases(), "make_call", "Make Call (classifier)")
+        addCases(addToListRegexPhrases(), "add_to_list", "Add to List (regex)")
+        addCases(addToListClassifierPhrases(), "add_to_list", "Add to List (classifier)")
+        addCases(smartHomeOnRegexPhrases(), "smart_home_on", "Smart Home ON (regex)")
+        addCases(smartHomeOnClassifierPhrases(), "smart_home_on", "Smart Home ON (classifier)")
+        addCases(smartHomeOffRegexPhrases(), "smart_home_off", "Smart Home OFF (regex)")
+        addCases(smartHomeOffClassifierPhrases(), "smart_home_off", "Smart Home OFF (classifier)")
         addFallthrough(e4bFallthroughPhrases())
 
         val report = StringBuilder()
@@ -641,6 +1132,278 @@ class QuickIntentRouterTest {
             Arguments.of("current date and time"),
         )
 
+        // ── Volume ───────────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun volumeRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("set volume to 50%", "50", "true"),
+            Arguments.of("volume 7", "7", "false"),
+            Arguments.of("set volume to 7", "7", "false"),
+            Arguments.of("turn the volume up to 8", "8", "false"),
+            Arguments.of("volume at 60%", "60", "true"),
+            Arguments.of("volume to 10", "10", "false"),
+        )
+
+        @JvmStatic
+        fun volumeClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("can you make it louder"),
+            Arguments.of("increase the sound level"),
+            Arguments.of("I can't hear anything"),
+            Arguments.of("make the music quieter"),
+        )
+
+        // ── WiFi ─────────────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun wifiOnRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("turn on wifi"),
+            Arguments.of("enable wifi"),
+            Arguments.of("enable wi-fi"),
+            Arguments.of("switch on wifi"),
+            Arguments.of("wifi on"),
+            Arguments.of("switch wifi on"),
+        )
+
+        @JvmStatic
+        fun wifiOffRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("wifi off"),
+            Arguments.of("disable wifi"),
+            Arguments.of("turn off wifi"),
+            Arguments.of("wi-fi off"),
+            Arguments.of("disable wi-fi"),
+        )
+
+        @JvmStatic
+        fun wifiClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("connect to the internet"),
+            Arguments.of("I need wireless access"),
+            Arguments.of("my wifi isn't working"),
+        )
+
+        // ── Bluetooth ─────────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun bluetoothOnRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("turn on bluetooth"),
+            Arguments.of("enable bluetooth"),
+            Arguments.of("enable BT"),
+            Arguments.of("bluetooth on"),
+        )
+
+        @JvmStatic
+        fun bluetoothOffRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("bluetooth off"),
+            Arguments.of("disable bluetooth"),
+            Arguments.of("turn off bluetooth"),
+            Arguments.of("bt off"),
+        )
+
+        @JvmStatic
+        fun bluetoothClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("connect to my headphones"),
+            Arguments.of("pair with speaker"),
+            Arguments.of("I need to connect wirelessly"),
+        )
+
+        // ── Airplane Mode ─────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun airplaneModeOnRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("airplane mode on"),
+            Arguments.of("turn on airplane mode"),
+            Arguments.of("enable airplane mode"),
+            Arguments.of("turn on flight mode"),
+        )
+
+        @JvmStatic
+        fun airplaneModeOffRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("airplane mode off"),
+            Arguments.of("turn off airplane mode"),
+            Arguments.of("disable airplane mode"),
+            Arguments.of("flight mode off"),
+        )
+
+        @JvmStatic
+        fun airplaneModeClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("I'm boarding a plane"),
+            Arguments.of("going offline for a flight"),
+        )
+
+        // ── Hotspot ───────────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun hotspotOnRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("turn on hotspot"),
+            Arguments.of("enable hotspot"),
+            Arguments.of("mobile hotspot on"),
+            Arguments.of("tethering on"),
+            Arguments.of("enable tethering"),
+        )
+
+        @JvmStatic
+        fun hotspotOffRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("hotspot off"),
+            Arguments.of("disable hotspot"),
+            Arguments.of("turn off hotspot"),
+            Arguments.of("tethering off"),
+        )
+
+        @JvmStatic
+        fun hotspotClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("share my internet connection"),
+            Arguments.of("I want to give others wifi"),
+            Arguments.of("let my laptop use my data"),
+        )
+
+        // ── Media ─────────────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun playPlexRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("play Breaking Bad on Plex", "Breaking Bad"),
+            Arguments.of("watch The Office on plex", "The Office"),
+            Arguments.of("play Interstellar on Plex", "Interstellar"),
+        )
+
+        @JvmStatic
+        fun playPlexClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("stream something from plex"),
+        )
+
+        @JvmStatic
+        fun playAlbumRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("play the album Dark Side of the Moon", "Dark Side of the Moon"),
+            Arguments.of("play album Rumours by Fleetwood Mac", "Rumours"),
+            Arguments.of("play album Abbey Road", "Abbey Road"),
+        )
+
+        @JvmStatic
+        fun playAlbumClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("I want to hear a full album"),
+            Arguments.of("put on the whole record"),
+        )
+
+        @JvmStatic
+        fun playPlaylistRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("play my workout playlist", "workout"),
+            Arguments.of("play playlist Chill Vibes", "Chill Vibes"),
+            Arguments.of("play the running playlist", "running"),
+        )
+
+        @JvmStatic
+        fun playPlaylistClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("put on some music for working out"),
+        )
+
+        @JvmStatic
+        fun playMediaRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("play Bohemian Rhapsody by Queen", "Bohemian Rhapsody"),
+            Arguments.of("play Thriller", "Thriller"),
+            Arguments.of("play something by Taylor Swift", "something"),
+        )
+
+        @JvmStatic
+        fun playMediaClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("I want to listen to some music"),
+            Arguments.of("put on a song"),
+        )
+
+        // ── Navigation ────────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun navigateToRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("navigate to Auckland Airport", "Auckland Airport"),
+            Arguments.of("directions to the mall", "the mall"),
+            Arguments.of("take me to Countdown", "Countdown"),
+            Arguments.of("drive to work", "work"),
+            Arguments.of("get me to the hospital", "the hospital"),
+            Arguments.of("navigate to the nearest petrol station", "the nearest petrol station"),
+        )
+
+        @JvmStatic
+        fun navigateToClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("how do I get to the airport"),
+            Arguments.of("I need to find my way to downtown"),
+        )
+
+        @JvmStatic
+        fun findNearbyRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("find cafes nearby", "cafes"),
+            Arguments.of("find dog parks near me", "dog parks"),
+            Arguments.of("show me petrol stations close by", "petrol stations"),
+            Arguments.of("search for restaurants nearby", "restaurants"),
+            Arguments.of("look for pharmacies near me", "pharmacies"),
+        )
+
+        @JvmStatic
+        fun findNearbyClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("where's the closest supermarket"),
+            Arguments.of("is there a cafe around here"),
+        )
+
+        // ── Communication ─────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun makeCallRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("call Mum", "Mum"),
+            Arguments.of("call John Smith", "John Smith"),
+            Arguments.of("ring Dad", "Dad"),
+            Arguments.of("dial Sarah", "Sarah"),
+            Arguments.of("phone the office", "the office"),
+        )
+
+        @JvmStatic
+        fun makeCallClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("get my mum on the line"),
+            Arguments.of("I need to speak to John"),
+        )
+
+        // ── Lists ─────────────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun addToListRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("add toothpaste to shopping list", "toothpaste", "shopping"),
+            Arguments.of("add milk to the shopping list", "milk", "shopping"),
+            Arguments.of("add eggs to my grocery list", "eggs", "grocery"),
+            Arguments.of("add bread to the to-do list", "bread", "to-do"),
+        )
+
+        @JvmStatic
+        fun addToListClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("add eggs to my groceries"),
+            Arguments.of("remember to buy milk"),
+            Arguments.of("put butter on the shopping list"),
+        )
+
+        // ── Smart Home ────────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun smartHomeOnRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("turn on bedroom light", "bedroom light"),
+            Arguments.of("switch on the fan", "fan"),
+            Arguments.of("turn on the TV", "TV"),
+            Arguments.of("switch on the air conditioning", "air conditioning"),
+        )
+
+        @JvmStatic
+        fun smartHomeOnClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("I need the lights on"),
+            Arguments.of("it's too hot, start the AC"),
+        )
+
+        @JvmStatic
+        fun smartHomeOffRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("turn off bedroom TV", "bedroom TV"),
+            Arguments.of("switch off the fan", "fan"),
+            Arguments.of("turn off all lights", "all lights"),
+            Arguments.of("switch off the heater", "heater"),
+        )
+
+        @JvmStatic
+        fun smartHomeOffClassifierPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("I'm leaving, turn everything off"),
+            Arguments.of("kill all the lights"),
+        )
+
         // ── E4B Fallthrough (complex / conversational) ────────────────────────
 
         @JvmStatic
@@ -662,7 +1425,6 @@ class QuickIntentRouterTest {
             Arguments.of("remember that my wifi password is 12345"),
             Arguments.of("what did I tell you about my car"),
             // Navigation
-            Arguments.of("navigate to the nearest petrol station"),
             Arguments.of("how do I get to the airport"),
             // General conversation
             Arguments.of("how are you doing today"),
