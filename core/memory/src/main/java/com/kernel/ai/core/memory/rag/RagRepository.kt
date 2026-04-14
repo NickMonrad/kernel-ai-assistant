@@ -88,14 +88,15 @@ class RagRepository @Inject constructor(
      *   conversation summaries) are cross-conversation by design.
      * @param excludeMessageIds Message IDs to exclude (e.g. the current turn's user message).
      * @param maxTokens Maximum token budget for the returned context block (estimated at chars/3).
-     *   Results are truncated to fit within the budget. Defaults to [ContextWindowManager.EPISODIC_BUDGET].
+     *   Results are truncated to fit within the budget. Scaled to the active context window via
+     *   [ContextWindowManager.episodicBudget] — callers should pass that value explicitly.
      */
     suspend fun getRelevantContext(
         query: String,
         conversationId: String,
         topK: Int = DEFAULT_TOP_K,
         excludeMessageIds: Set<String> = emptySet(),
-        maxTokens: Int = ContextWindowManager.EPISODIC_BUDGET,
+        maxTokens: Int = ContextWindowManager.episodicBudget(4096),
     ): String = withContext(Dispatchers.IO) {
         val queryVector = embeddingEngine.embed(query)
         if (queryVector.isEmpty()) return@withContext ""
