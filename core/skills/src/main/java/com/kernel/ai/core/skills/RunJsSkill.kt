@@ -32,7 +32,8 @@ class RunJsSkill @Inject constructor(
         "Run a built-in JavaScript skill by name. Use skill_name='get-weather-city' for weather " +
             "with a known city name or forecast by city. " +
             "For current GPS location weather or GPS-based forecast, use get_weather_gps instead. " +
-            "For forecast, pass forecast_days (1–7)."
+            "For forecast, pass forecast_days (1–7). " +
+            "ALWAYS call this tool for weather — never use weather data from memory, it is stale."
 
     override val schema = SkillSchema(
         parameters = mapOf(

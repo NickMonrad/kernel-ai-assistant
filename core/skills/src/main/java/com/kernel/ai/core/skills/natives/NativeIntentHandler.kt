@@ -111,15 +111,26 @@ class NativeIntentHandler @Inject constructor(
     private fun setAlarm(params: Map<String, String>): SkillResult {
         val hours = params["hours"]?.toIntOrNull() ?: 8
         val minutes = params["minutes"]?.toIntOrNull() ?: 0
+        val day = params["day"]?.trim()?.lowercase()
+        val isTomorrow = day == "tomorrow"
+
         // NOTE: AlarmClock.EXTRA_DAYS is intentionally NOT used here.
         // EXTRA_DAYS creates a repeating weekly alarm, not a one-time future alarm.
         // The clock app opens pre-filled with the time; the user confirms the date.
+        //
+        // For "tomorrow" alarms we prefix EXTRA_MESSAGE with "TOMORROW:" so the label is
+        // visible in the clock app, reminding the user to verify the date before confirming.
+        val baseLabel = params["label"]?.takeIf { it.isNotBlank() }
+        val messageLabel = when {
+            isTomorrow && baseLabel != null -> "TOMORROW: $baseLabel"
+            isTomorrow -> "TOMORROW"
+            else -> baseLabel
+        }
+
         val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
             putExtra(AlarmClock.EXTRA_HOUR, hours)
             putExtra(AlarmClock.EXTRA_MINUTES, minutes)
-            params["label"]?.takeIf { it.isNotBlank() }?.let {
-                putExtra(AlarmClock.EXTRA_MESSAGE, it)
-            }
+            messageLabel?.let { putExtra(AlarmClock.EXTRA_MESSAGE, it) }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         if (context.packageManager.resolveActivity(intent, 0) == null) {
@@ -127,9 +138,15 @@ class NativeIntentHandler @Inject constructor(
         }
         return try {
             context.startActivity(intent)
-            val dayLabel = params["day"]?.takeIf { it.isNotBlank() }
+            val dayLabel = day?.takeIf { it.isNotBlank() }
                 ?.let { " for ${it.replaceFirstChar { c -> c.uppercase() }}" } ?: ""
-            SkillResult.Success("Clock app opened — alarm$dayLabel at %02d:%02d. Please confirm in your clock app.".format(hours, minutes))
+            val tomorrowWarning = if (isTomorrow) {
+                " ⚠ Your clock app schedules by time only — please verify the date is set to tomorrow before confirming."
+            } else ""
+            SkillResult.Success(
+                "Clock app opened — alarm$dayLabel at %02d:%02d. Please confirm in your clock app.$tomorrowWarning"
+                    .format(hours, minutes)
+            )
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("run_intent", "No clock app found to set an alarm.")
         }

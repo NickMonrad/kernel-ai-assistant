@@ -33,7 +33,8 @@ class GetWeatherSkill @Inject constructor(
     override val description =
         "Get current weather or a multi-day forecast using the device's GPS location. " +
             "Use this when the user asks about their current location weather or doesn't specify a city. " +
-            "For weather in a named city, use run_js with skill_name='get-weather-city' instead."
+            "For weather in a named city, use run_js with skill_name='get-weather-city' instead. " +
+            "ALWAYS call this tool for any weather question — never use weather data from memory, it is stale."
     private val strToken = "<|" + "\"" + "|>"
 
     override val examples = listOf(
