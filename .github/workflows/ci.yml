@@ -79,12 +79,44 @@ jobs:
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
           SHORT_SHA=${GITHUB_SHA::7}
+
+          # Look up the PR(s) associated with this commit (squash-merge lands as a single commit)
+          PR_JSON=$(gh api repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls \
+            -H "Accept: application/vnd.github+json" 2>/dev/null || echo "[]")
+
+          PR_NUMBER=$(echo "$PR_JSON" | python3 -c \
+            "import sys,json; prs=json.load(sys.stdin); print(prs[0]['number'] if prs else '')" 2>/dev/null)
+          PR_TITLE=$(echo "$PR_JSON" | python3 -c \
+            "import sys,json; prs=json.load(sys.stdin); print(prs[0]['title'] if prs else '')" 2>/dev/null)
+          PR_BODY=$(echo "$PR_JSON" | python3 -c \
+            "import sys,json; prs=json.load(sys.stdin); print(prs[0]['body'] or '' if prs else '')" 2>/dev/null)
+
+          if [ -n "$PR_NUMBER" ]; then
+            RELEASE_TITLE="Debug build ${SHORT_SHA} — ${PR_TITLE}"
+            RELEASE_NOTES="## PR #${PR_NUMBER}: ${PR_TITLE}
+
+          ${PR_BODY}
+
+          ---
+          **Commit:** \`${GITHUB_SHA}\`
+          **Build:** #${{ github.run_number }}"
+          else
+            # Direct push to main (no associated PR)
+            COMMIT_MSG=$(git log -1 --pretty=format:"%s" $GITHUB_SHA)
+            RELEASE_TITLE="Debug build ${SHORT_SHA} — ${COMMIT_MSG}"
+            RELEASE_NOTES="Direct push to main (no associated PR).
+
+          **Commit:** \`${GITHUB_SHA}\`
+          **Message:** ${COMMIT_MSG}
+          **Build:** #${{ github.run_number }}"
+          fi
+
           # Delete existing debug-latest tag/release if present
           gh release delete debug-latest --repo $GITHUB_REPOSITORY --yes 2>/dev/null || true
           git tag -f debug-latest
           git push -f origin debug-latest
           gh release create debug-latest "$APK" \
             --repo $GITHUB_REPOSITORY \
-            --title "Debug build (${SHORT_SHA})" \
-            --notes "Latest debug APK from commit ${GITHUB_SHA}" \
+            --title "$RELEASE_TITLE" \
+            --notes "$RELEASE_NOTES" \
             --prerelease
