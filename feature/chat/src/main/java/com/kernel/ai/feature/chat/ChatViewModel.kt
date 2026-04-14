@@ -258,7 +258,14 @@ class ChatViewModel @Inject constructor(
                         "Alarm rule: whenever the user asks to set an alarm for a specific time, " +
                         "you MUST call run_intent with intent_name=set_alarm — NEVER say 'alarm set' or confirm it without using the tool. " +
                         "If the user specifies a day (e.g. 'tomorrow', 'next Monday', 'on Friday'), include day=<day_name> in the call — " +
-                        "pass the day exactly as the user said it (e.g. day='tomorrow', day='monday').\n\n" +
+                        "pass the day exactly as the user said it (e.g. day='tomorrow', day='monday').\n" +
+                        "Calendar rule: whenever the user says 'add a calendar entry', 'create a calendar event', 'add an event', " +
+                        "'add a reminder for [topic] on [date]', or 'schedule [topic] on [date]' — you MUST call run_intent with " +
+                        "intent_name=create_calendar_event. Resolve any relative date (e.g. 'tomorrow', 'next Friday') to an absolute " +
+                        "YYYY-MM-DD date before calling. Pass time as HH:MM (24h) if specified; omit it for all-day events. " +
+                        "NEVER confirm the event was created without calling the tool. " +
+                        "IMPORTANT: 'remind me in X minutes/seconds' is a timer (set_timer), NOT a calendar event. " +
+                        "Only use create_calendar_event when the user specifies a future date or a specific clock time on a date.\n\n" +
                         nativeDeclarations
                 )
             }
