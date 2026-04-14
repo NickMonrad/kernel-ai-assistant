@@ -220,9 +220,12 @@ class ChatViewModel @Inject constructor(
         // ISO date injected alongside the human-readable date so the model can copy it directly
         // when generating calendar event dates without having to reformat the year.
         val isoDate = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ENGLISH))
+        // isFirstReply is true only when no assistant messages have been sent yet in this conversation.
+        // _messages holds the live conversation; historyTurns is only populated on RAG history replay.
+        val isFirstReply = _messages.value.none { it.role == ChatMessage.Role.ASSISTANT } && historyTurns.isEmpty()
         return buildString {
             append(DEFAULT_SYSTEM_PROMPT)
-            append("\n\n${jandalPersona.buildGreetingInstruction(isFirstReply = historyTurns.isEmpty())} ${jandalPersona.buildSessionVocab()}")
+            append("\n\n${jandalPersona.buildGreetingInstruction(isFirstReply = isFirstReply)} ${jandalPersona.buildSessionVocab()}")
             append("\n\n[Current date and time]\n$dateTime (ISO: $isoDate)")
             // Runtime info fetched dynamically via get_system_info skill at query time
             if (profile.isNotBlank()) {
