@@ -7,9 +7,16 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.Uri
 import android.provider.AlarmClock
+import android.provider.CalendarContract
 import android.util.Log
 import com.kernel.ai.core.skills.SkillResult
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,12 +29,13 @@ private const val TAG = "KernelAI"
  * [intentName] strings to concrete Android APIs or system Intents.
  *
  * Supported intents:
- *   toggle_flashlight_on   — Camera2 torch on
- *   toggle_flashlight_off  — Camera2 torch off
- *   send_email             — ACTION_SEND mail chooser (params: subject, body)
- *   send_sms               — ACTION_SENDTO SMS composer (params: message)
- *   set_alarm              — AlarmClock.ACTION_SET_ALARM (params: hours, minutes, label)
- *   set_timer              — AlarmClock.ACTION_SET_TIMER (params: duration_seconds, label)
+ *   toggle_flashlight_on    — Camera2 torch on
+ *   toggle_flashlight_off   — Camera2 torch off
+ *   send_email              — ACTION_SEND mail chooser (params: subject, body)
+ *   send_sms                — ACTION_SENDTO SMS composer (params: message)
+ *   set_alarm               — AlarmClock.ACTION_SET_ALARM (params: hours, minutes, label)
+ *   set_timer               — AlarmClock.ACTION_SET_TIMER (params: duration_seconds, label)
+ *   create_calendar_event   — CalendarContract ACTION_INSERT edit screen (params: title, date, time?, duration_minutes?, description?)
  */
 @Singleton
 class NativeIntentHandler @Inject constructor(
@@ -44,6 +52,7 @@ class NativeIntentHandler @Inject constructor(
                 "send_sms" -> sendSms(params)
                 "set_alarm" -> setAlarm(params)
                 "set_timer" -> setTimer(params)
+                "create_calendar_event" -> createCalendarEvent(params)
                 else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
             }
         } catch (e: Exception) {
@@ -152,6 +161,66 @@ class NativeIntentHandler @Inject constructor(
             SkillResult.Success("Timer set for $label.")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("run_intent", "No clock app found to set a timer.")
+        }
+    }
+
+    // ── Calendar ──────────────────────────────────────────────────────────────
+
+    private fun createCalendarEvent(params: Map<String, String>): SkillResult {
+        val title = params["title"]?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("run_intent", "title is required for create_calendar_event.")
+        val dateStr = params["date"]?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("run_intent", "date is required (YYYY-MM-DD) for create_calendar_event.")
+
+        val date = try {
+            LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE)
+        } catch (e: DateTimeParseException) {
+            return SkillResult.Failure("run_intent", "Invalid date format '$dateStr' — expected YYYY-MM-DD.")
+        }
+
+        val timeStr = params["time"]?.takeIf { it.isNotBlank() }
+        val durationMinutes = params["duration_minutes"]?.toIntOrNull() ?: 60
+        if (durationMinutes <= 0) {
+            return SkillResult.Failure("run_intent", "duration_minutes must be greater than 0 (received: $durationMinutes).")
+        }
+        val zone = ZoneId.systemDefault()
+
+        val (beginMillis, endMillis) = if (timeStr != null) {
+            val time = try {
+                LocalTime.parse(timeStr, DateTimeFormatter.ofPattern("HH:mm"))
+            } catch (e: DateTimeParseException) {
+                return SkillResult.Failure("run_intent", "Invalid time format '$timeStr' — expected HH:MM (24h).")
+            }
+            val begin = LocalDateTime.of(date, time).atZone(zone).toInstant().toEpochMilli()
+            val end = begin + durationMinutes * 60_000L
+            begin to end
+        } else {
+            // All-day event: pass midnight-to-midnight in UTC as CalendarContract expects
+            val begin = date.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
+            val end = begin + 24 * 60 * 60_000L
+            begin to end
+        }
+
+        val intent = Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI).apply {
+            putExtra(CalendarContract.Events.TITLE, title)
+            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginMillis)
+            putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
+            if (timeStr == null) putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, true)
+            params["description"]?.takeIf { it.isNotBlank() }?.let {
+                putExtra(CalendarContract.Events.DESCRIPTION, it)
+            }
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+
+        if (context.packageManager.resolveActivity(intent, 0) == null) {
+            return SkillResult.Failure("run_intent", "No calendar app found on this device.")
+        }
+        return try {
+            context.startActivity(intent)
+            val timeLabel = if (timeStr != null) " at $timeStr" else " (all day)"
+            SkillResult.Success("Calendar opened — '${title}' on $dateStr$timeLabel. Please review and save in your calendar app.")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("run_intent", "No calendar app found on this device.")
         }
     }
 }
