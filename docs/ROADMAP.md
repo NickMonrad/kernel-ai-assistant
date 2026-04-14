@@ -150,7 +150,7 @@ User Input (voice/text)
 | Jandal cultural identity — knows his own NZ/Kiwi culture ([#264](https://github.com/NickMonrad/kernel-ai-assistant/issues/264)) | ✅ Done | PR #268 — Kiwi identity + cultural facts injected into `DEFAULT_SYSTEM_PROMPT` in `ModelConfig.kt` |
 | Review UI patterns ([#71](https://github.com/NickMonrad/kernel-ai-assistant/issues/71)) | ⬜ Pending | Audit and refine UI patterns across the app |
 | Copy chat content ([#78](https://github.com/NickMonrad/kernel-ai-assistant/issues/78)) | ✅ Done | — |
-| Copy tool call content for debugging ([#260](https://github.com/NickMonrad/kernel-ai-assistant/issues/260)) | ⬜ Pending | Tap-to-copy on tool call chip; full message copy should exclude tool call block |
+| Copy tool call content for debugging ([#260](https://github.com/NickMonrad/kernel-ai-assistant/issues/260)) | ✅ Done | PR #325/#326 — copy icon in expanded tool call chip; copies `[Tool: name]\nRequest\nResult` |
 | Skill discoverability UI ([#261](https://github.com/NickMonrad/kernel-ai-assistant/issues/261)) | ⬜ Pending | Settings screen listing skills with enable/disable toggles + config navigation (run_intents non-disableable) |
 
 ### Resident Agent — Tier 2: QuickIntentRouter
@@ -181,7 +181,7 @@ User Input (voice/text)
 | `send_sms` via `run_intent` | ✅ Done | `ACTION_SENDTO smsto:`; message pre-filled (#247) |
 | **Rich tool result UI** ([#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222)) | ⬜ Pending | Replace 🔧 debug chip with weather card, confirmation chips, list cards per skill type |
 | **`set_do_not_disturb`** | ⬜ Pending | `NotificationManager.setInterruptionFilter()` |
-| **`create_calendar_event`** ([#265](https://github.com/NickMonrad/kernel-ai-assistant/issues/265)) | ⬜ Pending | `CalendarContract.Events.CONTENT_URI` insert intent; opens edit screen for user to confirm/add attendees |
+| **`create_calendar_event`** ([#265](https://github.com/NickMonrad/kernel-ai-assistant/issues/265)) | ✅ Done | PR #309 — `CalendarContract ACTION_INSERT` edit screen; `resolveDate` + `resolveTime` with natural language format support (PR #325) |
 | **Maps & location intents** ([#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258)) | ⬜ Pending | `navigate_to` → `geo:` intent; `open_in_maps` → Maps app; JS skill for nearby search (Phase 5) |
 | **`send_sms` / `send_email` recipient from contacts** ([#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256)) | ⬜ Pending | `READ_CONTACTS` + `ContactsContract` lookup before composing |
 | **Weather forecast** ([#255](https://github.com/NickMonrad/kernel-ai-assistant/issues/255)) | ✅ Done | PR #269 (JS skill), PR #274 (native GPS skill). Both skills support `forecast_days` 1–7 with emoji + min/max temps |
@@ -198,6 +198,8 @@ User Input (voice/text)
 | Message embedding stats in Memory screen ([#164](https://github.com/NickMonrad/kernel-ai-assistant/issues/164)) | ✅ Done | — |
 | Bulk delete core memories ([#110](https://github.com/NickMonrad/kernel-ai-assistant/issues/110)) | ✅ Done | — |
 | Memory tool gaps: save_memory triggers + search_memory skill ([#223](https://github.com/NickMonrad/kernel-ai-assistant/issues/223)) / ([#236](https://github.com/NickMonrad/kernel-ai-assistant/issues/236)) | ✅ Done | save_memory trigger enforced via hard rule in system prompt (PR #257); `search_memory` native skill with cross-conversation RAG search (PR #270) |
+| search_memory quality — short entry filter ([#323](https://github.com/NickMonrad/kernel-ai-assistant/issues/323)) | ✅ Done | PR #326 — `MIN_EPISODIC_CONTENT_LENGTH = 20` filters short distillation hallucinations at save and search time |
+| Prevent model using stale weather from memory ([#322](https://github.com/NickMonrad/kernel-ai-assistant/issues/322)) | ✅ Done | PR #326 — "ALWAYS call tool, never use memory" added to both weather tool descriptions |
 
 ### Voice Interface
 
@@ -329,25 +331,40 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#163](https://github.com/NickMonrad/kernel-ai-assistant/issues/163) | message_embeddings_vec orphan cleanup on conversation delete | Phase 3 | ✅ Done |
 | [#164](https://github.com/NickMonrad/kernel-ai-assistant/issues/164) | Message embedding stats in Memory screen | Phase 3 | ✅ Done |
 | [#165](https://github.com/NickMonrad/kernel-ai-assistant/issues/165) | Episodic memory distillation on conversation close | Phase 3 | ✅ Done |
-| [#229](https://github.com/NickMonrad/kernel-ai-assistant/issues/229) | Cannot copy tool call output | Phase 3 | Superseded by [#260](https://github.com/NickMonrad/kernel-ai-assistant/issues/260) |
-| [#236](https://github.com/NickMonrad/kernel-ai-assistant/issues/236) | Cross-conversation search_memory skill | Phase 3 | ⬜ Pending — see #223 |
+| [#229](https://github.com/NickMonrad/kernel-ai-assistant/issues/229) | Cannot copy tool call output | Phase 3 | ✅ Done — PR #325/#326 |
+| [#236](https://github.com/NickMonrad/kernel-ai-assistant/issues/236) | Cross-conversation search_memory skill | Phase 3 | ✅ Done — PR #270 |
 | [#239](https://github.com/NickMonrad/kernel-ai-assistant/issues/239) | JS skill execution layer (WebView gateway) | Phase 3 | ✅ Done — #247/#251 |
-| [#240](https://github.com/NickMonrad/kernel-ai-assistant/issues/240) | Unit tests for extractToolCallJson / tryExecuteToolCall | Phase 3 | ⬜ Pending |
+| [#240](https://github.com/NickMonrad/kernel-ai-assistant/issues/240) | Unit tests for extractToolCallJson / tryExecuteToolCall | Phase 3 | ✅ Done — PR #318 (`ToolCallExtractor` + `SkillExecutorTest`, 28 tests) |
 | [#248](https://github.com/NickMonrad/kernel-ai-assistant/issues/248) | "Morena" used at wrong time of day | Phase 3 | ✅ Fixed — #252 |
 | [#250](https://github.com/NickMonrad/kernel-ai-assistant/issues/250) | Wrong emoji on chat background | Phase 3 | ✅ Fixed — #252 |
 | [#253](https://github.com/NickMonrad/kernel-ai-assistant/issues/253) | set_timer intent | Phase 3 | ✅ Done — #257/#262 |
 | [#254](https://github.com/NickMonrad/kernel-ai-assistant/issues/254) | GPS weather location name (Nominatim) | Phase 3 | ✅ Done — #257 |
-| [#255](https://github.com/NickMonrad/kernel-ai-assistant/issues/255) | Weather forecast for tomorrow / next N days | Phase 3 | ⬜ Pending |
+| [#255](https://github.com/NickMonrad/kernel-ai-assistant/issues/255) | Weather forecast for tomorrow / next N days | Phase 3 | ✅ Done — PR #269/#274 |
 | [#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256) | SMS/email — pre-populate recipient from contact name | Phase 3 | ⬜ Pending |
 | [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Maps & location skills (navigate, open, find nearby) | Phase 3/5 | ⬜ Pending — native intents Phase 3; JS nearby search Phase 5 |
-| [#260](https://github.com/NickMonrad/kernel-ai-assistant/issues/260) | Copy tool call content for debugging | Phase 3 | ⬜ Pending |
+| [#260](https://github.com/NickMonrad/kernel-ai-assistant/issues/260) | Copy tool call content for debugging | Phase 3 | ✅ Done — PR #325/#326 |
 | [#261](https://github.com/NickMonrad/kernel-ai-assistant/issues/261) | Skill discoverability UI | Phase 3 | ⬜ Pending |
 | [#264](https://github.com/NickMonrad/kernel-ai-assistant/issues/264) | Jandal doesn't know his own culture | Phase 3 | ✅ Done (PR #268) |
-| [#265](https://github.com/NickMonrad/kernel-ai-assistant/issues/265) | Calendar event intent | Phase 3 | ⬜ Pending |
+| [#265](https://github.com/NickMonrad/kernel-ai-assistant/issues/265) | Calendar event intent | Phase 3 | ✅ Done — PR #309 |
 | [#230](https://github.com/NickMonrad/kernel-ai-assistant/issues/230) | Review `safeTokenCount()` token alignment logic | Phase 3 (technical debt) | ⬜ Open — workaround already in place, needs comment/doc clarity |
 | [#231](https://github.com/NickMonrad/kernel-ai-assistant/issues/231) | NPU fallback rejects QTI Snapdragon devices | Phase 3 (device compat) | ⬜ Open — high priority bug, partial-match fix needed |
 | [#232](https://github.com/NickMonrad/kernel-ai-assistant/issues/232) | Chicory WASM performance design constraint | Phase 5 | ⬜ Open — design note, guides skill authoring guidelines |
 | [#272](https://github.com/NickMonrad/kernel-ai-assistant/issues/272) | GPS weather routing — model always used JS skill | Phase 3 | ✅ Done (PR #274) |
+| [#301](https://github.com/NickMonrad/kernel-ai-assistant/issues/301) | isFirstReply derivation from actual conversation state | Phase 3 | ✅ Done — PR #310 |
+| [#311](https://github.com/NickMonrad/kernel-ai-assistant/issues/311) | Home Assistant integration skill | Phase 3/5 | ⬜ Pending |
+| [#312](https://github.com/NickMonrad/kernel-ai-assistant/issues/312) | Google Home integration skill | Phase 3/5 | ⬜ Pending |
+| [#313](https://github.com/NickMonrad/kernel-ai-assistant/issues/313) | DuckDuckGo web search skill | Phase 3/5 | ⬜ Pending |
+| [#314](https://github.com/NickMonrad/kernel-ai-assistant/issues/314) | Donetick task integration | Phase 3/5 | ⬜ Pending |
+| [#315](https://github.com/NickMonrad/kernel-ai-assistant/issues/315) | Personal notes, reminders, shopping list — Room DB MVP | Phase 3 | ⬜ Pending |
+| [#316](https://github.com/NickMonrad/kernel-ai-assistant/issues/316) | Plex media skill | Phase 3/5 | ⬜ Pending |
+| [#317](https://github.com/NickMonrad/kernel-ai-assistant/issues/317) | Send calendar invites to contacts | Phase 3 | ⬜ Pending |
+| [#319](https://github.com/NickMonrad/kernel-ai-assistant/issues/319) | resolveDate fails on natural date formats | Phase 3 (bug) | ✅ Done — PR #325 |
+| [#320](https://github.com/NickMonrad/kernel-ai-assistant/issues/320) | resolveTime single-digit minute padding | Phase 3 (bug) | ✅ Done — PR #325 |
+| [#321](https://github.com/NickMonrad/kernel-ai-assistant/issues/321) | Alarm AM/PM no-colon format (`10pm` → `01:00`) | Phase 3 (bug) | ✅ Done — PR #325 |
+| [#322](https://github.com/NickMonrad/kernel-ai-assistant/issues/322) | Model uses stale weather from memory instead of tool | Phase 3 (bug) | ✅ Done — PR #326 |
+| [#323](https://github.com/NickMonrad/kernel-ai-assistant/issues/323) | search_memory returns low-quality short fragments | Phase 3 (bug) | ✅ Done — PR #326 |
+| [#324](https://github.com/NickMonrad/kernel-ai-assistant/issues/324) | Tomorrow alarm sets for today | Phase 3 (bug) | ⚠ Partial — PR #326 warning label; full fix tracked in #327 |
+| [#327](https://github.com/NickMonrad/kernel-ai-assistant/issues/327) | Full date-specific alarm via `AlarmManager.setExact()` | Phase 3 | ⬜ Pending — needs permission, BroadcastReceiver, persistence |
 
 ---
 

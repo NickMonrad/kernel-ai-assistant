@@ -44,25 +44,29 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 📊 **Runtime info** — shows active model, backend (GPU/NPU/CPU), and device tier in chat
 - ⚡ **Quick Actions tab** — instant device commands (torch, timer, DND, bluetooth) via zero-overhead Kotlin pattern matcher
 - 💭 **Episodic memory distillation** — Gemma-4 summarises each conversation into long-term memories
+- 🔧 **Native skills** — alarms, timers, SMS, email, torch, calendar events, weather (GPS + city), Wikipedia
+- 🔍 **search_memory** — semantic search across core + episodic memories on demand
+- 🔎 **Tool call debugging** — expand any tool call chip to see request/result, tap to copy
 
 ### Coming Soon
 - 🗣️ **Voice + text input** — tap-to-talk with auto-stop *(Phase 3)*
-- 🔧 **Full native skills** — Alarms, SMS, Email, Media Control, Notes, Weather *(Phase 3)*
+- 📝 **Notes & reminders** — Room DB local storage *(Phase 3)*
+- 🗺️ **Maps & navigation** — `navigate_to` / nearby search *(Phase 3)*
 - 🌙 **Dreaming Engine** — overnight WorkManager consolidation (Light Sleep → REM → Deep Sleep) *(Phase 4)*
-- ⚡ **Semantic cache** — instant responses for repeated knowledge queries, bypassing main LLM *(Phase 4)*
+- ⚡ **Semantic cache** — instant responses for repeated knowledge queries *(Phase 4)*
 - 🪪 **Self-healing identity** — structured user profile, LLM-managed via Dreaming cycle *(Phase 4)*
-- 🧩 **Wasm skill store** — community-extensible plugins (Rust → Wasm) with sandboxed execution *(Phase 4)*
-- 🏠 **Home Assistant** — smart home control via Wasm skill *(Phase 4)*
-- 📱 **8GB device optimisation** — dynamic weight loading/unloading, E2B fallback *(Phase 5)*
-- 🎙️ **"Hey Jandal" wake word** — always-on local detection → instant action routing *(Phase 5)*
+- 🧩 **Wasm skill store** — community-extensible plugins with sandboxed execution *(Phase 5)*
+- 🏠 **Home Assistant / Google Home** — smart home control *(Phase 5)*
+- 📱 **8GB device optimisation** — dynamic weight loading/unloading, E2B fallback *(Phase 6)*
+- 🎙️ **"Hey Jandal" wake word** — always-on local detection → instant action routing *(Phase 3)*
 
 ## Roadmap
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM integration + GPU/NPU acceleration + Chat UI | ✅ |
-| 2 | sqlite-vec + EmbeddingGemma for local RAG + memory, UI polish, model selection | 🔄 |
-| 3 | FunctionGemma intent router + Native Skills + Voice I/O + episodic distillation + Brand refresh (Jandal AI) | ⬜ |
+| 2 | sqlite-vec + EmbeddingGemma for local RAG + memory, UI polish, model selection | ✅ |
+| 3 | Native Skills + episodic distillation + search_memory + Brand refresh (Jandal AI) | 🔄 |
 | 4 | Dreaming Engine (WorkManager overnight cycle) + Semantic Cache + Self-Healing Identity System | ⬜ |
 | 5 | Chicory Wasm runtime + GitHub Skill Store | ⬜ |
 | 6 | 8GB device optimization (dynamic weight loading) | ⬜ |
