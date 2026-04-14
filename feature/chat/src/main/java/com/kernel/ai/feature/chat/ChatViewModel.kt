@@ -222,7 +222,7 @@ class ChatViewModel @Inject constructor(
         val isoDate = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ENGLISH))
         return buildString {
             append(DEFAULT_SYSTEM_PROMPT)
-            append("\n\n${jandalPersona.buildGreetingInstruction()} ${jandalPersona.buildSessionVocab()}")
+            append("\n\n${jandalPersona.buildGreetingInstruction(isFirstReply = historyTurns.isEmpty())} ${jandalPersona.buildSessionVocab()}")
             append("\n\n[Current date and time]\n$dateTime (ISO: $isoDate)")
             // Runtime info fetched dynamically via get_system_info skill at query time
             if (profile.isNotBlank()) {

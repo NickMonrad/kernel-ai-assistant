@@ -47,20 +47,27 @@ class JandalPersona @Inject constructor(
     }
 
     /**
-     * Returns an explicit time-aware instruction about when Morena is appropriate.
-     * This replaces the bare greeting word injection so the model understands the
-     * time constraint rather than treating "Morena!" as a general-purpose greeting.
+     * Returns an explicit time-aware greeting instruction tailored to whether this is the
+     * first reply in the conversation or a follow-up.
      *
-     * - 05:00-11:59 → permit Morena, explain it means good morning
-     * - All other hours → explicitly forbid Morena, direct model to use Kia ora
+     * @param isFirstReply true when there is no prior conversation history (i.e. turn 1).
+     *
+     * - First reply + morning (05:00–11:59) → open with Morena
+     * - First reply + other hours → open with Kia ora
+     * - Follow-up reply → explicitly forbid any greeting opener
      */
-    fun buildGreetingInstruction(): String {
-        val hour = LocalTime.now().hour
-        return if (hour in 5..11) {
-            "It is morning. You may greet with 'Morena' (good morning in Māori) where natural."
-        } else {
-            "Do not say 'Morena' — it means good morning and it is not morning. Greet with 'Kia ora' instead."
+    fun buildGreetingInstruction(isFirstReply: Boolean): String {
+        if (!isFirstReply) {
+            return "Do NOT start this reply with a greeting — you already greeted the user earlier in the conversation. " +
+                "Use the user's name occasionally for warmth, not as a prefix on every response."
         }
+        val hour = LocalTime.now().hour
+        val greetWord = if (hour in 5..11) {
+            "Open your reply with 'Morena' (good morning in Māori)."
+        } else {
+            "Do not say 'Morena' — it is not morning. Open your reply with 'Kia ora'."
+        }
+        return "$greetWord Use the user's name occasionally for warmth, not as a prefix on every response."
     }
 
     /**
