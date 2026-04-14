@@ -3,7 +3,6 @@ package com.kernel.ai.navigation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -19,7 +18,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.kernel.ai.feature.chat.ActionsScreen
 import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
 import com.kernel.ai.feature.settings.MemoryScreen
@@ -37,7 +35,7 @@ private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
 private const val ARG_CONVERSATION_ID = "conversationId"
 
 /** Routes that show the bottom navigation bar. */
-private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
+private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST)
 
 @Composable
 fun KernelNavHost() {
@@ -62,20 +60,7 @@ fun KernelNavHost() {
                         icon = { Icon(Icons.Default.ChatBubble, contentDescription = null) },
                         label = { Text("Chats") },
                     )
-                    NavigationBarItem(
-                        selected = currentRoute == ROUTE_ACTIONS,
-                        onClick = {
-                            if (currentRoute != ROUTE_ACTIONS) {
-                                navController.navigate(ROUTE_ACTIONS) {
-                                    popUpTo(ROUTE_LIST) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        },
-                        icon = { Icon(Icons.Default.Bolt, contentDescription = null) },
-                        label = { Text("Actions") },
-                    )
+                    // Actions tab hidden pending #220 (fast intent layer / FunctionGemmaRouter replacement)
                 }
             }
         },
@@ -102,11 +87,7 @@ fun KernelNavHost() {
                 }
             }
 
-            composable(ROUTE_ACTIONS) {
-                Box(modifier = Modifier.padding(innerPadding)) {
-                    ActionsScreen()
-                }
-            }
+            // Actions screen hidden pending #220 (fast intent layer / FunctionGemmaRouter replacement)
 
             // New conversation (no conversationId arg)
             composable(ROUTE_CHAT) {

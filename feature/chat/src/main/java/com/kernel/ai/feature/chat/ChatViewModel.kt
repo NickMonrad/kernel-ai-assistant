@@ -7,7 +7,6 @@ import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
-import com.kernel.ai.core.inference.FunctionGemmaRouter
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.inference.JandalPersona
@@ -67,7 +66,6 @@ class ChatViewModel @Inject constructor(
     private val modelSettingsRepository: ModelSettingsRepository,
     private val skillRegistry: SkillRegistry,
     private val skillExecutor: SkillExecutor,
-    private val functionGemmaRouter: FunctionGemmaRouter,
     private val kernelAIToolSet: KernelAIToolSet,
     private val embeddingEngine: EmbeddingEngine,
     private val jandalPersona: JandalPersona,
@@ -198,7 +196,6 @@ class ChatViewModel @Inject constructor(
             // FG's 289MB on CPU is enough to tip OOM during GPU init.
             // Once E4B is stable, FG loads in ~0.4s with no memory pressure.
             initEngineWhenReady()
-            initFunctionGemmaRouter()
         }
     }
 
@@ -375,40 +372,6 @@ class ChatViewModel @Inject constructor(
             } catch (e: Exception) {
                 _error.value = "Failed to load model: ${e.message}"
             }
-        }
-    }
-
-    /**
-     * Eagerly initialises [FunctionGemmaRouter] from `init {}` so skill commands are ready
-     * before the user types anything.
-     *
-     * Waits for [KernelModel.FUNCTION_GEMMA_270M] to be on disk (handles the case where the
-     * model is currently being downloaded when the chat opens). If the model is absent and not
-     * downloading, logs a warning and returns without blocking.
-     * Non-fatal if initialisation throws.
-     */
-    private suspend fun initFunctionGemmaRouter() {
-        // Wait until FunctionGemma transitions out of Downloading state, or bail immediately
-        // if it's NotDownloaded / Error (never been fetched).
-        downloadManager.downloadStates
-            .filter { states ->
-                val state = states[KernelModel.FUNCTION_GEMMA_270M]
-                state is DownloadState.Downloaded ||
-                    state is DownloadState.NotDownloaded ||
-                    state is DownloadState.Error
-            }
-            .first()
-
-        val routerPath = downloadManager.getModelPath(KernelModel.FUNCTION_GEMMA_270M)
-        if (routerPath == null) {
-            Log.i("KernelAI", "FunctionGemmaRouter: model not downloaded — intent routing disabled")
-            return
-        }
-        try {
-            functionGemmaRouter.initialize(routerPath)
-            Log.i("KernelAI", "FunctionGemmaRouter initialized successfully")
-        } catch (e: Exception) {
-            Log.w("KernelAI", "FunctionGemmaRouter: init failed (non-fatal): ${e.message}", e)
         }
     }
 
@@ -1044,9 +1007,6 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { inferenceEngine.shutdown() }
-        CoroutineScope(LlmDispatcher).launch {
-            functionGemmaRouter.release()
-        }
     }
 }
 

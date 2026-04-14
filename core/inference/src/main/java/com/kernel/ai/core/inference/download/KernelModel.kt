@@ -57,14 +57,19 @@ enum class KernelModel(
         isGated = false,
     ),
 
+    /**
+     * Not currently used — FunctionGemmaRouter has been superseded by the native Gemma 4
+     * control-token tool-calling path (#242). Kept in the catalogue (not required) so the
+     * enum reference in FunctionGemmaRouter/ActionsViewModel compiles; will be wired back in
+     * when the fast intent layer (#220) is implemented.
+     */
     FUNCTION_GEMMA_270M(
         displayName = "FunctionGemma 270M (intent router)",
         fileName = "mobile_actions_q8_ekv1024.litertlm",
         downloadUrl = "https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions/resolve/main/mobile_actions_q8_ekv1024.litertlm",
         approxSizeBytes = 303_000_000L, // ~289 MB
-        // Required — powers the intent router (FunctionGemmaRouter) so skills fire on every device.
-        // HuggingFace repo is gated — requires sign-in to download.
-        isRequired = true,
+        // Not required until #220 (fast intent layer) is implemented.
+        isRequired = false,
         preferredForTier = null,
         isGated = true,
     ),
