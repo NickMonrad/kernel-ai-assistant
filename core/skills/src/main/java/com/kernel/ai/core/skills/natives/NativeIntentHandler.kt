@@ -111,9 +111,10 @@ class NativeIntentHandler @Inject constructor(
     private fun setAlarm(params: Map<String, String>): SkillResult {
         // Prefer `time` string (e.g. "10pm", "09:05") over raw hours/minutes so the model
         // never has to do 12h→24h conversion — resolveTime() handles it reliably in Kotlin.
-        val (hours, minutes): Pair<Int, Int> = params["time"]?.let { t ->
+        val timePair = params["time"]?.let { t ->
             resolveTime(t)?.let { it.hour to it.minute }
         } ?: ((params["hours"]?.toIntOrNull() ?: 8) to (params["minutes"]?.toIntOrNull() ?: 0))
+        val (hours, minutes) = timePair
         val day = params["day"]?.trim()?.lowercase()
         val isTomorrow = day == "tomorrow"
 
