@@ -121,9 +121,9 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 ```
 [System Prompt]          ← persona, date/time, runtime info
 [User Profile]           ← always injected (structured identity fields)
-[Core Memories]          ← permanent facts (CORE_MAX_DISTANCE=0.55, topK=10)
-[Episodic Memories]      ← distilled conversation summaries (EPISODIC_MAX_DISTANCE=0.40, topK=3)
-[Message History]        ← semantically relevant messages from current conversation (MAX_DISTANCE=0.40, topK=5)
+[Core Memories]          ← permanent facts (CORE_MAX_DISTANCE=1.10, topK=10)
+[Episodic Memories]      ← distilled conversation summaries (EPISODIC_MAX_DISTANCE=1.10, topK=3)
+[Message History]        ← semantically relevant messages from current conversation (MAX_DISTANCE=1.10, topK=5)
 [Conversation Window]    ← selected recent turns (75% token budget)
 [Current User Message]   ← with RAG context prepended
 ```
@@ -138,7 +138,7 @@ All three memory sections are conditionally included — omitted entirely if no 
   - `core_memories_vec` — permanent facts about the user (visible in Settings → Core Memories)
   - `episodic_memories_vec` — distilled conversation summaries from `EpisodicDistillationUseCase` (visible in Settings → Episodic Memories)
   - `message_embeddings` — per-message vectors for intra-conversation fuzzy recall (visible in Settings → Message History (RAG))
-- **Retrieval:** `vec_distance_cosine()` similarity search per query; top results injected into prompt
+- **Retrieval:** L2 (Euclidean) distance search per query via sqlite-vec default; results filtered by distance threshold; top results injected into prompt. Vectors are L2-normalised at embedding time (`LiteRtEmbeddingEngine`) so L2 distance is equivalent to `sqrt(2 * (1 - cos_sim))` — threshold 1.10 ≈ cos_sim ≥ 0.40.
 - **Separate databases:** Room (`kernel_db.db`) for relational data; native SQLite (`kernel_vectors.db`) for vectors (Room doesn't support vec0 virtual tables)
 - **TTL & pruning:** `prune()` runs on every write with two independent passes:
   1. **TTL pass** — deletes episodic memories where both `createdAt` and `lastAccessedAt` are older than 30 days. Accessing a memory resets `lastAccessedAt`, keeping it alive past the 30-day TTL for as long as it remains in use.
@@ -279,8 +279,8 @@ and awaits the result with a 15s timeout.
 > `SkillsModule.kt` via Hilt `@Binds @IntoSet`. Accepts a required `query` string,
 > optional `conversationId` (scopes search to one conversation for summary-to-detail
 > drill-down), and optional `topK` (default 5). Wraps `RagRepository.searchMessages()`,
-> which embeds the query and performs cosine vector search on `message_embeddings` at
-> `MAX_DISTANCE=0.4`. Results are formatted as a numbered list with date, role, and
+> which embeds the query and performs L2 distance search on `message_embeddings` at
+> `MAX_DISTANCE=1.10` (≈ cos_sim ≥ 0.40). Results are formatted as a numbered list with date, role, and
 > `conversation:ID` prefix. Uses a batch `MessageDao.getByIds()` call — single DB query
 > regardless of result count (avoids N+1). The system prompt injects its description as a
 > tool example so Gemma-4 knows when to invoke it.
