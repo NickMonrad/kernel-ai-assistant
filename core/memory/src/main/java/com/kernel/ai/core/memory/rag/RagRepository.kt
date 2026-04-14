@@ -41,10 +41,10 @@ class RagRepository @Inject constructor(
         private const val DEFAULT_TOP_K = 5
 
         /** Maximum cosine distance to include a result (0 = identical, 2 = opposite).
-         *  0.4 ≈ cosine similarity 0.6 — filters out unrelated memories while keeping
-         *  genuinely relevant context. Without this, top-K always returns results even
-         *  when nothing in memory is actually related to the current query. */
-        private const val MAX_DISTANCE = 0.4f
+         *  L2 equivalent of cosine_dist ≤ 0.60 (cos_sim ≥ 0.40) for unit-normalized vectors:
+         *  L2 = sqrt(2 * cosine_dist) = sqrt(2 * 0.60) ≈ 1.10
+         *  Without this, top-K always returns results even when nothing is actually related. */
+        private const val MAX_DISTANCE = 1.10f
     }
 
     private var tableCreated = false
@@ -158,6 +158,7 @@ class RagRepository @Inject constructor(
         if (tableCreated) {
             runCatching {
                 val results = vectorStore.search(TABLE, queryVector, topK + excludeMessageIds.size)
+                Log.d(TAG, "Message vec search: ${results.size} raw results, distances=${results.map { "%.4f".format(it.distance) }}")
                 val candidates = results
                     .filter { it.distance <= MAX_DISTANCE }
                     .map { it.rowId }
