@@ -213,16 +213,16 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private suspend fun buildSystemPrompt(historyTurns: List<Pair<String, String>> = emptyList()): String {
+    private suspend fun buildSystemPrompt(
+        historyTurns: List<Pair<String, String>> = emptyList(),
+        isFirstReply: Boolean = _messages.value.none { it.role == ChatMessage.Role.ASSISTANT },
+    ): String {
         val profile = userProfileRepository.get()
         val now = LocalDateTime.now()
         val dateTime = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))
         // ISO date injected alongside the human-readable date so the model can copy it directly
         // when generating calendar event dates without having to reformat the year.
         val isoDate = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ENGLISH))
-        // isFirstReply is true only when no assistant messages have been sent yet in this conversation.
-        // _messages holds the live conversation; historyTurns is only populated on RAG history replay.
-        val isFirstReply = _messages.value.none { it.role == ChatMessage.Role.ASSISTANT } && historyTurns.isEmpty()
         return buildString {
             append(DEFAULT_SYSTEM_PROMPT)
             append("\n\n${jandalPersona.buildGreetingInstruction(isFirstReply = isFirstReply)} ${jandalPersona.buildSessionVocab()}")
@@ -522,6 +522,9 @@ class ChatViewModel @Inject constructor(
             // _isLoadingModel is always cleared by the outer finally block below.
 
             // 2. Gemma-4 streaming inference path.
+            // Capture isFirstReply before adding the streaming placeholder — once the placeholder
+            // is in _messages the ASSISTANT check would always return false.
+            val isFirstReply = _messages.value.none { it.role == ChatMessage.Role.ASSISTANT }
             assistantMsgId = UUID.randomUUID().toString()
             val streamingPlaceholder = ChatMessage(
                 id = assistantMsgId,
@@ -559,7 +562,7 @@ class ChatViewModel @Inject constructor(
                 )
                 val selected = contextWindowManager.selectHistory(turns, ContextWindowManager.historyBudget(activeContextWindowSize))
                 // Inject history into the system prompt so Gemma treats it as background context.
-                val systemPromptWithHistory = buildSystemPrompt(selected)
+                val systemPromptWithHistory = buildSystemPrompt(selected, isFirstReply = isFirstReply)
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
                 // Re-baseline from selected history, then add the RAG cost for this turn.
                 estimatedTokensUsed = selected.sumOf {
