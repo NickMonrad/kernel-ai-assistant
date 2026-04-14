@@ -39,6 +39,10 @@ class RagRepository @Inject constructor(
         private const val TAG = "RagRepository"
         private const val TABLE = "message_embeddings"
         private const val DEFAULT_TOP_K = 5
+        /** Minimum message content length to surface in search results.
+         *  Prevents short conversational acknowledgements ("Choice bro", "The above")
+         *  from polluting search_memory responses. */
+        private const val MIN_MESSAGE_CONTENT_LENGTH = 20
 
         /** Maximum L2 distance to include a result (0 = identical, sqrt(2) ≈ 1.41 = opposite for unit vectors).
          *  1.10 ≈ cos_sim ≥ 0.40 for unit-normalized 768-dim vectors: L2 = sqrt(2 * (1 - cos_sim)).
@@ -252,6 +256,7 @@ class RagRepository @Inject constructor(
 
             entities.mapNotNull { entity ->
                 val msg = fetchedMessages[entity.messageId] ?: return@mapNotNull null
+                if (msg.content.length < MIN_MESSAGE_CONTENT_LENGTH) return@mapNotNull null
                 MessageSearchResult(
                     role = msg.role,
                     content = msg.content,
