@@ -3,10 +3,9 @@ package com.kernel.ai.core.inference
 /**
  * Manages context window budget for LiteRT-LM conversations.
  *
- * LiteRT-LM Gemma-4 E2B/E4B has an 8192-token context window. After a reset
- * (cancel, restore from Room), prior conversation turns must be re-injected
- * so the model has context. This class estimates token usage and selects
- * which turns to include within the available budget.
+ * After a reset (cancel, restore from Room), prior conversation turns must be re-injected
+ * so the model has context. This class estimates token usage and selects which turns to
+ * include within the available budget, scaled to the active context window size.
  *
  * Token estimation uses a conservative 3 chars/token heuristic to account
  * for code, punctuation, and non-English text.
@@ -14,9 +13,6 @@ package com.kernel.ai.core.inference
 class ContextWindowManager {
 
     companion object {
-        /** Gemma-4 E2B/E4B default context length. */
-        const val MAX_CONTEXT_TOKENS = 8192
-
         /** Reserved for the model's generated response. */
         const val RESPONSE_RESERVE = 1024
 
@@ -24,14 +20,18 @@ class ContextWindowManager {
         const val SYSTEM_OVERHEAD = 2048
 
         /**
-         * Token budget allocated for episodic RAG context within [SYSTEM_OVERHEAD].
-         * Passed to [com.kernel.ai.core.memory.rag.RagRepository.getRelevantContext] as
-         * `maxTokens` to keep retrieved memories within a predictable slice of the budget.
+         * Tokens available for conversation history given [contextWindowSize].
+         * Clamped to zero so callers never receive a negative budget.
          */
-        const val EPISODIC_BUDGET = 400
+        fun historyBudget(contextWindowSize: Int): Int =
+            (contextWindowSize - RESPONSE_RESERVE - SYSTEM_OVERHEAD).coerceAtLeast(0)
 
-        /** Tokens available for conversation history replay. */
-        const val HISTORY_BUDGET = MAX_CONTEXT_TOKENS - RESPONSE_RESERVE - SYSTEM_OVERHEAD // 5120
+        /**
+         * Token budget for RAG context block, scaled to [contextWindowSize].
+         * 5% of the window, clamped to [200, 600] tokens.
+         */
+        fun episodicBudget(contextWindowSize: Int): Int =
+            (contextWindowSize * 0.05).toInt().coerceIn(200, 600)
 
         private const val CHARS_PER_TOKEN = 3
     }
@@ -45,7 +45,7 @@ class ContextWindowManager {
      */
     fun selectHistory(
         turns: List<Pair<String, String>>,
-        budget: Int = HISTORY_BUDGET,
+        budget: Int,
     ): List<Pair<String, String>> {
         var remaining = budget
         val result = ArrayDeque<Pair<String, String>>()
@@ -96,9 +96,9 @@ class ContextWindowManager {
         return result
     }
 
-    /** Fraction of [HISTORY_BUDGET] consumed by [turns]. Values > 1.0 indicate overflow. */
-    fun historyFillFraction(turns: List<Pair<String, String>>): Float {
+    /** Fraction of [historyBudget] consumed by [turns]. Values > 1.0 indicate overflow. */
+    fun historyFillFraction(turns: List<Pair<String, String>>, contextWindowSize: Int): Float {
         val used = turns.sumOf { estimateTokens(it.first) + estimateTokens(it.second) }
-        return used.toFloat() / HISTORY_BUDGET
+        return used.toFloat() / historyBudget(contextWindowSize)
     }
 }
