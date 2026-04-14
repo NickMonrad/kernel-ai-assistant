@@ -15,6 +15,9 @@ import com.kernel.ai.core.skills.SkillSchema
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,7 +36,7 @@ class GetSystemInfoSkill @Inject constructor(
     override val name = "get_system_info"
     override val description =
         "Returns current device and model runtime information including hardware tier, " +
-            "available memory, battery level, and active model."
+            "available memory, battery level, active model, and current date/time."
     override val schema = SkillSchema()
 
     override suspend fun execute(call: SkillCall): SkillResult {
@@ -56,6 +59,8 @@ class GetSystemInfoSkill @Inject constructor(
                 } ?: -1
 
                 val info = buildString {
+                    val now = LocalDateTime.now()
+                    appendLine("Date/time: ${now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))}")
                     appendLine("Hardware tier: ${profile.tier.name}")
                     appendLine("SoC: ${profile.socManufacturer} ${profile.socModel}".trim())
                     appendLine("Total RAM: ${profile.ramLabel}")

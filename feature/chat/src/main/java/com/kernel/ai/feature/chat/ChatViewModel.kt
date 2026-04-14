@@ -262,12 +262,12 @@ class ChatViewModel @Inject constructor(
                         "Alarm rule: whenever the user says 'set alarm', 'set an alarm', 'alarm for', 'alarm at', 'wake me up at', " +
                         "or 'remind me at [specific clock time]' (e.g. 'remind me at 9am', 'remind me at 09:05') — " +
                         "you MUST call run_intent with intent_name=set_alarm. " +
-                        "HOURS MUST BE 24h FORMAT (0-23): 10pm=22, 9pm=21, 8pm=20, 7pm=19, 6pm=18, 1pm=13, 12pm=12, 12am=0. " +
+                        "Pass the time exactly as the user said it using the 'time' parameter (e.g. time=<|\"|>10pm<|\"|>, time=<|\"|>9:30am<|\"|>). " +
                         "NEVER output text like 'I\\'ve set an alarm', 'alarm set for', or any alarm confirmation without a tool call token first — " +
                         "the ONLY correct response to an alarm request is the tool call token and nothing else. " +
                         "NOTE: 'remind me in X minutes' is a timer (set_timer), NOT an alarm. " +
                         "'Remind me at [specific time]' is an alarm (set_alarm). " +
-                        "If the user specifies a day (e.g. 'tomorrow', 'next Monday', '20 April'), include day=<day_value> in the call — " +
+                        "If the user specifies a day (e.g. 'tomorrow', 'next Monday'), include day=<day_value> in the call — " +
                         "pass the day exactly as the user said it (e.g. day=<|\"|>tomorrow<|\"|>, day=<|\"|>monday<|\"|>).\n" +
                         "Calendar rule: whenever the user says 'add a calendar entry', 'create a calendar event', 'add an event', " +
                         "'add a reminder for [topic] on [date]', or 'schedule [topic] on [date]' — you MUST call run_intent with " +
