@@ -98,7 +98,7 @@ I HardwareProfileDetector: Hardware profile: tier=FLAGSHIP, ram=12 GB,
 I ModelDownloadManager: Auto-queuing Gemma 4 E-4B for tier FLAGSHIP
 I ModelDownloadManager: Enqueuing download for Gemma 4 E-4B
 
-# After E-4B + FunctionGemma + E-2B downloads complete (~6 GB total):
+# After E-4B + E-2B downloads complete (~5 GB total):
 
 I LiteRtInferenceEngine: Initializing engine — model: .../gemma-4-E4B-it.litertlm,
     backend: NPU, tier: FLAGSHIP
