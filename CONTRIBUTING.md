@@ -9,6 +9,7 @@ All changes go through a PR — direct pushes to `main` are blocked by branch pr
 1. **Implement** on a feature branch (`feat/`, `fix/`, `docs/` prefix)
 2. **Open PR** targeting `main` — title should reference the issue number (e.g. `fix: enable episodic RAG (#233)`)
 3. **CI must pass** — "Build & Test" check is required before merge
+4. **Unit tests** — significant new logic (parsers, use cases, repositories, ViewModels) should include unit tests. Use JUnit 5 + MockK. See `core/skills/src/test/` and `core/memory/src/test/` for examples. Copilot code-reviewer will flag missing coverage on critical paths.
 4. **Code review** — run the Copilot code-reviewer agent on the PR
 5. **Address findings:**
    - **Major issues** (bugs, logic errors, data loss risk, crashes) → fix on the branch, then run a scoped re-review on the fix commits only
