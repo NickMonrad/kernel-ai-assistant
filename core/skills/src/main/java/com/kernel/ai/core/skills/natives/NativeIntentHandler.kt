@@ -11,12 +11,14 @@ import android.provider.CalendarContract
 import android.util.Log
 import com.kernel.ai.core.skills.SkillResult
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.time.temporal.TemporalAdjusters
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -172,11 +174,11 @@ class NativeIntentHandler @Inject constructor(
         val dateStr = params["date"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("run_intent", "date is required (YYYY-MM-DD) for create_calendar_event.")
 
-        val date = try {
-            LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE)
-        } catch (e: DateTimeParseException) {
-            return SkillResult.Failure("run_intent", "Invalid date format '$dateStr' — expected YYYY-MM-DD.")
-        }
+        val date = resolveDate(dateStr)
+            ?: return SkillResult.Failure(
+                "run_intent",
+                "Could not parse date '$dateStr' — use YYYY-MM-DD or a relative term like 'next wednesday'.",
+            )
 
         val timeStr = params["time"]?.takeIf { it.isNotBlank() }
         val durationMinutes = params["duration_minutes"]?.toIntOrNull() ?: 60
@@ -218,9 +220,74 @@ class NativeIntentHandler @Inject constructor(
         return try {
             context.startActivity(intent)
             val timeLabel = if (timeStr != null) " at $timeStr" else " (all day)"
-            SkillResult.Success("Calendar opened — '${title}' on $dateStr$timeLabel. Please review and save in your calendar app.")
+            val resolvedDateStr = date.format(DateTimeFormatter.ISO_LOCAL_DATE)
+            SkillResult.Success("Calendar opened — '${title}' on $resolvedDateStr$timeLabel. Please review and save in your calendar app.")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("run_intent", "No calendar app found on this device.")
         }
+    }
+
+    /**
+     * Resolves a date string to a [LocalDate]. Accepts:
+     * - ISO format: `YYYY-MM-DD` (and common variants like `YYYY-M-D`, `D-M-YYYY`, `D/M/YYYY`)
+     * - Relative keywords: `today`, `tomorrow`
+     * - Day names: `monday`…`sunday`, optionally prefixed with `next` (always skips to next occurrence)
+     *
+     * Returns null if the string cannot be resolved to a valid date.
+     */
+    private fun resolveDate(dateStr: String): LocalDate? {
+        val input = dateStr.trim()
+        val normalized = input.lowercase()
+        val today = LocalDate.now()
+
+        // Relative keywords
+        when (normalized) {
+            "today" -> return today
+            "tomorrow" -> return today.plusDays(1)
+        }
+
+        // Day-of-week names with optional "next" prefix
+        val isExplicitNext = normalized.startsWith("next ")
+        val dayName = if (isExplicitNext) normalized.removePrefix("next ").trim() else normalized
+        val targetDow: DayOfWeek? = when (dayName) {
+            "monday" -> DayOfWeek.MONDAY
+            "tuesday" -> DayOfWeek.TUESDAY
+            "wednesday" -> DayOfWeek.WEDNESDAY
+            "thursday" -> DayOfWeek.THURSDAY
+            "friday" -> DayOfWeek.FRIDAY
+            "saturday" -> DayOfWeek.SATURDAY
+            "sunday" -> DayOfWeek.SUNDAY
+            else -> null
+        }
+        if (targetDow != null) {
+            // "next X" always skips to the following week; plain "X" returns the upcoming occurrence.
+            return if (isExplicitNext) {
+                today.with(TemporalAdjusters.next(targetDow))
+                    .let { candidate ->
+                        // Ensure we skip to truly next week if the day happens to be today
+                        if (candidate == today) today.with(TemporalAdjusters.next(targetDow)) else candidate
+                    }
+            } else {
+                today.with(TemporalAdjusters.nextOrSame(targetDow))
+                    .let { if (it == today) today.with(TemporalAdjusters.next(targetDow)) else it }
+            }
+        }
+
+        // Strict ISO first, then progressively more lenient formats
+        val formatters = listOf(
+            DateTimeFormatter.ISO_LOCAL_DATE,                    // 2026-04-16
+            DateTimeFormatter.ofPattern("yyyy-M-d"),             // 2026-4-16  (missing zero padding)
+            DateTimeFormatter.ofPattern("d-M-yyyy"),             // 16-4-2026
+            DateTimeFormatter.ofPattern("dd-MM-yyyy"),           // 16-04-2026
+            DateTimeFormatter.ofPattern("d/M/yyyy"),             // 16/4/2026
+            DateTimeFormatter.ofPattern("M/d/yyyy"),             // 4/16/2026
+            DateTimeFormatter.ofPattern("yyyy/MM/dd"),           // 2026/04/16
+        )
+        for (fmt in formatters) {
+            try {
+                return LocalDate.parse(input, fmt)
+            } catch (_: DateTimeParseException) { /* try next */ }
+        }
+        return null
     }
 }
