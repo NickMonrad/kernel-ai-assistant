@@ -1,5 +1,7 @@
 package com.kernel.ai.feature.settings
 
+import android.content.Intent
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -35,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -44,6 +48,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import kotlin.math.roundToInt
+import kotlin.system.exitProcess
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +57,7 @@ fun ModelSettingsScreen(
     viewModel: ModelSettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -89,6 +95,36 @@ fun ModelSettingsScreen(
                     onSettingsChanged = viewModel::updateE4bSettings,
                     onReset = viewModel::resetE4bToDefaults,
                 )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // Screen-level actions: Cancel discards drafts; Save & Restart persists and cold-starts.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        viewModel.cancelChanges()
+                        onBack()
+                    },
+                    enabled = uiState.hasUnsavedChanges && !uiState.isSaving,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Cancel")
+                }
+                Button(
+                    onClick = {
+                        viewModel.saveSettings { restartApp(context) }
+                    },
+                    enabled = uiState.hasUnsavedChanges && !uiState.isSaving,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (uiState.isSaving) "Saving…" else "Save & Restart App")
+                }
             }
         }
     }
@@ -283,4 +319,14 @@ private fun ModelSettingsScreenPreview() {
             onReset = {},
         )
     }
+}
+
+private fun restartApp(context: android.content.Context) {
+    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        ?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK) }
+    if (intent != null) context.startActivity(intent)
+    // Brief pause to let Android register the new activity and allow Room's WAL checkpoint
+    // to flush before the process terminates.
+    Thread.sleep(200)
+    exitProcess(0)
 }
