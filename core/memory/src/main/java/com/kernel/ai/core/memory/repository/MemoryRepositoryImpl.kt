@@ -40,6 +40,9 @@ class MemoryRepositoryImpl @Inject constructor(
         private const val CORE_MAX_DISTANCE = 1.10f
         /** Threshold for episodic memories — cos_sim ≥ 0.40 equivalent in L2 space. */
         private const val EPISODIC_MAX_DISTANCE = 1.10f
+        /** Minimum content length for an episodic entry to appear in search results.
+         *  Guards against short model hallucinations ("Nick", "You: Here") polluting results. */
+        private const val MIN_EPISODIC_CONTENT_LENGTH = 20
     }
 
     // AtomicBoolean + Mutex for thread-safe lazy table creation
@@ -155,7 +158,8 @@ class MemoryRepositoryImpl @Inject constructor(
             val episodicResults = rawEpisodicResults.filter { it.distance <= EPISODIC_MAX_DISTANCE }
             val rowIds = episodicResults.map { it.rowId }
             if (rowIds.isNotEmpty()) {
-                val entities = episodicDao.getAll().filter { it.rowId in rowIds }
+                val entities = episodicDao.getAll()
+                    .filter { it.rowId in rowIds && it.content.length >= MIN_EPISODIC_CONTENT_LENGTH }
                 val distanceMap = episodicResults.associate { it.rowId to it.distance }
                 entities.forEach { entity ->
                     results.add(
