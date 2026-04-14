@@ -96,7 +96,7 @@ class RagRepository @Inject constructor(
         conversationId: String,
         topK: Int = DEFAULT_TOP_K,
         excludeMessageIds: Set<String> = emptySet(),
-        maxTokens: Int = ContextWindowManager.EPISODIC_BUDGET,
+        maxTokens: Int = ContextWindowManager.episodicBudget(4096),
     ): String = withContext(Dispatchers.IO) {
         val queryVector = embeddingEngine.embed(query)
         if (queryVector.isEmpty()) return@withContext ""
