@@ -117,14 +117,15 @@ private fun ModelCard(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Context Window — steps of 500 to avoid exact powers-of-2 (4096, 8192)
-        // which trigger a GPU reshape alignment bug on some Adreno GPUs.
+        // Context window — steps of 500. Minimum 4000 to ensure non-negative history budget
+        // (fixed overhead is RESPONSE_RESERVE=1024 + SYSTEM_OVERHEAD=2048 = 3072 tokens).
+        // Avoids exact powers-of-2 (4096, 8192) which trigger a GPU reshape alignment bug.
         SliderRow(
             label = "Context window",
             valueLabel = "${settings.contextWindowSize} tokens",
             value = settings.contextWindowSize.toFloat(),
-            valueRange = 2000f..32000f,
-            steps = ((32000 - 2000) / 500) - 1,
+            valueRange = 4000f..32000f,
+            steps = ((32000 - 4000) / 500) - 1,
             isInteger = true,
             onValueChangeFinished = { newVal ->
                 val snapped = (newVal / 500).roundToInt() * 500
