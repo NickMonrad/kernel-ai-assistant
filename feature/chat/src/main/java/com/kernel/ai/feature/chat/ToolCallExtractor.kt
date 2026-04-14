@@ -105,7 +105,14 @@ internal object ToolCallExtractor {
         while (i < raw.length) {
             val colonIdx = raw.indexOf(':', i)
             if (colonIdx < 0) break
+            // Strip string delimiters and leading commas from key names (model sometimes wraps
+            // keys in <|"|> tokens, e.g. <|"|>forecast_days<|"|>:value).
             val key = raw.substring(i, colonIdx).trim()
+                .trimStart(',')
+                .removePrefix(strToken)
+                .removeSuffix(strToken)
+                .trim()
+            if (key.isBlank()) { i = colonIdx + 1; continue }
             val rest = raw.substring(colonIdx + 1)
             if (rest.startsWith(strToken)) {
                 val valueStart = strToken.length

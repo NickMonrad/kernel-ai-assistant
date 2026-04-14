@@ -13,8 +13,10 @@ private val STR get() = "<|" + "\"" + "|>"
  * needs to know ONE function name for all device operations. The [NativeIntentHandler] then
  * maps [intent_name] to the concrete Android API or system Intent.
  *
- * Additional params (subject, body, message, hours, minutes, label) are passed alongside
+ * Additional params (time, subject, body, message, label, day) are passed alongside
  * intent_name in the tool call and forwarded to the handler as-is.
+ * For set_alarm, pass `time` as the user said it (e.g. "10pm", "9:30am") — NativeIntentHandler
+ * runs it through resolveTime() so no 12h→24h conversion is needed from the model.
  */
 @Singleton
 class RunIntentSkill @Inject constructor(
@@ -26,7 +28,7 @@ class RunIntentSkill @Inject constructor(
         "Perform a native Android device action. Use for flashlight control, sending email, " +
             "sending SMS, setting an alarm (supports optional day name for tomorrow/weekday alarms), " +
             "setting a countdown timer, or creating a calendar event. " +
-            "For alarms: hours is 24h format (0-23) — 10pm=22, 9pm=21, 8pm=20, 1pm=13, 12pm=12, 12am=0. " +
+            "For alarms: pass the time exactly as the user said it using the 'time' parameter (e.g. time:\"10pm\", time:\"9:30am\", time:\"22:00\"). " +
             "For calendar events, date accepts YYYY-MM-DD or relative terms like 'tomorrow', 'next wednesday'."
 
     override val schema = SkillSchema(
@@ -53,15 +55,15 @@ class RunIntentSkill @Inject constructor(
         "Flashlight off:  <|tool_call>call:run_intent{intent_name:${STR}toggle_flashlight_off${STR}}<tool_call|>",
         "Send email:      <|tool_call>call:run_intent{intent_name:${STR}send_email${STR},subject:${STR}Subject${STR},body:${STR}Body${STR}}<tool_call|>",
         "Send SMS:        <|tool_call>call:run_intent{intent_name:${STR}send_sms${STR},message:${STR}Hello${STR}}<tool_call|>",
-        "Set alarm 7:30:        <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}7${STR},minutes:${STR}30${STR}}<tool_call|>",
-        "Set alarm 10pm (22:00): <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}22${STR},minutes:${STR}0${STR}}<tool_call|>",
-        "Set alarm 9pm (21:00):  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}21${STR},minutes:${STR}0${STR}}<tool_call|>",
-        "Remind me at 9am:       <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}9${STR},minutes:${STR}0${STR}}<tool_call|>",
-        "Remind me at 09:05:     <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}9${STR},minutes:${STR}5${STR}}<tool_call|>",
-        "Set alarm with label:  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}7${STR},minutes:${STR}30${STR},label:${STR}Wake Up${STR}}<tool_call|>",
-        "Set alarm tomorrow 8am: <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}8${STR},minutes:${STR}0${STR},day:${STR}tomorrow${STR}}<tool_call|>",
-        "Set alarm next monday:  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}7${STR},minutes:${STR}0${STR},day:${STR}monday${STR}}<tool_call|>",
-        "Set alarm 20 April 9am: <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}9${STR},minutes:${STR}0${STR},day:${STR}20 April${STR}}<tool_call|>",
+        "Set alarm 7:30:         <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}7:30am${STR}}<tool_call|>",
+        "Set alarm 10pm:         <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}10pm${STR}}<tool_call|>",
+        "Set alarm 9:30pm:       <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}9:30pm${STR}}<tool_call|>",
+        "Remind me at 9am:       <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}9am${STR}}<tool_call|>",
+        "Remind me at 09:05:     <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}09:05${STR}}<tool_call|>",
+        "Set alarm with label:   <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}7:30am${STR},label:${STR}Wake Up${STR}}<tool_call|>",
+        "Set alarm tomorrow 8am: <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}8am${STR},day:${STR}tomorrow${STR}}<tool_call|>",
+        "Set alarm next monday:  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}7am${STR},day:${STR}monday${STR}}<tool_call|>",
+        "Set alarm Friday 10pm:  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}10pm${STR},day:${STR}friday${STR}}<tool_call|>",
         "Set timer 3 min: <|tool_call>call:run_intent{intent_name:${STR}set_timer${STR},duration_seconds:${STR}180${STR}}<tool_call|>",
         "Add calendar event: <|tool_call>call:run_intent{intent_name:${STR}create_calendar_event${STR},title:${STR}Team lunch${STR},date:${STR}2026-04-15${STR},time:${STR}12:30${STR}}<tool_call|>",
         "Add all-day event:  <|tool_call>call:run_intent{intent_name:${STR}create_calendar_event${STR},title:${STR}Conference${STR},date:${STR}2026-04-20${STR}}<tool_call|>",
