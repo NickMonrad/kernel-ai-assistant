@@ -151,7 +151,11 @@ On conversation close, `EpisodicDistillationUseCase` uses Gemma-4 to summarise t
 into 3–5 episodic memory sentences, stored in `episodic_memories_vec`. This runs fire-and-forget
 on `Dispatchers.IO` from `ChatViewModel.onCleared()`.
 
----
+**Quality filter:** `MIN_SENTENCE_LENGTH = 20` characters is applied to distilled sentences
+before embedding. Sentences shorter than 20 chars (e.g. "Yes.", "OK.") are discarded at write
+time. A matching `MIN_EPISODIC_CONTENT_LENGTH = 20` filter in `MemoryRepositoryImpl.searchMemories()`
+also drops pre-existing short entries from search results, preventing low-signal fragments from
+surfacing in `search_memory` responses (#323).
 
 ## 4. Skill & Tool Framework
 
@@ -228,6 +232,7 @@ This means the model only needs two function names; new native intents are added
 | `send_sms` | SMS composer | `ACTION_SENDTO` + `smsto:` | ✅ |
 | `set_alarm` | Set alarm | `AlarmClock.ACTION_SET_ALARM` | ✅ |
 | `set_timer` | Countdown timer | `AlarmClock.ACTION_SET_TIMER` | ✅ |
+| `create_calendar_event` | Add calendar event | `ACTION_INSERT` + `CONTENT_URI` | ✅ |
 
 > **Package visibility (Android 11+):** `ACTION_SET_ALARM` and `ACTION_SET_TIMER` are declared
 > in a `<queries>` block in `AndroidManifest.xml` so `PackageManager.resolveActivity()` returns
@@ -238,6 +243,19 @@ This means the model only needs two function names; new native intents are added
 > "Alarm rule" forcing `run_intent` for alarm requests (#263), matching the pattern used for
 > `save_memory`. The model's Siri/Google training bias would otherwise cause it to verbally
 > confirm alarms without ever calling the tool.
+
+> **`set_alarm` tomorrow limitation:** `ACTION_SET_ALARM` has no date parameter — only hour and
+> minute. When the model passes `day: "tomorrow"`, `NativeIntentHandler` prefixes the alarm
+> label with "TOMORROW:" and returns a ⚠ warning in the success message. A full date-specific
+> alarm (#327) requires `AlarmManager.setExact()` + BroadcastReceiver + BOOT_COMPLETED receiver
+> and is tracked as a separate feature.
+
+> **`resolveDate` / `resolveTime` natural language parsing:** `NativeIntentHandler` normalises
+> free-text date/time before passing to `SimpleDateFormat`. `resolveDate` handles formats like
+> `"tomorrow"`, `"next Friday"`, `"June 15"`, `"15th June"`, `"15/06/2025"`, `"2025-06-15"`.
+> `resolveTime` applies a three-step pre-processor: (1) strip extra trailing digits, (2) pad
+> single-digit minutes (`9:0` → `9:00`), (3) expand bare hour+meridiem (`10pm` → `10:00pm`).
+> Order is critical — padding must precede format-string matching (#319, #320, #321).
 
 **Registered JS skills (`run_js`):**
 
@@ -288,6 +306,8 @@ and awaits the result with a 15s timeout.
 **System prompt `[Tool Use]` rules (enforced in `ChatViewModel.buildSystemPrompt()`):**
 - Memory rule: user says "remember", "save", "don't forget", "can you remember", or "make a note of" → MUST call `save_memory`
 - Alarm rule: user asks to set an alarm → MUST call `run_intent{intent_name: set_alarm}`
+- Weather rule: `GetWeatherSkill` description includes "ALWAYS call this tool, never use memory" to prevent Gemma-4 from serving stale weather from episodic memory instead of fetching fresh data (#322)
+- JS tool rule: `RunJsSkill` description similarly includes "ALWAYS call this tool, never use memory" (#322)
 
 ### 4.4 Extensible Skills (WebAssembly — Phase 5)
 
@@ -325,6 +345,12 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 - **Voice:** Tap-to-toggle with auto-stop on silence (future: "Hey Jandal" wake word)
 - **Skill results:** Inline rich cards in the conversation stream
 - **Persona:** Friendly, concise, dry-humoured Kiwi — see §7 for full identity details
+
+**Tool call debugging chip (`ToolCallChip`):** Tool calls appear as collapsible chips in the
+chat stream. Tapping expands to show the full request JSON and result string. An icon button
+copies `[Tool: name]\nRequest: <json>\nResult: <result>` to the clipboard via
+`LocalClipboardManager` (Compose API — no system service boilerplate). Added in PR #325
+closing #229 and #260.
 
 ---
 
