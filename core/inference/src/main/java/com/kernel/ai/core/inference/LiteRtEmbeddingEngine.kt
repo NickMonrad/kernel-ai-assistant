@@ -137,7 +137,7 @@ class LiteRtEmbeddingEngine @Inject constructor(
                 state.interpreter.run(inputIds, output)
             }
 
-            output[0]
+            output[0].l2Normalize()
         }
     }
 
@@ -162,4 +162,13 @@ class LiteRtEmbeddingEngine @Inject constructor(
         @Suppress("unused")
         val BOARD_SM8750 = "sun"        // Snapdragon 8 Elite / S25 Ultra
     }
+}
+
+/** L2-normalizes this vector in-place and returns it. No-op if the magnitude is zero. */
+private fun FloatArray.l2Normalize(): FloatArray {
+    val magnitude = kotlin.math.sqrt(sumOf { (it * it).toDouble() }.toFloat())
+    if (magnitude > 0f) {
+        for (i in indices) this[i] /= magnitude
+    }
+    return this
 }
