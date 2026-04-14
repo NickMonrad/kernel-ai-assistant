@@ -1,3 +1,6 @@
+import java.io.ByteArrayOutputStream
+import java.time.Instant
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -11,7 +14,7 @@ android {
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     val gitSha: String = try {
-        val stdout = java.io.ByteArrayOutputStream()
+        val stdout = ByteArrayOutputStream()
         exec { commandLine("git", "rev-parse", "--short", "HEAD"); standardOutput = stdout }
         stdout.toString().trim()
     } catch (_: Exception) { "unknown" }
@@ -28,7 +31,7 @@ android {
         buildConfigField("String", "HF_CLIENT_ID", "\"2607cec6-3d70-4df0-ba39-eb9cef1ba8c8\"")
         buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai://oauth/callback\"")
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
-        buildConfigField("String", "BUILD_TIMESTAMP", "\"${java.time.Instant.now()}\"")
+        buildConfigField("String", "BUILD_TIMESTAMP", "\"${Instant.now()}\"")
     }
 
     signingConfigs {
