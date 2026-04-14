@@ -25,7 +25,7 @@ class RunIntentSkill @Inject constructor(
     override val description =
         "Perform a native Android device action. Use for flashlight control, sending email, " +
             "sending SMS, setting an alarm (supports optional day name for tomorrow/weekday alarms), " +
-            "or setting a countdown timer."
+            "setting a countdown timer, or creating a calendar event."
 
     override val schema = SkillSchema(
         parameters = mapOf(
@@ -39,6 +39,7 @@ class RunIntentSkill @Inject constructor(
                     "send_sms",
                     "set_alarm",
                     "set_timer",
+                    "create_calendar_event",
                 ),
             ),
         ),
@@ -55,6 +56,9 @@ class RunIntentSkill @Inject constructor(
         "Set alarm tomorrow 8am: <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}8${STR},minutes:${STR}0${STR},day:${STR}tomorrow${STR}}<tool_call|>",
         "Set alarm next monday:  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},hours:${STR}7${STR},minutes:${STR}0${STR},day:${STR}monday${STR}}<tool_call|>",
         "Set timer 3 min: <|tool_call>call:run_intent{intent_name:${STR}set_timer${STR},duration_seconds:${STR}180${STR}}<tool_call|>",
+        "Add calendar event: <|tool_call>call:run_intent{intent_name:${STR}create_calendar_event${STR},title:${STR}Team lunch${STR},date:${STR}2026-04-15${STR},time:${STR}12:30${STR}}<tool_call|>",
+        "Add all-day event:  <|tool_call>call:run_intent{intent_name:${STR}create_calendar_event${STR},title:${STR}Conference${STR},date:${STR}2026-04-20${STR}}<tool_call|>",
+        "Add reminder date:  <|tool_call>call:run_intent{intent_name:${STR}create_calendar_event${STR},title:${STR}Call dentist${STR},date:${STR}2026-04-18${STR},time:${STR}09:00${STR},duration_minutes:${STR}30${STR}}<tool_call|>",
     )
 
     override suspend fun execute(call: SkillCall): SkillResult {
