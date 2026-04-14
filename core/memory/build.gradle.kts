@@ -67,6 +67,7 @@ dependencies {
 
     implementation(libs.work.runtime.ktx)
     implementation(libs.hilt.work)
+    ksp(libs.hilt.work.compiler)
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)
