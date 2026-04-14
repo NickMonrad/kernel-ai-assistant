@@ -40,9 +40,8 @@ class RagRepository @Inject constructor(
         private const val TABLE = "message_embeddings"
         private const val DEFAULT_TOP_K = 5
 
-        /** Maximum cosine distance to include a result (0 = identical, 2 = opposite).
-         *  L2 equivalent of cosine_dist ≤ 0.60 (cos_sim ≥ 0.40) for unit-normalized vectors:
-         *  L2 = sqrt(2 * cosine_dist) = sqrt(2 * 0.60) ≈ 1.10
+        /** Maximum L2 distance to include a result (0 = identical, sqrt(2) ≈ 1.41 = opposite for unit vectors).
+         *  1.10 ≈ cos_sim ≥ 0.40 for unit-normalized 768-dim vectors: L2 = sqrt(2 * (1 - cos_sim)).
          *  Without this, top-K always returns results even when nothing is actually related. */
         private const val MAX_DISTANCE = 1.10f
     }
