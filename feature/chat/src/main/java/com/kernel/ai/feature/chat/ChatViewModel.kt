@@ -262,6 +262,7 @@ class ChatViewModel @Inject constructor(
                         "Alarm rule: whenever the user says 'set alarm', 'set an alarm', 'alarm for', 'alarm at', 'wake me up at', " +
                         "or 'remind me at [specific clock time]' (e.g. 'remind me at 9am', 'remind me at 09:05') — " +
                         "you MUST call run_intent with intent_name=set_alarm. " +
+                        "HOURS MUST BE 24h FORMAT (0-23): 10pm=22, 9pm=21, 8pm=20, 7pm=19, 6pm=18, 1pm=13, 12pm=12, 12am=0. " +
                         "NEVER output text like 'I\\'ve set an alarm', 'alarm set for', or any alarm confirmation without a tool call token first — " +
                         "the ONLY correct response to an alarm request is the tool call token and nothing else. " +
                         "NOTE: 'remind me in X minutes' is a timer (set_timer), NOT an alarm. " +
