@@ -61,6 +61,24 @@
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
 
+        <!--
+            Remove the auto-startup WorkManagerInitializer ContentProvider so WorkManager
+            is NOT initialised before Application.onCreate(). This is required for
+            Configuration.Provider to work correctly — if WorkManagerInitializer runs first,
+            it initialises WorkManager with the default WorkerFactory (no Hilt), which means
+            @HiltWorker classes (e.g. MemoryEmbeddingWorker) cannot be instantiated.
+        -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
         <!-- Foreground service to keep process alive during GPU model init -->
         <service
             android:name="com.kernel.ai.core.inference.InferenceLoadingService"
