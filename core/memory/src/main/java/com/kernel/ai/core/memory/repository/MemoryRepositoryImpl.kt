@@ -34,11 +34,12 @@ class MemoryRepositoryImpl @Inject constructor(
         //   ancestor memory: best match dist=1.0996 (cos_sim ≈ 0.40) — must pass
         //   aubergine memory: best match dist=0.9398 (cos_sim ≈ 0.56) — must pass
         // Core: 1.10 = sqrt(2 * 0.605) → cos_sim ≥ 0.395 — wide net for explicit memories
-        // Episodic: 0.89 = sqrt(2 * 0.396) → cos_sim ≥ 0.60 — tighter for episodic
+        // Episodic: 1.10 — same as core; episodic summaries are less lexically similar to
+        //   queries than verbatim core memories, so they need a looser threshold too
         /** Loose threshold for core memories — covers cos_sim ≥ 0.40 in L2 space. */
         private const val CORE_MAX_DISTANCE = 1.10f
-        /** Stricter threshold for episodic memories — cos_sim ≥ 0.60 equivalent in L2 space. */
-        private const val EPISODIC_MAX_DISTANCE = 0.89f
+        /** Threshold for episodic memories — cos_sim ≥ 0.40 equivalent in L2 space. */
+        private const val EPISODIC_MAX_DISTANCE = 1.10f
     }
 
     // AtomicBoolean + Mutex for thread-safe lazy table creation
@@ -149,8 +150,9 @@ class MemoryRepositoryImpl @Inject constructor(
 
         runCatching {
             if (episodicTopK <= 0) return@runCatching
-            val episodicResults = vectorStore.search(EPISODIC_VEC_TABLE, queryVector, episodicTopK)
-                .filter { it.distance <= EPISODIC_MAX_DISTANCE }
+            val rawEpisodicResults = vectorStore.search(EPISODIC_VEC_TABLE, queryVector, episodicTopK)
+            Log.d(TAG, "Episodic vec search: ${rawEpisodicResults.size} raw results, distances=${rawEpisodicResults.map { "%.4f".format(it.distance) }}")
+            val episodicResults = rawEpisodicResults.filter { it.distance <= EPISODIC_MAX_DISTANCE }
             val rowIds = episodicResults.map { it.rowId }
             if (rowIds.isNotEmpty()) {
                 val entities = episodicDao.getAll().filter { it.rowId in rowIds }
