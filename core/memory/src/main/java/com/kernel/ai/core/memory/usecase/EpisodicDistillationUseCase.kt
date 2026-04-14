@@ -28,6 +28,8 @@ class EpisodicDistillationUseCase @Inject constructor(
     companion object {
         private const val TAG = "KernelAI"
         private const val MIN_TURNS = 4
+        /** Minimum character length for a distilled sentence to be worth embedding and storing. */
+        private const val MIN_SENTENCE_LENGTH = 20
         private val LEADING_JUNK = Regex("""^[\s\d]+[.)]\s*|^[-•*]\s*""")
     }
 
@@ -71,7 +73,7 @@ $transcript
 
             val sentences = response.lines()
                 .map { LEADING_JUNK.replace(it.trim(), "") }
-                .filter { it.isNotBlank() }
+                .filter { it.length >= MIN_SENTENCE_LENGTH }
             if (sentences.isEmpty()) {
                 Log.w(TAG, "Episodic distillation: no sentences parsed for $conversationId")
                 return
