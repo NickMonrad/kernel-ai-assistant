@@ -67,10 +67,10 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Execute a native Android device action such as toggling the flashlight, setting an alarm or timer, sending email/SMS, or creating a calendar event")
+    @Tool(description = "Execute a native Android device action such as toggling the flashlight, setting an alarm or timer, sending email/SMS, creating a calendar event, or toggling Do Not Disturb")
     fun runIntent(
-        @ToolParam(description = "The intent action: toggle_flashlight_on, toggle_flashlight_off, send_email, send_sms, set_alarm, set_timer, create_calendar_event") intentName: String,
-        @ToolParam(description = "Additional parameters as key:value pairs in JSON. For set_alarm: {\"time\":\"10pm\"} or {\"time\":\"7:30am\",\"day\":\"monday\",\"label\":\"Wake up\"}. For set_timer: {\"duration_seconds\":\"180\"}. For send_email: {\"subject\":\"Hi\",\"body\":\"Text\"}. For create_calendar_event: {\"title\":\"Meeting\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}") parameters: String,
+        @ToolParam(description = "The intent action: toggle_flashlight_on, toggle_flashlight_off, send_email, send_sms, set_alarm, set_timer, create_calendar_event, toggle_dnd_on, toggle_dnd_off") intentName: String,
+        @ToolParam(description = "Additional parameters as key:value pairs in JSON. For set_alarm: {\"time\":\"10pm\"} or {\"time\":\"7:30am\",\"day\":\"monday\",\"label\":\"Wake up\"}. For set_timer: {\"duration_seconds\":\"180\"}. For send_email: {\"subject\":\"Hi\",\"body\":\"Text\"}. For create_calendar_event: {\"title\":\"Meeting\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}. For toggle_dnd_on/off: {}") parameters: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "run_intent"

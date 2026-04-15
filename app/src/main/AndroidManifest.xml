@@ -16,6 +16,8 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Contact lookup for SMS, email, and call by name -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Required to read/write the Do Not Disturb (interruption filter) policy -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
     <!--
         Android 11+ package visibility: declare which implicit intents we resolve

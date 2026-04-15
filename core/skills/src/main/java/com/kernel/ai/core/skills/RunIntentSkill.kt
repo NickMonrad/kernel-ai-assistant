@@ -25,7 +25,7 @@ class RunIntentSkill @Inject constructor(
     override val description =
         "Perform a native Android device action. Use for flashlight control, sending email, " +
             "sending SMS, setting an alarm (supports optional day name for tomorrow/weekday alarms), " +
-            "setting a countdown timer, or creating a calendar event. " +
+            "setting a countdown timer, creating a calendar event, or toggling Do Not Disturb mode. " +
             "For alarms: pass the time exactly as the user said it using the 'time' parameter (e.g. time:\"10pm\", time:\"9:30am\", time:\"22:00\"). " +
             "For calendar events, date accepts YYYY-MM-DD or relative terms like 'tomorrow', 'next wednesday'."
 
@@ -42,6 +42,8 @@ class RunIntentSkill @Inject constructor(
                     "set_alarm",
                     "set_timer",
                     "create_calendar_event",
+                    "toggle_dnd_on",
+                    "toggle_dnd_off",
                 ),
             ),
         ),
@@ -55,6 +57,8 @@ class RunIntentSkill @Inject constructor(
         "Set alarm Monday 7am → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"7am\",\"day\":\"monday\"}')",
         "Set timer 3min → runIntent(intentName=\"set_timer\", parameters='{\"duration_seconds\":\"180\"}')",
         "Calendar event → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Lunch\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}')",
+        "Turn on DND → runIntent(intentName=\"toggle_dnd_on\", parameters=\"{}\")",
+        "Turn off DND → runIntent(intentName=\"toggle_dnd_off\", parameters=\"{}\")",
     )
 
     override val fullInstructions: String = buildString {
@@ -63,7 +67,7 @@ class RunIntentSkill @Inject constructor(
         appendLine("Parameters (pass as JSON in the 'parameters' argument):")
         appendLine("- intent_name (required, string): The action to perform.")
         appendLine("  Options: toggle_flashlight_on, toggle_flashlight_off, send_email, send_sms,")
-        appendLine("           set_alarm, set_timer, create_calendar_event")
+        appendLine("           set_alarm, set_timer, create_calendar_event, toggle_dnd_on, toggle_dnd_off")
         appendLine("- time (string): Pass exactly as user said — e.g. \"10pm\", \"9:30am\", \"22:00\"")
         appendLine("- day (string): Optional day name — e.g. \"tomorrow\", \"monday\", \"next friday\"")
         appendLine("- label (string): Optional alarm label")
@@ -89,6 +93,12 @@ class RunIntentSkill @Inject constructor(
         appendLine("Resolve relative dates (tomorrow, next Friday) to YYYY-MM-DD. Pass time as HH:MM.")
         appendLine("NEVER confirm event was created without calling the tool.")
         appendLine("'remind me in X minutes/seconds' is set_timer, NOT create_calendar_event.")
+        appendLine()
+        appendLine("DND rule: 'turn on do not disturb', 'enable DND', 'silence notifications' →")
+        appendLine("runIntent with intentName=toggle_dnd_on.")
+        appendLine("'turn off do not disturb', 'disable DND', 'allow notifications again' →")
+        appendLine("runIntent with intentName=toggle_dnd_off.")
+        appendLine("If the app needs permission, it will open the settings page automatically.")
         appendLine()
         appendLine("Examples:")
         examples.forEach { appendLine("  $it") }
