@@ -42,7 +42,7 @@ dependencies {
     implementation(project(":core:memory"))
     implementation(project(":core:skills"))
 
-    // LiteRT-LM — needed to resolve ToolSet supertype of KernelAIToolSet at compile time
+    // LiteRT-LM — needed to resolve ToolProvider / ToolSet types at compile time
     implementation(libs.litertlm.android)
 
     // Compose

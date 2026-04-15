@@ -1,7 +1,7 @@
 package com.kernel.ai.core.inference
 
 import com.google.ai.edge.litertlm.SamplerConfig
-import com.google.ai.edge.litertlm.ToolSet
+import com.google.ai.edge.litertlm.ToolProvider
 
 /** Jandal's default system prompt. Injected into every new conversation. */
 const val DEFAULT_SYSTEM_PROMPT =
@@ -36,6 +36,7 @@ val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 40, topP = 0.95, temperature =
  * @param systemPrompt Optional system instruction prepended to every conversation.
  * @param temperature Sampling temperature (0.1-2.0). Higher = more creative. Default 1.0.
  * @param topP Nucleus sampling threshold (0.0-1.0). Default 0.95.
+ * @param toolProvider Optional [ToolProvider] wrapping a [ToolSet] for native SDK tool calling.
  */
 data class ModelConfig(
     val modelPath: String,
@@ -44,5 +45,5 @@ data class ModelConfig(
     val systemPrompt: String? = DEFAULT_SYSTEM_PROMPT,
     val temperature: Float = 1.0f,
     val topP: Float = 0.95f,
-    val toolSet: ToolSet? = null,
+    val toolProvider: ToolProvider? = null,
 )
