@@ -41,3 +41,4 @@ google-services.json
 # docs/testing/ intentionally excluded — local test notes only
 # docs/testing/
 local.properties
+debug/*.hprof

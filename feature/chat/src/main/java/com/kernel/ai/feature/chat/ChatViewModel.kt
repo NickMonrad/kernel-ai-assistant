@@ -518,9 +518,19 @@ class ChatViewModel @Inject constructor(
                 is QuickIntentRouter.RouteResult.FallThrough -> null
             }
             if (matchedIntent != null) {
-                val skill = skillRegistry.get(matchedIntent.intentName)
+                // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
+                // handled by the run_intent skill — they aren't top-level skill names.
+                // Resolve: direct skill match first, then fall back to run_intent.
+                val directSkill = skillRegistry.get(matchedIntent.intentName)
+                val (skill, callParams) = when {
+                    directSkill != null -> directSkill to matchedIntent.params
+                    else -> {
+                        val runIntent = skillRegistry.get("run_intent")
+                        runIntent to (mapOf("intent_name" to matchedIntent.intentName) + matchedIntent.params)
+                    }
+                }
                 if (skill != null) {
-                    val skillResult = skill.execute(SkillCall(matchedIntent.intentName, matchedIntent.params))
+                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
                     when (skillResult) {
                         is com.kernel.ai.core.skills.SkillResult.Success -> {
                             systemContext = "[System: ${matchedIntent.intentName} — ${skillResult.content}]"

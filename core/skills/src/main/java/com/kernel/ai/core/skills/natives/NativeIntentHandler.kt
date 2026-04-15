@@ -90,7 +90,11 @@ class NativeIntentHandler @Inject constructor(
                 "toggle_airplane_mode" -> openAirplaneModeSettings()
                 "toggle_hotspot" -> openHotspotSettings()
                 "play_media", "play_media_album", "play_media_playlist" -> playMedia(params)
+                "play_youtube" -> playYoutube(params)
+                "play_spotify" -> playSpotify(params)
+                "play_netflix" -> playNetflix(params)
                 "play_plex" -> playPlex(params)
+                "open_app" -> openApp(params)
                 "navigate_to" -> navigateTo(params)
                 "find_nearby" -> findNearby(params)
                 "make_call" -> makeCall(params)
@@ -139,13 +143,20 @@ class NativeIntentHandler @Inject constructor(
     // ── SMS ───────────────────────────────────────────────────────────────────
 
     private fun sendSms(params: Map<String, String>): SkillResult {
+        val contact = params["contact"] ?: params["phone"]
+        val number = contact?.let { resolveContactNumber(it) ?: it }
+        val smsUri = if (number != null) "smsto:${Uri.encode(number)}" else "smsto:"
         val intent = Intent(Intent.ACTION_SENDTO).apply {
-            data = Uri.parse("smsto:")
+            data = Uri.parse(smsUri)
             putExtra("sms_body", params["message"] ?: "")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        context.startActivity(intent)
-        return SkillResult.Success("SMS composer opened.")
+        return try {
+            context.startActivity(intent)
+            SkillResult.Success("SMS composer opened${contact?.let { " for $it" } ?: ""}.")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("send_sms", "No SMS app available")
+        }
     }
 
     // ── Alarm ─────────────────────────────────────────────────────────────────
@@ -433,6 +444,92 @@ class NativeIntentHandler @Inject constructor(
             SkillResult.Success("Opening Plex for: $title")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("play_plex", "Plex app not installed")
+        }
+    }
+
+    // ── YouTube ──
+
+    private fun playYoutube(params: Map<String, String>): SkillResult {
+        val query = params["query"] ?: return SkillResult.Failure("play_youtube", "No search query provided")
+        return try {
+            val intent = Intent(Intent.ACTION_SEARCH).apply {
+                `package` = "com.google.android.youtube"
+                putExtra(SearchManager.QUERY, query)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Searching YouTube for: $query")
+        } catch (e: ActivityNotFoundException) {
+            // Fall back to browser
+            val webIntent = Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://www.youtube.com/results?search_query=${Uri.encode(query)}")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(webIntent)
+            SkillResult.Success("Opening YouTube in browser for: $query")
+        }
+    }
+
+    // ── Spotify ──
+
+    private fun playSpotify(params: Map<String, String>): SkillResult {
+        val query = params["query"] ?: return SkillResult.Failure("play_spotify", "No search query provided")
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW,
+                Uri.parse("spotify:search:${Uri.encode(query)}")).apply {
+                `package` = "com.spotify.music"
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Searching Spotify for: $query")
+        } catch (e: ActivityNotFoundException) {
+            val webIntent = Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://open.spotify.com/search/${Uri.encode(query)}")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(webIntent)
+            SkillResult.Success("Opening Spotify in browser for: $query")
+        }
+    }
+
+    // ── Netflix ──
+
+    private fun playNetflix(params: Map<String, String>): SkillResult {
+        val query = params["query"] ?: return SkillResult.Failure("play_netflix", "No title provided")
+        return try {
+            val intent = Intent(Intent.ACTION_SEARCH).apply {
+                `package` = "com.netflix.mediaclient"
+                putExtra(SearchManager.QUERY, query)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Searching Netflix for: $query")
+        } catch (e: ActivityNotFoundException) {
+            val webIntent = Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://www.netflix.com/search?q=${Uri.encode(query)}")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(webIntent)
+            SkillResult.Success("Opening Netflix in browser for: $query")
+        }
+    }
+
+    // ── Open App ──
+
+    private fun openApp(params: Map<String, String>): SkillResult {
+        val appName = params["app_name"] ?: return SkillResult.Failure("open_app", "No app name provided")
+        val pm = context.packageManager
+        // Try to find a matching app by label
+        val matchingApp = pm.getInstalledApplications(0).firstOrNull { appInfo ->
+            pm.getApplicationLabel(appInfo).toString().equals(appName, ignoreCase = true)
+        }
+        val launchIntent = matchingApp?.let { pm.getLaunchIntentForPackage(it.packageName) }
+        return if (launchIntent != null) {
+            launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            context.startActivity(launchIntent)
+            SkillResult.Success("Opening $appName")
+        } else {
+            SkillResult.Failure("open_app", "Could not find app: $appName")
         }
     }
 

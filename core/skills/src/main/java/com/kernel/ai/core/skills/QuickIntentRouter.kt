@@ -372,6 +372,42 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("title" to match.groupValues[1].trim()) },
         ),
+        // YouTube — "play X on youtube" / "watch X on youtube"
+        IntentPattern(
+            intentName = "play_youtube",
+            regex = Regex(
+                """(?:play|watch|search)\s+(.+?)\s+on\s+youtube""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // Spotify — "play X on spotify"
+        IntentPattern(
+            intentName = "play_spotify",
+            regex = Regex(
+                """(?:play|listen\s+to)\s+(.+?)\s+on\s+spotify""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // Netflix — "play X on netflix" / "watch X on netflix"
+        IntentPattern(
+            intentName = "play_netflix",
+            regex = Regex(
+                """(?:play|watch)\s+(.+?)\s+on\s+netflix""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // Open app — "open YouTube" / "launch Spotify"
+        IntentPattern(
+            intentName = "open_app",
+            regex = Regex(
+                """^(?:open|launch|start)\s+(?:the\s+)?(.+?)(?:\s+app)?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("app_name" to match.groupValues[1].trim()) },
+        ),
         // Album — matches before generic play
         IntentPattern(
             intentName = "play_media_album",
@@ -476,6 +512,34 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("contact" to match.groupValues[1].trim()) },
+        ),
+        // "send a text to John saying hello" / "text John hey" / "sms John meet at 5"
+        IntentPattern(
+            intentName = "send_sms",
+            regex = Regex(
+                """^(?:send\s+(?:a\s+)?(?:text|sms|message)|text|sms)\s+(?:(?:message\s+)?to\s+)?(.+?)(?:\s+(?:saying|that|with\s+message)\s+(.+))?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf("contact" to match.groupValues[1].trim())
+                val msg = match.groupValues[2].trim()
+                if (msg.isNotBlank()) params["message"] = msg
+                params
+            },
+        ),
+        // "send an email to John about meeting" / "email John about the project"
+        IntentPattern(
+            intentName = "send_email",
+            regex = Regex(
+                """^(?:send\s+(?:an?\s+)?email|email)\s+(?:to\s+)?(.+?)(?:\s+(?:about|regarding|re|subject)\s+(.+))?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf("contact" to match.groupValues[1].trim())
+                val subject = match.groupValues[2].trim()
+                if (subject.isNotBlank()) params["subject"] = subject
+                params
+            },
         ),
 
         // ── Lists ──

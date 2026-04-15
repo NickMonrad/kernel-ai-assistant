@@ -11,9 +11,11 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -47,8 +49,17 @@ class ActionsViewModel @Inject constructor(
         object Executing : UiState
     }
 
+    /** One-shot navigation/UI events consumed by the screen. */
+    sealed interface UiEvent {
+        /** Query couldn't be handled by quick actions — navigate to chat for LLM processing. */
+        data class NavigateToChat(val query: String) : UiEvent
+    }
+
     private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+
+    private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
+    val events = _events.asSharedFlow()
 
     /** Last error message to show in the UI. Cleared on next action. */
     private val _error = MutableStateFlow<String?>(null)
@@ -75,10 +86,24 @@ class ActionsViewModel @Inject constructor(
                 val intent = when (routeResult) {
                     is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> routeResult.intent
-                    is QuickIntentRouter.RouteResult.FallThrough -> null
+                    is QuickIntentRouter.RouteResult.FallThrough -> {
+                        // No quick action match — hand off to the LLM via the chat screen.
+                        Log.d(TAG, "ActionsViewModel: FallThrough for \"$query\" → navigating to chat")
+                        quickActionDao.insert(
+                            QuickActionEntity(
+                                userQuery = query,
+                                skillName = "llm_fallthrough",
+                                resultText = "Sending to Jandal for processing…",
+                                isSuccess = true,
+                            )
+                        )
+                        _events.emit(UiEvent.NavigateToChat(query))
+                        _uiState.value = UiState.Idle
+                        return@launch
+                    }
                 }
 
-                val entity = if (intent != null) {
+                val entity = run {
                     // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
                     // passed as the intent_name param to run_intent — they are not skill names.
                     // Resolve: direct skill name match first, then fall back to run_intent.
@@ -102,14 +127,6 @@ class ActionsViewModel @Inject constructor(
                             isSuccess = false,
                         )
                     }
-                } else {
-                    Log.d(TAG, "ActionsViewModel: no intent match for \"$query\"")
-                    QuickActionEntity(
-                        userQuery = query,
-                        skillName = null,
-                        resultText = "No matching action found.",
-                        isSuccess = false,
-                    )
                 }
                 quickActionDao.insert(entity)
             } catch (e: Exception) {
