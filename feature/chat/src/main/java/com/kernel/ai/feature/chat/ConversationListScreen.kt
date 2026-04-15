@@ -3,8 +3,10 @@ package com.kernel.ai.feature.chat
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
@@ -56,6 +59,7 @@ import java.util.Locale
 fun ConversationListScreen(
     onOpenConversation: (String) -> Unit,
     onNewConversation: () -> Unit,
+    onNavigateToActions: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel(),
 ) {
@@ -113,16 +117,32 @@ fun ConversationListScreen(
         },
         floatingActionButton = {
             if (!isInSelectionMode) {
-                FloatingActionButton(onClick = onNewConversation) {
-                    Icon(Icons.Default.Add, contentDescription = "New conversation")
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.End,
+                ) {
+                    FloatingActionButton(
+                        onClick = onNavigateToActions,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ) {
+                        Icon(Icons.Default.Bolt, contentDescription = "Quick action")
+                    }
+                    FloatingActionButton(onClick = onNewConversation) {
+                        Icon(Icons.Default.Add, contentDescription = "New conversation")
+                    }
                 }
             }
         },
     ) { innerPadding ->
+        // Apply only top padding to the Column so the search bar clears the TopAppBar.
+        // Bottom padding (FAB zone) is applied as LazyColumn contentPadding instead — this
+        // prevents a large blank panel above the nav bar while still letting the last item
+        // scroll above the FABs.
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(top = innerPadding.calculateTopPadding()),
         ) {
             // Search bar — hidden in selection mode
             if (!isInSelectionMode) {
@@ -179,6 +199,7 @@ fun ConversationListScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = innerPadding.calculateBottomPadding()),
                 ) {
                     items(conversations, key = { it.id }) { conversation ->
                         Box {
