@@ -1,5 +1,7 @@
 package com.kernel.ai.core.skills
 
+import com.google.ai.edge.litertlm.ToolProvider
+import com.google.ai.edge.litertlm.tool
 import com.kernel.ai.core.skills.natives.GetSystemInfoSkill
 import com.kernel.ai.core.skills.natives.GetWeatherSkill
 import com.kernel.ai.core.skills.natives.SaveMemorySkill
@@ -56,5 +58,10 @@ abstract class SkillsModule {
         fun provideQuickIntentRouter(
             classifier: QuickIntentRouter.IntentClassifier,
         ): QuickIntentRouter = QuickIntentRouter(classifier = classifier)
+
+        /** Wrap [KernelAIToolSet] into a [ToolProvider] for the LiteRT-LM SDK. */
+        @Provides
+        @Singleton
+        fun provideToolProvider(toolSet: KernelAIToolSet): ToolProvider = tool(toolSet)
     }
 }

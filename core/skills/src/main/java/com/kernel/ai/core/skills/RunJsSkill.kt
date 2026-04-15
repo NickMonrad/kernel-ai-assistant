@@ -56,14 +56,11 @@ class RunJsSkill @Inject constructor(
         required = listOf("skill_name", "query"),
     )
 
-    private val strToken = "<|" + "\"" + "|>"
-
     override val examples: List<String> = listOf(
-        "Wikipedia: <|tool_call>call:run_js{skill_name:${strToken}query-wikipedia${strToken},query:${strToken}New Zealand${strToken}}<tool_call|>",
-        "Weather (current, named city): <|tool_call>call:run_js{skill_name:${strToken}get-weather-city${strToken},query:${strToken}Auckland${strToken}}<tool_call|>",
-        "Weather (forecast 3 days, named city): <|tool_call>call:run_js{skill_name:${strToken}get-weather-city${strToken},query:${strToken}Auckland${strToken},forecast_days:${strToken}3${strToken}}<tool_call|>",
-        "Weather (tomorrow, named city): <|tool_call>call:run_js{skill_name:${strToken}get-weather-city${strToken},query:${strToken}London${strToken},forecast_days:${strToken}1${strToken}}<tool_call|>",
-        "Weather (forecast no days specified — default 3): <|tool_call>call:run_js{skill_name:${strToken}get-weather-city${strToken},query:${strToken}Sydney${strToken},forecast_days:${strToken}3${strToken}}<tool_call|>",
+        "Wikipedia search → runJs(skillName=\"query-wikipedia\", query=\"New Zealand\", forecastDays=\"\")",
+        "Weather current → runJs(skillName=\"get-weather-city\", query=\"Auckland\", forecastDays=\"\")",
+        "Weather 3-day forecast → runJs(skillName=\"get-weather-city\", query=\"Auckland\", forecastDays=\"3\")",
+        "Weather tomorrow → runJs(skillName=\"get-weather-city\", query=\"London\", forecastDays=\"1\")",
     )
 
     override suspend fun execute(call: SkillCall): SkillResult {

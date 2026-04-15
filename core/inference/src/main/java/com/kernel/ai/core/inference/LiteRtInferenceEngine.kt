@@ -13,6 +13,9 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.ExperimentalFlags
+import com.google.ai.edge.litertlm.ToolProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
@@ -44,6 +47,7 @@ private const val TAG = "LiteRtInferenceEngine"
  * NPU note: SamplerConfig must be null when using Backend.NPU (hardware
  * sampler is used instead). This matches Gallery reference behaviour.
  */
+@OptIn(ExperimentalApi::class)
 @Singleton
 class LiteRtInferenceEngine @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -103,6 +107,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 val (eng, backendType) = createEngineWithFallback(resolvedConfig)
                 engine = eng
                 conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
+                resetConstrainedDecodingFlag()
                 currentConfig = resolvedConfig
                 _activeBackend.value = backendType
                 _isReady.value = true
@@ -122,6 +127,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
             safeClose(conversation, "conversation")
             conversation = eng.createConversation(buildConversationConfig(backend, config))
+            resetConstrainedDecodingFlag()
             _isGenerating.value = false
         }
     }
@@ -135,6 +141,7 @@ class LiteRtInferenceEngine @Inject constructor(
             currentConfig = config.copy(systemPrompt = systemPrompt)
             safeClose(conversation, "conversation")
             conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
+            resetConstrainedDecodingFlag()
             _isGenerating.value = false
             Log.i(TAG, "System prompt updated and conversation reset")
         }
@@ -323,6 +330,7 @@ class LiteRtInferenceEngine @Inject constructor(
         )
     }
 
+    @OptIn(ExperimentalApi::class)
     private fun buildConversationConfig(
         backendType: BackendType,
         config: ModelConfig,
@@ -337,10 +345,24 @@ class LiteRtInferenceEngine @Inject constructor(
             ?.takeIf { it.isNotBlank() }
             ?.let { Contents.of(Content.Text(it)) }
 
+        val tools = config.toolProvider?.let { listOf(it) } ?: emptyList()
+
+        // Enable constrained decoding for well-formed tool calls (Google Gallery pattern).
+        // Must be set before createConversation() and reset after via resetConstrainedDecodingFlag().
+        if (tools.isNotEmpty()) {
+            ExperimentalFlags.enableConversationConstrainedDecoding = true
+        }
+
         return ConversationConfig(
             samplerConfig = samplerConfig,
             systemInstruction = systemInstruction,
+            tools = tools,
         )
+    }
+
+    /** Reset the experimental flag after each createConversation() call (Gallery pattern). */
+    private fun resetConstrainedDecodingFlag() {
+        ExperimentalFlags.enableConversationConstrainedDecoding = false
     }
 
     private fun safeCancel(conv: com.google.ai.edge.litertlm.Conversation?) {

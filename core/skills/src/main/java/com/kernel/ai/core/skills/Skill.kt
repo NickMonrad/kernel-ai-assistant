@@ -4,7 +4,7 @@ package com.kernel.ai.core.skills
  * Contract for all native skills. Each skill:
  * - Has a unique [name] matching the QuickIntentRouter routing key
  * - Declares its [schema] (JSON Schema object) for tool documentation
- * - Optionally provides [examples] — ready-to-paste <|tool_call> lines shown in the system prompt
+ * - Optionally provides [examples] — native tool call patterns shown in the system prompt
  *   (used by gateway skills like run_intent to show multiple concrete invocations)
  * - Provides [fullInstructions] — complete parameter docs + examples + rules, returned by
  *   LoadSkillSkill on demand so the system prompt stays minimal (#341)
