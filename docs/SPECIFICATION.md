@@ -184,26 +184,44 @@ If no pattern matches → query falls through to Tier 3 (Gemma-4).
 
 ### 4.2 Tier 3: E4B Native Tool Calling
 
-Gemma-4 emits tool call tokens in its native format when it determines a tool should be used:
+Gemma-4 uses LiteRT-LM's native `@Tool`/`@ToolParam` SDK annotations for tool calling.
+The SDK auto-discovers annotated methods on `KernelAIToolSet`, generates tool declarations
+for the model, applies **constrained decoding** to guarantee well-formed JSON calls, invokes
+the matching method, and feeds the return value back as a tool response.
 
+This mirrors Google AI Edge Gallery's `AgentTools` pattern and replaces the earlier custom
+`<|tool_call>` control token format (removed in #372).
+
+**SDK wiring (in `LiteRtInferenceEngine`):**
+```kotlin
+// Enable constrained decoding before creating conversation
+ExperimentalFlags.enableConversationConstrainedDecoding = true
+engine.createConversation(ConversationConfig(
+    tools = listOf(toolProvider),  // ToolProvider wraps KernelAIToolSet
+    systemInstruction = systemPrompt,
+    ...
+))
+ExperimentalFlags.enableConversationConstrainedDecoding = false
 ```
-<|tool_call>call:run_intent{intent_name:<|"|>set_alarm<|"|>,hours:<|"|>7<|"|>,minutes:<|"|>30<|"|>}<tool_call|>
-```
 
-`ChatViewModel.extractNativeToolCall()` detects this token pattern in the streamed output,
-extracts the function name and key-value params, looks up the skill in `SkillRegistry`,
-and calls `Skill.execute(call)`. Tool definitions and concrete `<|tool_call>` examples are
-injected into the system prompt via `SkillRegistry.buildNativeDeclarations()`.
+> **Lazy skill loading (#341, #372):** The system prompt injects only skill names +
+> one-line descriptions (~100 tokens). When the model needs to use a skill, it first
+> calls `loadSkill()` to retrieve full parameter docs, examples, and enforcement rules
+> on demand. This keeps the baseline prompt compact and improves tool call accuracy.
 
-> **Planned: Lazy skill loading (#341):** The current approach injects all tool definitions
-> (~500+ tokens) into every turn's system prompt, diluting attention. A planned refactor will
-> adopt AI Edge Gallery's pattern: inject only skill names + one-line descriptions, then load
-> full instructions on-demand via a `load_skill` tool call. This reduces baseline prompt to
-> ~100 tokens and should improve tool call accuracy.
+**KernelAIToolSet gateway (5 tools):**
 
-> **Format note:** String values are wrapped in `<|"|>` tokens (Gemma-4's string delimiter).
-> In Kotlin source, the token is split to avoid triggering the compiler:
-> `"<|" + "\"" + "|>"`. The tool call block is bounded by `<|tool_call>` … `<tool_call|>`.
+| Gateway | Tool method | Dispatcher | Use for |
+|---------|------------|-----------|---------|
+| Meta | `loadSkill(skillName)` | `LoadSkillSkill` | Load full instructions before using any tool |
+| Native | `runIntent(intentName, parameters)` | `NativeIntentHandler.kt` | Android OS intents (alarm, timer, email, SMS, torch, calendar) |
+| WebView JS | `runJs(skillName, query, forecastDays)` | `JsSkillRunner.kt` | JS skills in `assets/skills/` (weather, Wikipedia) |
+| Memory | `saveMemory(content)` | `SaveMemorySkill` | Store facts to long-term memory |
+| Memory | `searchMemory(query)` | `SearchMemorySkill` | Semantic search across memories |
+
+Each `@Tool` method delegates to the matching `Skill.execute()` via `SkillRegistry`, bridging
+the SDK's synchronous callback with `runBlocking` (acceptable since the SDK already blocks its
+inference loop waiting for the tool result).
 
 **Skill interface:**
 ```kotlin
@@ -211,22 +229,16 @@ interface Skill {
     val name: String
     val description: String
     val schema: SkillSchema           // parameter definitions + required list
-    val examples: List<String>        // optional concrete <|tool_call> examples injected into prompt
+    val examples: List<String>        // native tool call examples for system prompt
+    val fullInstructions: String      // complete docs returned by loadSkill()
     suspend fun execute(call: SkillCall): SkillResult
 }
 ```
 
-**Two-gateway architecture (post #247):**
-
-All Tier 3 tool calls funnel through exactly **two** skill names:
-
-| Gateway | Skill name | Dispatcher | Use for |
-|---------|-----------|-----------|---------|
-| Native | `run_intent` | `NativeIntentHandler.kt` | Any Android OS intent (alarm, timer, email, SMS, torch, calendar, maps) |
-| WebView JS | `run_js` | `JsSkillRunner.kt` | JS skills in `assets/skills/<name>/index.html` (weather, Wikipedia, etc.) |
-
-This means the model only needs two function names; new native intents are added by extending
-`NativeIntentHandler` and new JS skills by dropping an `index.html` into `assets/skills/`.
+**Response handling:** The SDK handles tool calls transparently during `generate()`.
+`KernelAIToolSet` tracks turn state (`wasToolCalled()`, `lastToolName()`, `lastToolResult()`)
+so `ChatViewModel` can attach tool call metadata to the UI. A `ToolCallExtractor` text-parsing
+fallback exists for edge cases where the model emits raw JSON outside the SDK path.
 
 **Registered `run_intent` intents:**
 

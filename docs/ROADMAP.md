@@ -150,14 +150,15 @@ The architectural foundation that determines tool call accuracy and response qua
 
 | Sub-Issue | Title | Status | Priority |
 |-----------|-------|--------|----------|
-| [#341](https://github.com/NickMonrad/kernel-ai-assistant/issues/341) | Lazy skill loading (`load_skill` pattern) — refactor monolithic system prompt to on-demand skill instructions | ⬜ Pending | 🔴 High |
+| [#341](https://github.com/NickMonrad/kernel-ai-assistant/issues/341) | Lazy skill loading (`load_skill` pattern) — refactor monolithic system prompt to on-demand skill instructions | ✅ Done | 🔴 High |
+| [#372](https://github.com/NickMonrad/kernel-ai-assistant/issues/372) | Native SDK tool calling — migrate from custom `<\|tool_call\>` tokens to LiteRT-LM `@Tool` annotations with constrained decoding | ✅ Done | 🔴 High |
 | [#342](https://github.com/NickMonrad/kernel-ai-assistant/issues/342) | Model settings — add topK, fix temp 1.0/0.7 conflict, task-aware presets | ⬜ Pending | 🟡 Medium |
 | [#343](https://github.com/NickMonrad/kernel-ai-assistant/issues/343) | Thinking budget configuration — toggle + budget for Gemma-4 think mode | ⬜ Pending | 🟡 Medium |
 | [#231](https://github.com/NickMonrad/kernel-ai-assistant/issues/231) | NPU fallback — QTI Snapdragon device detection fix | ⬜ Pending | 🟡 Medium |
 | [#301](https://github.com/NickMonrad/kernel-ai-assistant/issues/301) | Switch vec0 tables to `distance_metric=cosine` | ⬜ Pending | 🟢 Low |
 | [#230](https://github.com/NickMonrad/kernel-ai-assistant/issues/230) | Review `safeTokenCount()` token alignment logic | ⬜ Pending | 🟢 Low |
 
-> **Key insight (from #340 analysis):** Our system prompt injects ~500+ tokens of tool rules on every turn. AI Edge Gallery uses ~100 tokens + loads skill instructions on demand via `load_skill`. This attention dilution is the root cause of prompt-induced errors like the 1pm=13 bug (#336). Issue #341 is the single most impactful architecture improvement.
+> **Key insight (from #340 analysis):** Our system prompt previously injected ~500+ tokens of tool rules on every turn. Issues #341 (lazy loading) and #372 (native SDK tool calling) resolved this: the prompt now carries ~100 tokens of skill names, and the SDK handles tool declaration generation + constrained decoding for guaranteed well-formed calls.
 
 ---
 
@@ -248,15 +249,16 @@ Lower-priority skill additions — third-party integrations and local utilities.
 
 ---
 
-### Tier 2: QuickIntentRouter (not yet started)
+### Tier 2: QuickIntentRouter
 
 | Task | Status | Notes |
 |------|--------|-------|
-| `QuickIntentRouter` — Kotlin regex matcher | ⬜ Pending | Zero memory, <5ms, deterministic |
-| Wire real OS actions in `KernelAIToolSet` | ⬜ Pending | Timer, battery, DND |
-| Refactor Actions tab to use `QuickIntentRouter` | ⬜ Pending | Remove FunctionGemmaRouter |
+| `QuickIntentRouter` — Kotlin regex matcher | ✅ Done | Zero memory, <5ms, deterministic — PR #365 |
+| Wire real OS actions in `NativeIntentHandler` | ✅ Done | 21+ intents: alarm, timer, torch, DND, BT, email, SMS, calendar |
+| Refactor Actions tab to use `QuickIntentRouter` | ✅ Done | PR #366 |
 | Quick Actions tab UI (#221) | ✅ Done | FAB, bottom sheet, Room persistence |
 | Bottom nav bar (Chats / Actions) | ✅ Done | PR #221 |
+| Actions tab FallThrough → LLM bridge | ⬜ Pending | #373 — unmatched queries dead-end instead of routing to chat |
 
 ### Known Issues / Decisions
 
