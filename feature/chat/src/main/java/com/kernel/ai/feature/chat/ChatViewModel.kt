@@ -391,6 +391,7 @@ class ChatViewModel @Inject constructor(
                     temperature = settings.temperature,
                     topP = settings.topP,
                     topK = settings.topK,
+                    thinkingEnabled = settings.showThinkingProcess,
                     toolProvider = toolProvider,
                 ))
                 estimatedTokensUsed = 0
@@ -436,6 +437,7 @@ class ChatViewModel @Inject constructor(
                     temperature = settings.temperature,
                     topP = settings.topP,
                     topK = settings.topK,
+                    thinkingEnabled = settings.showThinkingProcess,
                     toolProvider = toolProvider,
                 ))
                 estimatedTokensUsed = 0
