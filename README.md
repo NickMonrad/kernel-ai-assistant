@@ -8,7 +8,7 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 
 * **The Brain:** **Gemma-4 E-4B/E-2B** runs resident on GPU via LiteRT — always loaded, always ready. A lightweight **`QuickIntentRouter`** (pure Kotlin regex, zero memory) handles instant device actions (<5ms). Complex queries go straight to Gemma-4 for full reasoning with native tool calling.
 * **The Memory:** A local **RAG (Retrieval-Augmented Generation)** system using **sqlite-vec** and **EmbeddingGemma-300M**. The assistant remembers personal facts, preferences, and conversation history across sessions with zero data leaving the device. Episodic distillation consolidates each conversation into long-term memories.
-* **The Action:** A modular skill framework. **Tier 2** native Kotlin actions execute instantly (torch, timer, DND, bluetooth). **Tier 3** complex skills (weather, calendar, email) are handled by the resident Gemma-4 model via its native JSON tool-call format. Community-extensible **WebAssembly** skills run sandboxed via **Chicory** for safe extensibility.
+* **The Action:** A modular skill framework. **Tier 2** native Kotlin actions execute instantly (torch, timer, DND, bluetooth). **Tier 3** complex skills (weather, calendar, email) are handled by the resident Gemma-4 model via LiteRT-LM's native `@Tool` annotations with SDK constrained decoding. Community-extensible **WebAssembly** skills run sandboxed via **Chicory** for safe extensibility.
 
 ## Tech Stack
 
@@ -19,7 +19,7 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 | Inference | Google AI Edge (LiteRT + LiteRT-LM) |
 | Reasoning | Gemma-4 E-4B / E-2B (INT4 quantized, GPU resident) |
 | Quick Actions | `QuickIntentRouter` (Kotlin regex, zero memory) |
-| Complex Tool Calling | Gemma-4 native JSON tool-call format |
+| Complex Tool Calling | LiteRT-LM native `@Tool` annotations + constrained decoding |
 | Embeddings | EmbeddingGemma-300M (768-dim) |
 | Vector Search | sqlite-vec (NDK) |
 | Wasm Runtime | Chicory (pure JVM) |
