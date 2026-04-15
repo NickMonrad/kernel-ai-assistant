@@ -153,6 +153,7 @@ private fun StructuredProfileCard(profile: UserProfileYaml) {
 
             profile.name?.let { FieldRow("Name", it) }
             profile.role?.let { FieldRow("Role", it) }
+            profile.location?.let { FieldRow("Location", it) }
 
             if (profile.environment.isNotEmpty()) {
                 FieldList("Environment", profile.environment)
