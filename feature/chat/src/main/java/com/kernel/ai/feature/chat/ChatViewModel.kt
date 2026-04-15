@@ -121,6 +121,7 @@ class ChatViewModel @Inject constructor(
 
     /** True while Gemma-4 is being lazily initialised in response to a [sendMessage] call. */
     private val _isLoadingModel = MutableStateFlow(false)
+    private val _showThinkingProcess = MutableStateFlow(true)
 
     /** Ensures at most one concurrent Gemma-4 initialisation attempt. */
     private val gemma4InitMutex = Mutex()
@@ -156,7 +157,8 @@ class ChatViewModel @Inject constructor(
         engineState,
         downloadManager.downloadStates,
         inputState,
-    ) { engine, downloadStates, input ->
+        _showThinkingProcess,
+    ) { engine, downloadStates, input, showThinking ->
         val allDownloaded = downloadManager.areRequiredModelsDownloaded()
         val tier = downloadManager.deviceTier
         val displayModels: List<KernelModel> = if (tier == HardwareTier.FLAGSHIP) {
@@ -188,6 +190,7 @@ class ChatViewModel @Inject constructor(
                 inputText = input.inputText,
                 error = input.error,
                 isLoadingModel = engine.isLoadingModel,
+                showThinkingProcess = showThinking,
             )
         }
     }.stateIn(
@@ -380,12 +383,14 @@ class ChatViewModel @Inject constructor(
 
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
                 activeContextWindowSize = settings.contextWindowSize
+                _showThinkingProcess.value = settings.showThinkingProcess
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
                     systemPrompt = buildSystemPrompt(),
                     maxTokens = settings.contextWindowSize,
                     temperature = settings.temperature,
                     topP = settings.topP,
+                    topK = settings.topK,
                     toolProvider = toolProvider,
                 ))
                 estimatedTokensUsed = 0
@@ -423,12 +428,14 @@ class ChatViewModel @Inject constructor(
 
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
                 activeContextWindowSize = settings.contextWindowSize
+                _showThinkingProcess.value = settings.showThinkingProcess
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
                     systemPrompt = buildSystemPrompt(),
                     maxTokens = settings.contextWindowSize,
                     temperature = settings.temperature,
                     topP = settings.topP,
+                    topK = settings.topK,
                     toolProvider = toolProvider,
                 ))
                 estimatedTokensUsed = 0
