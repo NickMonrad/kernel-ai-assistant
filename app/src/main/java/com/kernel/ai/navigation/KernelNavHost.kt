@@ -3,6 +3,7 @@ package com.kernel.ai.navigation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -18,6 +19,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.kernel.ai.feature.chat.ActionsScreen
 import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
 import com.kernel.ai.feature.settings.AboutScreen
@@ -28,6 +30,7 @@ import com.kernel.ai.feature.settings.UserProfileScreen
 
 private const val ROUTE_LIST = "conversation_list"
 private const val ROUTE_ACTIONS = "actions"
+private const val ROUTE_ACTIONS_OPEN = "actions?openSheet=true"
 private const val ROUTE_CHAT = "chat"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_USER_PROFILE = "settings/user_profile"
@@ -37,22 +40,25 @@ private const val ROUTE_ABOUT = "settings/about"
 private const val ARG_CONVERSATION_ID = "conversationId"
 
 /** Routes that show the bottom navigation bar. */
-private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST)
+private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
 
 @Composable
 fun KernelNavHost() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    // destination.route returns the template (e.g. "actions?openSheet={openSheet}"),
+    // so strip the query string when matching base routes.
+    val currentBaseRoute = currentRoute?.substringBefore('?')
 
     Scaffold(
         bottomBar = {
-            if (currentRoute in BOTTOM_NAV_ROUTES) {
+            if (currentBaseRoute in BOTTOM_NAV_ROUTES) {
                 NavigationBar {
                     NavigationBarItem(
-                        selected = currentRoute == ROUTE_LIST,
+                        selected = currentBaseRoute == ROUTE_LIST,
                         onClick = {
-                            if (currentRoute != ROUTE_LIST) {
+                            if (currentBaseRoute != ROUTE_LIST) {
                                 navController.navigate(ROUTE_LIST) {
                                     popUpTo(ROUTE_LIST) { inclusive = true }
                                     launchSingleTop = true
@@ -62,7 +68,20 @@ fun KernelNavHost() {
                         icon = { Icon(Icons.Default.ChatBubble, contentDescription = null) },
                         label = { Text("Chats") },
                     )
-                    // Actions tab hidden pending #361 (Actions tab re-enable + dual FABs)
+                    NavigationBarItem(
+                        selected = currentBaseRoute == ROUTE_ACTIONS,
+                        onClick = {
+                            if (currentBaseRoute != ROUTE_ACTIONS) {
+                                navController.navigate(ROUTE_ACTIONS) {
+                                    popUpTo(ROUTE_LIST) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        },
+                        icon = { Icon(Icons.Default.Bolt, contentDescription = null) },
+                        label = { Text("Actions") },
+                    )
                 }
             }
         },
@@ -82,6 +101,12 @@ fun KernelNavHost() {
                         onNewConversation = {
                             navController.navigate(ROUTE_CHAT)
                         },
+                        onNavigateToActions = {
+                            navController.navigate(ROUTE_ACTIONS_OPEN) {
+                                popUpTo(ROUTE_LIST) { saveState = true }
+                                launchSingleTop = true
+                            }
+                        },
                         onNavigateToSettings = {
                             navController.navigate(ROUTE_SETTINGS)
                         },
@@ -89,7 +114,16 @@ fun KernelNavHost() {
                 }
             }
 
-// Actions screen hidden pending #361 (Actions tab re-enable + dual FABs)
+            composable(
+                route = "$ROUTE_ACTIONS?openSheet={openSheet}",
+                arguments = listOf(navArgument("openSheet") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }),
+            ) { backStackEntry ->
+                val openSheet = backStackEntry.arguments?.getBoolean("openSheet") ?: false
+                ActionsScreen(autoOpenSheet = openSheet)
+            }
 
             // New conversation (no conversationId arg)
             composable(ROUTE_CHAT) {
