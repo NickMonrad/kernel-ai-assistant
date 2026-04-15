@@ -31,17 +31,23 @@ class GetWeatherSkill @Inject constructor(
 
     override val name = "get_weather_gps"
     override val description =
-        "Get current weather or a multi-day forecast using the device's GPS location. " +
-            "Use this when the user asks about their current location weather or doesn't specify a city. " +
-            "For weather in a named city, use run_js with skill_name='get-weather-city' instead. " +
+        "Get current weather or a multi-day forecast. Can use device GPS or a specified location. " +
+            "If the user's location is known from their profile, pass it in the location parameter. " +
+            "Otherwise, uses device GPS as fallback. " +
             "ALWAYS call this tool for any weather question — never use weather data from memory, it is stale."
     override val examples = listOf(
         "Current location weather → get_weather_gps()",
         "GPS location 3-day forecast → get_weather_gps(forecast_days=\"3\")",
+        "Weather in Brisbane → get_weather_gps(location=\"Brisbane\")",
+        "Forecast for user's profile location → get_weather_gps(location=\"Murrumba Downs, QLD, Australia\")",
     )
 
     override val schema = SkillSchema(
         parameters = mapOf(
+            "location" to SkillParameter(
+                type = "string",
+                description = "Optional location/city name (e.g., \"Brisbane\" or \"Murrumba Downs, QLD, Australia\"). If provided, uses geocoding to fetch weather for this location. If not provided, uses device GPS.",
+            ),
             "forecast_days" to SkillParameter(
                 type = "integer",
                 description = "Number of forecast days (1–7). Omit for current conditions only.",
@@ -51,13 +57,69 @@ class GetWeatherSkill @Inject constructor(
     )
 
     override suspend fun execute(call: SkillCall): SkillResult {
+        val location = call.arguments["location"]?.trim()
         val forecastDays = call.arguments["forecast_days"]?.trim()?.toIntOrNull()?.coerceIn(1, 7) ?: 0
 
         return try {
-            fetchByDeviceLocation(forecastDays)
+            if (!location.isNullOrBlank()) {
+                fetchByLocationName(location, forecastDays)
+            } else {
+                fetchByDeviceLocation(forecastDays)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "GetWeatherSkill failed", e)
             SkillResult.Failure(name, "Couldn't fetch weather: ${e.message}")
+        }
+    }
+
+    // ── Location ──────────────────────────────────────────────────────────────
+
+    private suspend fun fetchByLocationName(locationName: String, forecastDays: Int = 0): SkillResult {
+        val coordinates = geocodeLocation(locationName)
+            ?: return SkillResult.Failure(
+                name,
+                "Couldn't find location: $locationName. Please try a different city or location name.",
+            )
+        
+        return if (forecastDays > 0) {
+            fetchForecast(
+                lat = coordinates.first,
+                lon = coordinates.second,
+                displayName = locationName,
+                days = forecastDays
+            )
+        } else {
+            fetchWeather(
+                lat = coordinates.first,
+                lon = coordinates.second,
+                displayName = locationName
+            )
+        }
+    }
+
+    private suspend fun geocodeLocation(locationName: String): Pair<Double, Double>? = withContext(Dispatchers.IO) {
+        try {
+            val url = "https://nominatim.openstreetmap.org/search" +
+                "?q=${java.net.URLEncoder.encode(locationName, "UTF-8")}" +
+                "&format=json&limit=1"
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "KernelAI/1.0 (Android)")
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val body = response.body?.string() ?: return@withContext null
+                val jsonArray = org.json.JSONArray(body)
+                if (jsonArray.length() == 0) return@withContext null
+                val firstResult = jsonArray.getJSONObject(0)
+                val lat = firstResult.optDouble("lat", Double.NaN)
+                val lon = firstResult.optDouble("lon", Double.NaN)
+                if (lat.isNaN() || lon.isNaN()) return@withContext null
+                Pair(lat, lon)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Geocoding failed for: $locationName", e)
+            null
         }
     }
 

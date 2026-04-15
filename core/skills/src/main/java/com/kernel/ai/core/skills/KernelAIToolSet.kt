@@ -109,6 +109,28 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
+    @Tool(description = "Get current weather or forecast. If user's location is known from their profile, pass it as location parameter. Otherwise uses device GPS")
+    fun getWeather(
+        @ToolParam(description = "Optional location/city name (e.g., \"Brisbane\" or \"Murrumba Downs, QLD, Australia\"). If provided, uses this location. If omitted, uses device GPS") location: String,
+        @ToolParam(description = "Optional number of forecast days (1-7). Omit for current conditions only") forecastDays: String,
+    ): Map<String, String> {
+        toolCalledInThisTurn = true
+        lastToolName = "get_weather"
+        Log.d(TAG, "ToolSet: getWeather(location=$location, forecastDays=$forecastDays)")
+
+        val args = mutableMapOf<String, String>()
+        if (location.isNotBlank()) {
+            args["location"] = location
+        }
+        if (forecastDays.isNotBlank() && forecastDays != "0") {
+            args["forecast_days"] = forecastDays
+        }
+
+        val result = executeSkill("get_weather_gps", args)
+        lastToolResult = result["result"] ?: result["error"]
+        return result
+    }
+
     @Tool(description = "Save an important fact or preference to the user's long-term memory. Use when the user says 'remember', 'save', 'note that', or 'don't forget'")
     fun saveMemory(
         @ToolParam(description = "The content to remember, written as a clear factual statement") content: String,
