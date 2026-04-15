@@ -1288,6 +1288,15 @@ class QuickIntentRouterTest {
             Arguments.of("turn the volume up to 8", "8", "false"),
             Arguments.of("volume at 60%", "60", "true"),
             Arguments.of("volume to 10", "10", "false"),
+            Arguments.of("set volume to 0%", "0", "true"),
+            Arguments.of("set volume to 100%", "100", "true"),
+            Arguments.of("volume 0", "0", "false"),
+            Arguments.of("volume 10", "10", "false"),
+            Arguments.of("volume up to 5", "5", "false"),
+            Arguments.of("volume down to 3", "3", "false"),
+            Arguments.of("turn volume to 9", "9", "false"),
+            Arguments.of("volume at 25%", "25", "true"),
+            Arguments.of("set volume at 80%", "80", "true"),
         )
 
         @JvmStatic
@@ -1308,6 +1317,10 @@ class QuickIntentRouterTest {
             Arguments.of("switch on wifi"),
             Arguments.of("wifi on"),
             Arguments.of("switch wifi on"),
+            Arguments.of("turn on wireless"),
+            Arguments.of("enable wireless"),
+            Arguments.of("wireless on"),
+            Arguments.of("on wifi"),
         )
 
         @JvmStatic
@@ -1317,6 +1330,10 @@ class QuickIntentRouterTest {
             Arguments.of("turn off wifi"),
             Arguments.of("wi-fi off"),
             Arguments.of("disable wi-fi"),
+            Arguments.of("off wifi"),
+            Arguments.of("turn off wireless"),
+            Arguments.of("disable wireless"),
+            Arguments.of("wireless off"),
         )
 
         @JvmStatic
@@ -1334,6 +1351,10 @@ class QuickIntentRouterTest {
             Arguments.of("enable bluetooth"),
             Arguments.of("enable BT"),
             Arguments.of("bluetooth on"),
+            Arguments.of("on bluetooth"),
+            Arguments.of("turn on BT"),
+            Arguments.of("bt on"),
+            Arguments.of("on BT"),
         )
 
         @JvmStatic
@@ -1342,6 +1363,10 @@ class QuickIntentRouterTest {
             Arguments.of("disable bluetooth"),
             Arguments.of("turn off bluetooth"),
             Arguments.of("bt off"),
+            Arguments.of("off bluetooth"),
+            Arguments.of("turn off BT"),
+            Arguments.of("off BT"),
+            Arguments.of("disable BT"),
         )
 
         @JvmStatic
@@ -1359,6 +1384,10 @@ class QuickIntentRouterTest {
             Arguments.of("turn on airplane mode"),
             Arguments.of("enable airplane mode"),
             Arguments.of("turn on flight mode"),
+            Arguments.of("flight mode on"),
+            Arguments.of("enable flight mode"),
+            Arguments.of("on airplane mode"),
+            Arguments.of("on flight mode"),
         )
 
         @JvmStatic
@@ -1367,6 +1396,10 @@ class QuickIntentRouterTest {
             Arguments.of("turn off airplane mode"),
             Arguments.of("disable airplane mode"),
             Arguments.of("flight mode off"),
+            Arguments.of("turn off flight mode"),
+            Arguments.of("disable flight mode"),
+            Arguments.of("off airplane mode"),
+            Arguments.of("off flight mode"),
         )
 
         @JvmStatic
@@ -1384,6 +1417,11 @@ class QuickIntentRouterTest {
             Arguments.of("mobile hotspot on"),
             Arguments.of("tethering on"),
             Arguments.of("enable tethering"),
+            Arguments.of("hotspot on"),
+            Arguments.of("on hotspot"),
+            Arguments.of("turn on mobile hotspot"),
+            Arguments.of("enable mobile hotspot"),
+            Arguments.of("on tethering"),
         )
 
         @JvmStatic
@@ -1392,6 +1430,11 @@ class QuickIntentRouterTest {
             Arguments.of("disable hotspot"),
             Arguments.of("turn off hotspot"),
             Arguments.of("tethering off"),
+            Arguments.of("off hotspot"),
+            Arguments.of("turn off mobile hotspot"),
+            Arguments.of("disable mobile hotspot"),
+            Arguments.of("mobile hotspot off"),
+            Arguments.of("off tethering"),
         )
 
         @JvmStatic
@@ -1408,6 +1451,9 @@ class QuickIntentRouterTest {
             Arguments.of("play Breaking Bad on Plex", "Breaking Bad"),
             Arguments.of("watch The Office on plex", "The Office"),
             Arguments.of("play Interstellar on Plex", "Interstellar"),
+            Arguments.of("watch Stranger Things on Plex", "Stranger Things"),
+            Arguments.of("play The Mandalorian on plex", "The Mandalorian"),
+            Arguments.of("watch Game of Thrones on Plex", "Game of Thrones"),
         )
 
         @JvmStatic
@@ -1420,18 +1466,30 @@ class QuickIntentRouterTest {
             Arguments.of("play cat videos on youtube", "cat videos"),
             Arguments.of("watch NZ highlights on YouTube", "NZ highlights"),
             Arguments.of("search cooking tutorials on youtube", "cooking tutorials"),
+            Arguments.of("play funny compilations on YouTube", "funny compilations"),
+            Arguments.of("watch gaming videos on youtube", "gaming videos"),
+            Arguments.of("play music videos on YouTube", "music videos"),
+            Arguments.of("search tech reviews on youtube", "tech reviews"),
         )
 
         @JvmStatic
         fun playSpotifyRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("play Six60 on Spotify", "Six60"),
             Arguments.of("listen to jazz on spotify", "jazz"),
+            Arguments.of("play Discover Weekly on Spotify", "Discover Weekly"),
+            Arguments.of("listen to rock music on Spotify", "rock music"),
+            Arguments.of("play The Weeknd on spotify", "The Weeknd"),
+            Arguments.of("listen to chill music on Spotify", "chill music"),
         )
 
         @JvmStatic
         fun playNetflixRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("play Stranger Things on Netflix", "Stranger Things"),
             Arguments.of("watch The Crown on netflix", "The Crown"),
+            Arguments.of("play Squid Game on Netflix", "Squid Game"),
+            Arguments.of("watch Breaking Bad on netflix", "Breaking Bad"),
+            Arguments.of("play Wednesday on Netflix", "Wednesday"),
+            Arguments.of("watch action movies on Netflix", "action movies"),
         )
 
         @JvmStatic
@@ -1440,6 +1498,12 @@ class QuickIntentRouterTest {
             Arguments.of("launch Spotify", "Spotify"),
             Arguments.of("open the camera app", "camera"),
             Arguments.of("start Chrome", "Chrome"),
+            Arguments.of("open Settings", "Settings"),
+            Arguments.of("launch Maps", "Maps"),
+            Arguments.of("open Gmail", "Gmail"),
+            Arguments.of("start Messages", "Messages"),
+            Arguments.of("launch Calendar", "Calendar"),
+            Arguments.of("open the Photos app", "Photos"),
         )
 
         @JvmStatic
@@ -1447,6 +1511,10 @@ class QuickIntentRouterTest {
             Arguments.of("play the album Dark Side of the Moon", "Dark Side of the Moon"),
             Arguments.of("play album Rumours by Fleetwood Mac", "Rumours"),
             Arguments.of("play album Abbey Road", "Abbey Road"),
+            Arguments.of("play the album Thriller", "Thriller"),
+            Arguments.of("play album Back in Black by AC/DC", "Back in Black"),
+            Arguments.of("play the album Hotel California", "Hotel California"),
+            Arguments.of("play album Nevermind", "Nevermind"),
         )
 
         @JvmStatic
@@ -1460,6 +1528,10 @@ class QuickIntentRouterTest {
             Arguments.of("play my workout playlist", "workout"),
             Arguments.of("play playlist Chill Vibes", "Chill Vibes"),
             Arguments.of("play the running playlist", "running"),
+            Arguments.of("play my sleep playlist", "sleep"),
+            Arguments.of("play playlist Morning Jams", "Morning Jams"),
+            Arguments.of("play the study playlist", "study"),
+            Arguments.of("play my party playlist", "party"),
         )
 
         @JvmStatic
@@ -1472,6 +1544,11 @@ class QuickIntentRouterTest {
             Arguments.of("play Bohemian Rhapsody by Queen", "Bohemian Rhapsody"),
             Arguments.of("play Thriller", "Thriller"),
             Arguments.of("play something by Taylor Swift", "something"),
+            Arguments.of("play Stairway to Heaven by Led Zeppelin", "Stairway to Heaven"),
+            Arguments.of("play Imagine", "Imagine"),
+            Arguments.of("play Hotel California by Eagles", "Hotel California"),
+            Arguments.of("play Sweet Child O' Mine", "Sweet Child O' Mine"),
+            Arguments.of("play Billie Jean by Michael Jackson", "Billie Jean"),
         )
 
         @JvmStatic
@@ -1494,6 +1571,11 @@ class QuickIntentRouterTest {
             Arguments.of("drive home", "home"),
             Arguments.of("take me home", "home"),
             Arguments.of("directions home", "home"),
+            Arguments.of("navigate to 123 Main Street", "123 Main Street"),
+            Arguments.of("take me to Brisbane CBD", "Brisbane CBD"),
+            Arguments.of("directions to the airport", "the airport"),
+            Arguments.of("navigate to the beach", "the beach"),
+            Arguments.of("drive to the city", "the city"),
         )
 
         @JvmStatic
@@ -1515,6 +1597,12 @@ class QuickIntentRouterTest {
             Arguments.of("find nearby restaurants", "restaurants"),
             Arguments.of("locate nearest pharmacy", "pharmacy"),
             Arguments.of("find me cafes nearby", "cafes"),
+            Arguments.of("find gyms near me", "gyms"),
+            Arguments.of("find banks nearby", "banks"),
+            Arguments.of("locate nearest hospital", "hospital"),
+            Arguments.of("find coffee shops close by", "coffee shops"),
+            Arguments.of("search for supermarkets nearby", "supermarkets"),
+            Arguments.of("find ATMs near me", "ATMs"),
         )
 
         @JvmStatic
@@ -1532,6 +1620,11 @@ class QuickIntentRouterTest {
             Arguments.of("ring Dad", "Dad"),
             Arguments.of("dial Sarah", "Sarah"),
             Arguments.of("phone the office", "the office"),
+            Arguments.of("call Nick", "Nick"),
+            Arguments.of("ring Sarah Jones", "Sarah Jones"),
+            Arguments.of("dial emergency services", "emergency services"),
+            Arguments.of("phone my boss", "my boss"),
+            Arguments.of("call the doctor", "the doctor"),
         )
 
         @JvmStatic
@@ -1548,6 +1641,10 @@ class QuickIntentRouterTest {
             Arguments.of("send message to Dad", "Dad"),
             Arguments.of("send sms to the office", "the office"),
             Arguments.of("text Sarah that I'll be late", "Sarah"),
+            Arguments.of("text Nick saying on my way", "Nick"),
+            Arguments.of("send a text to Emily", "Emily"),
+            Arguments.of("sms Mike saying call me", "Mike"),
+            Arguments.of("text my boss", "my boss"),
         )
 
         @JvmStatic
@@ -1556,6 +1653,10 @@ class QuickIntentRouterTest {
             Arguments.of("send an email to Sarah about project update", "Sarah"),
             Arguments.of("send email to Dad", "Dad"),
             Arguments.of("send an email to my boss about the project", "my boss"),
+            Arguments.of("email Nick about dinner plans", "Nick"),
+            Arguments.of("send an email to the team", "the team"),
+            Arguments.of("email Sarah regarding the report", "Sarah"),
+            Arguments.of("send email to HR", "HR"),
         )
 
         // ── Lists ─────────────────────────────────────────────────────────────────
@@ -1566,6 +1667,9 @@ class QuickIntentRouterTest {
             Arguments.of("add milk to the shopping list", "milk", "shopping"),
             Arguments.of("add eggs to my grocery list", "eggs", "grocery"),
             Arguments.of("add bread to the to-do list", "bread", "to-do"),
+            Arguments.of("add bananas to shopping list", "bananas", "shopping"),
+            Arguments.of("add butter to the grocery list", "butter", "grocery"),
+            Arguments.of("add cheese to my shopping list", "cheese", "shopping"),
         )
 
         @JvmStatic
@@ -1583,6 +1687,10 @@ class QuickIntentRouterTest {
             Arguments.of("switch on the fan", "fan"),
             Arguments.of("turn on the TV", "TV"),
             Arguments.of("switch on the air conditioning", "air conditioning"),
+            Arguments.of("turn on living room lights", "living room lights"),
+            Arguments.of("switch on the heater", "heater"),
+            Arguments.of("turn on kitchen light", "kitchen light"),
+            Arguments.of("turn on the coffee maker", "coffee maker"),
         )
 
         @JvmStatic
@@ -1597,6 +1705,10 @@ class QuickIntentRouterTest {
             Arguments.of("switch off the fan", "fan"),
             Arguments.of("turn off all lights", "all lights"),
             Arguments.of("switch off the heater", "heater"),
+            Arguments.of("turn off kitchen light", "kitchen light"),
+            Arguments.of("turn off the air conditioning", "air conditioning"),
+            Arguments.of("switch off living room lights", "living room lights"),
+            Arguments.of("turn off the TV", "TV"),
         )
 
         @JvmStatic
@@ -1619,6 +1731,8 @@ class QuickIntentRouterTest {
             // Wikipedia / knowledge
             Arguments.of("tell me about the history of New Zealand"),
             Arguments.of("who invented the internet"),
+            Arguments.of("what is quantum computing"),
+            Arguments.of("explain photosynthesis"),
             // Memory
             Arguments.of("remember that my wifi password is 12345"),
             Arguments.of("what did I tell you about my car"),
@@ -1628,9 +1742,13 @@ class QuickIntentRouterTest {
             Arguments.of("how are you doing today"),
             Arguments.of("tell me a joke"),
             Arguments.of("what can you do"),
+            Arguments.of("what's the meaning of life"),
+            Arguments.of("how do I cook pasta"),
             // Ambiguous — could be many things
             Arguments.of("help me with something"),
             Arguments.of("I'm bored"),
+            Arguments.of("what should I do today"),
+            Arguments.of("can you help me"),
         )
     }
 
