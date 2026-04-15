@@ -99,7 +99,7 @@ class RunIntentSkill @Inject constructor(
         // Volume
         "Set volume to 50% → runIntent(intentName=\"set_volume\", parameters='{\"value\":\"50\",\"is_percent\":\"true\"}')",
         // Media
-        "Play Bohemian Rhapsody → runIntent(intentName=\"play_media\", parameters='{\"media\":\"Bohemian Rhapsody\",\"artist\":\"Queen\"}')",
+        "Play Bohemian Rhapsody → runIntent(intentName=\"play_media\", parameters='{\"query\":\"Bohemian Rhapsody\",\"artist\":\"Queen\"}')",
         "Play Abbey Road album → runIntent(intentName=\"play_media_album\", parameters='{\"album\":\"Abbey Road\",\"artist\":\"The Beatles\"}')",
         "Play workout playlist → runIntent(intentName=\"play_media_playlist\", parameters='{\"playlist\":\"Workout Mix\"}')",
         "Play cat videos on YouTube → runIntent(intentName=\"play_youtube\", parameters='{\"query\":\"cat videos\"}')",
@@ -145,13 +145,13 @@ class RunIntentSkill @Inject constructor(
         appendLine("  set_volume — params: value (0-100 or 1-10), is_percent (\"true\" if 0-100, \"false\" if 1-10)")
         appendLine()
         appendLine("MEDIA PLAYBACK:")
-        appendLine("  play_media — params: media (song name), artist (optional)")
+        appendLine("  play_media — params: query (song name), artist (optional)")
         appendLine("  play_media_album — params: album, artist (optional)")
         appendLine("  play_media_playlist — params: playlist")
         appendLine("  play_youtube — params: query")
         appendLine("  play_spotify — params: query")
         appendLine("  play_netflix — params: query")
-        appendLine("  play_plex — params: query")
+        appendLine("  play_plex — params: title")
         appendLine()
         appendLine("NAVIGATION:")
         appendLine("  navigate_to — params: destination")
@@ -188,7 +188,7 @@ class RunIntentSkill @Inject constructor(
         appendLine("Volume rule: 'set volume to 50%', 'volume 7' → runIntent with intentName=set_volume.")
         appendLine("If user says percentage (0-100), set is_percent=\"true\". If 1-10, set is_percent=\"false\".")
         appendLine()
-        appendLine("Media rule: For music playback, use play_media with media (song name) and artist.")
+        appendLine("Media rule: For music playback, use play_media with query (song name) and artist.")
         appendLine("For albums, use play_media_album. For playlists, use play_media_playlist.")
         appendLine("For YouTube/Spotify/Netflix/Plex, use the corresponding intent with query parameter.")
         appendLine()
