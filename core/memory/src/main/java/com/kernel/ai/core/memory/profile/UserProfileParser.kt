@@ -25,7 +25,7 @@ object UserProfileParser {
 
     private val LOCATION_PATTERNS = listOf(
         Regex("""(?i)\b(?:i live in|i'm from|i am from|i'm located in|i'm based in|location:\s*|my (?:city|town|location) is)\s+(.+?)(?:\.|,|$)"""),
-        Regex("""(?i)\b(?:based in|located in)\s+(.+?)(?:\.|,|$)"""),
+        Regex("""(?i)\b(?:based in|located in)\s+(.+?)(?:\.|,|$)"""),  // standalone only — combined role+location handled below
     )
 
     private val ROLE_PATTERNS = listOf(
