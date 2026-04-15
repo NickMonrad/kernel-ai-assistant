@@ -72,6 +72,43 @@ class RunIntentSkill @Inject constructor(
         "Add event tomorrow:  <|tool_call>call:run_intent{intent_name:${STR}create_calendar_event${STR},title:${STR}Dentist${STR},date:${STR}tomorrow${STR},time:${STR}09:00${STR}}<tool_call|>",
     )
 
+    override val fullInstructions: String = buildString {
+        appendLine("run_intent: Perform a native Android device action.")
+        appendLine()
+        appendLine("Parameters:")
+        appendLine("- intent_name (required, string): The action to perform.")
+        appendLine("  Options: toggle_flashlight_on, toggle_flashlight_off, send_email, send_sms,")
+        appendLine("           set_alarm, set_timer, create_calendar_event")
+        appendLine("- time (string): Pass exactly as user said — e.g. \"10pm\", \"9:30am\", \"22:00\"")
+        appendLine("- day (string): Optional day name — e.g. \"tomorrow\", \"monday\", \"next friday\"")
+        appendLine("- label (string): Optional alarm label")
+        appendLine("- duration_seconds (string): Timer duration in seconds (e.g. \"180\" for 3 min)")
+        appendLine("- subject, body (string): For send_email")
+        appendLine("- message, phone (string): For send_sms")
+        appendLine("- title (string): Calendar event title")
+        appendLine("- date (string): Calendar date as YYYY-MM-DD or relative (\"tomorrow\", \"next wednesday\")")
+        appendLine("- duration_minutes (string): Optional calendar event duration")
+        appendLine()
+        appendLine("Rules:")
+        appendLine("Alarm rule: whenever the user says 'set alarm', 'set an alarm', 'alarm for', 'alarm at',")
+        appendLine("'wake me up at', or 'remind me at [specific clock time]' — call run_intent")
+        appendLine("with intent_name=set_alarm. Pass time EXACTLY as user said (e.g. time:\"10pm\").")
+        appendLine("'Remind me at [specific time]' is an alarm (set_alarm).")
+        appendLine("If the user specifies a day (e.g. 'tomorrow', 'next Monday'), include")
+        appendLine("day=<day_value> passing it exactly as said (e.g. day:\"tomorrow\", day:\"monday\").")
+        appendLine("NEVER output alarm confirmation text — only the tool call token.")
+        appendLine("NOTE: 'remind me in X minutes' is a timer (set_timer), NOT an alarm.")
+        appendLine()
+        appendLine("Calendar rule: 'add calendar entry', 'create calendar event', 'add event',")
+        appendLine("'schedule [topic] on [date]' → run_intent with intent_name=create_calendar_event.")
+        appendLine("Resolve relative dates (tomorrow, next Friday) to YYYY-MM-DD. Pass time as HH:MM.")
+        appendLine("NEVER confirm event was created without calling the tool.")
+        appendLine("'remind me in X minutes/seconds' is set_timer, NOT create_calendar_event.")
+        appendLine()
+        appendLine("Examples:")
+        examples.forEach { appendLine("  $it") }
+    }
+
     override suspend fun execute(call: SkillCall): SkillResult {
         val intentName = call.arguments["intent_name"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure(name, "Missing required parameter: intent_name.")

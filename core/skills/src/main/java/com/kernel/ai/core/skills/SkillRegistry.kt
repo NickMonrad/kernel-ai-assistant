@@ -19,45 +19,42 @@ class SkillRegistry @Inject constructor(
 
 
     /**
-     * Generates a human-readable, native-token-format list of available tools for injection
-     * into the Gemma 4 system prompt. Each entry shows the exact <|tool_call> syntax the
-     * model must emit — with a concrete usage example using real function names.
+     * Generates a minimal tool listing for the system prompt (#341 lazy skill loading).
+     *
+     * Each non-gateway skill emits only name + one-line description to keep the system prompt
+     * compact. [LoadSkillSkill] is always listed first with its call example so the model
+     * knows to call it before invoking any other skill. Full parameter docs, examples, and
+     * enforcement rules live in each skill's [Skill.fullInstructions] and are retrieved on
+     * demand via load_skill.
      */
     fun buildNativeDeclarations(): String {
         if (registry.isEmpty()) return ""
         val strToken = "<|" + "\"" + "|>"
-        val sb = StringBuilder("Available tools — use the EXACT function name shown:\n\n")
-        registry.values.sortedBy { it.name }.forEach { skill ->
-            sb.append("• ${skill.name}: ${skill.description}\n")
-            val exampleArgs = if (skill.schema.parameters.isEmpty()) {
-                ""
-            } else {
-                skill.schema.parameters.entries.mapIndexed { i, (k, v) ->
-                    val exVal = when {
-                        !v.enum.isNullOrEmpty() -> "$strToken${v.enum!!.first()}$strToken"
-                        v.type == "integer" || v.type == "number" -> "0"
-                        else -> "${strToken}value$strToken"
-                    }
-                    "$k:$exVal"
-                }.joinToString(",")
+        val loadSkill = registry["load_skill"]
+        val others = registry.values
+            .filter { it.name != "load_skill" }
+            .sortedBy { it.name }
+
+        return buildString {
+            appendLine("Available tools — call load_skill first to get full instructions:\n")
+
+            // load_skill always shown with its examples so the model knows how to use it
+            if (loadSkill != null) {
+                appendLine("• load_skill: ${loadSkill.description}")
+                loadSkill.examples.forEach { appendLine("  $it") }
+                appendLine()
             }
-            if (skill.examples.isNotEmpty()) {
-                skill.examples.forEach { sb.append("  $it\n") }
+
+            // All other skills: name + one-liner only
+            if (loadSkill != null) {
+                appendLine("Other skills (call load_skill to get their instructions):")
             } else {
-                sb.append("  Call: <|tool_call>call:${skill.name}{$exampleArgs}<tool_call|>\n")
-                if (skill.schema.parameters.isNotEmpty()) {
-                    skill.schema.required.forEach { req ->
-                        val p = skill.schema.parameters[req]
-                        if (p != null) {
-                            val enumNote = if (!p.enum.isNullOrEmpty()) " [${p.enum!!.joinToString("/")}]" else ""
-                            sb.append("  $req (${p.type}$enumNote): ${p.description}\n")
-                        }
-                    }
-                }
+                appendLine("Other skills:")
             }
-            sb.append("\n")
-        }
-        return sb.toString().trimEnd()
+            others.forEach { skill ->
+                appendLine("• ${skill.name}: ${skill.description}")
+            }
+        }.trimEnd()
     }
 
     /** Generates the function_declarations JSON array for the system prompt. */
