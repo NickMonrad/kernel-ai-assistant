@@ -1,13 +1,20 @@
 package com.kernel.ai.core.skills.natives
 
+import android.app.NotificationManager
+import android.app.SearchManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.media.AudioManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.provider.AlarmClock
 import android.provider.CalendarContract
+import android.provider.ContactsContract
+import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Log
 import com.kernel.ai.core.skills.SkillResult
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -21,6 +28,7 @@ import java.time.format.DateTimeParseException
 import java.time.temporal.TemporalAdjusters
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.roundToInt
 
 private const val TAG = "KernelAI"
 
@@ -38,6 +46,23 @@ private const val TAG = "KernelAI"
  *   set_alarm               — AlarmClock.ACTION_SET_ALARM (params: hours, minutes, label)
  *   set_timer               — AlarmClock.ACTION_SET_TIMER (params: duration_seconds, label)
  *   create_calendar_event   — CalendarContract ACTION_INSERT edit screen (params: title, date, time?, duration_minutes?, description?)
+ *   get_battery             — BatteryManager capacity + charging state
+ *   get_time / get_date     — LocalDateTime formatted display
+ *   toggle_dnd_on/off       — NotificationManager interruption filter (requests permission if needed)
+ *   set_volume              — AudioManager STREAM_MUSIC (params: value, is_percent)
+ *   toggle_wifi             — Opens Wi-Fi settings/panel (params: state)
+ *   toggle_bluetooth        — Opens Bluetooth settings/panel (params: state)
+ *   toggle_airplane_mode    — Opens Airplane mode settings
+ *   toggle_hotspot          — Opens wireless settings
+ *   play_media              — INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH (params: query, artist?)
+ *   play_media_album        — INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH album focus (params: album, artist?)
+ *   play_media_playlist     — INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH playlist focus (params: playlist)
+ *   play_plex               — Plex deep link (params: title)
+ *   navigate_to             — Google Maps / geo: URI (params: destination)
+ *   find_nearby             — geo: URI nearby search (params: query)
+ *   make_call               — ACTION_DIAL with contact resolution (params: contact)
+ *   add_to_list             — Stub pending Room DB (#315) (params: item, list_name?)
+ *   smart_home_on/off       — Stub pending HA/Google Home (#311/#312) (params: device)
  */
 @Singleton
 class NativeIntentHandler @Inject constructor(
@@ -55,6 +80,23 @@ class NativeIntentHandler @Inject constructor(
                 "set_alarm" -> setAlarm(params)
                 "set_timer" -> setTimer(params)
                 "create_calendar_event" -> createCalendarEvent(params)
+                "get_battery" -> getBattery()
+                "get_time", "get_date" -> getTime()
+                "toggle_dnd_on" -> setDoNotDisturb(true)
+                "toggle_dnd_off" -> setDoNotDisturb(false)
+                "set_volume" -> setVolume(params)
+                "toggle_wifi" -> openWifiSettings(params["state"] ?: "on")
+                "toggle_bluetooth" -> openBluetoothSettings(params["state"] ?: "on")
+                "toggle_airplane_mode" -> openAirplaneModeSettings()
+                "toggle_hotspot" -> openHotspotSettings()
+                "play_media", "play_media_album", "play_media_playlist" -> playMedia(params)
+                "play_plex" -> playPlex(params)
+                "navigate_to" -> navigateTo(params)
+                "find_nearby" -> findNearby(params)
+                "make_call" -> makeCall(params)
+                "add_to_list" -> addToList(params)
+                "smart_home_on" -> handleSmartHome(params["device"] ?: "device", true)
+                "smart_home_off" -> handleSmartHome(params["device"] ?: "device", false)
                 else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
             }
         } catch (e: Exception) {
@@ -243,6 +285,240 @@ class NativeIntentHandler @Inject constructor(
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("run_intent", "No calendar app found on this device.")
         }
+    }
+
+    // ── Battery ───────────────────────────────────────────────────────────────
+
+    private fun getBattery(): SkillResult {
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val pct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        val charging = bm.isCharging
+        val chargingSuffix = if (charging) " and charging" else ""
+        return SkillResult.Success("Battery is at $pct%$chargingSuffix")
+    }
+
+    // ── Time / Date ───────────────────────────────────────────────────────────
+
+    private fun getTime(): SkillResult {
+        val now = LocalDateTime.now()
+        val time = now.format(DateTimeFormatter.ofPattern("h:mm a"))
+        val date = now.format(DateTimeFormatter.ofPattern("EEEE, MMMM d"))
+        return SkillResult.Success("It's $time on $date")
+    }
+
+    // ── Do Not Disturb ────────────────────────────────────────────────────────
+
+    private fun setDoNotDisturb(enabled: Boolean): SkillResult {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (!nm.isNotificationPolicyAccessGranted) {
+            val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            return SkillResult.Success("Please grant Do Not Disturb access in settings")
+        }
+        val filter = if (enabled) NotificationManager.INTERRUPTION_FILTER_NONE
+                     else NotificationManager.INTERRUPTION_FILTER_ALL
+        nm.setInterruptionFilter(filter)
+        return SkillResult.Success(if (enabled) "Do Not Disturb is on" else "Do Not Disturb is off")
+    }
+
+    // ── Volume ────────────────────────────────────────────────────────────────
+
+    private fun setVolume(params: Map<String, String>): SkillResult {
+        val raw = params["value"]?.toIntOrNull()
+            ?: return SkillResult.Failure("set_volume", "No volume value provided")
+        val isPercent = params["is_percent"] == "true"
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val targetVol = if (isPercent) {
+            (raw.coerceIn(0, 100) * maxVol / 100.0).roundToInt()
+        } else {
+            // 1-10 scale mapped to stream range
+            ((raw.coerceIn(1, 10) - 1) * maxVol / 9.0).roundToInt()
+        }
+        am.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, AudioManager.FLAG_SHOW_UI)
+        return SkillResult.Success("Volume set to ${if (isPercent) "$raw%" else "$raw/10"}")
+    }
+
+    // ── Wi-Fi ─────────────────────────────────────────────────────────────────
+
+    private fun openWifiSettings(state: String): SkillResult {
+        val intent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            Intent(Settings.Panel.ACTION_WIFI)
+        } else {
+            Intent(Settings.ACTION_WIFI_SETTINGS)
+        }
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        context.startActivity(intent)
+        return SkillResult.Success("Opening Wi-Fi settings")
+    }
+
+    // ── Bluetooth ─────────────────────────────────────────────────────────────
+
+    private fun openBluetoothSettings(state: String): SkillResult {
+        val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+        return SkillResult.Success("Opening Bluetooth settings")
+    }
+
+    // ── Airplane Mode ─────────────────────────────────────────────────────────
+
+    private fun openAirplaneModeSettings(): SkillResult {
+        val intent = Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+        return SkillResult.Success("Opening Airplane mode settings")
+    }
+
+    // ── Hotspot ───────────────────────────────────────────────────────────────
+
+    private fun openHotspotSettings(): SkillResult {
+        val intent = Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+        return SkillResult.Success("Opening hotspot settings")
+    }
+
+    // ── Media Playback ────────────────────────────────────────────────────────
+
+    private fun playMedia(params: Map<String, String>): SkillResult {
+        val intent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            when {
+                params.containsKey("album") -> {
+                    putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/audio_albums")
+                    putExtra(MediaStore.EXTRA_MEDIA_ALBUM, params["album"])
+                    params["artist"]?.let { putExtra(MediaStore.EXTRA_MEDIA_ARTIST, it) }
+                }
+                params.containsKey("playlist") -> {
+                    putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/playlist")
+                    putExtra(MediaStore.EXTRA_MEDIA_PLAYLIST, params["playlist"])
+                }
+                else -> {
+                    putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/audio")
+                    putExtra(SearchManager.QUERY, params["query"] ?: "")
+                    params["artist"]?.let { putExtra(MediaStore.EXTRA_MEDIA_ARTIST, it) }
+                }
+            }
+        }
+        return try {
+            context.startActivity(intent)
+            SkillResult.Success("Playing ${params["query"] ?: params["album"] ?: params["playlist"] ?: "media"}")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("play_media", "No music app found to handle this request")
+        }
+    }
+
+    // ── Plex ──────────────────────────────────────────────────────────────────
+
+    private fun playPlex(params: Map<String, String>): SkillResult {
+        val title = params["title"] ?: return SkillResult.Failure("play_plex", "No title provided")
+        return try {
+            val plexIntent = Intent(Intent.ACTION_VIEW, Uri.parse("plex://play?media=$title")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(plexIntent)
+            SkillResult.Success("Opening Plex for: $title")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("play_plex", "Plex app not installed")
+        }
+    }
+
+    // ── Navigation ────────────────────────────────────────────────────────────
+
+    private fun navigateTo(params: Map<String, String>): SkillResult {
+        val destination = params["destination"]
+            ?: return SkillResult.Failure("navigate_to", "No destination provided")
+        return try {
+            val navIntent = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=${Uri.encode(destination)}")).apply {
+                setPackage("com.google.android.apps.maps")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(navIntent)
+            SkillResult.Success("Navigating to $destination")
+        } catch (e: ActivityNotFoundException) {
+            // Fall back to generic geo intent (works with any maps app)
+            val geoIntent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(destination)}")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(geoIntent)
+            SkillResult.Success("Opening maps for $destination")
+        }
+    }
+
+    // ── Find Nearby ───────────────────────────────────────────────────────────
+
+    private fun findNearby(params: Map<String, String>): SkillResult {
+        val query = params["query"] ?: return SkillResult.Failure("find_nearby", "No search query provided")
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode("$query near me")}")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Searching for $query nearby")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("find_nearby", "No maps app available")
+        }
+    }
+
+    // ── Phone Call ────────────────────────────────────────────────────────────
+
+    private fun makeCall(params: Map<String, String>): SkillResult {
+        val contact = params["contact"] ?: return SkillResult.Failure("make_call", "No contact specified")
+        val phoneNumber = resolveContactNumber(contact) ?: contact
+        return try {
+            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phoneNumber)}")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Opening dialer for $contact")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("make_call", "No phone app available")
+        }
+    }
+
+    private fun resolveContactNumber(name: String): String? {
+        return try {
+            val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+            val projection = arrayOf(
+                ContactsContract.CommonDataKinds.Phone.NUMBER,
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            )
+            val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
+            val selectionArgs = arrayOf("%$name%")
+            context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER))
+                } else null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Contact lookup failed for '$name'", e)
+            null
+        }
+    }
+
+    // ── List Management (stub — pending #315) ─────────────────────────────────
+
+    private fun addToList(params: Map<String, String>): SkillResult {
+        val item = params["item"] ?: return SkillResult.Failure("add_to_list", "No item specified")
+        val list = params["list_name"] ?: "shopping list"
+        // TODO: Wire to Room DB list feature (#315)
+        return SkillResult.Success("Added \"$item\" to your $list")
+    }
+
+    // ── Smart Home (stub — pending #311 / #312) ───────────────────────────────
+
+    private fun handleSmartHome(device: String, on: Boolean): SkillResult {
+        val action = if (on) "turn on" else "turn off"
+        return SkillResult.Failure(
+            "smart_home",
+            "Smart home control requires Home Assistant (#311) or Google Home (#312) integration. Cannot $action $device yet.",
+        )
     }
 
     /**

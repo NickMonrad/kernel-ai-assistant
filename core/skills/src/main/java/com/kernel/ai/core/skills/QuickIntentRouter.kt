@@ -250,6 +250,228 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+
+        // ── Volume ──
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """(?:set\s+)?(?:turn\s+(?:the\s+)?)?volume(?:\s+(?:up|down))?\s+(?:to\s+|at\s+)?(\d+)\s*(%)?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "value" to match.groupValues[1],
+                    "is_percent" to if (match.groupValues[2].isNotBlank()) "true" else "false",
+                )
+            },
+        ),
+
+        // ── WiFi ──
+        IntentPattern(
+            intentName = "toggle_wifi",
+            regex = Regex(
+                """(?:turn\s+)?(?:on|off|enable|disable|switch\s+(?:on|off))\s+(?:wi-?fi|wireless)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+        IntentPattern(
+            intentName = "toggle_wifi",
+            regex = Regex(
+                """(?:switch\s+)?(?:wi-?fi|wireless)\s+(?:on|off)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+
+        // ── Bluetooth ──
+        IntentPattern(
+            intentName = "toggle_bluetooth",
+            regex = Regex(
+                """(?:turn\s+)?(?:on|off|enable|disable)\s+(?:bluetooth|bt)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+        IntentPattern(
+            intentName = "toggle_bluetooth",
+            regex = Regex(
+                """(?:bluetooth|bt)\s+(?:on|off)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+
+        // ── Airplane Mode ──
+        IntentPattern(
+            intentName = "toggle_airplane_mode",
+            regex = Regex(
+                """(?:turn\s+)?(?:on|off|enable|disable)\s+(?:airplane|flight)\s+mode""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+        IntentPattern(
+            intentName = "toggle_airplane_mode",
+            regex = Regex(
+                """(?:airplane|flight)\s+mode\s+(?:on|off)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+
+        // ── Hotspot ──
+        IntentPattern(
+            intentName = "toggle_hotspot",
+            regex = Regex(
+                """(?:turn\s+)?(?:on|off|enable|disable)\s+(?:hot\s*spot|tethering|mobile\s+hotspot)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+        IntentPattern(
+            intentName = "toggle_hotspot",
+            regex = Regex(
+                """(?:mobile\s+)?(?:hot\s*spot|tethering)\s+(?:on|off)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+
+        // ── Media (most specific first) ──
+        // Plex — matches before generic play
+        IntentPattern(
+            intentName = "play_plex",
+            regex = Regex(
+                """(?:play|watch)\s+(.+?)\s+on\s+plex""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("title" to match.groupValues[1].trim()) },
+        ),
+        // Album — matches before generic play
+        IntentPattern(
+            intentName = "play_media_album",
+            regex = Regex(
+                """play\s+(?:the\s+)?album\s+(.+?)(?:\s+(?:by|from)\s+(.+))?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf("album" to match.groupValues[1].trim())
+                if (match.groupValues[2].isNotBlank()) params["artist"] = match.groupValues[2].trim()
+                params
+            },
+        ),
+        // Playlist — matches before generic play
+        IntentPattern(
+            intentName = "play_media_playlist",
+            regex = Regex(
+                """play\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?playlist(?:\s+(.+))?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val name = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                    ?: match.groupValues[2].trim()
+                mapOf("playlist" to name)
+            },
+        ),
+        // Generic play — MUST come after plex/album/playlist
+        IntentPattern(
+            intentName = "play_media",
+            regex = Regex(
+                """play\s+(.+?)(?:\s+(?:by|from)\s+(.+))?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf("query" to match.groupValues[1].trim())
+                if (match.groupValues[2].isNotBlank()) params["artist"] = match.groupValues[2].trim()
+                params
+            },
+        ),
+
+        // ── Navigation ──
+        IntentPattern(
+            intentName = "navigate_to",
+            regex = Regex(
+                """(?:navigate|directions?|drive|take\s+me|get\s+me)\s+to\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("destination" to match.groupValues[1].trim()) },
+        ),
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show\s+me|look\s+for|search\s+for)\s+(.+?)\s+(?:near(?:by|(?:\s+me)?)|close\s+by|around\s+(?:here|me))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+
+        // ── Communication ──
+        IntentPattern(
+            intentName = "make_call",
+            regex = Regex(
+                """^(?:call|ring|dial|phone)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("contact" to match.groupValues[1].trim()) },
+        ),
+
+        // ── Lists ──
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?(.+?)\s+list""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to match.groupValues[1].trim(),
+                    "list_name" to match.groupValues[2].trim(),
+                )
+            },
+        ),
+
+        // ── Smart Home (MUST BE LAST — most generic) ──
+        IntentPattern(
+            intentName = "smart_home_on",
+            regex = Regex(
+                """(?:turn|switch)\s+on\s+(?:the\s+)?(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
+        ),
+        IntentPattern(
+            intentName = "smart_home_off",
+            regex = Regex(
+                """(?:turn|switch)\s+off\s+(?:the\s+)?(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
+        ),
     )
 
     // ── Main routing ──────────────────────────────────────────────────────────
