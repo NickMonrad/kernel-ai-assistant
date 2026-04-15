@@ -6,9 +6,11 @@ import com.kernel.ai.core.skills.natives.SaveMemorySkill
 import com.kernel.ai.core.skills.natives.SearchMemorySkill
 import dagger.Binds
 import dagger.Module
+import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.IntoSet
+import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -37,4 +39,18 @@ abstract class SkillsModule {
     @Binds
     @IntoSet
     abstract fun bindRunJsSkill(skill: RunJsSkill): Skill
+
+    /** Bind MiniLMIntentClassifier as the IntentClassifier for QuickIntentRouter. */
+    @Binds
+    @Singleton
+    abstract fun bindIntentClassifier(impl: MiniLMIntentClassifier): QuickIntentRouter.IntentClassifier
+
+    companion object {
+        /** Provide a QuickIntentRouter wired with the MiniLM-backed classifier. */
+        @Provides
+        @Singleton
+        fun provideQuickIntentRouter(
+            classifier: QuickIntentRouter.IntentClassifier,
+        ): QuickIntentRouter = QuickIntentRouter(classifier = classifier)
+    }
 }
