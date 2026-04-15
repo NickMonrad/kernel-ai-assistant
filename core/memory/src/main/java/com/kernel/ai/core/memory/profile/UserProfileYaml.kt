@@ -67,6 +67,6 @@ data class UserProfileYaml(
         }.getOrNull()
 
         private fun String.escapeJson(): String =
-            replace("\\\\", "\\\\\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+            replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
     }
 }
