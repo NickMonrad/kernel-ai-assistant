@@ -33,7 +33,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ModelSettingsEntity::class,
         QuickActionEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -122,6 +122,14 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE user_profile ADD COLUMN structuredJson TEXT DEFAULT NULL")
+            }
+        }
+
+        /** Adds topK and showThinkingProcess columns to model_settings (#342/#343). */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE model_settings ADD COLUMN topK INTEGER NOT NULL DEFAULT 40")
+                db.execSQL("ALTER TABLE model_settings ADD COLUMN showThinkingProcess INTEGER NOT NULL DEFAULT 1")
             }
         }
     }

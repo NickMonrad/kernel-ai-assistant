@@ -14,6 +14,8 @@ sealed interface ChatUiState {
         val inputText: String,
         val error: String?,
         val isLoadingModel: Boolean = false,
+        /** Whether to show the model's thinking process tokens in the chat UI. */
+        val showThinkingProcess: Boolean = true,
     ) : ChatUiState
 
     /** Models need to be downloaded before chatting. */

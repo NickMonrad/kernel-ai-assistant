@@ -27,6 +27,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -92,6 +94,7 @@ fun ModelSettingsScreen(
                 ModelCard(
                     modelName = "Gemma 4 E-4B",
                     settings = settings,
+                    isThinkingCapable = true,
                     onSettingsChanged = viewModel::updateE4bSettings,
                     onReset = viewModel::resetE4bToDefaults,
                 )
@@ -134,6 +137,7 @@ fun ModelSettingsScreen(
 private fun ModelCard(
     modelName: String,
     settings: ModelSettingsEntity,
+    isThinkingCapable: Boolean = false,
     onSettingsChanged: (ModelSettingsEntity) -> Unit,
     onReset: () -> Unit,
 ) {
@@ -194,6 +198,44 @@ private fun ModelCard(
                 onSettingsChanged(settings.copy(topP = (newVal * 20).roundToInt() / 20f))
             },
         )
+
+        // Top-K
+        SliderRow(
+            label = "Top-K",
+            valueLabel = "${settings.topK}",
+            value = settings.topK.toFloat(),
+            valueRange = 1f..100f,
+            steps = 98,
+            isInteger = true,
+            onValueChangeFinished = { newVal ->
+                onSettingsChanged(settings.copy(topK = newVal.roundToInt()))
+            },
+        )
+
+        // Thinking toggle — only shown for models that produce thinking tokens (E-4B)
+        if (isThinkingCapable) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Show thinking process",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = "Display the model's internal reasoning in chat",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = settings.showThinkingProcess,
+                    onCheckedChange = { onSettingsChanged(settings.copy(showThinkingProcess = it)) },
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
