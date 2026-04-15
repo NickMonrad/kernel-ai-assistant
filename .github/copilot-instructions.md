@@ -40,8 +40,9 @@ User input
     │
     ▼
 ┌─────────────────────────────┐
-│  Tier 2: QuickIntentRouter  │  ← Pure Kotlin regex, ~0MB, <5ms (⬜ pending)
-│  Torch / Timer / DND etc.   │    Deterministic matching for ~8 simple actions
+│  Tier 2: QuickIntentRouter  │  ← Pure Kotlin regex + MiniLM classifier, ~0MB, <5ms
+│  20 intents: alarms/timers, │    Phase 1B merged. Phase 2 MiniLM (PR #362) in review.
+│  media, torch, DND, nav…    │    Phase 3 (#358): replace FunctionGemma wiring
 └────────┬────────────────────┘
          │ no match
          ▼
@@ -58,7 +59,8 @@ User input
 |-------|------|------|---------|
 | Gemma-4 E-4B (Performance) / E-2B (Compat) | Resident reasoning + tool calling | ~3.4GB | Eager at startup — E4B-first to guarantee full GPU headroom |
 | EmbeddingGemma-300M | Semantic embeddings (RAG) | <200MB | Lazy — loads on first RAG-triggering query |
-| FunctionGemma-270M | ~~Intent router~~ **Deprecated** | 289MB | Not loaded at startup; class retained for future reference |
+| FunctionGemma-270M | ~~Intent router~~ **Deprecated** | 289MB | Not loaded at startup; class retained pending #358 cleanup |
+| all-MiniLM-L6-v2 int8 | Zero-shot intent classifier (Tier 2) | ~15MB | Lazy — downloaded via KernelModel on first use; graceful null fallback |
 
 - All models use **quantized weights** (INT4/INT8) via LiteRT
 - E4B runs on **GPU (OpenCL / Adreno 740)** — loaded first with full memory headroom
@@ -270,6 +272,13 @@ The script verifies SHA256 hashes after download. Models directory: `models/` (g
 
 1. ✅ Core LiteRT-LM integration with GPU/NPU acceleration for Gemma-4
 2. ✅ sqlite-vec + EmbeddingGemma for local semantic search (RAG)
-3. 🔄 Resident Agent Architecture: QuickIntentRouter (Tier 2) + E4B native tool calling (Tier 3) + Voice I/O — **top priority: #222 (baseline skills + rich UI), #223 (memory tools)**
+3. 🔄 Resident Agent Architecture: QuickIntentRouter (Tier 2) + E4B native tool calling (Tier 3) + Voice I/O
+   - ✅ Phase 1A: QuickIntentRouter skeleton + 20 regex intents (merged #354)
+   - ✅ Phase 1B: NativeIntentHandler + 23 handlers, 130+ tests (merged #357)
+   - 🔄 Phase 2: MiniLM zero-shot classifier (PR #362 in CI)
+   - ⬜ Phase 3: Replace FunctionGemma wiring + dead code cleanup (#358)
+   - ⬜ Phase 4: Chat hybrid mode — Tier 2 intercept in conversations (#360)
+   - ⬜ Phase 5: Actions tab re-enable + dual FABs (#361)
+   - ⬜ Model download UX overhaul — HuggingFace auth, onboarding, retry (#363)
 4. Chicory Wasm Runtime + GitHub-based Skill Store
 5. 8GB device optimization (dynamic weight loading/unloading)

@@ -1,0 +1,282 @@
+{
+  "version": 1,
+  "model": "all-MiniLM-L6-v2-int8",
+  "intents": {
+    "toggle_flashlight_on": {
+      "phrases": [
+        "turn on the flashlight",
+        "turn the torch on",
+        "switch on the light",
+        "flashlight on",
+        "I need the torch",
+        "can you light things up",
+        "illuminate please",
+        "torch on bro"
+      ]
+    },
+    "toggle_flashlight_off": {
+      "phrases": [
+        "turn off the flashlight",
+        "switch off the torch",
+        "flashlight off",
+        "kill the light",
+        "torch off",
+        "turn the torch off",
+        "lights out",
+        "dark mode the torch"
+      ]
+    },
+    "set_alarm": {
+      "phrases": [
+        "set an alarm for 7am",
+        "wake me up at six",
+        "set my alarm",
+        "alarm for tomorrow morning",
+        "I need an alarm",
+        "set a wake-up alarm",
+        "remind me to wake up at",
+        "alarm at half past seven"
+      ]
+    },
+    "set_timer": {
+      "phrases": [
+        "set a timer for 5 minutes",
+        "start a countdown",
+        "timer for ten minutes",
+        "set a cooking timer",
+        "count down from 30 seconds",
+        "start the timer",
+        "I need a 2 minute timer",
+        "time me for 15 minutes"
+      ]
+    },
+    "toggle_dnd_on": {
+      "phrases": [
+        "turn on do not disturb",
+        "enable DND mode",
+        "silence my phone",
+        "put on focus mode",
+        "I don't want any interruptions",
+        "mute all notifications",
+        "enable quiet mode",
+        "block all notifications"
+      ]
+    },
+    "toggle_dnd_off": {
+      "phrases": [
+        "turn off do not disturb",
+        "disable DND",
+        "turn off silent mode",
+        "I want to receive notifications again",
+        "disable focus mode",
+        "turn off quiet hours",
+        "stop do not disturb",
+        "unmute my phone"
+      ]
+    },
+    "get_battery": {
+      "phrases": [
+        "what is my battery level",
+        "how much battery do I have left",
+        "battery percentage please",
+        "check my battery",
+        "how charged is my phone",
+        "is my battery low",
+        "battery status",
+        "how much charge is remaining"
+      ]
+    },
+    "get_time": {
+      "phrases": [
+        "what time is it",
+        "tell me the current time",
+        "what is the time right now",
+        "can you check the time for me",
+        "time please",
+        "what's the time",
+        "do you know what time it is",
+        "clock check"
+      ]
+    },
+    "set_volume": {
+      "phrases": [
+        "set volume to 50 percent",
+        "turn the volume up to 8",
+        "set the volume to maximum",
+        "volume level 5 please",
+        "make it louder",
+        "set volume to half",
+        "crank the volume to 10",
+        "volume to 70 percent"
+      ]
+    },
+    "toggle_wifi": {
+      "phrases": [
+        "turn on wifi",
+        "connect to wifi",
+        "enable wireless",
+        "switch on wifi",
+        "turn wifi off",
+        "disable wifi",
+        "turn off wireless internet",
+        "disconnect from wifi"
+      ]
+    },
+    "toggle_bluetooth": {
+      "phrases": [
+        "turn on bluetooth",
+        "enable bluetooth",
+        "switch bluetooth on",
+        "connect bluetooth",
+        "turn off bluetooth",
+        "disable bluetooth",
+        "switch bluetooth off",
+        "disconnect bluetooth"
+      ]
+    },
+    "toggle_airplane_mode": {
+      "phrases": [
+        "turn on airplane mode",
+        "enable flight mode",
+        "switch to airplane mode",
+        "turn on aeroplane mode",
+        "turn off airplane mode",
+        "disable flight mode",
+        "switch off airplane mode",
+        "exit flight mode"
+      ]
+    },
+    "toggle_hotspot": {
+      "phrases": [
+        "turn on hotspot",
+        "enable mobile hotspot",
+        "share my internet",
+        "turn on tethering",
+        "turn off hotspot",
+        "disable mobile hotspot",
+        "stop sharing internet",
+        "turn off tethering"
+      ]
+    },
+    "play_media": {
+      "phrases": [
+        "play Bohemian Rhapsody",
+        "play some music",
+        "play a song for me",
+        "play Shape of You by Ed Sheeran",
+        "start playing music",
+        "put on some tunes",
+        "play something by Taylor Swift",
+        "I want to listen to music"
+      ]
+    },
+    "play_media_album": {
+      "phrases": [
+        "play the Rumours album",
+        "put on the Thriller album",
+        "play the album Dark Side of the Moon",
+        "start the Abbey Road album",
+        "play the Nevermind album by Nirvana",
+        "put on Back in Black album",
+        "play Taylor Swift's Folklore album",
+        "start the Debut album"
+      ]
+    },
+    "play_media_playlist": {
+      "phrases": [
+        "play my workout playlist",
+        "start the chill vibes playlist",
+        "put on my morning playlist",
+        "play the party playlist",
+        "start my running playlist",
+        "play the study music playlist",
+        "put on my sleep playlist",
+        "start my road trip playlist"
+      ]
+    },
+    "play_plex": {
+      "phrases": [
+        "play Severance on Plex",
+        "watch The Office on Plex",
+        "put on Breaking Bad from Plex",
+        "stream Interstellar on Plex",
+        "play the latest episode on Plex",
+        "start playing Succession on Plex",
+        "open Plex and play Game of Thrones",
+        "watch something on Plex"
+      ]
+    },
+    "navigate_to": {
+      "phrases": [
+        "navigate to Auckland CBD",
+        "take me to the airport",
+        "get directions to the supermarket",
+        "how do I get to Wellington",
+        "navigate to 123 Queen Street",
+        "take me home",
+        "directions to the nearest hospital",
+        "navigate to work"
+      ]
+    },
+    "find_nearby": {
+      "phrases": [
+        "find coffee shops nearby",
+        "where are the nearest dog parks",
+        "find a pharmacy close to me",
+        "what restaurants are near me",
+        "find nearby petrol stations",
+        "are there any cafes around here",
+        "find the nearest supermarket",
+        "what's nearby"
+      ]
+    },
+    "make_call": {
+      "phrases": [
+        "call Mum",
+        "ring Dad",
+        "call my wife",
+        "phone my boss",
+        "call John",
+        "ring Sarah",
+        "dial my sister",
+        "call my mate Dave"
+      ]
+    },
+    "add_to_list": {
+      "phrases": [
+        "add milk to my shopping list",
+        "put toothpaste on the shopping list",
+        "add eggs to the grocery list",
+        "remind me to buy bread",
+        "add to my list",
+        "put coffee on my list",
+        "add batteries to the shopping list",
+        "put this on my list"
+      ]
+    },
+    "smart_home_on": {
+      "phrases": [
+        "turn on the bedroom lights",
+        "switch on the kitchen light",
+        "turn on the TV",
+        "put the lounge light on",
+        "switch on the fan",
+        "turn on the bedroom TV",
+        "switch the living room lights on",
+        "turn on the heater"
+      ]
+    },
+    "smart_home_off": {
+      "phrases": [
+        "turn off the bedroom lights",
+        "switch off the kitchen light",
+        "turn off the TV",
+        "put the lounge light off",
+        "switch off the fan",
+        "turn off all the lights",
+        "switch the living room lights off",
+        "turn off the heater"
+      ]
+    }
+  }
+}

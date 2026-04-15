@@ -38,6 +38,7 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.play.services.location)
+    implementation(libs.tflite)
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)
