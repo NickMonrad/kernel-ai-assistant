@@ -46,7 +46,11 @@ class SkillRegistry @Inject constructor(
             }
 
             // All other skills: name + one-liner only
-            appendLine("Other skills (call load_skill to get their instructions):")
+            if (loadSkill != null) {
+                appendLine("Other skills (call load_skill to get their instructions):")
+            } else {
+                appendLine("Other skills:")
+            }
             others.forEach { skill ->
                 appendLine("• ${skill.name}: ${skill.description}")
             }

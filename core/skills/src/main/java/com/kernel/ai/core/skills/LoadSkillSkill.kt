@@ -4,6 +4,7 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillParameter
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.SkillSchema
+import dagger.Lazy
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,7 +23,7 @@ private val STR get() = "<|" + "\"" + "|>"
  */
 @Singleton
 class LoadSkillSkill @Inject constructor(
-    private val skillRegistry: dagger.Lazy<SkillRegistry>,
+    private val skillRegistry: Lazy<SkillRegistry>,
 ) : Skill {
 
     override val name = "load_skill"
