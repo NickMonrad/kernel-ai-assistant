@@ -91,6 +91,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -130,13 +131,16 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
 
     // Auto-send the initial query from Actions tab FallThrough (runs once).
-    // Wait for ViewModel to be fully initialized (Ready state) before sending to avoid race condition.
+    // Wait for ViewModel to be fully ready and not generating before sending.
     LaunchedEffect(initialQuery) {
         if (!initialQuery.isNullOrBlank()) {
-            // Wait for ChatViewModel to reach Ready state (models downloaded, engine ready, conversationId set)
-            viewModel.uiState.first { it is ChatUiState.Ready }
-            viewModel.onInputChanged(initialQuery)
-            viewModel.sendMessage()
+            val ready = withTimeoutOrNull(30_000L) {
+                viewModel.uiState.first { it is ChatUiState.Ready && !it.isGenerating }
+            }
+            if (ready != null) {
+                viewModel.onInputChanged(initialQuery)
+                viewModel.sendMessage()
+            }
         }
     }
 
