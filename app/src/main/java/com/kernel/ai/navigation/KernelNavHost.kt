@@ -122,7 +122,9 @@ fun KernelNavHost() {
                 }),
             ) { backStackEntry ->
                 val openSheet = backStackEntry.arguments?.getBoolean("openSheet") ?: false
-                ActionsScreen(autoOpenSheet = openSheet)
+                Box(modifier = Modifier.padding(innerPadding)) {
+                    ActionsScreen(autoOpenSheet = openSheet)
+                }
             }
 
             // New conversation (no conversationId arg)
