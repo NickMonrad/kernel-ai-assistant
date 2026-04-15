@@ -6,6 +6,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -134,10 +135,14 @@ fun ConversationListScreen(
             }
         },
     ) { innerPadding ->
+        // Apply only top padding to the Column so the search bar clears the TopAppBar.
+        // Bottom padding (FAB zone) is applied as LazyColumn contentPadding instead — this
+        // prevents a large blank panel above the nav bar while still letting the last item
+        // scroll above the FABs.
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(top = innerPadding.calculateTopPadding()),
         ) {
             // Search bar — hidden in selection mode
             if (!isInSelectionMode) {
@@ -194,6 +199,7 @@ fun ConversationListScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = innerPadding.calculateBottomPadding()),
                 ) {
                     items(conversations, key = { it.id }) { conversation ->
                         Box {
