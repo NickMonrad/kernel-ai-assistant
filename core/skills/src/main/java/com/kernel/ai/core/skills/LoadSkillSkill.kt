@@ -8,8 +8,6 @@ import dagger.Lazy
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val STR get() = "<|" + "\"" + "|>"
-
 /**
  * Implements Google AI Edge Gallery's load_skill pattern (#341).
  *
@@ -44,8 +42,8 @@ class LoadSkillSkill @Inject constructor(
     )
 
     override val examples = listOf(
-        "Load device action instructions:  <|tool_call>call:load_skill{skill_name:${STR}run_intent${STR}}<tool_call|>",
-        "Load memory save instructions:    <|tool_call>call:load_skill{skill_name:${STR}save_memory${STR}}<tool_call|>",
+        "Load device action instructions → loadSkill(skillName=\"run_intent\")",
+        "Load memory save instructions → loadSkill(skillName=\"save_memory\")",
     )
 
     // load_skill's own fullInstructions are always embedded in the system prompt — no need

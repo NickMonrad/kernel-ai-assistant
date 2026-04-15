@@ -4,8 +4,6 @@ import com.kernel.ai.core.skills.natives.NativeIntentHandler
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val STR get() = "<|" + "\"" + "|>"
-
 /**
  * Gateway skill that mirrors Google AI Edge Gallery's `run_intent` pattern.
  *
@@ -51,31 +49,18 @@ class RunIntentSkill @Inject constructor(
     )
 
     override val examples: List<String> = listOf(
-        "Flashlight on:   <|tool_call>call:run_intent{intent_name:${STR}toggle_flashlight_on${STR}}<tool_call|>",
-        "Flashlight off:  <|tool_call>call:run_intent{intent_name:${STR}toggle_flashlight_off${STR}}<tool_call|>",
-        "Send email:      <|tool_call>call:run_intent{intent_name:${STR}send_email${STR},subject:${STR}Subject${STR},body:${STR}Body${STR}}<tool_call|>",
-        "Send SMS:        <|tool_call>call:run_intent{intent_name:${STR}send_sms${STR},message:${STR}Hello${STR}}<tool_call|>",
-        "Set alarm 7:30:         <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}7:30am${STR}}<tool_call|>",
-        "Set alarm 10pm:         <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}10pm${STR}}<tool_call|>",
-        "Set alarm 9:30pm:       <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}9:30pm${STR}}<tool_call|>",
-        "Remind me at 9am:       <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}9am${STR}}<tool_call|>",
-        "Remind me at 09:05:     <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}09:05${STR}}<tool_call|>",
-        "Set alarm with label:   <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}7:30am${STR},label:${STR}Wake Up${STR}}<tool_call|>",
-        "Set alarm tomorrow 8am: <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}8am${STR},day:${STR}tomorrow${STR}}<tool_call|>",
-        "Set alarm next monday:  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}7am${STR},day:${STR}monday${STR}}<tool_call|>",
-        "Set alarm Friday 10pm:  <|tool_call>call:run_intent{intent_name:${STR}set_alarm${STR},time:${STR}10pm${STR},day:${STR}friday${STR}}<tool_call|>",
-        "Set timer 3 min: <|tool_call>call:run_intent{intent_name:${STR}set_timer${STR},duration_seconds:${STR}180${STR}}<tool_call|>",
-        "Add calendar event: <|tool_call>call:run_intent{intent_name:${STR}create_calendar_event${STR},title:${STR}Team lunch${STR},date:${STR}2026-04-15${STR},time:${STR}12:30${STR}}<tool_call|>",
-        "Add all-day event:  <|tool_call>call:run_intent{intent_name:${STR}create_calendar_event${STR},title:${STR}Conference${STR},date:${STR}2026-04-20${STR}}<tool_call|>",
-        "Add reminder date:  <|tool_call>call:run_intent{intent_name:${STR}create_calendar_event${STR},title:${STR}Call dentist${STR},date:${STR}2026-04-18${STR},time:${STR}09:00${STR},duration_minutes:${STR}30${STR}}<tool_call|>",
-        "Add event next wednesday: <|tool_call>call:run_intent{intent_name:${STR}create_calendar_event${STR},title:${STR}Go to gym${STR},date:${STR}next wednesday${STR},time:${STR}08:00${STR}}<tool_call|>",
-        "Add event tomorrow:  <|tool_call>call:run_intent{intent_name:${STR}create_calendar_event${STR},title:${STR}Dentist${STR},date:${STR}tomorrow${STR},time:${STR}09:00${STR}}<tool_call|>",
+        "Flashlight on → runIntent(intentName=\"toggle_flashlight_on\", parameters=\"{}\")",
+        "Send email → runIntent(intentName=\"send_email\", parameters='{\"subject\":\"Hi\",\"body\":\"Text\"}')",
+        "Set alarm 10pm → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"10pm\"}')",
+        "Set alarm Monday 7am → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"7am\",\"day\":\"monday\"}')",
+        "Set timer 3min → runIntent(intentName=\"set_timer\", parameters='{\"duration_seconds\":\"180\"}')",
+        "Calendar event → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Lunch\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}')",
     )
 
     override val fullInstructions: String = buildString {
         appendLine("run_intent: Perform a native Android device action.")
         appendLine()
-        appendLine("Parameters:")
+        appendLine("Parameters (pass as JSON in the 'parameters' argument):")
         appendLine("- intent_name (required, string): The action to perform.")
         appendLine("  Options: toggle_flashlight_on, toggle_flashlight_off, send_email, send_sms,")
         appendLine("           set_alarm, set_timer, create_calendar_event")
@@ -91,16 +76,16 @@ class RunIntentSkill @Inject constructor(
         appendLine()
         appendLine("Rules:")
         appendLine("Alarm rule: whenever the user says 'set alarm', 'set an alarm', 'alarm for', 'alarm at',")
-        appendLine("'wake me up at', or 'remind me at [specific clock time]' — call run_intent")
-        appendLine("with intent_name=set_alarm. Pass time EXACTLY as user said (e.g. time:\"10pm\").")
+        appendLine("'wake me up at', or 'remind me at [specific clock time]' — call runIntent")
+        appendLine("with intentName=set_alarm. Pass time EXACTLY as user said (e.g. time:\"10pm\").")
         appendLine("'Remind me at [specific time]' is an alarm (set_alarm).")
         appendLine("If the user specifies a day (e.g. 'tomorrow', 'next Monday'), include")
         appendLine("day=<day_value> passing it exactly as said (e.g. day:\"tomorrow\", day:\"monday\").")
-        appendLine("NEVER output alarm confirmation text — only the tool call token.")
+        appendLine("NEVER output alarm confirmation text — only the tool call.")
         appendLine("NOTE: 'remind me in X minutes' is a timer (set_timer), NOT an alarm.")
         appendLine()
         appendLine("Calendar rule: 'add calendar entry', 'create calendar event', 'add event',")
-        appendLine("'schedule [topic] on [date]' → run_intent with intent_name=create_calendar_event.")
+        appendLine("'schedule [topic] on [date]' → runIntent with intentName=create_calendar_event.")
         appendLine("Resolve relative dates (tomorrow, next Friday) to YYYY-MM-DD. Pass time as HH:MM.")
         appendLine("NEVER confirm event was created without calling the tool.")
         appendLine("'remind me in X minutes/seconds' is set_timer, NOT create_calendar_event.")

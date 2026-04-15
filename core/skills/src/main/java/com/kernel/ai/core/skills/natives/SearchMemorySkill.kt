@@ -65,10 +65,10 @@ class SearchMemorySkill @Inject constructor(
     )
 
     override val examples = listOf(
-        "User asks 'what do you remember about my project?' → Call: <|tool_call>call:search_memory{query:<|\"project\"|>}<tool_call|>",
-        "User asks 'what did we decide last week?' → Call: <|tool_call>call:search_memory{query:<|\"decision last week\"|>}<tool_call|>",
-        "Drill into an episodic summary tagged conversation:abc-123 → Call: <|tool_call>call:search_memory{query:<|\"topic\"|>,conversationId:<|\"abc-123\"|>}<tool_call|>",
-        "User asks 'what do you remember about my family?' → Call: <|tool_call>call:search_memory{query:<|\"family\"|>}<tool_call|>",
+        "User asks 'what do you remember about my project?' → searchMemory(query=\"project\")",
+        "User asks 'what did we decide last week?' → searchMemory(query=\"decision last week\")",
+        "Drill into episodic summary → searchMemory(query=\"topic\") with conversationId if available",
+        "User asks 'what do you remember about my family?' → searchMemory(query=\"family\")",
     )
 
     override val fullInstructions = """
@@ -77,15 +77,11 @@ search_memory: Search the user's long-term memory for facts and preferences.
 Parameters:
 - query (required, string): A natural language query describing what to look for.
 
-Recall rule: ALWAYS call search_memory BEFORE answering any question that might depend
+Recall rule: ALWAYS call searchMemory BEFORE answering any question that might depend
 on the user's name, preferences, prior statements, or user-specific facts.
 If the user references something 'you know' about them, or says 'remember when I told you…',
-call search_memory first. Do NOT skip this step even if you think you know the answer.
-After calling search_memory, incorporate its result into your reply naturally.
-
-Examples:
-  <|tool_call>call:search_memory{query:<|"|>user's preferred language<|"|>}<tool_call|>
-  <|tool_call>call:search_memory{query:<|"|>workout routine preferences<|"|>}<tool_call|>
+call searchMemory first. Do NOT skip this step even if you think you know the answer.
+After calling searchMemory, incorporate its result into your reply naturally.
     """.trimIndent()
 
     override suspend fun execute(call: SkillCall): SkillResult {

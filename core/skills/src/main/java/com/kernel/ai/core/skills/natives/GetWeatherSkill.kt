@@ -35,11 +35,9 @@ class GetWeatherSkill @Inject constructor(
             "Use this when the user asks about their current location weather or doesn't specify a city. " +
             "For weather in a named city, use run_js with skill_name='get-weather-city' instead. " +
             "ALWAYS call this tool for any weather question — never use weather data from memory, it is stale."
-    private val strToken = "<|" + "\"" + "|>"
-
     override val examples = listOf(
-        "Current location weather: <|tool_call>call:get_weather_gps{}<tool_call|>",
-        "GPS location forecast 3 days: <|tool_call>call:get_weather_gps{forecast_days:${strToken}3${strToken}}<tool_call|>",
+        "Current location weather → get_weather_gps()",
+        "GPS location 3-day forecast → get_weather_gps(forecast_days=\"3\")",
     )
 
     override val schema = SkillSchema(

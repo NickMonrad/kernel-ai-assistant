@@ -49,14 +49,11 @@ Parameters:
 
 Memory rule: whenever the user says 'remember', 'save', 'note that', 'don't forget',
 'keep that in mind', 'save it', 'save that', 'remember that', or asks you to keep
-something in mind — you MUST immediately call save_memory. NEVER output 'Got it',
+something in mind — you MUST immediately call saveMemory. NEVER output 'Got it',
 'I'll remember that', 'I've already saved that', or any confirmation text without
 calling the tool first. If the user says 'save it' or 'remember that', infer what
 'it'/'that' refers to from recent context.
 Do NOT ask what to save — always infer and call the tool.
-
-Examples:
-  <|tool_call>call:save_memory{content:<|"|>User prefers dark mode<|"|>}<tool_call|>
     """.trimIndent()
 
     override suspend fun execute(call: SkillCall): SkillResult {
