@@ -250,20 +250,20 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        // Pattern: "what's today's date" / "what is today's date" (must be before broader "what is today")
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+today'?s\s+(?:date|day)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
         // Pattern: "what is today" / "what's today"
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
                 """what(?:'s| is)\s+today""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { _, _ -> emptyMap() },
-        ),
-        // Pattern: "what's today's date" / "what is today's date"
-        IntentPattern(
-            intentName = "get_time",
-            regex = Regex(
-                """what(?:'s| is)\s+today'?s\s+(?:date|day)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -422,7 +422,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "open_app",
             regex = Regex(
-                """^(?:open|launch|start)\s+(?:the\s+)?(?!.*(?:count|timer|alarm))(.+?)(?:\s+app)?$""",
+                """^(?:open|launch|start)\s+(?:the\s+)?(?!(?:a\s+)?(?:count(?:down|ing)|timer|alarm)\b)(.+?)(?:\s+app)?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("app_name" to match.groupValues[1].trim()) },
