@@ -244,16 +244,18 @@ class ChatViewModel @Inject constructor(
             append("\n\n[Current date and time]\n$dateTime (ISO: $isoDate)")
             // Skip profile and history for minimal (Actions) tier to save tokens
             if (identityTier == IdentityTier.FULL) {
-                // Runtime info fetched dynamically via get_system_info skill at query time
-                if (profile.isNotBlank()) {
-                    // Truncate profile to context-window-aware budget (10% of context window, max 3000 chars).
-                    // The original stored profile is never modified — only the injected copy is shortened.
+                // Prefer structured YAML injection (compact, ~200 tokens) over raw text (~750 tokens).
+                val structured = userProfileRepository.getStructured()
+                if (structured != null && !structured.isEmpty()) {
+                    append("\n\n[User Profile]\n${structured.toYaml()}")
+                } else if (profile.isNotBlank()) {
+                    // Fallback to raw text if no structured data yet
                     val contextWindowSize = activeModel?.let { model ->
                         modelSettingsRepository.getSettings(model.modelId).contextWindowSize
                     } ?: 4096
                     val maxProfileChars = modelSettingsRepository.getMaxUserProfileChars(contextWindowSize)
                     val injectedProfile = profile.take(maxProfileChars)
-                    append("\n\nThe following is background context about the user — use it to personalise responses:\n\n[User Profile]\n$injectedProfile")
+                    append("\n\n[User Profile]\n$injectedProfile")
                 }
                 if (historyTurns.isNotEmpty()) {
                     append("\n\n[Previous conversation context]\n")
