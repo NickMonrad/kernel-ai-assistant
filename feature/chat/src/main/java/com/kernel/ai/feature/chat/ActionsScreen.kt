@@ -63,6 +63,7 @@ import java.util.Locale
 @Composable
 fun ActionsScreen(
     autoOpenSheet: Boolean = false,
+    onNavigateToChat: (query: String) -> Unit = {},
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
     val actions by viewModel.actions.collectAsStateWithLifecycle()
@@ -77,6 +78,15 @@ fun ActionsScreen(
     // avoids re-opening the sheet on recomposition or after process death/restore.
     LaunchedEffect(Unit) {
         if (autoOpenSheet) showBottomSheet = true
+    }
+
+    // Collect one-shot navigation events from the ViewModel.
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is ActionsViewModel.UiEvent.NavigateToChat -> onNavigateToChat(event.query)
+            }
+        }
     }
 
     Scaffold(
