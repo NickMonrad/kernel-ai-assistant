@@ -159,17 +159,22 @@ class NativeIntentHandler @Inject constructor(
         val (hours, minutes) = timePair
         val day = params["day"]?.trim()?.lowercase()
         val isTomorrow = day == "tomorrow"
+        val weekdays = setOf("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+        val isWeekday = day in weekdays
 
         // NOTE: AlarmClock.EXTRA_DAYS is intentionally NOT used here.
         // EXTRA_DAYS creates a repeating weekly alarm, not a one-time future alarm.
         // The clock app opens pre-filled with the time; the user confirms the date.
         //
-        // For "tomorrow" alarms we prefix EXTRA_MESSAGE with "TOMORROW:" so the label is
-        // visible in the clock app, reminding the user to verify the date before confirming.
+        // For "tomorrow" or weekday alarms we prefix EXTRA_MESSAGE with the day name so
+        // the label is visible in the clock app, reminding the user to verify the date.
         val baseLabel = params["label"]?.takeIf { it.isNotBlank() }
+        val dayDisplay = day?.replaceFirstChar { it.uppercase() }
         val messageLabel = when {
             isTomorrow && baseLabel != null -> "TOMORROW: $baseLabel"
             isTomorrow -> "TOMORROW"
+            isWeekday && baseLabel != null -> "$dayDisplay: $baseLabel"
+            isWeekday -> dayDisplay
             else -> baseLabel
         }
 
@@ -186,11 +191,13 @@ class NativeIntentHandler @Inject constructor(
             context.startActivity(intent)
             val dayLabel = day?.takeIf { it.isNotBlank() }
                 ?.let { " for ${it.replaceFirstChar { c -> c.uppercase() }}" } ?: ""
-            val tomorrowWarning = if (isTomorrow) {
-                " ⚠ Your clock app schedules by time only — please verify the date is set to tomorrow before confirming."
-            } else ""
+            val dayWarning = when {
+                isTomorrow -> " ⚠ Your clock app schedules by time only — please verify the date is set to tomorrow before confirming."
+                isWeekday -> " ⚠ Your clock app schedules by time only — please verify the date is set to $dayDisplay before confirming."
+                else -> ""
+            }
             SkillResult.Success(
-                "Clock app opened — alarm$dayLabel at %02d:%02d. Please confirm in your clock app.$tomorrowWarning"
+                "Clock app opened — alarm$dayLabel at %02d:%02d. Please confirm in your clock app.$dayWarning"
                     .format(hours, minutes)
             )
         } catch (e: ActivityNotFoundException) {
@@ -456,7 +463,7 @@ class NativeIntentHandler @Inject constructor(
     private fun findNearby(params: Map<String, String>): SkillResult {
         val query = params["query"] ?: return SkillResult.Failure("find_nearby", "No search query provided")
         return try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode("$query near me")}")).apply {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(query)}")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)

@@ -153,7 +153,7 @@ class QuickIntentRouter(
                 """(?:set|start|create)\s+(?:a\s+)?(?:timer|countdown)\s+(?:for\s+)?(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)(?:\s+(?:and\s+)?(\d+)\s*(minutes?|mins?|seconds?|secs?|m|s))?""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> parseTimerDuration(match) },
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
         ),
         IntentPattern(
             intentName = "set_timer",
@@ -161,7 +161,7 @@ class QuickIntentRouter(
                 """(?:timer|countdown)\s+(?:for\s+)?(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> parseTimerDuration(match) },
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
         ),
         // "5 minute timer"
         IntentPattern(
@@ -170,7 +170,7 @@ class QuickIntentRouter(
                 """(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)\s+timer""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> parseTimerDuration(match) },
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
         ),
 
         // ── Do Not Disturb ──
@@ -416,15 +416,53 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "navigate_to",
             regex = Regex(
-                """(?:navigate|directions?|drive|take\s+me|get\s+me)\s+to\s+(.+)""",
+                """(?:navigate|directions?|drive|take\s+me|get\s+me)(?:\s+to)?\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("destination" to match.groupValues[1].trim()) },
         ),
+        // ── Find Nearby (most specific first to avoid greedy mis-capture) ──
+        // "find me nearby cafes" — verb + me + nearby + query
         IntentPattern(
             intentName = "find_nearby",
             regex = Regex(
-                """(?:find|show\s+me|look\s+for|search\s+for)\s+(.+?)\s+(?:near(?:by|(?:\s+me)?)|close\s+by|around\s+(?:here|me))""",
+                """(?:find|show|get)\s+me\s+nearby\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "find me cafes nearby" — verb + me + query + location marker
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show|get)\s+me\s+(.+?)\s+(?:near(?:by|\s+me)|close\s+by|around\s+(?:here|me))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "locate nearest pharmacy" — verb + (the)? + nearest + query
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show\s+me|search\s+for|look\s+for|locate)\s+(?:the\s+)?nearest\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "find nearby restaurants" — verb + nearby + query (no "me")
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|search\s+for|look\s+for|locate)\s+nearby\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "find cafes nearby" / "show me petrol stations close by" — general pattern
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show\s+me|look\s+for|search\s+for|locate)\s+(.+?)\s+(?:near(?:by|\s+me)|close\s+by|around\s+(?:here|me))""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
@@ -546,15 +584,20 @@ class QuickIntentRouter(
             params["hours"] = hours.toString()
             params["minutes"] = minutes.toString()
 
-            // Check for "tomorrow" in surrounding text
-            if (cleaned.contains("tomorrow")) {
-                params["label"] = "TOMORROW"
+            // Extract day name (today, tomorrow, weekday names including abbreviations)
+            val dayRegex = Regex(
+                """\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun)\b""",
+                RegexOption.IGNORE_CASE,
+            )
+            val dayMatch = dayRegex.find(cleaned)
+            if (dayMatch != null) {
+                params["day"] = normalizeDayName(dayMatch.groupValues[1].lowercase())
             }
 
             return params
         }
 
-        fun parseTimerDuration(match: MatchResult): Map<String, String> {
+        fun parseTimerDuration(match: MatchResult, input: String = ""): Map<String, String> {
             val amount1 = match.groupValues[1].toIntOrNull() ?: 0
             val unit1 = normalizeTimeUnit(match.groupValues[2])
 
@@ -567,7 +610,25 @@ class QuickIntentRouter(
                 totalSeconds += toSeconds(amount2, unit2)
             }
 
-            return mapOf("duration_seconds" to totalSeconds.toString())
+            val params = mutableMapOf("duration_seconds" to totalSeconds.toString())
+
+            // Extract label from "called X", "named X", "labeled X", "labelled X"
+            val labelRegex = Regex("""(?:called|named|label(?:l?)ed)\s+(.+)$""", RegexOption.IGNORE_CASE)
+            val labelMatch = labelRegex.find(input)
+            if (labelMatch != null) {
+                params["label"] = labelMatch.groupValues[1].trim()
+            }
+
+            // Also handle "N unit timer for X" where "for" is a label keyword after "timer"
+            if (!params.containsKey("label")) {
+                val timerForRegex = Regex("""timer\s+for\s+([a-zA-Z].+)$""", RegexOption.IGNORE_CASE)
+                val timerForMatch = timerForRegex.find(input)
+                if (timerForMatch != null) {
+                    params["label"] = timerForMatch.groupValues[1].trim()
+                }
+            }
+
+            return params
         }
 
         private fun normalizeTimeUnit(unit: String): String = when {
@@ -582,6 +643,17 @@ class QuickIntentRouter(
             "minutes" -> amount * 60
             "seconds" -> amount
             else -> amount * 60
+        }
+
+        private fun normalizeDayName(day: String): String = when (day) {
+            "mon" -> "monday"
+            "tue", "tues" -> "tuesday"
+            "wed" -> "wednesday"
+            "thu", "thur", "thurs" -> "thursday"
+            "fri" -> "friday"
+            "sat" -> "saturday"
+            "sun" -> "sunday"
+            else -> day
         }
     }
 }
