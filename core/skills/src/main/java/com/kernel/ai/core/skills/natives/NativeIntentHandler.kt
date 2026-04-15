@@ -597,9 +597,18 @@ class NativeIntentHandler @Inject constructor(
             val selectionArgs = arrayOf("%$name%")
             context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
-                    cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER))
-                } else null
+                    val number = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER))
+                    val displayName = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME))
+                    Log.d(TAG, "Contact resolved: '$name' → '$displayName' ($number)")
+                    number
+                } else {
+                    Log.d(TAG, "Contact not found for '$name'")
+                    null
+                }
             }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "READ_CONTACTS permission not granted — cannot resolve '$name'", e)
+            null
         } catch (e: Exception) {
             Log.w(TAG, "Contact lookup failed for '$name'", e)
             null

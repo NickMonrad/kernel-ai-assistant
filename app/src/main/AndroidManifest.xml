@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Required on some OEM clock apps that still check this deprecated permission -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- Contact lookup for SMS, email, and call by name -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <!--
         Android 11+ package visibility: declare which implicit intents we resolve

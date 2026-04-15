@@ -29,6 +29,9 @@ class MainActivity : ComponentActivity() {
     private val requestLocationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
 
+    private val requestContactsPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -38,6 +41,10 @@ class MainActivity : ComponentActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
             requestLocationPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestContactsPermission.launch(Manifest.permission.READ_CONTACTS)
         }
         setContent {
             KernelAITheme {
