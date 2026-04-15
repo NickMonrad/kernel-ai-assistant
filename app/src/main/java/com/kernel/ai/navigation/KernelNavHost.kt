@@ -47,15 +47,18 @@ fun KernelNavHost() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    // destination.route returns the template (e.g. "actions?openSheet={openSheet}"),
+    // so strip the query string when matching base routes.
+    val currentBaseRoute = currentRoute?.substringBefore('?')
 
     Scaffold(
         bottomBar = {
-            if (currentRoute in BOTTOM_NAV_ROUTES) {
+            if (currentBaseRoute in BOTTOM_NAV_ROUTES) {
                 NavigationBar {
                     NavigationBarItem(
-                        selected = currentRoute == ROUTE_LIST,
+                        selected = currentBaseRoute == ROUTE_LIST,
                         onClick = {
-                            if (currentRoute != ROUTE_LIST) {
+                            if (currentBaseRoute != ROUTE_LIST) {
                                 navController.navigate(ROUTE_LIST) {
                                     popUpTo(ROUTE_LIST) { inclusive = true }
                                     launchSingleTop = true
@@ -66,9 +69,9 @@ fun KernelNavHost() {
                         label = { Text("Chats") },
                     )
                     NavigationBarItem(
-                        selected = currentRoute == ROUTE_ACTIONS,
+                        selected = currentBaseRoute == ROUTE_ACTIONS,
                         onClick = {
-                            if (currentRoute != ROUTE_ACTIONS) {
+                            if (currentBaseRoute != ROUTE_ACTIONS) {
                                 navController.navigate(ROUTE_ACTIONS) {
                                     popUpTo(ROUTE_LIST) { saveState = true }
                                     launchSingleTop = true

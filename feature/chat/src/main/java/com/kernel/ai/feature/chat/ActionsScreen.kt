@@ -72,7 +72,9 @@ fun ActionsScreen(
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
 
     // Auto-open the quick action sheet when navigated here via the FAB shortcut.
-    LaunchedEffect(autoOpenSheet) {
+    // LaunchedEffect(Unit) ensures this runs once on initial composition only —
+    // avoids re-opening the sheet on recomposition or after process death/restore.
+    LaunchedEffect(Unit) {
         if (autoOpenSheet) showBottomSheet = true
     }
 
