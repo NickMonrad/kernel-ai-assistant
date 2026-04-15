@@ -152,13 +152,13 @@ The architectural foundation that determines tool call accuracy and response qua
 |-----------|-------|--------|----------|
 | [#341](https://github.com/NickMonrad/kernel-ai-assistant/issues/341) | Lazy skill loading (`load_skill` pattern) — refactor monolithic system prompt to on-demand skill instructions | ✅ Done | 🔴 High |
 | [#372](https://github.com/NickMonrad/kernel-ai-assistant/issues/372) | Native SDK tool calling — migrate from custom `<\|tool_call\>` tokens to LiteRT-LM `@Tool` annotations with constrained decoding | ✅ Done | 🔴 High |
-| [#342](https://github.com/NickMonrad/kernel-ai-assistant/issues/342) | Model settings — add topK, fix temp 1.0/0.7 conflict, task-aware presets | ⬜ Pending | 🟡 Medium |
-| [#343](https://github.com/NickMonrad/kernel-ai-assistant/issues/343) | Thinking budget configuration — toggle + budget for Gemma-4 think mode | ⬜ Pending | 🟡 Medium |
+| [#342](https://github.com/NickMonrad/kernel-ai-assistant/issues/342) | Model settings — add topK, fix temp 1.0/0.7 conflict, task-aware presets | ✅ Done — PR #388 | 🟡 Medium |
+| [#343](https://github.com/NickMonrad/kernel-ai-assistant/issues/343) | Thinking budget configuration — toggle + budget for Gemma-4 think mode | ⚠ Partial — PR #388 (UI toggle done; budget pending LiteRT-LM SDK support) | 🟡 Medium |
 | [#231](https://github.com/NickMonrad/kernel-ai-assistant/issues/231) | NPU fallback — QTI Snapdragon device detection fix | ⬜ Pending | 🟡 Medium |
 | [#301](https://github.com/NickMonrad/kernel-ai-assistant/issues/301) | Switch vec0 tables to `distance_metric=cosine` | ⬜ Pending | 🟢 Low |
 | [#230](https://github.com/NickMonrad/kernel-ai-assistant/issues/230) | Review `safeTokenCount()` token alignment logic | ⬜ Pending | 🟢 Low |
 
-> **Key insight (from #340 analysis):** Our system prompt previously injected ~500+ tokens of tool rules on every turn. Issues #341 (lazy loading) and #372 (native SDK tool calling) resolved this: the prompt now carries ~100 tokens of skill names, and the SDK handles tool declaration generation + constrained decoding for guaranteed well-formed calls.
+> **Key insight (from #340 analysis):** Our system prompt previously injected ~500+ tokens of tool rules on every turn. Issues #341 (lazy loading) and #372 (native SDK tool calling) resolved this: the prompt now carries ~100 tokens of skill names, and the SDK handles tool declaration generation + constrained decoding for guaranteed well-formed calls. PR #382 (#367 + #374) further reduced total prompt tokens by ~62% (1,257t → 480t) via slim identity prompt, YAML structured profile, and NZ knowledge split. topK is now user-configurable via #342 (PR #388).
 
 ---
 
@@ -420,9 +420,9 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#336](https://github.com/NickMonrad/kernel-ai-assistant/issues/336) | System time / 24hr time prompt-induced error (1pm=13 bug) | Phase 3 (bug) | ✅ Done — PR #339 |
 | [#339](https://github.com/NickMonrad/kernel-ai-assistant/issues/339) | Alarm time param fix + get_system_info datetime + parser fix | Phase 3 (PR) | ✅ Merged |
 | [#340](https://github.com/NickMonrad/kernel-ai-assistant/issues/340) | Skill loading architecture vs AI Edge Gallery | Phase 3 (research) | ✅ Closed — decomposed into #341, #342, #343 |
-| [#341](https://github.com/NickMonrad/kernel-ai-assistant/issues/341) | Lazy skill loading (`load_skill` pattern) | Phase 3A | ⬜ Pending |
-| [#342](https://github.com/NickMonrad/kernel-ai-assistant/issues/342) | Model settings: topK, temperature, task-aware presets | Phase 3A | ⬜ Pending |
-| [#343](https://github.com/NickMonrad/kernel-ai-assistant/issues/343) | Thinking budget configuration (toggle + budget) | Phase 3A | ⬜ Pending |
+| [#341](https://github.com/NickMonrad/kernel-ai-assistant/issues/341) | Lazy skill loading (`load_skill` pattern) | Phase 3A | ✅ Done — PR #369 |
+| [#342](https://github.com/NickMonrad/kernel-ai-assistant/issues/342) | Model settings: topK, temperature, task-aware presets | Phase 3A | ✅ Done — PR #388 |
+| [#343](https://github.com/NickMonrad/kernel-ai-assistant/issues/343) | Thinking budget configuration (toggle + budget) | Phase 3A | ⚠ Partial — PR #388 (UI toggle; budget pending SDK) |
 | [#345](https://github.com/NickMonrad/kernel-ai-assistant/issues/345) | Phase 3A: Inference & Prompt Architecture (parent) | Phase 3 | 🔖 Tracking |
 | [#346](https://github.com/NickMonrad/kernel-ai-assistant/issues/346) | Phase 3B: Brand & Visual Identity (parent) | Phase 3 | 🔖 Tracking |
 | [#347](https://github.com/NickMonrad/kernel-ai-assistant/issues/347) | Phase 3C: Core Skills Completion (parent) | Phase 3 | 🔖 Tracking |
