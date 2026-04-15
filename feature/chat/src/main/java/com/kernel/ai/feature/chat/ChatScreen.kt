@@ -135,7 +135,7 @@ fun ChatScreen(
     LaunchedEffect(initialQuery) {
         if (!initialQuery.isNullOrBlank()) {
             val ready = withTimeoutOrNull(30_000L) {
-                viewModel.uiState.first { it is ChatUiState.Ready && !it.isGenerating }
+                viewModel.uiState.first { it is ChatUiState.Ready && !it.isGenerating && !it.isLoadingModel }
             }
             if (ready != null) {
                 viewModel.onInputChanged(initialQuery)
