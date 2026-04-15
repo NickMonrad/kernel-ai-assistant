@@ -2,6 +2,7 @@ package com.kernel.ai.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.memory.profile.UserProfileYaml
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,6 +23,13 @@ class UserProfileViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = "",
+        )
+
+    val structuredProfile: StateFlow<UserProfileYaml?> = repository.observeStructured()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = null,
         )
 
     fun save(text: String) {

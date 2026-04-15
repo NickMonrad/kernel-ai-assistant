@@ -80,6 +80,7 @@ class MemoryRepositoryImpl @Inject constructor(
         content: String,
         source: String,
         embeddingVector: FloatArray,
+        category: String,
     ): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -90,6 +91,7 @@ class MemoryRepositoryImpl @Inject constructor(
             lastAccessedAt = now,
             source = source,
             vectorized = false,
+            category = category,
         )
         val rowId = coreDao.insert(entity)
         if (rowId > 0) {
@@ -120,18 +122,33 @@ class MemoryRepositoryImpl @Inject constructor(
         queryVector: FloatArray,
         coreTopK: Int,
         episodicTopK: Int,
+        identityTopK: Int,
     ): List<MemorySearchResult> {
         val results = mutableListOf<MemorySearchResult>()
 
         runCatching {
-            val rawCoreResults = vectorStore.search(CORE_VEC_TABLE, queryVector, coreTopK)
+            // Fetch more than needed so we can split by category after filtering
+            val fetchTopK = coreTopK + identityTopK
+            val rawCoreResults = vectorStore.search(CORE_VEC_TABLE, queryVector, fetchTopK)
             Log.d(TAG, "Core vec search: ${rawCoreResults.size} raw results, distances=${rawCoreResults.map { "%.3f".format(it.distance) }}")
             val coreResults = rawCoreResults.filter { it.distance <= CORE_MAX_DISTANCE }
             val rowIds = coreResults.map { it.rowId }
             if (rowIds.isNotEmpty()) {
                 val entities = coreDao.getAll().filter { it.rowId in rowIds }
                 val distanceMap = coreResults.associate { it.rowId to it.distance }
-                entities.forEach { entity ->
+
+                // Split by category and apply separate topK limits
+                val userEntities = entities
+                    .filter { it.category != "agent_identity" }
+                    .sortedBy { distanceMap[it.rowId] ?: Float.MAX_VALUE }
+                    .take(coreTopK)
+                val identityEntities = entities
+                    .filter { it.category == "agent_identity" }
+                    .sortedBy { distanceMap[it.rowId] ?: Float.MAX_VALUE }
+                    .take(identityTopK)
+                val combined = userEntities + identityEntities
+
+                combined.forEach { entity ->
                     results.add(
                         MemorySearchResult(
                             id = entity.id,
@@ -142,11 +159,9 @@ class MemoryRepositoryImpl @Inject constructor(
                         )
                     )
                 }
-                // Update access stats atomically via @Transaction wrapper so Room's
-                // InvalidationTracker fires on commit and observeAll() re-emits.
                 runCatching {
                     val now = System.currentTimeMillis()
-                    coreDao.incrementAccessStatsAndNotify(entities.map { it.id }, now)
+                    coreDao.incrementAccessStatsAndNotify(combined.map { it.id }, now)
                 }.onFailure { Log.w(TAG, "incrementAccessStatsAndNotify failed: ${it.message}") }
             }
         }.onFailure { Log.w(TAG, "Core memory search failed: ${it.message}") }
