@@ -256,6 +256,7 @@ private fun ChatContent(
                             MessageBubble(
                                 message = message,
                                 onCopy = { content -> onCopyMessage(content) },
+                                showThinkingProcess = state.showThinkingProcess,
                             )
                         }
                         if (state.isLoadingModel) {
@@ -378,6 +379,7 @@ private fun ChatContent(
 private fun MessageBubble(
     message: ChatMessage,
     onCopy: (String) -> Unit,
+    showThinkingProcess: Boolean = true,
 ) {
     val isUser = message.role == ChatMessage.Role.USER
     val bubbleColor = if (isUser) {
@@ -403,7 +405,7 @@ private fun MessageBubble(
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
     ) {
         // Thinking text (collapsed, italics)
-        if (!message.thinkingText.isNullOrBlank()) {
+        if (showThinkingProcess && !message.thinkingText.isNullOrBlank()) {
             Text(
                 text = "Thinking…",
                 style = MaterialTheme.typography.labelSmall.copy(fontStyle = FontStyle.Italic),

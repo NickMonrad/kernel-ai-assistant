@@ -54,6 +54,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_8_9,
                     KernelDatabase.MIGRATION_9_10,
                     KernelDatabase.MIGRATION_10_11,
+                    KernelDatabase.MIGRATION_11_12,
                 )
                 .build()
 

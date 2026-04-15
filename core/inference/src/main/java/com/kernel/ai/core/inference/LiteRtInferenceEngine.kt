@@ -337,7 +337,7 @@ class LiteRtInferenceEngine @Inject constructor(
     ): ConversationConfig {
         // NPU uses hardware sampler — setting SamplerConfig causes a crash
         val samplerConfig = if (backendType == BackendType.NPU) null else SamplerConfig(
-            topK = 40,
+            topK = config.topK,
             topP = config.topP.toDouble(),
             temperature = config.temperature.toDouble(),
         )
