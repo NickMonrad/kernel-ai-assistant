@@ -12,7 +12,8 @@ import javax.inject.Singleton
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
 private const val KEY_TRUTHS_SEEDED = "truths_seeded"
-private const val SESSION_VOCAB_COUNT = 4
+private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
+private const val SESSION_VOCAB_COUNT = 2
 
 /**
  * Provides Jandal's dynamic personality elements: time-aware greetings, a randomised
@@ -71,14 +72,22 @@ class JandalPersona @Inject constructor(
     }
 
     /**
-     * Picks [SESSION_VOCAB_COUNT] random entries from the vocab pool and returns a
-     * compact prompt hint so the model can weave them in naturally.
+     * Picks [SESSION_VOCAB_COUNT] entries from the vocab pool with LRU cooldown
+     * (avoids repeating the same phrases across sessions) and returns a compact
+     * prompt hint so the model can weave them in naturally.
      * Returns empty string if the vocab file failed to load.
      */
     fun buildSessionVocab(): String {
         if (vocabPool.isEmpty()) return ""
-        val picked = vocabPool.shuffled().take(SESSION_VOCAB_COUNT)
-        val entries = picked.joinToString(", ") { "\"${it.phrase}\" (${it.meaning})" }
+        val lastUsed = prefs.getString(KEY_LAST_VOCAB_INDICES, "")
+            ?.split(",")
+            ?.mapNotNull { it.toIntOrNull() }
+            ?.toSet() ?: emptySet()
+        // Prefer indices not recently used; fall back to full pool if all were used
+        val candidates = vocabPool.indices.filter { it !in lastUsed }.ifEmpty { vocabPool.indices.toList() }
+        val picked = candidates.shuffled().take(SESSION_VOCAB_COUNT)
+        prefs.edit().putString(KEY_LAST_VOCAB_INDICES, picked.joinToString(",")).apply()
+        val entries = picked.map { vocabPool[it] }.joinToString(", ") { "\"${it.phrase}\" (${it.meaning})" }
         return "You may naturally use some of these Kiwi expressions where they fit: $entries."
     }
 

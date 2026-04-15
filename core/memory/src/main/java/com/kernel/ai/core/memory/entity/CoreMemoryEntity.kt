@@ -14,4 +14,6 @@ data class CoreMemoryEntity(
     val accessCount: Int = 0,
     val source: String,  // "user" or "dreaming"
     val vectorized: Boolean = false,
+    /** Separates user facts from agent identity (NZ knowledge). Default "user" for backward compat. */
+    val category: String = "user",
 )

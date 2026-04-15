@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -64,6 +66,7 @@ import java.util.Locale
 fun ActionsScreen(
     autoOpenSheet: Boolean = false,
     onNavigateToChat: (query: String) -> Unit = {},
+    onNewConversation: () -> Unit = {},
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
     val actions by viewModel.actions.collectAsStateWithLifecycle()
@@ -103,10 +106,21 @@ fun ActionsScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showBottomSheet = true },
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Icon(Icons.Default.Bolt, contentDescription = "Run quick action")
+                SmallFloatingActionButton(
+                    onClick = onNewConversation,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "New conversation")
+                }
+                FloatingActionButton(
+                    onClick = { showBottomSheet = true },
+                ) {
+                    Icon(Icons.Default.Bolt, contentDescription = "Run quick action")
+                }
             }
         },
     ) { innerPadding ->

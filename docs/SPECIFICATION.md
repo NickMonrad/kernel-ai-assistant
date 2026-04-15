@@ -119,14 +119,19 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 ### 3.2 Prompt Assembly Order
 
 ```
-[System Prompt]          ← persona, date/time, runtime info
-[User Profile]           ← always injected (structured identity fields)
-[Core Memories]          ← permanent facts (CORE_MAX_DISTANCE=1.10, topK=10)
+[System Prompt]          ← persona (FULL ~200t / MINIMAL ~25t), date/time
+[User Profile]           ← structured YAML injection (name, role, environment, context, rules)
+[Core Memories]          ← permanent facts split by category:
+                           user (topK=8), agent_identity (topK=2)
+                           CORE_MAX_DISTANCE=1.10
 [Episodic Memories]      ← distilled conversation summaries (EPISODIC_MAX_DISTANCE=1.10, topK=3)
 [Message History]        ← semantically relevant messages from current conversation (MAX_DISTANCE=1.10, topK=5)
 [Conversation Window]    ← selected recent turns (75% token budget)
 [Current User Message]   ← with RAG context prepended
 ```
+
+**Identity tiers:** `IdentityTier.FULL` (Chat) includes greeting, vocab phrases, profile, and history.
+`IdentityTier.MINIMAL` (Actions tab) uses a slim ~25-token prompt with no profile/history.
 
 All three memory sections are conditionally included — omitted entirely if no results meet their distance threshold. Token budget is allocated sequentially: Core → Episodic → Message History.
 
