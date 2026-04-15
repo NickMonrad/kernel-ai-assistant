@@ -11,7 +11,11 @@
         "I need the torch",
         "can you light things up",
         "illuminate please",
-        "torch on bro"
+        "torch on bro",
+        "chuck on the torch",
+        "it's dark in here",
+        "I need some light",
+        "light it up"
       ]
     },
     "toggle_flashlight_off": {
@@ -23,7 +27,11 @@
         "torch off",
         "turn the torch off",
         "lights out",
-        "dark mode the torch"
+        "dark mode the torch",
+        "turn that torch off",
+        "disable the flashlight",
+        "I don't need the light anymore",
+        "switch the light off"
       ]
     },
     "set_alarm": {
@@ -35,7 +43,11 @@
         "I need an alarm",
         "set a wake-up alarm",
         "remind me to wake up at",
-        "alarm at half past seven"
+        "alarm at half past seven",
+        "create an alarm",
+        "I need a wake-up call",
+        "set an alarm please",
+        "morning alarm"
       ]
     },
     "set_timer": {
@@ -47,7 +59,11 @@
         "count down from 30 seconds",
         "start the timer",
         "I need a 2 minute timer",
-        "time me for 15 minutes"
+        "time me for 15 minutes",
+        "create a timer",
+        "can you time this for me",
+        "start a timer please",
+        "I need to set a timer"
       ]
     },
     "toggle_dnd_on": {
@@ -59,7 +75,11 @@
         "I don't want any interruptions",
         "mute all notifications",
         "enable quiet mode",
-        "block all notifications"
+        "block all notifications",
+        "activate do not disturb",
+        "I need some peace and quiet",
+        "silence everything",
+        "DND on"
       ]
     },
     "toggle_dnd_off": {
@@ -71,7 +91,11 @@
         "disable focus mode",
         "turn off quiet hours",
         "stop do not disturb",
-        "unmute my phone"
+        "unmute my phone",
+        "deactivate do not disturb",
+        "allow notifications again",
+        "DND off",
+        "end silent mode"
       ]
     },
     "get_battery": {
@@ -83,7 +107,11 @@
         "how charged is my phone",
         "is my battery low",
         "battery status",
-        "how much charge is remaining"
+        "how much charge is remaining",
+        "what's my battery at",
+        "do I need to charge my phone",
+        "battery check",
+        "how much juice do I have left"
       ]
     },
     "get_time": {
@@ -95,7 +123,11 @@
         "time please",
         "what's the time",
         "do you know what time it is",
-        "clock check"
+        "clock check",
+        "give me the time",
+        "what's the current time",
+        "time check",
+        "what time do we have"
       ]
     },
     "set_volume": {
@@ -107,7 +139,11 @@
         "make it louder",
         "set volume to half",
         "crank the volume to 10",
-        "volume to 70 percent"
+        "volume to 70 percent",
+        "increase the volume",
+        "turn it up",
+        "can you adjust the volume",
+        "change the volume level"
       ]
     },
     "toggle_wifi": {
@@ -119,7 +155,11 @@
         "turn wifi off",
         "disable wifi",
         "turn off wireless internet",
-        "disconnect from wifi"
+        "disconnect from wifi",
+        "activate wifi",
+        "wifi on please",
+        "can you turn on the wifi",
+        "I need wifi"
       ]
     },
     "toggle_bluetooth": {
@@ -131,7 +171,11 @@
         "turn off bluetooth",
         "disable bluetooth",
         "switch bluetooth off",
-        "disconnect bluetooth"
+        "disconnect bluetooth",
+        "activate bluetooth",
+        "bluetooth on please",
+        "can you turn on bluetooth",
+        "I need bluetooth"
       ]
     },
     "toggle_airplane_mode": {
@@ -143,7 +187,11 @@
         "turn off airplane mode",
         "disable flight mode",
         "switch off airplane mode",
-        "exit flight mode"
+        "exit flight mode",
+        "activate airplane mode",
+        "I'm on a plane",
+        "flight mode on",
+        "airplane mode please"
       ]
     },
     "toggle_hotspot": {
@@ -155,7 +203,11 @@
         "turn off hotspot",
         "disable mobile hotspot",
         "stop sharing internet",
-        "turn off tethering"
+        "turn off tethering",
+        "activate hotspot",
+        "I need to share my connection",
+        "hotspot on please",
+        "start the hotspot"
       ]
     },
     "play_media": {
@@ -167,7 +219,11 @@
         "start playing music",
         "put on some tunes",
         "play something by Taylor Swift",
-        "I want to listen to music"
+        "I want to listen to music",
+        "can you play a song",
+        "music please",
+        "play that song",
+        "I need some music"
       ]
     },
     "play_media_album": {
@@ -179,7 +235,11 @@
         "play the Nevermind album by Nirvana",
         "put on Back in Black album",
         "play Taylor Swift's Folklore album",
-        "start the Debut album"
+        "start the Debut album",
+        "I want to hear the whole album",
+        "play that album",
+        "can you play an album",
+        "put on the full album"
       ]
     },
     "play_media_playlist": {
@@ -191,7 +251,11 @@
         "start my running playlist",
         "play the study music playlist",
         "put on my sleep playlist",
-        "start my road trip playlist"
+        "start my road trip playlist",
+        "can you play my playlist",
+        "shuffle my playlist",
+        "I want to hear my playlist",
+        "play that playlist"
       ]
     },
     "play_plex": {
@@ -203,7 +267,11 @@
         "play the latest episode on Plex",
         "start playing Succession on Plex",
         "open Plex and play Game of Thrones",
-        "watch something on Plex"
+        "watch something on Plex",
+        "can you start Plex",
+        "I want to watch on Plex",
+        "Plex please",
+        "start my Plex server"
       ]
     },
     "navigate_to": {
@@ -215,7 +283,11 @@
         "navigate to 123 Queen Street",
         "take me home",
         "directions to the nearest hospital",
-        "navigate to work"
+        "navigate to work",
+        "show me the way to",
+        "I need directions",
+        "can you navigate me to",
+        "give me directions please"
       ]
     },
     "find_nearby": {
@@ -227,7 +299,11 @@
         "find nearby petrol stations",
         "are there any cafes around here",
         "find the nearest supermarket",
-        "what's nearby"
+        "what's nearby",
+        "locate nearby places",
+        "search for places near me",
+        "what's around here",
+        "find something close"
       ]
     },
     "make_call": {
@@ -239,7 +315,11 @@
         "call John",
         "ring Sarah",
         "dial my sister",
-        "call my mate Dave"
+        "call my mate Dave",
+        "make a call to",
+        "I need to call someone",
+        "phone someone",
+        "can you call"
       ]
     },
     "add_to_list": {
@@ -251,7 +331,11 @@
         "add to my list",
         "put coffee on my list",
         "add batteries to the shopping list",
-        "put this on my list"
+        "put this on my list",
+        "I need to add something to my list",
+        "can you add to my shopping list",
+        "list this",
+        "add it to the list"
       ]
     },
     "smart_home_on": {
@@ -263,7 +347,11 @@
         "switch on the fan",
         "turn on the bedroom TV",
         "switch the living room lights on",
-        "turn on the heater"
+        "turn on the heater",
+        "activate the lights",
+        "can you turn on the light",
+        "switch on my devices",
+        "light up the room"
       ]
     },
     "smart_home_off": {
@@ -275,7 +363,139 @@
         "switch off the fan",
         "turn off all the lights",
         "switch the living room lights off",
-        "turn off the heater"
+        "turn off the heater",
+        "deactivate the lights",
+        "can you turn off the light",
+        "switch off my devices",
+        "kill the lights"
+      ]
+    },
+    "send_sms": {
+      "phrases": [
+        "send a text to Mum",
+        "text Dad",
+        "send an SMS to John",
+        "message Sarah",
+        "send a message to my wife",
+        "text my boss",
+        "can you send a text",
+        "SMS to my mate",
+        "send a text message",
+        "message someone for me",
+        "I need to text",
+        "send a quick message"
+      ]
+    },
+    "send_email": {
+      "phrases": [
+        "send an email to my boss",
+        "email John",
+        "compose an email",
+        "send a message to work",
+        "email my colleague",
+        "I need to send an email",
+        "can you email someone",
+        "send an email please",
+        "write an email to",
+        "email this to",
+        "compose a new email",
+        "send work email"
+      ]
+    },
+    "create_calendar_event": {
+      "phrases": [
+        "create a calendar event",
+        "add meeting to my calendar",
+        "schedule an appointment",
+        "put a reminder in my calendar",
+        "add event to calendar",
+        "I have a meeting to schedule",
+        "create a calendar entry",
+        "book an appointment",
+        "add to my calendar",
+        "schedule this",
+        "create an event",
+        "calendar entry please"
+      ]
+    },
+    "play_youtube": {
+      "phrases": [
+        "play something on YouTube",
+        "watch a video on YouTube",
+        "open YouTube",
+        "search YouTube for",
+        "I want to watch YouTube",
+        "play a YouTube video",
+        "find something on YouTube",
+        "YouTube please",
+        "can you play on YouTube",
+        "show me YouTube videos",
+        "watch this on YouTube",
+        "start YouTube"
+      ]
+    },
+    "play_spotify": {
+      "phrases": [
+        "play music on Spotify",
+        "open Spotify",
+        "start Spotify",
+        "play something on Spotify",
+        "I want to listen on Spotify",
+        "play my Spotify",
+        "Spotify please",
+        "can you play Spotify",
+        "start playing on Spotify",
+        "launch Spotify",
+        "play a song on Spotify",
+        "Spotify music"
+      ]
+    },
+    "play_netflix": {
+      "phrases": [
+        "play something on Netflix",
+        "watch Netflix",
+        "open Netflix",
+        "start Netflix",
+        "I want to watch Netflix",
+        "Netflix please",
+        "can you play Netflix",
+        "launch Netflix",
+        "show me Netflix",
+        "stream on Netflix",
+        "watch a show on Netflix",
+        "Netflix time"
+      ]
+    },
+    "open_app": {
+      "phrases": [
+        "open the camera app",
+        "launch Chrome",
+        "start the calculator",
+        "open settings",
+        "can you open an app",
+        "launch the gallery",
+        "open my email app",
+        "start that app",
+        "I need to open an app",
+        "launch this application",
+        "open the app please",
+        "start the app"
+      ]
+    },
+    "get_date": {
+      "phrases": [
+        "what is today's date",
+        "what's the date",
+        "tell me the date",
+        "what day is it today",
+        "give me the date",
+        "what is the current date",
+        "date please",
+        "what's today",
+        "can you tell me the date",
+        "what day is it",
+        "date check",
+        "what is today"
       ]
     }
   }
