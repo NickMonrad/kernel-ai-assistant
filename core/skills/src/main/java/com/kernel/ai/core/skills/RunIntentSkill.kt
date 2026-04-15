@@ -57,6 +57,7 @@ class RunIntentSkill @Inject constructor(
         "Set alarm 9pm called dinner → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"9pm\",\"label\":\"dinner\"}')",
         "Set alarm Monday 7am → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"7am\",\"day\":\"monday\"}')",
         "Set alarm tomorrow 8am called gym → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"8am\",\"day\":\"tomorrow\",\"label\":\"gym\"}')",
+        "Set alarm 6am labeled workout → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"6am\",\"label\":\"workout\"}')",
         "Set timer 3min → runIntent(intentName=\"set_timer\", parameters='{\"duration_seconds\":\"180\"}')",
         "Calendar event → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Lunch\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}')",
         "Turn on DND → runIntent(intentName=\"toggle_dnd_on\", parameters=\"{}\")",
@@ -72,7 +73,7 @@ class RunIntentSkill @Inject constructor(
         appendLine("           set_alarm, set_timer, create_calendar_event, toggle_dnd_on, toggle_dnd_off")
         appendLine("- time (string): Pass exactly as user said — e.g. \"10pm\", \"9:30am\", \"22:00\"")
         appendLine("- day (string): Optional day name — e.g. \"tomorrow\", \"monday\", \"next friday\"")
-        appendLine("- label (string): Optional alarm label. Extract from phrases like 'called X', 'named X', 'label X' (e.g. 'alarm at 9pm called dinner' → label:\"dinner\")")
+        appendLine("- label (string): Optional alarm label. Extract from phrases like 'called X', 'named X', 'labeled X', 'label X', 'with label X'. Label can appear before or after the time (e.g. 'alarm at 9pm called dinner' → label:\"dinner\", 'alarm labeled gym at 8am' → label:\"gym\")")
         appendLine("- duration_seconds (string): Timer duration in seconds (e.g. \"180\" for 3 min)")
         appendLine("- subject, body (string): For send_email")
         appendLine("- message, phone (string): For send_sms")
