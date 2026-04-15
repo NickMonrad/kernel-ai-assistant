@@ -119,6 +119,7 @@ object UserProfileParser {
                     val match = pattern.find(sentence)
                     if (match != null) {
                         role = match.groupValues[1].trim().removeSuffix(".")
+                            .replace(Regex("""(?i)\s*(?:,\s*)?(?:based|located) in\s+.+$"""), "").trim()
                         consumed.add(i)
                         break
                     }
