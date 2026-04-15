@@ -7,6 +7,6 @@ sealed class SkillResult {
     data class UnknownSkill(val skillName: String) : SkillResult()
     /** Skill found but execution failed. */
     data class Failure(val skillName: String, val error: String) : SkillResult()
-    /** FunctionGemma output was malformed JSON or failed schema validation. */
+    /** Skill output was malformed JSON or failed schema validation. */
     data class ParseError(val rawOutput: String, val reason: String) : SkillResult()
 }

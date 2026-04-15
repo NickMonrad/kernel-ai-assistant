@@ -4,18 +4,15 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Parses FunctionGemma's raw JSON output into a [SkillCall] and executes it via [SkillRegistry].
- *
- * FunctionGemma output format:
- * {"name": "skill_name", "arguments": {"param1": "value1"}}
+ * Executes a skill by name with the given arguments via [SkillRegistry].
  */
 @Singleton
 class SkillExecutor @Inject constructor(
     private val registry: SkillRegistry,
 ) {
-    suspend fun execute(rawFunctionGemmaOutput: String): SkillResult {
-        val call = parseSkillCall(rawFunctionGemmaOutput)
-            ?: return SkillResult.ParseError(rawFunctionGemmaOutput, "Invalid JSON or missing 'name' field")
+    suspend fun execute(rawOutput: String): SkillResult {
+        val call = parseSkillCall(rawOutput)
+            ?: return SkillResult.ParseError(rawOutput, "Invalid JSON or missing 'name' field")
 
         val skill = registry.get(call.skillName)
             ?: return SkillResult.UnknownSkill(call.skillName)
@@ -23,7 +20,7 @@ class SkillExecutor @Inject constructor(
         val missingParams = skill.schema.required.filter { it !in call.arguments }
         if (missingParams.isNotEmpty()) {
             return SkillResult.ParseError(
-                rawFunctionGemmaOutput,
+                rawOutput,
                 "Missing required parameters: ${missingParams.joinToString()}"
             )
         }

@@ -5,9 +5,9 @@ import androidx.room.PrimaryKey
 import java.util.UUID
 
 /**
- * Persists the history of quick-action commands executed via FunctionGemma.
+ * Persists the history of quick-action commands executed via [QuickIntentRouter].
  *
- * Each row represents a single user query → FunctionGemma inference → tool execution cycle.
+ * Each row represents a single user query → intent routing → skill execution cycle.
  */
 @Entity(tableName = "quick_actions")
 data class QuickActionEntity(

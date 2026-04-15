@@ -2,7 +2,7 @@ package com.kernel.ai.core.skills
 
 /**
  * JSON Schema representation for a skill's parameters.
- * Used to generate FunctionGemma's function_declarations payload.
+ * Used to generate the function_declarations payload for the system prompt.
  */
 data class SkillSchema(
     val parameters: Map<String, SkillParameter> = emptyMap(),
