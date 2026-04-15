@@ -52,7 +52,7 @@ object UserProfileParser {
     )
 
     private val SMART_HOME_PATTERNS = listOf(
-        Regex("""(?i)\b(?:i use home assistant|my smart home|i have smart|smart home setup)\s+(.+?)(?:\.|$)"""),
+        Regex("""(?i)\b(?:i use home assistant|my smart home|i have smart (?:lights?|plugs?|switches?|home|devices?|speakers?|displays?|sensors?|locks?|thermostat)|smart home setup)\s*(.+?)(?:\.|$)"""),
     )
 
     private val AI_PATTERNS = listOf(
@@ -89,7 +89,7 @@ object UserProfileParser {
             }
         }
 
-        // Pass 1b: Extract location
+        // Pass 1b: Extract location (don't consume sentence if it also contains role info)
         for ((i, sentence) in sentences.withIndex()) {
             if (i in consumed) continue
             if (location != null) break
@@ -97,7 +97,11 @@ object UserProfileParser {
                 val match = pattern.find(sentence)
                 if (match != null) {
                     location = match.groupValues[1].trim().removeSuffix(".").removeSuffix(",")
-                    consumed.add(i)
+                    // Only consume if sentence doesn't also contain role keywords
+                    val lowerSentence = sentence.lowercase()
+                    if (!ROLE_KEYWORDS.any { lowerSentence.contains(it) }) {
+                        consumed.add(i)
+                    }
                     break
                 }
             }
