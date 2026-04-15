@@ -492,6 +492,9 @@ class ChatViewModel @Inject constructor(
             var accumulatedContent = StringBuilder()
             var accumulatedThinking = StringBuilder()
             var prompt = ""
+            // Set by the Tier 2 intercept when a skill executes successfully; injected into
+            // the E4B prompt so it can generate a natural conversational wrapper.
+            var systemContext: String? = null
 
             try {
             val userMsgId = UUID.randomUUID().toString()
@@ -516,7 +519,9 @@ class ChatViewModel @Inject constructor(
             }
 
             // Tier 2: QuickIntentRouter — fast device action intercept (<30 ms, no model load).
-            // If regex or classifier matches, execute the skill and return without touching E4B.
+            // On a match: execute the skill immediately, then inject [System: ...] context so
+            // E4B generates a natural conversational wrapper around the action result.
+            // On failure or UnknownSkill: fall through to E4B unchanged.
             val routeResult = quickIntentRouter.route(text)
             val matchedIntent = when (routeResult) {
                 is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent
@@ -527,15 +532,20 @@ class ChatViewModel @Inject constructor(
                 val skill = skillRegistry.get(matchedIntent.intentName)
                 if (skill != null) {
                     val skillResult = skill.execute(SkillCall(matchedIntent.intentName, matchedIntent.params))
-                    val response = when (skillResult) {
-                        is com.kernel.ai.core.skills.SkillResult.Success -> skillResult.content
-                        is com.kernel.ai.core.skills.SkillResult.Failure -> "I ran into an issue: ${skillResult.error}"
-                        is com.kernel.ai.core.skills.SkillResult.UnknownSkill -> null // fall through to E4B
-                        is com.kernel.ai.core.skills.SkillResult.ParseError -> null  // fall through to E4B
-                    }
-                    if (response != null) {
-                        appendAssistantMessage(convId, response)
-                        return@launch
+                    when (skillResult) {
+                        is com.kernel.ai.core.skills.SkillResult.Success -> {
+                            systemContext = "[System: ${matchedIntent.intentName} — ${skillResult.content}]"
+                            // E4B not loaded yet: show action result directly and skip the wrapper.
+                            if (!inferenceEngine.isReady.value) {
+                                appendAssistantMessage(convId, skillResult.content)
+                                return@launch
+                            }
+                        }
+                        is com.kernel.ai.core.skills.SkillResult.Failure -> {
+                            // Action failed — inject error context so E4B can explain naturally.
+                            systemContext = "[System: ${matchedIntent.intentName} failed — ${skillResult.error}]"
+                        }
+                        else -> { /* UnknownSkill/ParseError — fall through to E4B unchanged */ }
                     }
                 }
             }
@@ -602,7 +612,11 @@ class ChatViewModel @Inject constructor(
                 estimatedTokensUsed += ragTokenCost
             }
 
-            prompt = if (ragContext.isNotBlank()) "$ragContext\n\n$text" else text
+            prompt = buildString {
+                if (ragContext.isNotBlank()) append("$ragContext\n\n")
+                if (systemContext != null) append("$systemContext\n\n")
+                append(text)
+            }
 
             } finally {
                 // Reset the loading spinner on every exit path from the pre-inference block —
