@@ -131,6 +131,9 @@ fun KernelNavHost() {
                             val encoded = Uri.encode(query)
                             navController.navigate("$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded")
                         },
+                        onNewConversation = {
+                            navController.navigate(ROUTE_CHAT)
+                        },
                     )
                 }
             }

@@ -33,7 +33,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ModelSettingsEntity::class,
         QuickActionEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -106,6 +106,15 @@ abstract class KernelDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE core_memories ADD COLUMN vectorized INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE episodic_memories ADD COLUMN vectorized INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /** Adds category column to core_memories for NZ knowledge separation (#367). */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE core_memories ADD COLUMN category TEXT NOT NULL DEFAULT 'user'")
+                // Reclassify existing jandal_persona entries as agent_identity
+                db.execSQL("UPDATE core_memories SET category = 'agent_identity' WHERE source = 'jandal_persona'")
             }
         }
     }

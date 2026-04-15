@@ -8,9 +8,11 @@ import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.GenerationResult
+import com.kernel.ai.core.inference.IdentityTier
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.LlmDispatcher
+import com.kernel.ai.core.inference.MINIMAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
@@ -211,7 +213,7 @@ class ChatViewModel @Inject constructor(
             jandalPersona.truths.forEach { truth ->
                 val vector = embeddingEngine.embed(truth).takeIf { it.isNotEmpty() }
                     ?: return@forEach  // skip if engine not ready
-                memoryRepository.addCoreMemory(truth, source = "jandal_persona", embeddingVector = vector)
+                memoryRepository.addCoreMemory(truth, source = "jandal_persona", embeddingVector = vector, category = "agent_identity")
             }
             jandalPersona.markTruthsSeeded()
             Log.i("ChatViewModel", "Seeded ${jandalPersona.truths.size} Kiwi truths into core memory")
@@ -221,6 +223,7 @@ class ChatViewModel @Inject constructor(
     private suspend fun buildSystemPrompt(
         historyTurns: List<Pair<String, String>> = emptyList(),
         isFirstReply: Boolean = _messages.value.none { it.role == ChatMessage.Role.ASSISTANT },
+        identityTier: IdentityTier = IdentityTier.FULL,
     ): String {
         val profile = userProfileRepository.get()
         val now = LocalDateTime.now()
@@ -229,26 +232,36 @@ class ChatViewModel @Inject constructor(
         // when generating calendar event dates without having to reformat the year.
         val isoDate = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ENGLISH))
         return buildString {
-            append(DEFAULT_SYSTEM_PROMPT)
-            append("\n\n${jandalPersona.buildGreetingInstruction(isFirstReply = isFirstReply)} ${jandalPersona.buildSessionVocab()}")
-            append("\n\n[Current date and time]\n$dateTime (ISO: $isoDate)")
-            // Runtime info fetched dynamically via get_system_info skill at query time
-            if (profile.isNotBlank()) {
-                // Truncate profile to context-window-aware budget (10% of context window, max 3000 chars).
-                // The original stored profile is never modified — only the injected copy is shortened.
-                val contextWindowSize = activeModel?.let { model ->
-                    modelSettingsRepository.getSettings(model.modelId).contextWindowSize
-                } ?: 4096
-                val maxProfileChars = modelSettingsRepository.getMaxUserProfileChars(contextWindowSize)
-                val injectedProfile = profile.take(maxProfileChars)
-                append("\n\nThe following is background context about the user — use it to personalise responses:\n\n[User Profile]\n$injectedProfile")
-            }
-            if (historyTurns.isNotEmpty()) {
-                append("\n\n[Previous conversation context]\n")
-                for ((user, assistant) in historyTurns) {
-                    append("User: $user\nAssistant: $assistant\n")
+            when (identityTier) {
+                IdentityTier.FULL -> {
+                    append(DEFAULT_SYSTEM_PROMPT)
+                    append("\n\n${jandalPersona.buildGreetingInstruction(isFirstReply = isFirstReply)} ${jandalPersona.buildSessionVocab()}")
                 }
-                append("[End of previous conversation context]")
+                IdentityTier.MINIMAL -> {
+                    append(MINIMAL_SYSTEM_PROMPT)
+                }
+            }
+            append("\n\n[Current date and time]\n$dateTime (ISO: $isoDate)")
+            // Skip profile and history for minimal (Actions) tier to save tokens
+            if (identityTier == IdentityTier.FULL) {
+                // Runtime info fetched dynamically via get_system_info skill at query time
+                if (profile.isNotBlank()) {
+                    // Truncate profile to context-window-aware budget (10% of context window, max 3000 chars).
+                    // The original stored profile is never modified — only the injected copy is shortened.
+                    val contextWindowSize = activeModel?.let { model ->
+                        modelSettingsRepository.getSettings(model.modelId).contextWindowSize
+                    } ?: 4096
+                    val maxProfileChars = modelSettingsRepository.getMaxUserProfileChars(contextWindowSize)
+                    val injectedProfile = profile.take(maxProfileChars)
+                    append("\n\nThe following is background context about the user — use it to personalise responses:\n\n[User Profile]\n$injectedProfile")
+                }
+                if (historyTurns.isNotEmpty()) {
+                    append("\n\n[Previous conversation context]\n")
+                    for ((user, assistant) in historyTurns) {
+                        append("User: $user\nAssistant: $assistant\n")
+                    }
+                    append("[End of previous conversation context]")
+                }
             }
             // Native tool calling pipeline (Google Gallery pattern).
             // Tool declarations are auto-generated by the SDK from @Tool annotations — no need
