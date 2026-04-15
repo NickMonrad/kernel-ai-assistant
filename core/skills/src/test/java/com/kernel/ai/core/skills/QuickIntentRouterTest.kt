@@ -1538,11 +1538,12 @@ class QuickIntentRouterTest {
 
         @JvmStatic
         fun sendSmsRegexPhrases(): Stream<Arguments> = Stream.of(
-            Arguments.of("text John hello", "John"),
+            Arguments.of("text John saying hello", "John"),
             Arguments.of("send a text to Mum saying I'll be late", "Mum"),
-            Arguments.of("sms Sarah meet at 5", "Sarah"),
+            Arguments.of("sms Sarah saying meet at 5", "Sarah"),
             Arguments.of("send message to Dad", "Dad"),
             Arguments.of("send sms to the office", "the office"),
+            Arguments.of("text Sarah that I'll be late", "Sarah"),
         )
 
         @JvmStatic
@@ -1550,6 +1551,7 @@ class QuickIntentRouterTest {
             Arguments.of("email John about the meeting", "John"),
             Arguments.of("send an email to Sarah about project update", "Sarah"),
             Arguments.of("send email to Dad", "Dad"),
+            Arguments.of("send an email to my boss about the project", "my boss"),
         )
 
         // ── Lists ─────────────────────────────────────────────────────────────────
@@ -1610,9 +1612,6 @@ class QuickIntentRouterTest {
             // Calendar (needs NLU for date/time/title extraction)
             Arguments.of("schedule a meeting with John at 3pm on Friday"),
             Arguments.of("add dentist appointment to my calendar"),
-            // Email/SMS (needs NLU for content)
-            Arguments.of("send an email to my boss about the project"),
-            Arguments.of("text Sarah that I'll be late"),
             // Wikipedia / knowledge
             Arguments.of("tell me about the history of New Zealand"),
             Arguments.of("who invented the internet"),
