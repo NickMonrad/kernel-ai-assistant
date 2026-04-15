@@ -90,6 +90,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -129,8 +130,11 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
 
     // Auto-send the initial query from Actions tab FallThrough (runs once).
+    // Wait for ViewModel to be fully initialized (Ready state) before sending to avoid race condition.
     LaunchedEffect(initialQuery) {
         if (!initialQuery.isNullOrBlank()) {
+            // Wait for ChatViewModel to reach Ready state (models downloaded, engine ready, conversationId set)
+            viewModel.uiState.first { it is ChatUiState.Ready }
             viewModel.onInputChanged(initialQuery)
             viewModel.sendMessage()
         }
