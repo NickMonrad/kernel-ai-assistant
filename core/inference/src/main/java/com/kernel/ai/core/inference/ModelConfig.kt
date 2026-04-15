@@ -52,6 +52,9 @@ enum class IdentityTier {
  * @param temperature Sampling temperature (0.1-2.0). Higher = more creative. Default 1.0.
  * @param topP Nucleus sampling threshold (0.0-1.0). Default 0.95.
  * @param topK Top-K candidates for sampling. Ignored on NPU (hardware sampler). Default 40.
+ * @param thinkingEnabled Whether to enable the model's thinking (chain-of-thought) channel.
+ *   When false, the `thought` channel is omitted from [ConversationConfig], preventing the
+ *   model from generating reasoning tokens — saving compute time and context window space.
  * @param toolProvider Optional [ToolProvider] wrapping a [ToolSet] for native SDK tool calling.
  */
 data class ModelConfig(
@@ -62,5 +65,6 @@ data class ModelConfig(
     val temperature: Float = 1.0f,
     val topP: Float = 0.95f,
     val topK: Int = 40,
+    val thinkingEnabled: Boolean = true,
     val toolProvider: ToolProvider? = null,
 )
