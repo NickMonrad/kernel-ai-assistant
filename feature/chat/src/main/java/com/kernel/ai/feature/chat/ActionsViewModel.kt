@@ -79,9 +79,19 @@ class ActionsViewModel @Inject constructor(
                 }
 
                 val entity = if (intent != null) {
-                    val skill = skillRegistry.get(intent.intentName)
+                    // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
+                    // passed as the intent_name param to run_intent — they are not skill names.
+                    // Resolve: direct skill name match first, then fall back to run_intent.
+                    val directSkill = skillRegistry.get(intent.intentName)
+                    val (skill, callParams) = when {
+                        directSkill != null -> directSkill to intent.params
+                        else -> {
+                            val runIntent = skillRegistry.get("run_intent")
+                            runIntent to (mapOf("intent_name" to intent.intentName) + intent.params)
+                        }
+                    }
                     if (skill != null) {
-                        val skillResult = skill.execute(SkillCall(intent.intentName, intent.params))
+                        val skillResult = skill.execute(SkillCall(skill.name, callParams))
                         buildEntityFromSkillResult(query, intent.intentName, skillResult)
                     } else {
                         Log.w(TAG, "ActionsViewModel: intent '${intent.intentName}' has no registered skill")
