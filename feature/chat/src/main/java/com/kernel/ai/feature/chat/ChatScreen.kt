@@ -117,6 +117,7 @@ import com.kernel.ai.feature.chat.model.ToolCallInfo
 @Composable
 fun ChatScreen(
     conversationId: String? = null,
+    initialQuery: String? = null,
     onBack: () -> Unit = {},
     onNewConversation: () -> Unit = {},
     onNavigateToList: () -> Unit = {},
@@ -126,6 +127,14 @@ fun ChatScreen(
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    // Auto-send the initial query from Actions tab FallThrough (runs once).
+    LaunchedEffect(initialQuery) {
+        if (!initialQuery.isNullOrBlank()) {
+            viewModel.onInputChanged(initialQuery)
+            viewModel.sendMessage()
+        }
+    }
 
     when (val state = uiState) {
         is ChatUiState.Loading -> LoadingContent()

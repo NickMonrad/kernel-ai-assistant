@@ -598,6 +598,62 @@ class QuickIntentRouterTest {
     }
 
     @Nested
+    @DisplayName("Play YouTube")
+    inner class PlayYoutube {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → query={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#playYoutubeRegexPhrases")
+        fun `should match via regex with correct query`(input: String, expectedQuery: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "play_youtube", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedQuery, intent.params["query"], "query for '$input'")
+        }
+    }
+
+    @Nested
+    @DisplayName("Play Spotify")
+    inner class PlaySpotify {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → query={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#playSpotifyRegexPhrases")
+        fun `should match via regex with correct query`(input: String, expectedQuery: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "play_spotify", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedQuery, intent.params["query"], "query for '$input'")
+        }
+    }
+
+    @Nested
+    @DisplayName("Play Netflix")
+    inner class PlayNetflix {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → query={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#playNetflixRegexPhrases")
+        fun `should match via regex with correct query`(input: String, expectedQuery: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "play_netflix", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedQuery, intent.params["query"], "query for '$input'")
+        }
+    }
+
+    @Nested
+    @DisplayName("Open App")
+    inner class OpenApp {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → app_name={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#openAppRegexPhrases")
+        fun `should match via regex with correct app_name`(input: String, expectedApp: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "open_app", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedApp, intent.params["app_name"], "app_name for '$input'")
+        }
+    }
+
+    @Nested
     @DisplayName("Play Media Album")
     inner class PlayMediaAlbum {
 
@@ -731,6 +787,34 @@ class QuickIntentRouterTest {
         fun `should match via classifier`(input: String) {
             val hybridResult = hybridRouter.route(input)
             assertClassifierOrFallthrough(hybridResult, "make_call", input)
+        }
+    }
+
+    @Nested
+    @DisplayName("Send SMS")
+    inner class SendSms {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → contact={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#sendSmsRegexPhrases")
+        fun `should match via regex with correct contact`(input: String, expectedContact: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "send_sms", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedContact, intent.params["contact"], "contact for '$input'")
+        }
+    }
+
+    @Nested
+    @DisplayName("Send Email")
+    inner class SendEmail {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → contact={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#sendEmailRegexPhrases")
+        fun `should match via regex with correct contact`(input: String, expectedContact: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "send_email", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedContact, intent.params["contact"], "contact for '$input'")
         }
     }
 
@@ -869,6 +953,10 @@ class QuickIntentRouterTest {
         addCases(hotspotClassifierPhrases(), "toggle_hotspot", "Hotspot (classifier)")
         addCases(playPlexRegexPhrases(), "play_plex", "Play Plex (regex)")
         addCases(playPlexClassifierPhrases(), "play_plex", "Play Plex (classifier)")
+        addCases(playYoutubeRegexPhrases(), "play_youtube", "Play YouTube (regex)")
+        addCases(playSpotifyRegexPhrases(), "play_spotify", "Play Spotify (regex)")
+        addCases(playNetflixRegexPhrases(), "play_netflix", "Play Netflix (regex)")
+        addCases(openAppRegexPhrases(), "open_app", "Open App (regex)")
         addCases(playAlbumRegexPhrases(), "play_media_album", "Play Album (regex)")
         addCases(playAlbumClassifierPhrases(), "play_media_album", "Play Album (classifier)")
         addCases(playPlaylistRegexPhrases(), "play_media_playlist", "Play Playlist (regex)")
@@ -881,6 +969,8 @@ class QuickIntentRouterTest {
         addCases(findNearbyClassifierPhrases(), "find_nearby", "Find Nearby (classifier)")
         addCases(makeCallRegexPhrases(), "make_call", "Make Call (regex)")
         addCases(makeCallClassifierPhrases(), "make_call", "Make Call (classifier)")
+        addCases(sendSmsRegexPhrases(), "send_sms", "Send SMS (regex)")
+        addCases(sendEmailRegexPhrases(), "send_email", "Send Email (regex)")
         addCases(addToListRegexPhrases(), "add_to_list", "Add to List (regex)")
         addCases(addToListClassifierPhrases(), "add_to_list", "Add to List (classifier)")
         addCases(smartHomeOnRegexPhrases(), "smart_home_on", "Smart Home ON (regex)")
@@ -1322,6 +1412,33 @@ class QuickIntentRouterTest {
         )
 
         @JvmStatic
+        fun playYoutubeRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("play cat videos on youtube", "cat videos"),
+            Arguments.of("watch NZ highlights on YouTube", "NZ highlights"),
+            Arguments.of("search cooking tutorials on youtube", "cooking tutorials"),
+        )
+
+        @JvmStatic
+        fun playSpotifyRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("play Six60 on Spotify", "Six60"),
+            Arguments.of("listen to jazz on spotify", "jazz"),
+        )
+
+        @JvmStatic
+        fun playNetflixRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("play Stranger Things on Netflix", "Stranger Things"),
+            Arguments.of("watch The Crown on netflix", "The Crown"),
+        )
+
+        @JvmStatic
+        fun openAppRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("open YouTube", "YouTube"),
+            Arguments.of("launch Spotify", "Spotify"),
+            Arguments.of("open the camera app", "camera"),
+            Arguments.of("start Chrome", "Chrome"),
+        )
+
+        @JvmStatic
         fun playAlbumRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("play the album Dark Side of the Moon", "Dark Side of the Moon"),
             Arguments.of("play album Rumours by Fleetwood Mac", "Rumours"),
@@ -1417,6 +1534,22 @@ class QuickIntentRouterTest {
         fun makeCallClassifierPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("get my mum on the line"),
             Arguments.of("I need to speak to John"),
+        )
+
+        @JvmStatic
+        fun sendSmsRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("text John hello", "John"),
+            Arguments.of("send a text to Mum saying I'll be late", "Mum"),
+            Arguments.of("sms Sarah meet at 5", "Sarah"),
+            Arguments.of("send message to Dad", "Dad"),
+            Arguments.of("send sms to the office", "the office"),
+        )
+
+        @JvmStatic
+        fun sendEmailRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("email John about the meeting", "John"),
+            Arguments.of("send an email to Sarah about project update", "Sarah"),
+            Arguments.of("send email to Dad", "Dad"),
         )
 
         // ── Lists ─────────────────────────────────────────────────────────────────

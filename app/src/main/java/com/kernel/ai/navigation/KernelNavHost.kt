@@ -1,5 +1,6 @@
 package com.kernel.ai.navigation
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -38,6 +39,7 @@ private const val ROUTE_MEMORY = "settings/memory"
 private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
 private const val ROUTE_ABOUT = "settings/about"
 private const val ARG_CONVERSATION_ID = "conversationId"
+private const val ARG_INITIAL_QUERY = "initialQuery"
 
 /** Routes that show the bottom navigation bar. */
 private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
@@ -123,14 +125,31 @@ fun KernelNavHost() {
             ) { backStackEntry ->
                 val openSheet = backStackEntry.arguments?.getBoolean("openSheet") ?: false
                 Box(modifier = Modifier.padding(innerPadding)) {
-                    ActionsScreen(autoOpenSheet = openSheet)
+                    ActionsScreen(
+                        autoOpenSheet = openSheet,
+                        onNavigateToChat = { query ->
+                            val encoded = Uri.encode(query)
+                            navController.navigate("$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded")
+                        },
+                    )
                 }
             }
 
-            // New conversation (no conversationId arg)
-            composable(ROUTE_CHAT) {
+            // New conversation (no conversationId arg), optionally with a pre-filled query
+            // from the Actions tab FallThrough bridge.
+            composable(
+                route = "$ROUTE_CHAT?$ARG_INITIAL_QUERY={$ARG_INITIAL_QUERY}",
+                arguments = listOf(navArgument(ARG_INITIAL_QUERY) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                    nullable = false
+                }),
+            ) { backStackEntry ->
+                val initialQuery = backStackEntry.arguments?.getString(ARG_INITIAL_QUERY)
+                    ?.takeIf { it.isNotBlank() }
                 ChatScreen(
                     conversationId = null,
+                    initialQuery = initialQuery,
                     onBack = { navController.popBackStack() },
                     onNewConversation = {
                         navController.navigate(ROUTE_CHAT) {
