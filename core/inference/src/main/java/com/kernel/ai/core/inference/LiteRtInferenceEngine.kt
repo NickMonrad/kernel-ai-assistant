@@ -13,6 +13,7 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.Channel
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.ToolProvider
@@ -347,6 +348,15 @@ class LiteRtInferenceEngine @Inject constructor(
 
         val tools = config.toolProvider?.let { listOf(it) } ?: emptyList()
 
+        // When thinking is enabled, register the thought channel so the model emits
+        // chain-of-thought tokens via message.channels["thought"]. Omitting the channel
+        // disables thinking entirely — the model skips reasoning and responds directly.
+        val channels = if (config.thinkingEnabled) {
+            listOf(Channel("thought", "<|think|>", "<|/think|>"))
+        } else {
+            emptyList()
+        }
+
         // Enable constrained decoding for well-formed tool calls (Google Gallery pattern).
         // Must be set before createConversation() and reset after via resetConstrainedDecodingFlag().
         if (tools.isNotEmpty()) {
@@ -357,6 +367,7 @@ class LiteRtInferenceEngine @Inject constructor(
             samplerConfig = samplerConfig,
             systemInstruction = systemInstruction,
             tools = tools,
+            channels = channels,
         )
     }
 

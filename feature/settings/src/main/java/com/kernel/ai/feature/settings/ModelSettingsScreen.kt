@@ -221,11 +221,11 @@ private fun ModelCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Show thinking process",
+                        text = "Thinking mode",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        text = "Display the model's internal reasoning in chat",
+                        text = "Enable chain-of-thought reasoning. Disabling saves tokens and speeds up responses.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
