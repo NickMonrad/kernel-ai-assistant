@@ -3,6 +3,7 @@ package com.kernel.ai.feature.chat
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
@@ -56,6 +58,7 @@ import java.util.Locale
 fun ConversationListScreen(
     onOpenConversation: (String) -> Unit,
     onNewConversation: () -> Unit,
+    onNavigateToActions: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel(),
 ) {
@@ -113,8 +116,20 @@ fun ConversationListScreen(
         },
         floatingActionButton = {
             if (!isInSelectionMode) {
-                FloatingActionButton(onClick = onNewConversation) {
-                    Icon(Icons.Default.Add, contentDescription = "New conversation")
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.End,
+                ) {
+                    FloatingActionButton(
+                        onClick = onNavigateToActions,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ) {
+                        Icon(Icons.Default.Bolt, contentDescription = "Quick action")
+                    }
+                    FloatingActionButton(onClick = onNewConversation) {
+                        Icon(Icons.Default.Add, contentDescription = "New conversation")
+                    }
                 }
             }
         },

@@ -40,7 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -61,6 +61,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActionsScreen(
+    autoOpenSheet: Boolean = false,
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
     val actions by viewModel.actions.collectAsStateWithLifecycle()
@@ -69,6 +70,11 @@ fun ActionsScreen(
 
     var showBottomSheet by rememberSaveable { mutableStateOf(false) }
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
+
+    // Auto-open the quick action sheet when navigated here via the FAB shortcut.
+    LaunchedEffect(autoOpenSheet) {
+        if (autoOpenSheet) showBottomSheet = true
+    }
 
     Scaffold(
         topBar = {
