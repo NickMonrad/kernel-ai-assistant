@@ -60,7 +60,7 @@ class SkillRegistry @Inject constructor(
         return sb.toString().trimEnd()
     }
 
-    /** Generates the function_declarations JSON array for FunctionGemma's system prompt. */
+    /** Generates the function_declarations JSON array for the system prompt. */
     fun buildFunctionDeclarationsJson(): String {
         val declarations = org.json.JSONArray()
         registry.values.forEach { skill ->

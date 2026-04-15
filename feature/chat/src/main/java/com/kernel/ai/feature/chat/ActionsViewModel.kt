@@ -3,11 +3,13 @@ package com.kernel.ai.feature.chat
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.kernel.ai.core.inference.FunctionGemmaRouter
-import com.kernel.ai.core.inference.download.KernelModel
-import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.entity.QuickActionEntity
+import com.kernel.ai.core.skills.QuickIntentRouter
+import com.kernel.ai.core.skills.Skill
+import com.kernel.ai.core.skills.SkillCall
+import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.SkillResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,16 +22,16 @@ import javax.inject.Inject
 private const val TAG = "KernelAI"
 
 /**
- * Manages the Actions tab: lazy FunctionGemma initialisation, command execution,
- * and action-history persistence.
+ * Manages the Actions tab: fast intent routing via [QuickIntentRouter] (Tier 2),
+ * skill execution, and action-history persistence.
  *
- * FunctionGemma is NOT loaded at startup — it initialises on the first user action
- * to avoid OOM when the main Gemma-4 model is already resident on GPU.
+ * Routing is synchronous (<30 ms) — no model loading required at app start.
+ * Skill execution runs on the viewModelScope coroutine.
  */
 @HiltViewModel
 class ActionsViewModel @Inject constructor(
-    private val functionGemmaRouter: FunctionGemmaRouter,
-    private val downloadManager: ModelDownloadManager,
+    private val quickIntentRouter: QuickIntentRouter,
+    private val skillRegistry: SkillRegistry,
     private val quickActionDao: QuickActionDao,
 ) : ViewModel() {
 
@@ -42,7 +44,6 @@ class ActionsViewModel @Inject constructor(
 
     sealed interface UiState {
         object Idle : UiState
-        object LoadingModel : UiState
         object Executing : UiState
     }
 
@@ -56,10 +57,11 @@ class ActionsViewModel @Inject constructor(
     // ── Public API ──────────────────────────────────────────────────────────
 
     /**
-     * Executes a quick-action command.
+     * Executes a quick-action command via the [QuickIntentRouter] Tier 2 fast intent layer.
      *
-     * If FunctionGemma hasn't been loaded yet, it is initialised lazily first.
-     * The result is persisted to the action history via Room.
+     * Routing is synchronous (<30 ms) — no model loading required. If the router matches
+     * a known intent, the corresponding skill executes and the result is persisted to history.
+     * Unrecognised queries are recorded as not-handled so the user gets immediate feedback.
      */
     fun executeAction(query: String) {
         if (query.isBlank()) return
@@ -67,47 +69,35 @@ class ActionsViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                // FG is loaded eagerly at app start by ChatViewModel (CPU, ~0.4s).
-                // If not ready yet, lazy-load it here.
-                if (!functionGemmaRouter.isReady.value) {
-                    _uiState.value = UiState.LoadingModel
-                    val modelPath = downloadManager.getModelPath(KernelModel.FUNCTION_GEMMA_270M)
-                    if (modelPath == null) {
-                        _error.value = "FunctionGemma model not downloaded. Please download it in Settings → Models."
-                        _uiState.value = UiState.Idle
-                        return@launch
-                    }
-                    Log.i(TAG, "ActionsViewModel: lazy-loading FunctionGemma from $modelPath")
-                    functionGemmaRouter.initialize(modelPath)
-                    if (!functionGemmaRouter.isReady.value) {
-                        _error.value = "Failed to load the actions model. Try again."
-                        _uiState.value = UiState.Idle
-                        return@launch
-                    }
+                _uiState.value = UiState.Executing
+
+                val routeResult = quickIntentRouter.route(query)
+                val intent = when (routeResult) {
+                    is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent
+                    is QuickIntentRouter.RouteResult.ClassifierMatch -> routeResult.intent
+                    is QuickIntentRouter.RouteResult.FallThrough -> null
                 }
 
-                // 2. Execute the command
-                _uiState.value = UiState.Executing
-                val result = functionGemmaRouter.handle(query)
-
-                // 3. Persist result
-                val entity = when (result) {
-                    is FunctionGemmaRouter.HandleResult.ToolHandled -> QuickActionEntity(
-                        userQuery = query,
-                        skillName = extractSkillName(result.response),
-                        resultText = result.response,
-                        isSuccess = true,
-                    )
-                    is FunctionGemmaRouter.HandleResult.PlainResponse -> QuickActionEntity(
-                        userQuery = query,
-                        skillName = null,
-                        resultText = result.response.ifEmpty { "No matching action found." },
-                        isSuccess = result.response.isNotEmpty(),
-                    )
-                    is FunctionGemmaRouter.HandleResult.NotReady -> QuickActionEntity(
+                val entity = if (intent != null) {
+                    val skill = skillRegistry.get(intent.intentName)
+                    if (skill != null) {
+                        val skillResult = skill.execute(SkillCall(intent.intentName, intent.params))
+                        buildEntityFromSkillResult(query, intent.intentName, skillResult)
+                    } else {
+                        Log.w(TAG, "ActionsViewModel: intent '${intent.intentName}' has no registered skill")
+                        QuickActionEntity(
+                            userQuery = query,
+                            skillName = intent.intentName,
+                            resultText = "Action recognised but not yet implemented.",
+                            isSuccess = false,
+                        )
+                    }
+                } else {
+                    Log.d(TAG, "ActionsViewModel: no intent match for \"$query\"")
+                    QuickActionEntity(
                         userQuery = query,
                         skillName = null,
-                        resultText = "Actions model not ready.",
+                        resultText = "No matching action found.",
                         isSuccess = false,
                     )
                 }
@@ -115,7 +105,6 @@ class ActionsViewModel @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: executeAction failed — ${e.message}", e)
                 _error.value = e.message ?: "Unknown error"
-                // Persist the failure
                 quickActionDao.insert(
                     QuickActionEntity(
                         userQuery = query,
@@ -143,19 +132,39 @@ class ActionsViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        // Do NOT release FunctionGemmaRouter here — it's a @Singleton shared with ChatViewModel.
-        // The router's resources are managed at the application scope.
+        // QuickIntentRouter is a @Singleton — no cleanup needed here.
     }
 
     // ── Private helpers ─────────────────────────────────────────────────────
 
-    /**
-     * Best-effort skill name extraction from the tool response.
-     * FunctionGemma responses often start with the tool name or contain it.
-     */
-    private fun extractSkillName(response: String): String? {
-        // The KernelAIToolSet logs the tool name; we can't access it from here.
-        // Return null — the UI will show a generic action icon.
-        return null
+    private suspend fun buildEntityFromSkillResult(
+        query: String,
+        skillName: String,
+        result: SkillResult,
+    ): QuickActionEntity = when (result) {
+        is SkillResult.Success -> QuickActionEntity(
+            userQuery = query,
+            skillName = skillName,
+            resultText = result.content,
+            isSuccess = true,
+        )
+        is SkillResult.Failure -> QuickActionEntity(
+            userQuery = query,
+            skillName = skillName,
+            resultText = "Action failed: ${result.error}",
+            isSuccess = false,
+        )
+        is SkillResult.UnknownSkill -> QuickActionEntity(
+            userQuery = query,
+            skillName = skillName,
+            resultText = "Unknown skill: $skillName",
+            isSuccess = false,
+        )
+        is SkillResult.ParseError -> QuickActionEntity(
+            userQuery = query,
+            skillName = skillName,
+            resultText = "Parse error: ${result.reason}",
+            isSuccess = false,
+        )
     }
 }

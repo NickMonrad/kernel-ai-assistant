@@ -58,38 +58,6 @@ enum class KernelModel(
     ),
 
     /**
-     * Not currently used — FunctionGemmaRouter has been superseded by the native Gemma 4
-     * control-token tool-calling path (#242). Kept in the catalogue (not required) so the
-     * enum reference in FunctionGemmaRouter/ActionsViewModel compiles; will be wired back in
-     * when the fast intent layer (#220) is implemented.
-     */
-    FUNCTION_GEMMA_270M(
-        displayName = "FunctionGemma 270M (intent router)",
-        fileName = "mobile_actions_q8_ekv1024.litertlm",
-        downloadUrl = "https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions/resolve/main/mobile_actions_q8_ekv1024.litertlm",
-        approxSizeBytes = 303_000_000L, // ~289 MB
-        // Not required until #220 (fast intent layer) is implemented.
-        isRequired = false,
-        preferredForTier = null,
-        isGated = true,
-    ),
-
-    /**
-     * Universal Sentence Encoder — 512-dim text embeddings for RAG memory.
-     * Public model (~6 MB) served from Google's MediaPipe CDN.
-     * Not required for basic chat, but enables semantic memory in Phase 2.
-     */
-    UNIVERSAL_SENTENCE_ENCODER(
-        displayName = "Universal Sentence Encoder",
-        fileName = "universal_sentence_encoder.tflite",
-        downloadUrl = "https://storage.googleapis.com/mediapipe-models/text_embedder/universal_sentence_encoder/float32/latest/universal_sentence_encoder.tflite",
-        approxSizeBytes = 6_120_274L,
-        isRequired = false,
-        preferredForTier = null,
-        isGated = false,
-    ),
-
-    /**
      * EmbeddingGemma-300M — high-quality 1024-dim embeddings for RAG memory.
      * Generic build (CPU/GPU, all devices). Gated on HuggingFace — downloaded automatically
      * during onboarding once the user has authenticated.

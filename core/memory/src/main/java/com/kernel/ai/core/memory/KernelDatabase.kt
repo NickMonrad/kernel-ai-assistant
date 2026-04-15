@@ -83,7 +83,7 @@ abstract class KernelDatabase : RoomDatabase() {
             }
         }
 
-        /** Creates quick_actions table for FunctionGemma action history (#actions). */
+        /** Creates quick_actions table for action history (#actions). */
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(

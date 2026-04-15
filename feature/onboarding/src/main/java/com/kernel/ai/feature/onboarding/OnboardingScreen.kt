@@ -135,8 +135,6 @@ fun OnboardingScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     ModelDownloadRow(viewModel.preferredGemmaModel.displayName, uiState.gemmaDownloadState)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    ModelDownloadRow("Routing model", uiState.routerDownloadState)
                     if (uiState.anyError) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
@@ -152,8 +150,6 @@ fun OnboardingScreen(
                     val errorMsg = when {
                         uiState.gemmaDownloadState is DownloadState.Error ->
                             (uiState.gemmaDownloadState as DownloadState.Error).message
-                        uiState.routerDownloadState is DownloadState.Error ->
-                            (uiState.routerDownloadState as DownloadState.Error).message
                         else -> "Download failed"
                     }
                     Text(

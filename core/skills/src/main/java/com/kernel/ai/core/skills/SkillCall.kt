@@ -1,7 +1,7 @@
 package com.kernel.ai.core.skills
 
 /**
- * A parsed skill invocation from FunctionGemma's output.
+ * A parsed skill invocation.
  */
 data class SkillCall(
     val skillName: String,

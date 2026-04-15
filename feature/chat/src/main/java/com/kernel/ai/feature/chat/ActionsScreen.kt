@@ -109,7 +109,6 @@ fun ActionsScreen(
                 ) {
                     Text(
                         text = when (uiState) {
-                            is ActionsViewModel.UiState.LoadingModel -> "Loading actions model…"
                             is ActionsViewModel.UiState.Executing -> "Running action…"
                             else -> ""
                         },
@@ -297,13 +296,13 @@ private fun QuickActionBottomSheet(
                 },
             )
 
-            if (uiState == ActionsViewModel.UiState.LoadingModel) {
+            if (uiState == ActionsViewModel.UiState.Executing) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Loading actions model…",
+                        text = "Running action…",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )

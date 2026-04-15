@@ -5,7 +5,7 @@ package com.kernel.ai.feature.chat
  *
  * E4B and Gemma 4 emit tool calls in two different formats:
  *  - Gemma 4 native token:  <|tool_call>call:name{args}<tool_call|>
- *  - JSON (E4B / FunctionGemma):  {"name": "...", "arguments": {...}} possibly embedded in prose
+ *  - JSON (E4B native tool call):  {"name": "...", "arguments": {...}} possibly embedded in prose
  *
  * Both paths are normalised to the same canonical JSON string so [SkillExecutor] can
  * dispatch them uniformly.

@@ -16,11 +16,10 @@ private const val TAG = "KernelAI"
 
 /**
  * Native skill implementations exposed as LiteRT-LM tools.
- * FunctionGemma calls these directly via the SDK's ToolSet API — no JSON parsing required.
  *
- * Each `@Tool`-annotated method is invoked by the SDK when FunctionGemma decides it matches
- * a user request. The return value is fed back to the model as a tool response before the
- * model generates its final text reply.
+ * Each `@Tool`-annotated method is a device action that can be invoked by the SDK.
+ * The return value is fed back to the model as a tool response before the model generates
+ * its final text reply.
  */
 @Singleton
 class KernelAIToolSet @Inject constructor(
@@ -29,7 +28,7 @@ class KernelAIToolSet @Inject constructor(
 
     @Volatile private var toolCalledInThisTurn = false
 
-    /** Call before each [FunctionGemmaRouter.handle] invocation to reset the tool-called flag. */
+    /** Call before each tool invocation to reset the tool-called flag. */
     fun resetTurnState() {
         toolCalledInThisTurn = false
     }

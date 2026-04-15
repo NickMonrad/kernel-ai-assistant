@@ -62,7 +62,7 @@ fun KernelNavHost() {
                         icon = { Icon(Icons.Default.ChatBubble, contentDescription = null) },
                         label = { Text("Chats") },
                     )
-                    // Actions tab hidden pending #220 (fast intent layer / FunctionGemmaRouter replacement)
+                    // Actions tab hidden pending #361 (Actions tab re-enable + dual FABs)
                 }
             }
         },
@@ -89,7 +89,7 @@ fun KernelNavHost() {
                 }
             }
 
-            // Actions screen hidden pending #220 (fast intent layer / FunctionGemmaRouter replacement)
+// Actions screen hidden pending #361 (Actions tab re-enable + dual FABs)
 
             // New conversation (no conversationId arg)
             composable(ROUTE_CHAT) {
