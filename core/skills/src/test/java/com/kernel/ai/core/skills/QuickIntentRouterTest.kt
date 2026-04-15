@@ -234,6 +234,23 @@ class QuickIntentRouterTest {
             assertEquals(expectedMinutes, intent.params["minutes"], "minutes for '$input'")
         }
 
+        @ParameterizedTest(name = "Regex+day: \"{0}\" → hours={1}, minutes={2}, day={3}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#alarmWithDayRegexPhrases")
+        fun `should match via regex with correct params and day`(
+            input: String,
+            expectedHours: String,
+            expectedMinutes: String,
+            expectedDay: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "set_alarm", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedHours, intent.params["hours"], "hours for '$input'")
+            assertEquals(expectedMinutes, intent.params["minutes"], "minutes for '$input'")
+            assertEquals(expectedDay, intent.params["day"], "day for '$input'")
+        }
+
         @ParameterizedTest(name = "Classifier: \"{0}\"")
         @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#alarmClassifierPhrases")
         fun `should match via classifier`(input: String) {
@@ -263,6 +280,21 @@ class QuickIntentRouterTest {
 
             val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals(expectedSeconds, intent.params["duration_seconds"], "seconds for '$input'")
+        }
+
+        @ParameterizedTest(name = "Regex+label: \"{0}\" → {1}s, label={2}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#timerWithLabelRegexPhrases")
+        fun `should match via regex with correct duration and label`(
+            input: String,
+            expectedSeconds: String,
+            expectedLabel: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "set_timer", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedSeconds, intent.params["duration_seconds"], "seconds for '$input'")
+            assertEquals(expectedLabel, intent.params["label"], "label for '$input'")
         }
 
         @ParameterizedTest(name = "Classifier: \"{0}\"")
@@ -1026,6 +1058,16 @@ class QuickIntentRouterTest {
             Arguments.of("alarm me for the morning"),
         )
 
+        @JvmStatic
+        fun alarmWithDayRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("set an alarm for 10pm thursday", "22", "0", "thursday"),
+            Arguments.of("set alarm for 7am monday", "7", "0", "monday"),
+            Arguments.of("wake me up at 6am tomorrow", "6", "0", "tomorrow"),
+            Arguments.of("alarm for 8pm friday", "20", "0", "friday"),
+            Arguments.of("set alarm for 9am sat", "9", "0", "saturday"),
+            Arguments.of("set an alarm for 7:30am wed", "7", "30", "wednesday"),
+        )
+
         // ── Timer ─────────────────────────────────────────────────────────────
 
         @JvmStatic
@@ -1049,6 +1091,16 @@ class QuickIntentRouterTest {
             Arguments.of("start counting down"),
             Arguments.of("I need a countdown"),
             Arguments.of("count down from 10"),
+        )
+
+        @JvmStatic
+        fun timerWithLabelRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("set a 2 minute timer called egg", "120", "egg"),
+            Arguments.of("5 minute timer called pasta", "300", "pasta"),
+            Arguments.of("set timer for 10 minutes named study", "600", "study"),
+            Arguments.of("set a timer for 30 seconds labeled workout", "30", "workout"),
+            Arguments.of("start a timer for 3 minutes labelled tea", "180", "tea"),
+            Arguments.of("5 minute timer for eggs", "300", "eggs"),
         )
 
         // ── DND ───────────────────────────────────────────────────────────────
@@ -1317,6 +1369,10 @@ class QuickIntentRouterTest {
             Arguments.of("drive to work", "work"),
             Arguments.of("get me to the hospital", "the hospital"),
             Arguments.of("navigate to the nearest petrol station", "the nearest petrol station"),
+            Arguments.of("navigate home", "home"),
+            Arguments.of("drive home", "home"),
+            Arguments.of("take me home", "home"),
+            Arguments.of("directions home", "home"),
         )
 
         @JvmStatic
@@ -1332,6 +1388,12 @@ class QuickIntentRouterTest {
             Arguments.of("show me petrol stations close by", "petrol stations"),
             Arguments.of("search for restaurants nearby", "restaurants"),
             Arguments.of("look for pharmacies near me", "pharmacies"),
+            Arguments.of("find me nearby cafes", "cafes"),
+            Arguments.of("find me nearby mcdonalds", "mcdonalds"),
+            Arguments.of("show me nearby gas stations", "gas stations"),
+            Arguments.of("find nearby restaurants", "restaurants"),
+            Arguments.of("locate nearest pharmacy", "pharmacy"),
+            Arguments.of("find me cafes nearby", "cafes"),
         )
 
         @JvmStatic
