@@ -52,6 +52,21 @@ class UserProfileParserTest {
     }
 
     @Nested
+    inner class LocationExtraction {
+        @Test
+        fun `extracts location from 'based in X'`() {
+            val result = UserProfileParser.parse("I'm Nick. Based in Auckland, New Zealand. I use a Mac.")
+            assertEquals("Auckland, New Zealand", result.location)
+        }
+
+        @Test
+        fun `extracts location from 'I live in X'`() {
+            val result = UserProfileParser.parse("My name is Sara. I live in Melbourne, Australia.")
+            assertEquals("Melbourne, Australia", result.location)
+        }
+    }
+
+    @Nested
     inner class EnvironmentExtraction {
         @Test
         fun `extracts I use patterns`() {
@@ -75,14 +90,15 @@ class UserProfileParserTest {
         @Test
         fun `parses realistic profile`() {
             val text = """
-                My name is Nick. I'm a Kotlin developer based in Auckland, New Zealand.
+                My name is Nick. I'm a Kotlin developer. Based in Auckland, New Zealand.
                 I use a Samsung S23 Ultra. I use Home Assistant for solar monitoring.
                 I prefer concise code. Never use Java when Kotlin is available.
                 I work on an Android AI assistant called Kernel.
             """.trimIndent()
             val result = UserProfileParser.parse(text)
             assertEquals("Nick", result.name)
-            assertEquals("Kotlin developer based in Auckland, New Zealand", result.role)
+            assertEquals("Kotlin developer", result.role)
+            assertEquals("Auckland, New Zealand", result.location)
             assertTrue(result.environment.isNotEmpty())
             assertTrue(result.rules.isNotEmpty())
         }
@@ -101,6 +117,7 @@ class UserProfileParserTest {
             val original = UserProfileYaml(
                 name = "Nick",
                 role = "developer",
+                location = "Auckland",
                 environment = listOf("Samsung S23"),
                 context = listOf("Works on Kernel AI"),
                 rules = listOf("Prefer concise code"),
@@ -108,6 +125,7 @@ class UserProfileParserTest {
             val json = original.toJson()
             assertTrue(json.contains("\"name\":\"Nick\""))
             assertTrue(json.contains("\"role\":\"developer\""))
+            assertTrue(json.contains("\"location\":\"Auckland\""))
             assertTrue(json.contains("\"environment\":[\"Samsung S23\"]"))
         }
 
@@ -116,11 +134,13 @@ class UserProfileParserTest {
             val profile = UserProfileYaml(
                 name = "Nick",
                 role = "Kotlin developer",
+                location = "Auckland",
                 rules = listOf("Prefer concise code"),
             )
             val yaml = profile.toYaml()
             assertTrue(yaml.contains("name: Nick"))
             assertTrue(yaml.contains("role: Kotlin developer"))
+            assertTrue(yaml.contains("location: Auckland"))
             assertTrue(yaml.contains("  - Prefer concise code"))
         }
 
