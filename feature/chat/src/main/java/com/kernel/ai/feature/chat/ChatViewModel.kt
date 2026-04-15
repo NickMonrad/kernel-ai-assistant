@@ -23,6 +23,8 @@ import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
+import com.kernel.ai.core.skills.QuickIntentRouter
+import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
@@ -66,6 +68,7 @@ class ChatViewModel @Inject constructor(
     private val modelSettingsRepository: ModelSettingsRepository,
     private val skillRegistry: SkillRegistry,
     private val skillExecutor: SkillExecutor,
+    private val quickIntentRouter: QuickIntentRouter,
     private val kernelAIToolSet: KernelAIToolSet,
     private val embeddingEngine: EmbeddingEngine,
     private val jandalPersona: JandalPersona,
@@ -436,7 +439,7 @@ class ChatViewModel @Inject constructor(
 
     /**
      * Immediately appends a completed assistant message to the UI and persists it to Room.
-     * Used by the FunctionGemma skill-dispatch path where there is no streaming.
+     * Used by the QuickIntentRouter skill-dispatch path where there is no streaming.
      */
     private suspend fun appendAssistantMessage(convId: String, content: String) {
         val msgId = UUID.randomUUID().toString()
@@ -512,9 +515,30 @@ class ChatViewModel @Inject constructor(
                 Log.d("KernelAI", "Set placeholder title for $convId: \"$placeholder\"")
             }
 
-            // FunctionGemma routing disabled — concurrent loading causes OOM during
-            // E4B GPU init. All queries go directly to Gemma-4 for now.
-            // TODO: re-enable with lazy load-on-demand after Gemma-4 is ready.
+            // Tier 2: QuickIntentRouter — fast device action intercept (<30 ms, no model load).
+            // If regex or classifier matches, execute the skill and return without touching E4B.
+            val routeResult = quickIntentRouter.route(text)
+            val matchedIntent = when (routeResult) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent
+                is QuickIntentRouter.RouteResult.ClassifierMatch -> routeResult.intent
+                is QuickIntentRouter.RouteResult.FallThrough -> null
+            }
+            if (matchedIntent != null) {
+                val skill = skillRegistry.get(matchedIntent.intentName)
+                if (skill != null) {
+                    val skillResult = skill.execute(SkillCall(matchedIntent.intentName, matchedIntent.params))
+                    val response = when (skillResult) {
+                        is com.kernel.ai.core.skills.SkillResult.Success -> skillResult.content
+                        is com.kernel.ai.core.skills.SkillResult.Failure -> "I ran into an issue: ${skillResult.error}"
+                        is com.kernel.ai.core.skills.SkillResult.UnknownSkill -> null // fall through to E4B
+                        is com.kernel.ai.core.skills.SkillResult.ParseError -> null  // fall through to E4B
+                    }
+                    if (response != null) {
+                        appendAssistantMessage(convId, response)
+                        return@launch
+                    }
+                }
+            }
 
             // Lazy-init Gemma-4 if not yet loaded.
             if (!inferenceEngine.isReady.value) {
