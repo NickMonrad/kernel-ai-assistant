@@ -8,15 +8,24 @@ package com.kernel.ai.core.memory.profile
  *
  * Patterns recognised:
  * - Name: "My name is X", "I'm X", "I am X", "Name: X", "Call me X"
+ * - Location: "I live in X", "I'm from X", "Location: X", "Based in X"
  * - Role: "I'm a/an X", "I work as X", "Role: X", "I am a X developer/engineer/..."
  * - Environment: "I use X", "I have X", "running X", device/OS/tool mentions
- * - Rules: "I prefer X", "I like X", "always X", "never X", "don't X"
+ * - Hobbies: "I play X", "I game on X", "I cook X", "My hobbies include X"
+ * - Smart Home: "I use Home Assistant", "My smart home", "I have smart lights"
+ * - AI Tools: "I use Copilot", "I prefer local models", "Prioritize local-first"
+ * - Rules: "I prefer X", "I like X", "always X", "never X", "don't X", "Prioritize X", "When providing X"
  * - Context: Sentences that don't match the above but contain useful info
  */
 object UserProfileParser {
 
     private val NAME_PATTERNS = listOf(
         Regex("""(?i)\b(?:my name is|i'm|i am|call me|name:\s*)\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)"""),
+    )
+
+    private val LOCATION_PATTERNS = listOf(
+        Regex("""(?i)\b(?:i live in|i'm from|i am from|i'm located in|i'm based in|location:\s*|my (?:city|town|location) is)\s+(.+?)(?:\.|,|$)"""),
+        Regex("""(?i)\b(?:based in|located in)\s+(.+?)(?:\.|,|$)"""),
     )
 
     private val ROLE_PATTERNS = listOf(
@@ -35,6 +44,19 @@ object UserProfileParser {
 
     private val RULE_PATTERNS = listOf(
         Regex("""(?i)\b(?:i prefer|i like|i want|always|never|don'?t|please)\s+(.+?)(?:\.|$)"""),
+        Regex("""(?i)\b(?:prioritize|when providing|when asked about|default to)\s+(.+?)(?:\.|$)"""),
+    )
+
+    private val HOBBY_PATTERNS = listOf(
+        Regex("""(?i)\b(?:i play|i game on|i cook|i enjoy|my hobbies|hobby:|hobbies:|i'm into|i practice)\s+(.+?)(?:\.|$)"""),
+    )
+
+    private val SMART_HOME_PATTERNS = listOf(
+        Regex("""(?i)\b(?:i use home assistant|my smart home|i have smart|smart home setup)\s+(.+?)(?:\.|$)"""),
+    )
+
+    private val AI_PATTERNS = listOf(
+        Regex("""(?i)\b(?:i use (?:copilot|chatgpt|claude|gpt|ai)|my ai tools?|i prefer (?:local models?|open[- ]?source)|prioritize local[- ]?first)\s*(.+?)(?:\.|$)"""),
     )
 
     fun parse(freeText: String): UserProfileYaml {
@@ -42,6 +64,7 @@ object UserProfileParser {
 
         var name: String? = null
         var role: String? = null
+        var location: String? = null
         val environment = mutableListOf<String>()
         val context = mutableListOf<String>()
         val rules = mutableListOf<String>()
@@ -60,6 +83,20 @@ object UserProfileParser {
                 val match = pattern.find(sentence)
                 if (match != null) {
                     name = match.groupValues[1].trim()
+                    consumed.add(i)
+                    break
+                }
+            }
+        }
+
+        // Pass 1b: Extract location
+        for ((i, sentence) in sentences.withIndex()) {
+            if (i in consumed) continue
+            if (location != null) break
+            for (pattern in LOCATION_PATTERNS) {
+                val match = pattern.find(sentence)
+                if (match != null) {
+                    location = match.groupValues[1].trim().removeSuffix(".").removeSuffix(",")
                     consumed.add(i)
                     break
                 }
@@ -90,6 +127,19 @@ object UserProfileParser {
             if (i in consumed) continue
             var matched = false
 
+            // Try AI patterns first (add to rules)
+            for (pattern in AI_PATTERNS) {
+                val match = pattern.find(sentence)
+                if (match != null) {
+                    rules.add(sentence.trim().removeSuffix("."))
+                    consumed.add(i)
+                    matched = true
+                    break
+                }
+            }
+            if (matched) continue
+
+            // Try rule patterns
             for (pattern in RULE_PATTERNS) {
                 val match = pattern.find(sentence)
                 if (match != null) {
@@ -101,6 +151,31 @@ object UserProfileParser {
             }
             if (matched) continue
 
+            // Try hobby patterns (add to context)
+            for (pattern in HOBBY_PATTERNS) {
+                val match = pattern.find(sentence)
+                if (match != null) {
+                    context.add(sentence.trim().removeSuffix("."))
+                    consumed.add(i)
+                    matched = true
+                    break
+                }
+            }
+            if (matched) continue
+
+            // Try smart home patterns (add to environment)
+            for (pattern in SMART_HOME_PATTERNS) {
+                val match = pattern.find(sentence)
+                if (match != null) {
+                    environment.add(sentence.trim().removeSuffix("."))
+                    consumed.add(i)
+                    matched = true
+                    break
+                }
+            }
+            if (matched) continue
+
+            // Try environment patterns
             for (pattern in ENVIRONMENT_PATTERNS) {
                 val match = pattern.find(sentence)
                 if (match != null) {
@@ -124,9 +199,10 @@ object UserProfileParser {
         return UserProfileYaml(
             name = name,
             role = role,
-            environment = environment.take(10),
-            context = context.take(10),
-            rules = rules.take(10),
+            location = location,
+            environment = environment.take(25),
+            context = context.take(25),
+            rules = rules.take(25),
         )
     }
 }
