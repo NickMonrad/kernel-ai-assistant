@@ -36,7 +36,8 @@ class GetSystemInfoSkill @Inject constructor(
     override val name = "get_system_info"
     override val description =
         "Returns current device and model runtime information including hardware tier, " +
-            "available memory, battery level, active model, and current date/time."
+            "available memory, battery level, active model, and current date/time. " +
+            "ALWAYS use this tool for current date/time queries — never rely on memory or past conversations."
     override val schema = SkillSchema()
 
     override suspend fun execute(call: SkillCall): SkillResult {

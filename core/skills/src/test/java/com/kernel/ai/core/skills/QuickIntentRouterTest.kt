@@ -1264,11 +1264,15 @@ class QuickIntentRouterTest {
             Arguments.of("what date is it today"),
             Arguments.of("tell me the time"),
             Arguments.of("give me the time"),
+            Arguments.of("what is today"),
+            Arguments.of("what's today"),
+            Arguments.of("what's today's date"),
+            Arguments.of("what is today's date"),
+            Arguments.of("what's today's day"),
         )
 
         @JvmStatic
         fun timeClassifierPhrases(): Stream<Arguments> = Stream.of(
-            Arguments.of("what's today's date"),
             Arguments.of("do you know the time"),
             Arguments.of("how late is it"),
             Arguments.of("current date and time"),

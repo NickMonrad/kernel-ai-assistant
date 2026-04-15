@@ -250,6 +250,24 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        // Pattern: "what is today" / "what's today"
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+today""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Pattern: "what's today's date" / "what is today's date"
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+today'?s\s+(?:date|day)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
 
         // ── Volume ──
         IntentPattern(
@@ -400,10 +418,11 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
         // Open app — "open YouTube" / "launch Spotify"
+        // Excludes timer/countdown phrases that start with "start" to prevent false matches
         IntentPattern(
             intentName = "open_app",
             regex = Regex(
-                """^(?:open|launch|start)\s+(?:the\s+)?(.+?)(?:\s+app)?$""",
+                """^(?:open|launch|start)\s+(?:the\s+)?(?!.*(?:count|timer|alarm))(.+?)(?:\s+app)?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("app_name" to match.groupValues[1].trim()) },
