@@ -71,6 +71,23 @@ class SearchMemorySkill @Inject constructor(
         "User asks 'what do you remember about my family?' → Call: <|tool_call>call:search_memory{query:<|\"family\"|>}<tool_call|>",
     )
 
+    override val fullInstructions = """
+search_memory: Search the user's long-term memory for facts and preferences.
+
+Parameters:
+- query (required, string): A natural language query describing what to look for.
+
+Recall rule: ALWAYS call search_memory BEFORE answering any question that might depend
+on the user's name, preferences, prior statements, or user-specific facts.
+If the user references something 'you know' about them, or says 'remember when I told you…',
+call search_memory first. Do NOT skip this step even if you think you know the answer.
+After calling search_memory, incorporate its result into your reply naturally.
+
+Examples:
+  <|tool_call>call:search_memory{query:<|"|>user's preferred language<|"|>}<tool_call|>
+  <|tool_call>call:search_memory{query:<|"|>workout routine preferences<|"|>}<tool_call|>
+    """.trimIndent()
+
     override suspend fun execute(call: SkillCall): SkillResult {
         val query = call.arguments["query"]
             ?: return SkillResult.Failure(name, "Missing 'query' argument")
