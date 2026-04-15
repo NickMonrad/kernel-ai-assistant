@@ -41,6 +41,23 @@ class SaveMemorySkill @Inject constructor(
         required = listOf("content"),
     )
 
+    override val fullInstructions = """
+save_memory: Save an important fact or preference to the user's long-term memory.
+
+Parameters:
+- content (required, string): The fact to save as a clear statement.
+
+Memory rule: whenever the user says 'remember', 'save', 'note that', 'don't forget',
+'keep that in mind', 'save it', 'remember that', or asks you to keep something in mind —
+you MUST immediately call save_memory. NEVER output 'Got it', 'I'll remember that', or
+any confirmation text without calling the tool first. If the user says 'save it' or
+'remember that', infer what 'it'/'that' refers to from recent context.
+Do NOT ask what to save — always infer and call the tool.
+
+Examples:
+  <|tool_call>call:save_memory{content:<|"|>User prefers dark mode<|"|>}<tool_call|>
+    """.trimIndent()
+
     override suspend fun execute(call: SkillCall): SkillResult {
         val content = call.arguments["content"]
             ?: return SkillResult.Failure(name, "Missing 'content' argument")

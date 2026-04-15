@@ -18,6 +18,10 @@ abstract class SkillsModule {
 
     @Binds
     @IntoSet
+    abstract fun bindLoadSkillSkill(skill: LoadSkillSkill): Skill
+
+    @Binds
+    @IntoSet
     abstract fun bindGetSystemInfoSkill(skill: GetSystemInfoSkill): Skill
 
     @Binds
