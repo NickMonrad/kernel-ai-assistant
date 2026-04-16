@@ -476,6 +476,43 @@ class ChatViewModel @Inject constructor(
         ragRepository.indexMessage(savedId, convId, content)
     }
 
+    /** Like [appendAssistantMessage] but also attaches a [ToolCallInfo] chip so the UI shows
+     *  which skill produced the reply. Used by the DirectReply path (QuickIntentRouter skills
+     *  that bypass the LLM). */
+    private suspend fun appendAssistantMessageWithToolCall(
+        convId: String,
+        content: String,
+        skillName: String,
+        requestJson: String,
+        isSuccess: Boolean,
+    ) {
+        val msgId = UUID.randomUUID().toString()
+        val toolCall = ToolCallInfo(
+            skillName = skillName,
+            requestJson = requestJson,
+            resultText = content,
+            isSuccess = isSuccess,
+        )
+        val msg = ChatMessage(
+            id = msgId,
+            role = ChatMessage.Role.ASSISTANT,
+            content = content,
+            toolCall = toolCall,
+        )
+        _messages.update { it + msg }
+        val toolCallJsonStr = org.json.JSONObject().apply {
+            put("skillName", toolCall.skillName)
+            put("requestJson", toolCall.requestJson)
+            put("resultText", toolCall.resultText)
+            put("isSuccess", toolCall.isSuccess)
+        }.toString()
+        val savedId = conversationRepository.addMessage(
+            convId, "assistant", content,
+            toolCallJson = toolCallJsonStr,
+        )
+        ragRepository.indexMessage(savedId, convId, content)
+    }
+
     fun retryDownload(model: KernelModel) {
         downloadManager.startDownload(model, force = false)
     }
@@ -581,6 +618,18 @@ class ChatViewModel @Inject constructor(
                 if (skill != null) {
                     val skillResult = skill.execute(SkillCall(skill.name, callParams))
                     when (skillResult) {
+                        is com.kernel.ai.core.skills.SkillResult.DirectReply -> {
+                            // Skill produced a complete, self-contained reply — show it verbatim
+                            // and bypass the LLM entirely to avoid number/unit corruption.
+                            appendAssistantMessageWithToolCall(
+                                convId = convId,
+                                content = skillResult.content,
+                                skillName = matchedIntent.intentName,
+                                requestJson = callParams.toString(),
+                                isSuccess = true,
+                            )
+                            return@launch
+                        }
                         is com.kernel.ai.core.skills.SkillResult.Success -> {
                             systemContext = "[System: ${matchedIntent.intentName} — ${skillResult.content}]"
                             // E4B not loaded yet: show action result directly and skip the wrapper.
@@ -972,6 +1021,18 @@ class ChatViewModel @Inject constructor(
         val result = skillExecutor.execute(extracted)
         return when (result) {
             is SkillResult.Success -> {
+                val skillName = try {
+                    org.json.JSONObject(extracted).optString("name", "unknown")
+                } catch (e: Exception) { "unknown" }
+                val toolCall = ToolCallInfo(
+                    skillName = skillName,
+                    requestJson = extracted,
+                    resultText = result.content,
+                    isSuccess = true,
+                )
+                Pair(toolCall, result.content)
+            }
+        is SkillResult.DirectReply -> {
                 val skillName = try {
                     org.json.JSONObject(extracted).optString("name", "unknown")
                 } catch (e: Exception) { "unknown" }
