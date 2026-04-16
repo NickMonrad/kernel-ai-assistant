@@ -45,7 +45,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -203,6 +203,13 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS `contact_aliases` (`alias` TEXT NOT NULL, `displayName` TEXT NOT NULL, `contactId` TEXT NOT NULL, `phoneNumber` TEXT NOT NULL, PRIMARY KEY(`alias`))")
+            }
+        }
+
+        /** Adds enabled flag to scheduled_alarms for per-alarm toggle (#479). */
+        val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
             }
         }
     }

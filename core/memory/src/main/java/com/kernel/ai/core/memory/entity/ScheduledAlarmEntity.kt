@@ -10,4 +10,5 @@ data class ScheduledAlarmEntity(
     val label: String?,
     val createdAt: Long,
     val fired: Boolean = false,
+    val enabled: Boolean = true,
 )
