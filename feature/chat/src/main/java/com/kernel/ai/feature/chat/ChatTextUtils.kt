@@ -19,3 +19,75 @@ internal fun stripMarkdown(text: String): String {
         .replace(Regex("""\[(.+?)\]\(.+?\)"""), "$1")           // links
         .trim()
 }
+
+/**
+ * Returns true if [query] looks like it involves a device-native tool action
+ * (alarm, list, toggle, memory, etc.) rather than a pure LLM question.
+ */
+internal fun looksLikeToolQuery(query: String): Boolean {
+    val lower = query.lowercase().trim()
+    val toolKeywords = listOf(
+        "save", "remember", "note that", "don't forget", "store",
+        "add to", "put on", "put in", "add .+ to .+ list",
+        "create .+ list", "make .+ list", "remove from", "delete from",
+        "what's on my", "show my", "read my .+ list",
+        "set alarm", "set a timer", "set timer", "remind me",
+        "send email", "send sms", "send a text", "call ",
+        "search wikipedia", "look up", "wikipedia",
+        "turn on", "turn off", "toggle", "open app",
+        "play ", "navigate to", "directions to",
+        "what time", "what's the time", "battery", "get battery",
+    )
+    return toolKeywords.any { keyword ->
+        if (keyword.contains(Regex("[.+*?]"))) {
+            Regex(keyword, RegexOption.IGNORE_CASE).containsMatchIn(lower)
+        } else {
+            lower.contains(keyword)
+        }
+    }
+}
+
+/**
+ * Returns true if [text] contains an anaphoric reference — i.e. the user says "that",
+ * "this", "it", "the above", or similar, implying they need the previous turn's content
+ * to resolve the referent.
+ *
+ * Used alongside [looksLikeToolQuery] to decide whether to inject the last conversation
+ * pair as lightweight context even when full RAG is stripped.
+ */
+internal fun looksLikeAnaphora(text: String): Boolean {
+    val lower = text.lowercase().trim()
+    return Regex(
+        """^(save|remember|store|add|note|keep)\s+(that|this|it)\b|
+           \b(look|search|find|check)\s+(that|it|this)\s+(up|out)\b|
+           ^(what|how|why|when|where)\s+(is|was|were|did)\s+(that|it|this)\b|
+           \bthat\b|\bthe\s+above\b|\bthe\s+previous\b""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
+    ).containsMatchIn(lower)
+}
+
+/**
+ * Returns true if [response] looks like the model confirmed a tool action without
+ * actually calling any tool — the classic Gemma-4 hallucination pattern.
+ *
+ * Matches phrases the model uses when it believes it completed an action:
+ * "I've saved that", "Added milk to your list", "Done!", "Memory saved" etc.
+ * Only checked when no tool was actually called to avoid false positives.
+ *
+ * On a positive match the caller should replace the response with an honest
+ * failure message rather than surfacing fabricated confirmation to the user.
+ */
+internal fun looksLikeToolConfirmation(response: String): Boolean {
+    val lower = response.lowercase()
+    val actionPhrases = listOf(
+        "i've saved", "i have saved", "saved that", "saved to memory", "saved to your memory",
+        "memory saved", "noted that", "i'll remember", "i've noted",
+        "added to your", "added that to", "added it to",
+        "i've added", "i have added", "item added",
+        "created your", "i've created", "list created", "created a new",
+        "set an alarm", "alarm set", "timer set", "i've set",
+        "turned on", "turned off", "toggled",
+        "done!", "all done", "got it, i've", "sure thing",
+    )
+    return actionPhrases.any { lower.contains(it) }
+}

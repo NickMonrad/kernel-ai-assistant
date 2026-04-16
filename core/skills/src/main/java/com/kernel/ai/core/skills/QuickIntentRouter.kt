@@ -148,6 +148,17 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
         ),
+        // "remind me tomorrow at 9" / "remind me on friday at 7am" → set_alarm
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """remind\s+me\s+(?:on\s+)?(tomorrow|today|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                parseAlarmTime("${match.groupValues[1]} ${match.groupValues[2]}")
+            },
+        ),
         // "remind me at/by <time>" → set_alarm
         IntentPattern(
             intentName = "set_alarm",
@@ -974,6 +985,45 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, raw ->
                 mapOf("content" to raw.trim())
+            },
+        ),
+
+        // ── Brightness ──
+        IntentPattern(
+            intentName = "set_brightness",
+            regex = Regex(
+                """(?:increase|raise|turn\s+up|brighten|max(?:imize)?)\s+(?:the\s+)?(?:screen\s+)?brightness""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("direction" to "up") },
+        ),
+        IntentPattern(
+            intentName = "set_brightness",
+            regex = Regex(
+                """(?:decrease|reduce|lower|turn\s+down|dim|min(?:imize)?)\s+(?:the\s+)?(?:screen\s+)?brightness""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("direction" to "down") },
+        ),
+        IntentPattern(
+            intentName = "set_brightness",
+            regex = Regex(
+                """brightness\s+(?:up|down|max|min|full|half|low)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw ->
+                val direction = if (raw.lowercase().contains(Regex("up|max|full"))) "up" else "down"
+                mapOf("direction" to direction)
+            },
+        ),
+        IntentPattern(
+            intentName = "set_brightness",
+            regex = Regex(
+                """(?:set|change)\s+(?:the\s+)?(?:screen\s+)?brightness\s+(?:to\s+)?(\d+)\s*%?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf("value" to match.groupValues[1], "is_percent" to "true")
             },
         ),
 
