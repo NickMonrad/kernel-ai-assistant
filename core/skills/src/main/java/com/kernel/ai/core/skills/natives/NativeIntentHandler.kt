@@ -32,6 +32,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.time.temporal.TemporalAdjusters
+import java.time.temporal.WeekFields
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -91,7 +92,7 @@ class NativeIntentHandler @Inject constructor(
                 "set_timer" -> setTimer(params)
                 "create_calendar_event" -> createCalendarEvent(params)
                 "get_battery" -> getBattery()
-                "get_time", "get_date" -> getTime()
+                "get_time", "get_date" -> getTime(params)
                 "toggle_dnd_on" -> setDoNotDisturb(true)
                 "toggle_dnd_off" -> setDoNotDisturb(false)
                 "set_volume" -> setVolume(params)
@@ -325,9 +326,11 @@ class NativeIntentHandler @Inject constructor(
         }
         val zone = ZoneId.systemDefault()
 
+        var resolvedTimeLabel: String? = null
         val (beginMillis, endMillis) = if (timeStr != null) {
             val time = resolveTime(timeStr)
                 ?: return SkillResult.Failure("run_intent", "Invalid time format '$timeStr' — expected HH:MM (24h).")
+            resolvedTimeLabel = time.format(DateTimeFormatter.ofPattern("HH:mm"))
             val begin = LocalDateTime.of(date, time).atZone(zone).toInstant().toEpochMilli()
             val end = begin + durationMinutes * 60_000L
             begin to end
@@ -361,7 +364,7 @@ class NativeIntentHandler @Inject constructor(
         }
         return try {
             context.startActivity(intent)
-            val timeLabel = if (timeStr != null) " at $timeStr" else " (all day)"
+            val timeLabel = if (resolvedTimeLabel != null) " at $resolvedTimeLabel" else " (all day)"
             val resolvedDateStr = date.format(DateTimeFormatter.ISO_LOCAL_DATE)
             val attendeesLabel = params["attendees"]?.takeIf { it.isNotBlank() }?.let { " with $it" } ?: ""
             SkillResult.Success("Calendar opened — '${title}' on $resolvedDateStr$timeLabel$attendeesLabel. Please review and save in your calendar app.")
@@ -382,11 +385,32 @@ class NativeIntentHandler @Inject constructor(
 
     // ── Time / Date ───────────────────────────────────────────────────────────
 
-    private fun getTime(): SkillResult {
+    private fun getTime(params: Map<String, String> = emptyMap()): SkillResult {
         val now = LocalDateTime.now()
-        val time = now.format(DateTimeFormatter.ofPattern("h:mm a"))
-        val date = now.format(DateTimeFormatter.ofPattern("EEEE, MMMM d"))
-        return SkillResult.Success("It's $time on $date")
+        return when (params["query_type"]) {
+            "time" -> SkillResult.Success(
+                "It's ${now.format(DateTimeFormatter.ofPattern("h:mm a"))}",
+            )
+            "date" -> SkillResult.Success(
+                "Today is ${now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
+            )
+            "day_of_week" -> SkillResult.Success(
+                "It's ${now.format(DateTimeFormatter.ofPattern("EEEE"))}",
+            )
+            "year" -> SkillResult.Success("It's ${now.year}")
+            "month" -> SkillResult.Success(
+                "It's ${now.format(DateTimeFormatter.ofPattern("MMMM"))}",
+            )
+            "week" -> {
+                val week = now.get(WeekFields.ISO.weekOfWeekBasedYear())
+                SkillResult.Success("It's week $week of ${now.year}")
+            }
+            else -> {
+                val time = now.format(DateTimeFormatter.ofPattern("h:mm a"))
+                val date = now.format(DateTimeFormatter.ofPattern("EEEE, MMMM d"))
+                SkillResult.Success("It's $time on $date")
+            }
+        }
     }
 
     // ── Do Not Disturb ────────────────────────────────────────────────────────
