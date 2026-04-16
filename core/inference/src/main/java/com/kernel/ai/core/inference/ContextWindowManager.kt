@@ -62,7 +62,9 @@ class ContextWindowManager {
             if (remaining < cost) {
                 // If we haven't collected any turns yet, the most recent turn alone exceeds
                 // the budget. Include it truncated so at least one turn of context survives.
-                if (result.isEmpty() && remaining > 0) {
+                // Guard requires remaining >= 2: estimateTokens() has coerceAtLeast(1) so each
+                // half costs minimum 1 token — a budget of 1 would produce 2 tokens (overflow).
+                if (result.isEmpty() && remaining >= 2) {
                     val maxCharsEach = (remaining * CHARS_PER_TOKEN) / 2
                     result.addFirst(turn.first.take(maxCharsEach) to turn.second.take(maxCharsEach))
                 }
