@@ -711,6 +711,8 @@ class QuickIntentRouter(
 
             params["hours"] = hours.toString()
             params["minutes"] = minutes.toString()
+            // Also emit a "time" key in HH:mm format so setAlarm() can use resolveTime()
+            params["time"] = "${hours}:${minutes.toString().padStart(2, '0')}"
 
             // Extract day name (today, tomorrow, weekday names including abbreviations)
             val dayRegex = Regex(

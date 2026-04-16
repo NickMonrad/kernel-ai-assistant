@@ -9,6 +9,7 @@ import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.dao.ModelSettingsDao
 import com.kernel.ai.core.memory.dao.QuickActionDao
+import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.MemoryRepositoryImpl
@@ -55,6 +56,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_9_10,
                     KernelDatabase.MIGRATION_10_11,
                     KernelDatabase.MIGRATION_11_12,
+                    KernelDatabase.MIGRATION_12_13,
                 )
                 .build()
 
@@ -81,5 +83,8 @@ abstract class MemoryModule {
 
         @Provides
         fun provideQuickActionDao(db: KernelDatabase): QuickActionDao = db.quickActionDao()
+
+        @Provides
+        fun provideScheduledAlarmDao(db: KernelDatabase): ScheduledAlarmDao = db.scheduledAlarmDao()
     }
 }
