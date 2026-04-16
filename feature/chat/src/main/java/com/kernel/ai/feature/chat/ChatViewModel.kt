@@ -301,6 +301,9 @@ class ChatViewModel @Inject constructor(
         try {
         val id = navConversationId ?: conversationRepository.createConversation()
         conversationId = id
+        // Persist resolved ID so process-death recreation restores the right conversation
+        // instead of creating a fresh one on every cold start.
+        savedStateHandle["conversationId"] = id
 
         // Load persisted title immediately so UI shows it on back-navigation.
         val conversation = conversationRepository.getConversation(id)
