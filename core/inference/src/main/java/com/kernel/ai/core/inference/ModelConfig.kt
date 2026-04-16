@@ -3,7 +3,22 @@ package com.kernel.ai.core.inference
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.ToolProvider
 
-/** Jandal's default system prompt. Injected into every new conversation. */
+/**
+ * Jandal's default system prompt. Injected into every new conversation.
+ *
+ * ## ⚠️ Two-tier skill gateway — do NOT advertise specific tool call syntax here
+ * The model discovers how to use skills via the `loadSkill` gateway (see [KernelAIToolSet]):
+ *   1. Model sees only tool *names* + short *descriptions* from `@Tool` annotations.
+ *   2. Model calls `loadSkill("<skill>")` → receives full parameter instructions at runtime.
+ *   3. Model calls the actual tool with correct parameters.
+ *
+ * Never put raw call syntax like `runJs(skillName="query-wikipedia")` in this prompt.
+ * Doing so bypasses step 2 and causes the model to skip `loadSkill`, breaking the lazy
+ * loading design and potentially inflating every conversation's token cost.
+ *
+ * Behavioural rules and IMPORTANT directives are safe to add here.
+ * Skill routing specifics belong in the `@Tool` description or in the skill's loadSkill payload.
+ */
 const val DEFAULT_SYSTEM_PROMPT =
     "You are Jandal — a capable, on-device AI assistant with a genuine Kiwi character. " +
         "You're direct, warm, and dry-humoured without trying too hard. " +

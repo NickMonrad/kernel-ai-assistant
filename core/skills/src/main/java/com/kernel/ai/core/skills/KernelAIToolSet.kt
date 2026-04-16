@@ -31,6 +31,12 @@ private const val TAG = "KernelAI"
  * ## Lazy injection
  * [SkillRegistry] is injected lazily to break the circular dependency:
  * SkillRegistry → Set<Skill> (includes LoadSkillSkill) → SkillRegistry.
+ *
+ * ## ⚠️ System prompt constraint
+ * Because the model only learns skill parameters via `loadSkill`, the system prompt
+ * ([DEFAULT_SYSTEM_PROMPT] in ModelConfig) must never contain raw tool call syntax
+ * (e.g. `runJs(skillName="query-wikipedia")`). That would cause the model to skip
+ * step 2 entirely. Behavioural rules are fine; skill invocation recipes are not.
  */
 @Singleton
 class KernelAIToolSet @Inject constructor(
