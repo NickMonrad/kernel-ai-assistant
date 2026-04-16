@@ -683,7 +683,7 @@ class ChatViewModel @Inject constructor(
                         }
 
                         is GenerationResult.Complete -> {
-                            val fullContent = accumulatedContent.toString()
+                            val fullContent = correctSkillNumbers(accumulatedContent.toString(), systemContext)
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
 
                             // With native SDK tool calling, tool execution happens
@@ -1004,6 +1004,28 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { inferenceEngine.shutdown() }
+    }
+
+    /**
+     * Corrects digit-truncated numbers in a model response when a [System:] skill context was
+     * injected. E.g. model reads "Battery is at 92%" from context but outputs "9%" — a known
+     * Gemma-4 generation artefact. Only corrects percentage values to avoid false positives.
+     */
+    private fun correctSkillNumbers(response: String, systemContext: String?): String {
+        if (systemContext == null) return response
+        var corrected = response
+        Regex("""\d+""").findAll(systemContext).forEach { match ->
+            val expected = match.value
+            if (expected.length < 2) return@forEach         // single digits can't be truncated
+            if (corrected.contains(expected)) return@forEach // already present — no fix needed
+            // Only repair percentage values — safe, avoids false-positives on other numbers
+            corrected = corrected.replace(Regex("""(\d+)%""")) { pctMatch ->
+                val found = pctMatch.groupValues[1]
+                if (expected.startsWith(found) && found.length < expected.length) "$expected%"
+                else pctMatch.value
+            }
+        }
+        return corrected
     }
 }
 
