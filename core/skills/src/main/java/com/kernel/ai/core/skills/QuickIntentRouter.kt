@@ -145,6 +145,42 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
         ),
+        // "remind me at/by <time>" → set_alarm
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """remind\s+me\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
+        ),
+        // "wake me at/by <time>" (without "up") → set_alarm
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """wake\s+me\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
+        ),
+        // "alarm <time>" without preposition → set_alarm
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """^alarm\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
+        ),
+        // "<time> alarm" order → set_alarm
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """^(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s+alarm\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
+        ),
 
         // ── Timer ──
         IntentPattern(
@@ -163,11 +199,29 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, input -> parseTimerDuration(match, input) },
         ),
-        // "5 minute timer"
+        // "5 minute timer" / "5 minute egg timer" / "3 minute pasta timer"
         IntentPattern(
             intentName = "set_timer",
             regex = Regex(
-                """(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)\s+timer""",
+                """(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)\s+.*?timer""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+        // "remind me in <N> <unit>" → set_timer
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """remind\s+me\s+in\s+(\d+)\s*(hours?|minutes?|mins?|seconds?|secs?|h|m|s)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+        // "time me for <N> <unit>" → set_timer
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """time\s+me\s+(?:for\s+)?(\d+)\s*(hours?|minutes?|mins?|seconds?|secs?|h|m|s)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input -> parseTimerDuration(match, input) },
@@ -226,6 +280,15 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        // "silence/mute my phone/notifications" → toggle_dnd_on
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """(?:silence|mute|hush)\s+(?:my\s+)?(?:phone|notifications?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
         IntentPattern(
             intentName = "toggle_dnd_off",
             regex = Regex(
@@ -256,6 +319,24 @@ class QuickIntentRouter(
             intentName = "get_battery",
             regex = Regex(
                 """(?:check|show|get|what(?:'s| is))\s+(?:my\s+|the\s+)?(?:battery|charge|power)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "am I / is my phone charging?" → get_battery
+        IntentPattern(
+            intentName = "get_battery",
+            regex = Regex(
+                """(?:am\s+i|is\s+(?:my\s+)?(?:phone|device))\s+charging""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "how's my battery?" → get_battery
+        IntentPattern(
+            intentName = "get_battery",
+            regex = Regex(
+                """how(?:'?s|\s+is)\s+my\s+(?:battery|charge|power)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -556,10 +637,11 @@ class QuickIntentRouter(
         ),
         // Open app — "open YouTube" / "launch Spotify"
         // Excludes timer/countdown phrases that start with "start" to prevent false matches
+        // Also excludes "new conversation/chat" to prevent false matches on conversational phrases
         IntentPattern(
             intentName = "open_app",
             regex = Regex(
-                """^(?:open|launch|start)\s+(?:the\s+)?(?!(?:a\s+)?(?:count(?:down|ing)|timer|alarm)\b)(.+?)(?:\s+app)?$""",
+                """^(?:open|launch|start)\s+(?:the\s+)?(?!(?:a\s+)?(?:count(?:down|ing)|timer|alarm|new\s+conversation|new\s+chat|conversation|chat)\b)(.+?)(?:\s+app)?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("app_name" to match.groupValues[1].trim()) },
@@ -721,7 +803,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "smart_home_on",
             regex = Regex(
-                """(?:turn|switch)\s+on\s+(?:the\s+)?(.+)""",
+                """(?:turn|switch)\s+on\s+(?!.*\b(?:tv|television|music|tunes|spotify|netflix|youtube|plex)\b)(?:the\s+)?(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
@@ -729,7 +811,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "smart_home_off",
             regex = Regex(
-                """(?:turn|switch)\s+off\s+(?:the\s+)?(.+)""",
+                """(?:turn|switch)\s+off\s+(?!.*\b(?:tv|television|music|tunes|spotify|netflix|youtube|plex)\b)(?:the\s+)?(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
