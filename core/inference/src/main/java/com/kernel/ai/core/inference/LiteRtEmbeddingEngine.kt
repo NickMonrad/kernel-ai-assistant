@@ -142,6 +142,10 @@ class LiteRtEmbeddingEngine @Inject constructor(
     }
 
     override fun close() {
+        // Log at WARN so any unexpected call (e.g. accidental close during Gemma-4 init,
+        // see #445) is immediately visible in logcat. Intentional shutdown calls are fine.
+        Log.w(TAG, "EmbeddingEngine.close() called — interpreter will be nulled. " +
+            "Subsequent embed() calls will re-initialise automatically.")
         synchronized(lock) {
             _state?.interpreter?.close()
             _state = null
