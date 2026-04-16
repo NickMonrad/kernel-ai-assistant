@@ -179,6 +179,7 @@ class LiteRtInferenceEngine @Inject constructor(
         _isGenerating.value = true
         val start = System.currentTimeMillis()
         var firstTokenMs: Long = -1
+        var thinkingCharCount = 0
 
         try {
             conv.sendMessageAsync(
@@ -188,6 +189,7 @@ class LiteRtInferenceEngine @Inject constructor(
                     // Route thinking tokens separately (Gemma thinking mode)
                     val thinkingText = message.channels["thought"]
                     if (!thinkingText.isNullOrEmpty()) {
+                        thinkingCharCount += thinkingText.length
                         trySend(GenerationResult.Thinking(thinkingText))
                     }
 
@@ -203,6 +205,9 @@ class LiteRtInferenceEngine @Inject constructor(
 
                 override fun onDone() {
                     val durationMs = System.currentTimeMillis() - start
+                    if (thinkingCharCount > 0) {
+                        Log.d("KernelAI", "Thinking tokens: $thinkingCharCount chars")
+                    }
                     Log.i(TAG, "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms [backend=${_activeBackend.value}]")
                     _isGenerating.value = false
                     trySend(GenerationResult.Complete(durationMs = durationMs))
