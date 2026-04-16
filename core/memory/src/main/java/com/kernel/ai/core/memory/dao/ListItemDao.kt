@@ -42,6 +42,10 @@ interface ListItemDao {
     @Query("DELETE FROM list_items WHERE listName = :listName AND checked = 1")
     suspend fun deleteChecked(listName: String)
 
+    /** Remove a single item by id. */
+    @Query("DELETE FROM list_items WHERE id = :id")
+    suspend fun deleteItem(id: Long)
+
     /** Remove the entire list. */
     @Query("DELETE FROM list_items WHERE listName = :listName")
     suspend fun deleteList(listName: String)

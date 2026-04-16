@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -61,6 +62,7 @@ fun ConversationListScreen(
     onNewConversation: () -> Unit,
     onNavigateToActions: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    onOpenDrawer: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel(),
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
@@ -87,6 +89,13 @@ fun ConversationListScreen(
                         Text("${selectedConversationIds.size} / ${conversations.size} selected")
                     } else {
                         Text("Jandal")
+                    }
+                },
+                navigationIcon = {
+                    if (!isInSelectionMode) {
+                        IconButton(onClick = onOpenDrawer) {
+                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+                        }
                     }
                 },
                 actions = {

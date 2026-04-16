@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
@@ -67,6 +68,7 @@ fun ActionsScreen(
     autoOpenSheet: Boolean = false,
     onNavigateToChat: (query: String) -> Unit = {},
     onNewConversation: () -> Unit = {},
+    onOpenDrawer: () -> Unit = {},
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
     val actions by viewModel.actions.collectAsStateWithLifecycle()
@@ -96,6 +98,11 @@ fun ActionsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Actions") },
+                navigationIcon = {
+                    IconButton(onClick = onOpenDrawer) {
+                        Icon(Icons.Default.Menu, contentDescription = "Menu")
+                    }
+                },
                 actions = {
                     if (actions.isNotEmpty()) {
                         IconButton(onClick = { showClearConfirmation = true }) {
