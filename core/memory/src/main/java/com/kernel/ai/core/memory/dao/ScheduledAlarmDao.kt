@@ -18,6 +18,10 @@ interface ScheduledAlarmDao {
     @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND triggerAtMillis > :nowMillis ORDER BY triggerAtMillis ASC")
     fun observeUnfiredFuture(nowMillis: Long): Flow<List<ScheduledAlarmEntity>>
 
+    /** Observe all unfired alarms with no time filter — callers apply their own time cutoff. */
+    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 ORDER BY triggerAtMillis ASC")
+    fun observeAllUnfired(): Flow<List<ScheduledAlarmEntity>>
+
     @Query("UPDATE scheduled_alarms SET fired = 1 WHERE id = :id")
     suspend fun markFired(id: String)
 

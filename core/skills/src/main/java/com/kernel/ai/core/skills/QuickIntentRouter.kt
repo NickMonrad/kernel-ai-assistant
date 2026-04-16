@@ -842,8 +842,13 @@ class QuickIntentRouter(
                 params["day"] = normalizeDayName(dayMatch.groupValues[1].lowercase())
             }
 
-            // Extract label from "called X", "named X", "labeled X", "labelled X" — mirrors parseTimerDuration
-            val labelRegex = Regex("""(?:called|named|label(?:l?)ed)\s+(.+)$""", RegexOption.IGNORE_CASE)
+            // Extract label from "called X", "named X", "labeled X", "labelled X" — mirrors parseTimerDuration.
+            // Non-greedy capture with lookahead to stop before time/date keywords so
+            // "alarm called wake up at 7am" extracts "wake up", not "wake up at 7am".
+            val labelRegex = Regex(
+                """(?:called|named|label(?:l?)ed)\s+(.+?)(?=\s+(?:at|on|for|by|from|tomorrow|today|tonight|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(?::\d{2})?\s*(?:am|pm))(?:\s|$)|$)""",
+                RegexOption.IGNORE_CASE,
+            )
             val labelMatch = labelRegex.find(cleaned)
             if (labelMatch != null) {
                 params["label"] = labelMatch.groupValues[1].trim()

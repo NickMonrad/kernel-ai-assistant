@@ -23,19 +23,25 @@ class ScheduledAlarmsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
+    // Filter by current time on every emission so past-due alarms disappear immediately
     val alarms: StateFlow<List<ScheduledAlarmEntity>> =
-        dao.observeUnfiredFuture(System.currentTimeMillis())
+        dao.observeAllUnfired()
+            .map { list -> list.filter { it.triggerAtMillis > System.currentTimeMillis() } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun cancelAlarm(alarm: ScheduledAlarmEntity) {
         viewModelScope.launch {
-            // Cancel the pending AlarmManager broadcast
+            // Cancel the pending AlarmManager broadcast.
+            // Intent must include the same extras used when the alarm was scheduled
+            // so that PendingIntent.filterEquals() finds a match.
             val alarmManager = context.getSystemService(AlarmManager::class.java)
             val broadcastIntent = Intent().apply {
                 component = android.content.ComponentName(
                     context.packageName,
                     "com.kernel.ai.alarm.AlarmBroadcastReceiver",
                 )
+                putExtra("alarm_label", alarm.label ?: "Alarm")
+                putExtra("alarm_id", alarm.id)
             }
             val pendingIntent = PendingIntent.getBroadcast(
                 context,
