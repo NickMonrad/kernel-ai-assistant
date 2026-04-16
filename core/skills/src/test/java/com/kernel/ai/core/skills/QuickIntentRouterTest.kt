@@ -1289,12 +1289,7 @@ class QuickIntentRouterTest {
             Arguments.of("what week are we in"),
             Arguments.of("what's the month"),
             Arguments.of("what is the current month"),
-            // holiday date queries
-            Arguments.of("what day does Christmas fall on"),
-            Arguments.of("what day does New Year fall on this year"),
-            Arguments.of("what day does Easter fall on this year"),
-            Arguments.of("when is Christmas this year"),
-            Arguments.of("what date is Easter this year"),
+
         )
 
         @JvmStatic
@@ -1775,6 +1770,18 @@ class QuickIntentRouterTest {
             Arguments.of("I'm bored"),
             Arguments.of("what should I do today"),
             Arguments.of("can you help me"),
+            // Holiday / recurring date queries — should fall through to E4B (QIR cannot resolve these)
+            Arguments.of("what day does Christmas fall on"),
+            Arguments.of("what day does New Year fall on this year"),
+            Arguments.of("what day does Easter fall on this year"),
+            Arguments.of("when is Christmas this year"),
+            Arguments.of("what date is Easter this year"),
+            Arguments.of("what date is Thanksgiving this year"),
+            Arguments.of("what day is New Year's Day this year"),
+            // Boundary false-positives — must NOT match QIR date/time patterns
+            Arguments.of("what is the monthly cost"),
+            Arguments.of("what is the weekly schedule"),
+            Arguments.of("what is the year 1984 about"),
         )
     }
 

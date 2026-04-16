@@ -281,16 +281,16 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?year""",
+                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?year\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Pattern: "is it still Monday" / "is it Monday today" / "is today Monday"
+        // Pattern: "is it still Monday" / "is it Monday today" / "is today Monday" / "is it Friday today"
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """(?:is\s+it\s+(?:still\s+)?|is\s+today\s+)(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)""",
+                """(?:is\s+it\s+(?:still\s+)?|is\s+today\s+)(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+today)?""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -299,7 +299,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what\s+(?:month|week)\s+(?:is\s+it|are\s+we\s+in|is\s+this)""",
+                """what\s+(?:month|week)\b\s+(?:is\s+it|are\s+we\s+in|is\s+this)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -308,25 +308,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(?:month|week)""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { _, _ -> emptyMap() },
-        ),
-        // Pattern: "what day does Christmas fall on" / "what day does New Year fall on this year"
-        IntentPattern(
-            intentName = "get_time",
-            regex = Regex(
-                """what\s+day\s+does\s+.+?\s+fall\s+on""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { _, _ -> emptyMap() },
-        ),
-        // Pattern: "when is Christmas this year" / "what date is Easter this year"
-        IntentPattern(
-            intentName = "get_time",
-            regex = Regex(
-                """(?:when\s+is|what\s+(?:day|date)\s+is)\s+.+?\s+this\s+year""",
+                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(?:month|week)\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
