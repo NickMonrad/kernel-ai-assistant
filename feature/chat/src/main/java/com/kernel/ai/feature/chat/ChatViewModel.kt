@@ -298,6 +298,7 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun initializeConversation() {
+        try {
         val id = navConversationId ?: conversationRepository.createConversation()
         conversationId = id
 
@@ -353,9 +354,11 @@ class ChatViewModel @Inject constructor(
             }
         }
         // else: new conversation, both flags stay false (defaults)
-
-        // Engine init is handled eagerly by initEngineWhenReady() — shows loading screen.
-        _conversationInitialized.value = true
+        } finally {
+            // Always unblock the Loading guard — even on DB error the engine-ready
+            // path should still transition to Ready rather than freezing the screen.
+            _conversationInitialized.value = true
+        }
     }
 
     /**
