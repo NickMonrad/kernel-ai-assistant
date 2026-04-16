@@ -389,9 +389,8 @@ class ChatViewModel @Inject constructor(
             val modelPath = downloadManager.getModelPath(preferred) ?: return
             activeModel = preferred
             try {
-                embeddingEngine.close()
-                System.gc()
-                Log.i("KernelAI", "Released EmbeddingGemma for Gemma-4 GPU init")
+                // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
+                // embeddingEngine.close() removed — it silently broke search_memory (#445)
 
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
                 activeContextWindowSize = settings.contextWindowSize
@@ -435,9 +434,8 @@ class ChatViewModel @Inject constructor(
             val modelPath = downloadManager.getModelPath(preferred) ?: return
             activeModel = preferred
             try {
-                embeddingEngine.close()
-                System.gc()
-                Log.i("KernelAI", "Released EmbeddingGemma for Gemma-4 GPU init")
+                // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
+                // embeddingEngine.close() removed — it silently broke search_memory (#445)
 
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
                 activeContextWindowSize = settings.contextWindowSize
@@ -755,7 +753,9 @@ class ChatViewModel @Inject constructor(
                                 ragRepository.indexMessage(savedId, convId, resultContent)
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
                                     contextWindowManager.estimateTokens(resultContent)
-                                needsHistoryReplay = true
+                                // Do NOT set needsHistoryReplay here — KV cache remains valid after
+                                // native tool calls and forcing a replay drops prior turns from the
+                                // tight history budget, causing context amnesia (#446).
                             } else {
                                 // Normal text response — write corrected content to UI state
                                 _messages.update { msgs ->
