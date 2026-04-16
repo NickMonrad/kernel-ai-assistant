@@ -1013,15 +1013,20 @@ class ChatViewModel @Inject constructor(
      */
     private fun correctSkillNumbers(response: String, systemContext: String?): String {
         if (systemContext == null) return response
+        // Snapshot original percentage tokens so later loop iterations can't re-correct
+        // a token that was already fixed by a prior iteration (chain-correction guard).
+        val originalPctTokens = Regex("""(\d+)%""").findAll(response).map { it.groupValues[1] }.toSet()
+        val expectedNumbers = Regex("""\d+""").findAll(systemContext).map { it.value }
+            .filter { it.length >= 2 }
+            .toList()
         var corrected = response
-        Regex("""\d+""").findAll(systemContext).forEach { match ->
-            val expected = match.value
-            if (expected.length < 2) return@forEach         // single digits can't be truncated
-            if (corrected.contains("$expected%")) return@forEach // already present as percentage — no fix needed
-            // Only repair percentage values — safe, avoids false-positives on other numbers
+        expectedNumbers.forEach { expected ->
+            if (corrected.contains("$expected%")) return@forEach // full percentage already present
             corrected = corrected.replace(Regex("""(\d+)%""")) { pctMatch ->
                 val found = pctMatch.groupValues[1]
-                if (expected.startsWith(found) && found.length < expected.length) "$expected%"
+                // Only repair tokens that existed in the original response (not already corrected)
+                // and where the model's output is a strict prefix of the expected value.
+                if (found in originalPctTokens && expected.startsWith(found) && found.length < expected.length) "$expected%"
                 else pctMatch.value
             }
         }
