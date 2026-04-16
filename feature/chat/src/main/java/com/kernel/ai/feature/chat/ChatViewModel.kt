@@ -121,6 +121,9 @@ class ChatViewModel @Inject constructor(
 
     /** True while Gemma-4 is being lazily initialised in response to a [sendMessage] call. */
     private val _isLoadingModel = MutableStateFlow(false)
+
+    /** True once [initializeConversation] has completed and [conversationId] is set. */
+    private val _conversationInitialized = MutableStateFlow(false)
     private val _showThinkingProcess = MutableStateFlow(true)
 
     /** Ensures at most one concurrent Gemma-4 initialisation attempt. */
@@ -130,6 +133,7 @@ class ChatViewModel @Inject constructor(
         val isReady: Boolean,
         val isGenerating: Boolean,
         val isLoadingModel: Boolean,
+        val conversationInitialized: Boolean,
     )
     private data class InputState(
         val messages: List<ChatMessage>,
@@ -142,8 +146,9 @@ class ChatViewModel @Inject constructor(
         inferenceEngine.isReady,
         inferenceEngine.isGenerating,
         _isLoadingModel,
-    ) { isReady, isGenerating, isLoadingModel ->
-        EngineState(isReady, isGenerating, isLoadingModel)
+        _conversationInitialized,
+    ) { isReady, isGenerating, isLoadingModel, conversationInitialized ->
+        EngineState(isReady, isGenerating, isLoadingModel, conversationInitialized)
     }
 
     private val inputState = combine(
@@ -181,7 +186,7 @@ class ChatViewModel @Inject constructor(
                 }
                 ChatUiState.ModelsNotReady(isDownloading = anyDownloading, modelProgress = progress)
             }
-            !engine.isReady -> ChatUiState.Loading
+            !engine.isReady || !engine.conversationInitialized -> ChatUiState.Loading
             else -> ChatUiState.Ready(
                 conversationId = conversationId ?: "",
                 conversationTitle = input.conversationTitle,
@@ -350,6 +355,7 @@ class ChatViewModel @Inject constructor(
         // else: new conversation, both flags stay false (defaults)
 
         // Engine init is handled eagerly by initEngineWhenReady() — shows loading screen.
+        _conversationInitialized.value = true
     }
 
     /**
