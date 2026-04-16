@@ -117,7 +117,7 @@ class KernelAIToolSet @Inject constructor(
 
     @Tool(description = "Get current weather conditions or a multi-day weather forecast for a location. ONLY for weather, temperature, precipitation, wind, or climate queries. NOT for date, time, day-of-week, calendar, or general knowledge questions.")
     fun getWeather(
-        @ToolParam(description = "Optional location/city name (e.g., \"Brisbane\" or \"Murrumba Downs, QLD, Australia\"). If provided, uses this location. If omitted, uses device GPS") location: String,
+        @ToolParam(description = "Optional location/city name. ONLY provide if the user explicitly names a place (e.g. 'in Brisbane') or says 'at home'. Leave blank for all other weather queries — device GPS will be used automatically and is more accurate than profile location.") location: String,
         @ToolParam(description = "Optional number of forecast days (1-7). Omit for current conditions only") forecastDays: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
