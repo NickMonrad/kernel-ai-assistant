@@ -626,17 +626,21 @@ class QuickIntentRouter(
                 params
             },
         ),
-        // "send an email to John about meeting" / "email John about the project"
+        // "send an email to John about meeting" / "email John with body Please review"
         IntentPattern(
             intentName = "send_email",
             regex = Regex(
-                """^(?:send\s+(?:an?\s+)?email|email)\s+(?:to\s+)?(.+?)(?:\s+(?:about|regarding|re|subject)\s+(.+))?$""",
+                """^(?:send\s+(?:an?\s+)?email|email)\s+(?:to\s+)?(.+?)""" +
+                    """(?:\s+(?:about|regarding|re|subject:?)\s+(.+?))?""" +
+                    """(?:\s+(?:body|message|saying|containing)\s+(.+))?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val params = mutableMapOf("contact" to match.groupValues[1].trim())
                 val subject = match.groupValues[2].trim()
+                val body = match.groupValues[3].trim()
                 if (subject.isNotBlank()) params["subject"] = subject
+                if (body.isNotBlank()) params["body"] = body
                 params
             },
         ),

@@ -35,7 +35,7 @@ class SaveMemorySkill @Inject constructor(
         parameters = mapOf(
             "content" to SkillParameter(
                 type = "string",
-                description = "The fact or preference to remember, written as a clear statement."
+                description = "The exact fact or preference to remember, verbatim as the user stated it — NOT a meta-summary. e.g. 'Nick prefers dark mode', never 'User wants to save a preference'."
             )
         ),
         required = listOf("content"),
@@ -45,7 +45,9 @@ class SaveMemorySkill @Inject constructor(
 save_memory: Save an important fact or preference to the user's long-term memory.
 
 Parameters:
-- content (required, string): The fact to save as a clear statement.
+- content (required, string): The exact fact verbatim as the user stated it — NOT a meta-description.
+  CORRECT: "Nick's cat is called Whiskers"
+  WRONG:   "The user wants to remember the name of their cat"
 
 Memory rule: whenever the user says 'remember', 'save', 'note that', 'don't forget',
 'keep that in mind', 'save it', 'save that', 'remember that', or asks you to keep
@@ -72,7 +74,7 @@ Do NOT ask what to save — always infer and call the tool.
                     embeddingVector = vector,
                 )
                 Log.d(TAG, "SaveMemorySkill: stored core memory — '${content.take(60)}'")
-                SkillResult.Success("✓ Saved to memory.")
+                SkillResult.Success("✓ Saved: \"${content.take(100)}\".")
             } catch (e: Exception) {
                 Log.e(TAG, "SaveMemorySkill failed", e)
                 SkillResult.Failure(name, e.message ?: "Failed to save memory")
