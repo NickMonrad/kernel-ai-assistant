@@ -51,7 +51,7 @@ const val DEFAULT_MAX_TOKENS = 8000
  * Actual runtime values come from [ModelSettingsEntity] (user-configurable, defaults to 1.0/0.95/64).
  * NPU backend ignores SamplerConfig entirely (hardware sampler used instead).
  */
-val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 64, topP = 0.95f, temperature = 1.0f)
+val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 64, topP = 0.95, temperature = 1.0)
 
 /**
  * Controls how much of the Jandal identity is injected into the system prompt.
