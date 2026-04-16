@@ -31,6 +31,12 @@ private const val TAG = "KernelAI"
  * ## Lazy injection
  * [SkillRegistry] is injected lazily to break the circular dependency:
  * SkillRegistry → Set<Skill> (includes LoadSkillSkill) → SkillRegistry.
+ *
+ * ## ⚠️ System prompt constraint
+ * Because the model only learns skill parameters via `loadSkill`, the system prompt
+ * ([DEFAULT_SYSTEM_PROMPT] in ModelConfig) must never contain raw tool call syntax
+ * (e.g. `runJs(skillName="query-wikipedia")`). That would cause the model to skip
+ * step 2 entirely. Behavioural rules are fine; skill invocation recipes are not.
  */
 @Singleton
 class KernelAIToolSet @Inject constructor(
@@ -67,7 +73,7 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Execute a native Android device action: flashlight, alarms, timers, calendar events, email, SMS, calls, Do Not Disturb, volume, Wi-Fi, Bluetooth, airplane mode, hotspot, media playback (local/YouTube/Spotify/Netflix/Plex), navigation, app launching, and info queries")
+    @Tool(description = "Execute a native Android device action: flashlight, alarms, timers, calendar events, email, SMS, phone calls, Do Not Disturb, volume, Wi-Fi, Bluetooth, airplane mode, hotspot, media playback (local/YouTube/Spotify/Netflix/Plex), navigation, app launching, battery status, current time, and current date. NOT for weather, web search, memory recall, or general knowledge questions.")
     fun runIntent(
         @ToolParam(description = "The intent action: toggle_flashlight_on, toggle_flashlight_off, send_email, send_sms, make_call, set_alarm, set_timer, create_calendar_event, toggle_dnd_on, toggle_dnd_off, toggle_wifi, toggle_bluetooth, toggle_airplane_mode, toggle_hotspot, set_volume, play_media, play_media_album, play_media_playlist, play_youtube, play_spotify, play_netflix, play_plex, navigate_to, find_nearby, open_app, get_battery, get_time, get_date") intentName: String,
         @ToolParam(description = "Additional parameters as key:value pairs in JSON. For set_alarm: {\"time\":\"10pm\"} or {\"time\":\"7:30am\",\"day\":\"monday\",\"label\":\"Wake up\"}. For set_timer: {\"duration_seconds\":\"180\"}. For send_email: {\"subject\":\"Hi\",\"body\":\"Text\"}. For send_sms: {\"contact\":\"Mom\",\"message\":\"Text\"}. For make_call: {\"contact\":\"Dad\"}. For create_calendar_event: {\"title\":\"Meeting\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}. For set_volume: {\"value\":\"50\",\"is_percent\":\"true\"}. For play_media: {\"query\":\"Song Name\",\"artist\":\"Artist\"}. For play_plex: {\"title\":\"Movie Name\"}. For navigate_to: {\"destination\":\"airport\"}. For toggle_wifi/bluetooth/airplane_mode/hotspot: {\"state\":\"on\"}. For open_app: {\"app_name\":\"Spotify\"}. For toggle_dnd/flashlight/get_battery/get_time/get_date: {}") parameters: String,
@@ -89,7 +95,7 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Run a built-in JavaScript skill. Use skill_name 'get-weather-city' for weather by city name, 'query-wikipedia' for Wikipedia search. For GPS weather use run_intent with get_weather_gps instead")
+    @Tool(description = "Run a built-in JavaScript skill. Use 'query-wikipedia' for Wikipedia or encyclopedia lookups. DO NOT use for weather — use the getWeather tool instead.")
     fun runJs(
         @ToolParam(description = "The JS skill to run: 'get-weather-city' or 'query-wikipedia'") skillName: String,
         @ToolParam(description = "The search query or input (city name for weather, topic for Wikipedia)") query: String,
@@ -109,9 +115,9 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Get current weather or forecast. If user's location is known from their profile, pass it as location parameter. Otherwise uses device GPS")
+    @Tool(description = "Get current weather conditions or a multi-day weather forecast for a location. ONLY for weather, temperature, precipitation, wind, or climate queries. NOT for date, time, day-of-week, calendar, or general knowledge questions.")
     fun getWeather(
-        @ToolParam(description = "Optional location/city name (e.g., \"Brisbane\" or \"Murrumba Downs, QLD, Australia\"). If provided, uses this location. If omitted, uses device GPS") location: String,
+        @ToolParam(description = "Optional location/city name. ONLY provide if the user explicitly names a place (e.g. 'in Brisbane') or says 'at home'. Leave blank for all other weather queries — device GPS will be used automatically and is more accurate than profile location.") location: String,
         @ToolParam(description = "Optional number of forecast days (1-7). Omit for current conditions only") forecastDays: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
@@ -131,7 +137,7 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Save an important fact or preference to the user's long-term memory. Use when the user says 'remember', 'save', 'note that', or 'don't forget'")
+    @Tool(description = "Save an important fact or preference to the user's long-term memory. Use when the user says 'remember', 'save', 'note that', or 'don't forget'. NOT for calendar events, alarms, reminders, timers, or to-do items — use runIntent for those.")
     fun saveMemory(
         @ToolParam(description = "The exact fact or preference to save, verbatim as the user stated it — NOT a meta-summary or description of what they said. Example: 'Nick prefers dark mode' or 'Nick\\'s dog is called Biscuit'. Never write 'The user wants to remember X'.") content: String,
     ): Map<String, String> {
@@ -143,7 +149,7 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Search saved memories and past conversation history for information about a topic. Use when the user asks what you remember, wants to recall a fact, or asks about past conversations")
+    @Tool(description = "Search saved memories and past conversation history for information about a topic. Use when the user asks what you remember, wants to recall a fact, or asks about past conversations. NOT for web search, Wikipedia, weather, or any real-time information.")
     fun searchMemory(
         @ToolParam(description = "What to search for in saved memories and past messages") query: String,
     ): Map<String, String> {

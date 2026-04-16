@@ -31,22 +31,22 @@ class GetWeatherSkill @Inject constructor(
 
     override val name = "get_weather_gps"
     override val description =
-        "Get current weather or a multi-day forecast. Can use device GPS or a specified location. " +
-            "If the user's location is known from their profile, pass it in the location parameter. " +
-            "Otherwise, uses device GPS as fallback. " +
+        "Get current weather or a multi-day forecast. Uses device GPS by default — only pass a " +
+            "location if the user explicitly names a place or says 'at home'. " +
+            "Profile location is a fallback only when GPS is unavailable. " +
             "ALWAYS call this tool for any weather question — never use weather data from memory, it is stale."
     override val examples = listOf(
         "Current location weather → get_weather_gps()",
         "GPS location 3-day forecast → get_weather_gps(forecast_days=\"3\")",
         "Weather in Brisbane → get_weather_gps(location=\"Brisbane\")",
-        "Forecast for user's profile location → get_weather_gps(location=\"Murrumba Downs, QLD, Australia\")",
+        "Weather at home → get_weather_gps(location=\"Murrumba Downs, QLD, Australia\")",
     )
 
     override val schema = SkillSchema(
         parameters = mapOf(
             "location" to SkillParameter(
                 type = "string",
-                description = "Optional location/city name (e.g., \"Brisbane\" or \"Murrumba Downs, QLD, Australia\"). If provided, uses geocoding to fetch weather for this location. If not provided, uses device GPS.",
+                description = "Optional location/city name. Only provide if the user explicitly names a place or says 'at home'. Leave blank to use device GPS — GPS is always preferred and more accurate than profile location.",
             ),
             "forecast_days" to SkillParameter(
                 type = "integer",
