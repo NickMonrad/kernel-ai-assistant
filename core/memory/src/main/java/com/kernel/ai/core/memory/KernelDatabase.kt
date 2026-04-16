@@ -172,7 +172,7 @@ abstract class KernelDatabase : RoomDatabase() {
                         `listName` TEXT NOT NULL,
                         `item` TEXT NOT NULL,
                         `addedAt` INTEGER NOT NULL,
-                        `checked` INTEGER NOT NULL DEFAULT 0
+                        `checked` INTEGER NOT NULL
                     )
                     """.trimIndent()
                 )
