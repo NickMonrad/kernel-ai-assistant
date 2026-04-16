@@ -835,6 +835,17 @@ class QuickIntentRouter(
             },
         ),
 
+        // ── System Info ──
+        // "show my device info" / "what are my device specs" / "show system info"
+        IntentPattern(
+            intentName = "get_system_info",
+            regex = Regex(
+                """(?:show|get|what(?:'s|\s+are)?)\s+(?:my\s+)?(?:device\s+(?:info|specs|details)|system\s+info(?:rmation)?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
         // ── Lists ──
         IntentPattern(
             intentName = "add_to_list",
