@@ -57,8 +57,14 @@ class EpisodicDistillationUseCase @Inject constructor(
                 "$label: ${msg.content}"
             }
 
+            val sentenceRange = when {
+                messages.size >= 17 -> "6–10 sentences"
+                messages.size >= 9  -> "5–8 sentences"
+                else                -> "3–5 sentences"
+            }
+
             val prompt = """
-Summarise the key facts, preferences, and events from this conversation in 3–5 short sentences. Each sentence should be a standalone fact. Output only the sentences, one per line, with no numbering or bullet points.
+Summarise the key facts, preferences, and events from this conversation in $sentenceRange. Each sentence should be a standalone fact. Output only the sentences, one per line, with no numbering or bullet points.
 
 [CONVERSATION]
 $transcript
