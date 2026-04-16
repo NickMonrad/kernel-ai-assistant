@@ -77,6 +77,7 @@ class ModelManagementViewModel @Inject constructor(
     }
 
     fun deleteModel(model: KernelModel) {
+        if (model.isRequired) return
         viewModelScope.launch(Dispatchers.IO) {
             model.localFile(context).delete()
             // Also delete any stale .tmp resume file
