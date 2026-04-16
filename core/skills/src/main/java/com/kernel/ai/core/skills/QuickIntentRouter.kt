@@ -173,6 +173,41 @@ class QuickIntentRouter(
             paramExtractor = { match, input -> parseTimerDuration(match, input) },
         ),
 
+        // ── Calendar ──
+        // "add/create/schedule/set up a [dentist/gym/meeting/event] [for/on] [date] [at time]"
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """(?:add|create|schedule|put|book)\s+(?:a\s+|an\s+)?(?:calendar\s+)?(?:event|appointment|meeting|entry|invite|session|booking)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
+        ),
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """(?:set\s+up|schedule)\s+(?:a\s+|an\s+)?meeting\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
+        ),
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """block\s+(?:out\s+)?(?:time\s+)?(?:on\s+(?:my\s+)?calendar\b|(?:this|next)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|morning|afternoon|evening)\b|tomorrow\b)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
+        ),
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """put\s+.{3,40}\s+(?:in|on|into)\s+(?:my\s+)?calendar\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
+        ),
+
         // ── Do Not Disturb ──
         IntentPattern(
             intentName = "toggle_dnd_on",
