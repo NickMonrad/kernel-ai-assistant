@@ -243,7 +243,11 @@ class ChatViewModel @Inject constructor(
             when (identityTier) {
                 IdentityTier.FULL -> {
                     append(DEFAULT_SYSTEM_PROMPT)
-                    append("\n\n${jandalPersona.buildGreetingInstruction(isFirstReply = isFirstReply)} ${jandalPersona.buildSessionVocab()}")
+                    // Session vocab is stable per conversation — safe to bake into system prompt.
+                    // Greeting instruction is injected per-turn (in the user prompt context)
+                    // so it can change from "Kia ora" on turn 1 to "no greeting" on turn 2+
+                    // without needing an expensive system prompt reset that clears the KV cache.
+                    append("\n\n${jandalPersona.buildSessionVocab()}")
                 }
                 IdentityTier.MINIMAL -> {
                     append(MINIMAL_SYSTEM_PROMPT)
@@ -713,6 +717,9 @@ class ChatViewModel @Inject constructor(
             prompt = buildString {
                 if (ragContext.isNotBlank()) append("$ragContext\n\n")
                 if (systemContext != null) append("$systemContext\n\n")
+                // Greeting instruction injected per-turn so turn 1 says "Kia ora" and
+                // subsequent turns explicitly suppress greetings — without invalidating the KV cache.
+                append("[System: ${jandalPersona.buildGreetingInstruction(isFirstReply)}]\n\n")
                 append(text)
             }
 
