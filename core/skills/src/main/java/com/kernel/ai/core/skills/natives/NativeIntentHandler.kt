@@ -1,6 +1,8 @@
 package com.kernel.ai.core.skills.natives
 
+import android.app.AlarmManager
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.SearchManager
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -16,9 +18,13 @@ import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
+import com.kernel.ai.alarm.AlarmBroadcastReceiver
+import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
+import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
 import com.kernel.ai.core.skills.SkillResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -26,9 +32,11 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.time.temporal.TemporalAdjusters
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
+import kotlinx.coroutines.runBlocking
 
 private const val TAG = "KernelAI"
 
@@ -67,6 +75,7 @@ private const val TAG = "KernelAI"
 @Singleton
 class NativeIntentHandler @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val scheduledAlarmDao: ScheduledAlarmDao,
 ) {
 
     fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -162,31 +171,70 @@ class NativeIntentHandler @Inject constructor(
     // ── Alarm ─────────────────────────────────────────────────────────────────
 
     private fun setAlarm(params: Map<String, String>): SkillResult {
-        // Prefer `time` string (e.g. "10pm", "09:05") over raw hours/minutes so the model
-        // never has to do 12h→24h conversion — resolveTime() handles it reliably in Kotlin.
-        val timePair = params["time"]?.let { t ->
-            resolveTime(t)?.let { it.hour to it.minute }
-        } ?: ((params["hours"]?.toIntOrNull() ?: 8) to (params["minutes"]?.toIntOrNull() ?: 0))
-        val (hours, minutes) = timePair
-        val day = params["day"]?.trim()?.lowercase()
-        val isTomorrow = day == "tomorrow"
-        val weekdays = setOf("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
-        val isWeekday = day in weekdays
+        val timeStr = params["time"]
+            ?: return SkillResult.Failure("run_intent", "No time specified for alarm.")
+        val resolvedTime = resolveTime(timeStr)
+            ?: return SkillResult.Failure("run_intent", "Couldn't parse time: $timeStr")
 
-        // NOTE: AlarmClock.EXTRA_DAYS is intentionally NOT used here.
-        // EXTRA_DAYS creates a repeating weekly alarm, not a one-time future alarm.
-        // The clock app opens pre-filled with the time; the user confirms the date.
-        //
-        // For "tomorrow" or weekday alarms we prefix EXTRA_MESSAGE with the day name so
-        // the label is visible in the clock app, reminding the user to verify the date.
-        val baseLabel = params["label"]?.takeIf { it.isNotBlank() }
+        val label = params["label"]?.takeIf { it.isNotBlank() }
+        val day = params["day"]?.trim()?.takeIf { it.isNotBlank() }
+        val resolvedDate = day?.let { resolveDate(it) }
+
+        if (resolvedDate != null) {
+            // Schedule a real exact alarm via AlarmManager
+            val triggerAt = resolvedDate
+                .atTime(resolvedTime)
+                .atZone(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli()
+
+            if (triggerAt <= System.currentTimeMillis()) {
+                return SkillResult.Failure("run_intent", "That time has already passed.")
+            }
+
+            val alarmId = UUID.randomUUID().toString()
+            val alarmEntity = ScheduledAlarmEntity(
+                id = alarmId,
+                triggerAtMillis = triggerAt,
+                label = label,
+                createdAt = System.currentTimeMillis(),
+            )
+            runBlocking { scheduledAlarmDao.insert(alarmEntity) }
+
+            val alarmManager = context.getSystemService(AlarmManager::class.java)
+            val alarmIntent = Intent(context, AlarmBroadcastReceiver::class.java).apply {
+                putExtra(AlarmBroadcastReceiver.EXTRA_LABEL, label ?: "Alarm")
+                putExtra(AlarmBroadcastReceiver.EXTRA_ALARM_ID, alarmId)
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                alarmId.hashCode(),
+                alarmIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+
+            val formatter = DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mma")
+                .withZone(ZoneId.systemDefault())
+            val formattedTime = formatter.format(Instant.ofEpochMilli(triggerAt))
+            return SkillResult.Success(
+                "Alarm set for $formattedTime${if (label != null) " — $label" else ""}"
+            )
+        }
+
+        // No date resolved — fall back to clock app intent (existing behaviour)
+        val (hours, minutes) = resolvedTime.hour to resolvedTime.minute
         val dayDisplay = day?.replaceFirstChar { it.uppercase() }
+        val isWeekday = day?.lowercase() in setOf(
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+        )
+        val isTomorrow = day?.lowercase() == "tomorrow"
         val messageLabel = when {
-            isTomorrow && baseLabel != null -> "TOMORROW: $baseLabel"
+            isTomorrow && label != null -> "TOMORROW: $label"
             isTomorrow -> "TOMORROW"
-            isWeekday && baseLabel != null -> "$dayDisplay: $baseLabel"
+            isWeekday && label != null -> "$dayDisplay: $label"
             isWeekday -> dayDisplay
-            else -> baseLabel
+            else -> label
         }
 
         val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
