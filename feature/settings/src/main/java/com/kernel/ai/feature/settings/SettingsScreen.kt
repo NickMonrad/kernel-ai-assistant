@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
@@ -96,11 +98,15 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState()),
         ) {
             // ── Preferred Model Info ──────────────────────────────────────────
             if (uiState.activeModelLabel.isNotEmpty()) {
                 ListItem(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToModelManagement() },
                     headlineContent = { Text("Preferred model") },
                     supportingContent = {
                         val label = uiState.preferredModel?.displayName ?: "Auto"
@@ -113,6 +119,7 @@ fun SettingsScreen(
                     leadingContent = {
                         Icon(Icons.Default.SmartToy, contentDescription = null)
                     },
+                    trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
                 )
                 HorizontalDivider()
             }
