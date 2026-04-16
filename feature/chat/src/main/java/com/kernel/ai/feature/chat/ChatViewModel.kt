@@ -683,7 +683,7 @@ class ChatViewModel @Inject constructor(
                         }
 
                         is GenerationResult.Complete -> {
-                            val fullContent = accumulatedContent.toString()
+                            val fullContent = correctSkillNumbers(accumulatedContent.toString(), systemContext)
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
 
                             // With native SDK tool calling, tool execution happens
@@ -740,9 +740,9 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(resultContent)
                                 needsHistoryReplay = true
                             } else {
-                                // Normal text response
+                                // Normal text response — write corrected content to UI state
                                 _messages.update { msgs ->
-                                    msgs.map { if (it.id == assistantMsgId) it.copy(isStreaming = false) else it }
+                                    msgs.map { if (it.id == assistantMsgId) it.copy(content = fullContent, isStreaming = false) else it }
                                 }
                                 val savedAssistantMsgId = conversationRepository.addMessage(convId, "assistant", fullContent, thinking)
                                 ragRepository.indexMessage(savedAssistantMsgId, convId, fullContent)
@@ -1004,6 +1004,33 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { inferenceEngine.shutdown() }
+    }
+
+    /**
+     * Corrects digit-truncated numbers in a model response when a [System:] skill context was
+     * injected. E.g. model reads "Battery is at 92%" from context but outputs "9%" — a known
+     * Gemma-4 generation artefact. Only corrects percentage values to avoid false positives.
+     */
+    private fun correctSkillNumbers(response: String, systemContext: String?): String {
+        if (systemContext == null) return response
+        // Snapshot original percentage tokens so later loop iterations can't re-correct
+        // a token that was already fixed by a prior iteration (chain-correction guard).
+        val originalPctTokens = Regex("""(\d+)%""").findAll(response).map { it.groupValues[1] }.toSet()
+        val expectedNumbers = Regex("""\d+""").findAll(systemContext).map { it.value }
+            .filter { it.length >= 2 }
+            .toList()
+        var corrected = response
+        expectedNumbers.forEach { expected ->
+            if (corrected.contains("$expected%")) return@forEach // full percentage already present
+            corrected = corrected.replace(Regex("""(\d+)%""")) { pctMatch ->
+                val found = pctMatch.groupValues[1]
+                // Only repair tokens that existed in the original response (not already corrected)
+                // and where the model's output is a strict prefix of the expected value.
+                if (found in originalPctTokens && expected.startsWith(found) && found.length < expected.length) "$expected%"
+                else pctMatch.value
+            }
+        }
+        return corrected
     }
 }
 
