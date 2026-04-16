@@ -6,6 +6,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.kernel.ai.core.memory.dao.ContactAliasDao
+import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ConversationDao
 import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
@@ -16,6 +17,7 @@ import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.entity.ContactAliasEntity
+import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
@@ -38,8 +40,9 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         QuickActionEntity::class,
         ScheduledAlarmEntity::class,
         ContactAliasEntity::class,
+        ListItemEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -56,6 +59,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun quickActionDao(): QuickActionDao
     abstract fun scheduledAlarmDao(): ScheduledAlarmDao
     abstract fun contactAliasDao(): ContactAliasDao
+    abstract fun listItemDao(): ListItemDao
 
     companion object {
         /** Adds lastDistilledAt to conversations (#165) and lastAccessedAt to episodic_memories (#167). */
@@ -152,6 +156,23 @@ abstract class KernelDatabase : RoomDatabase() {
                         label TEXT,
                         createdAt INTEGER NOT NULL,
                         fired INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /** Creates list_items table for add_to_list skill persistence (#315). */
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `list_items` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `listName` TEXT NOT NULL,
+                        `item` TEXT NOT NULL,
+                        `addedAt` INTEGER NOT NULL,
+                        `checked` INTEGER NOT NULL
                     )
                     """.trimIndent()
                 )

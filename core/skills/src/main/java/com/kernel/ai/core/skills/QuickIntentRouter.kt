@@ -1,7 +1,10 @@
 package com.kernel.ai.core.skills
 
+import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.temporal.TemporalAdjusters
 
 /**
  * Tier 2: Fast Intent Layer — pure Kotlin regex + future BERT-tiny zero-shot classifier.
@@ -182,6 +185,16 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
         ),
 
+        // ── Cancel Alarm ──
+        IntentPattern(
+            intentName = "cancel_alarm",
+            regex = Regex(
+                """(?:cancel|delete|remove|dismiss|clear|turn\s+off|stop)\s+(?:my\s+|the\s+|an?\s+)?alarm""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
         // ── Timer ──
         IntentPattern(
             intentName = "set_timer",
@@ -225,6 +238,16 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+
+        // ── Cancel Timer ──
+        IntentPattern(
+            intentName = "cancel_timer",
+            regex = Regex(
+                """(?:cancel|stop|clear|end|dismiss)\s+(?:my\s+|the\s+|a\s+)?(?:timer|countdown)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
         ),
 
         // ── Calendar ──
@@ -285,6 +308,14 @@ class QuickIntentRouter(
             intentName = "toggle_dnd_on",
             regex = Regex(
                 """(?:silence|mute|hush)\s+(?:my\s+)?(?:phone|notifications?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """(?:silence|quieten?|mute)\s+(?:my\s+)?(?:phone|notifications?|ringer|sounds?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -485,6 +516,16 @@ class QuickIntentRouter(
                     else -> emptyMap()
                 }
             },
+        ),
+
+        // ── Weather ──
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather|how(?:'s|\s+is)\s+(?:the\s+)?weather|weather\s+(?:today|tonight|now|outside|forecast|this\s+week))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
         ),
 
         // ── Volume ──
@@ -800,6 +841,7 @@ class QuickIntentRouter(
         ),
 
         // ── Smart Home (MUST BE LAST — most generic) ──
+        // Exclude media/computing devices that the phone can't directly control.
         IntentPattern(
             intentName = "smart_home_on",
             regex = Regex(
@@ -996,6 +1038,97 @@ class QuickIntentRouter(
             "sat" -> "saturday"
             "sun" -> "sunday"
             else -> day
+        }
+
+        // ── Public surface for tests and callers ─────────────────────────────
+
+        /** Lightweight result type returned by [matchQuickIntent]. */
+        data class QuickIntent(
+            val action: String,
+            val params: Map<String, String> = emptyMap(),
+        )
+
+        /**
+         * Regex-only intent match — no classifier, no fallthrough.
+         * Returns [QuickIntent] when a regex pattern matches, or null otherwise.
+         */
+        fun matchQuickIntent(input: String): QuickIntent? {
+            return when (val result = QuickIntentRouter().route(input)) {
+                is RouteResult.RegexMatch -> QuickIntent(result.intent.intentName, result.intent.params)
+                else -> null
+            }
+        }
+
+        /**
+         * Parses a human-readable time string into "HH:mm" 24-hour format.
+         * Handles: "5pm", "9:30am", "14:00", "9 o'clock".
+         * Returns null if the string cannot be parsed.
+         */
+        internal fun resolveTime(input: String): String? {
+            val cleaned = input.lowercase().trim()
+                .replace(Regex("""\s*(o'clock|oclock)\s*"""), "")
+                .trim()
+            val timeRegex = Regex("""(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?""")
+            val match = timeRegex.find(cleaned) ?: return null
+            var hours = match.groupValues[1].toIntOrNull() ?: return null
+            val minutes = match.groupValues[2].toIntOrNull() ?: 0
+            val meridiem = match.groupValues[3].replace(".", "").lowercase()
+            if (meridiem == "pm" && hours < 12) hours += 12
+            if (meridiem == "am" && hours == 12) hours = 0
+            if (hours !in 0..23 || minutes !in 0..59) return null
+            return "${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}"
+        }
+
+        /**
+         * Resolves a relative or day-name date string into an ISO-8601 "YYYY-MM-DD" string.
+         * Handles: "today", "tomorrow", "next monday" … "next sunday".
+         * Returns null if the string cannot be resolved.
+         */
+        internal fun resolveDate(input: String): String? {
+            val normalized = input.lowercase().trim()
+            val today = LocalDate.now()
+            return when (normalized) {
+                "today" -> today.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                "tomorrow" -> today.plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE)
+                else -> {
+                    val isThis = normalized.startsWith("this ")
+                    val dayName = normalized.removePrefix("next ").removePrefix("this ").trim()
+                    val dow: DayOfWeek = when (dayName) {
+                        "monday" -> DayOfWeek.MONDAY
+                        "tuesday" -> DayOfWeek.TUESDAY
+                        "wednesday" -> DayOfWeek.WEDNESDAY
+                        "thursday" -> DayOfWeek.THURSDAY
+                        "friday" -> DayOfWeek.FRIDAY
+                        "saturday" -> DayOfWeek.SATURDAY
+                        "sunday" -> DayOfWeek.SUNDAY
+                        else -> return null
+                    }
+                    val date = if (isThis && today.dayOfWeek == dow) today
+                               else today.with(TemporalAdjusters.next(dow))
+                    date.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                }
+            }
+        }
+
+        /**
+         * String-based overload of [parseTimerDuration] for direct testing.
+         * Returns total duration in seconds, or null if no duration pattern is found.
+         */
+        fun parseTimerDuration(input: String): Int? {
+            val regex = Regex(
+                """(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)(?:\s+(?:and\s+)?(\d+)\s*(minutes?|mins?|seconds?|secs?|m|s))?""",
+                RegexOption.IGNORE_CASE,
+            )
+            val match = regex.find(input) ?: return null
+            val amount1 = match.groupValues[1].toIntOrNull() ?: 0
+            val unit1 = normalizeTimeUnit(match.groupValues[2])
+            var total = toSeconds(amount1, unit1)
+            if (match.groupValues[3].isNotEmpty()) {
+                val amount2 = match.groupValues[3].toIntOrNull() ?: 0
+                val unit2 = normalizeTimeUnit(match.groupValues[4])
+                total += toSeconds(amount2, unit2)
+            }
+            return total
         }
     }
 }
