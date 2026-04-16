@@ -27,4 +27,7 @@ interface ScheduledAlarmDao {
 
     @Query("DELETE FROM scheduled_alarms WHERE id = :id")
     suspend fun delete(id: String)
+
+    @Query("UPDATE scheduled_alarms SET enabled = :enabled WHERE id = :id")
+    suspend fun setEnabled(id: String, enabled: Boolean)
 }
