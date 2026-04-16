@@ -42,7 +42,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ContactAliasEntity::class,
         ListItemEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -176,6 +176,13 @@ abstract class KernelDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+            }
+        }
+
+        /** Corrects topK default from 40 → 64 per Gemma 4 model card. */
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE model_settings SET topK = 64 WHERE topK = 40")
             }
         }
 
