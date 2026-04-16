@@ -36,7 +36,7 @@ class ModelSettingsRepositoryImpl @Inject constructor(
             contextWindowSize = defaultContextWindow,
             temperature = 1.0f,
             topP = 0.95f,
-            topK = 40,
+            topK = 64,
             showThinkingProcess = true,
             updatedAt = System.currentTimeMillis(),
         )

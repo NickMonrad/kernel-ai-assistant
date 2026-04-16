@@ -17,7 +17,7 @@ data class ModelSettingsEntity(
     val temperature: Float,
     val topP: Float,
     /** Top-K candidates to sample from. Ignored when backend is NPU (hardware sampler). */
-    val topK: Int = 40,
+    val topK: Int = 64,
     /** Whether to display the model's internal reasoning (thinking tokens) in the chat UI. */
     val showThinkingProcess: Boolean = true,
     val updatedAt: Long = System.currentTimeMillis(),
