@@ -30,7 +30,7 @@ const val MINIMAL_SYSTEM_PROMPT =
 const val DEFAULT_MAX_TOKENS = 8000
 
 /** Sampler defaults for CPU/GPU backends. NPU requires null samplerConfig. */
-val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7)
+val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 64, topP = 0.95, temperature = 0.7)
 
 /**
  * Controls how much of the Jandal identity is injected into the system prompt.
@@ -52,7 +52,7 @@ enum class IdentityTier {
  * @param systemPrompt Optional system instruction prepended to every conversation.
  * @param temperature Sampling temperature (0.1-2.0). Higher = more creative. Default 1.0.
  * @param topP Nucleus sampling threshold (0.0-1.0). Default 0.95.
- * @param topK Top-K candidates for sampling. Ignored on NPU (hardware sampler). Default 40.
+ * @param topK Top-K candidates for sampling. Ignored on NPU (hardware sampler). Default 64 (Gemma 4 model card).
  * @param thinkingEnabled Whether to enable the model's thinking (chain-of-thought) channel.
  *   When false, the `thought` channel is omitted from [ConversationConfig], preventing the
  *   model from generating reasoning tokens — saving compute time and context window space.
@@ -65,7 +65,7 @@ data class ModelConfig(
     val systemPrompt: String? = DEFAULT_SYSTEM_PROMPT,
     val temperature: Float = 1.0f,
     val topP: Float = 0.95f,
-    val topK: Int = 40,
+    val topK: Int = 64,
     val thinkingEnabled: Boolean = true,
     val toolProvider: ToolProvider? = null,
 )
