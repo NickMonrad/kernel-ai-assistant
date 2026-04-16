@@ -272,7 +272,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what\s+year\s+(?:is\s+it|are\s+we\s+in|is\s+this)""",
+                """what\s+year\s+(?:is\s+it|are\s+we\s+in|is\s+this)\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -299,7 +299,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what\s+(?:month|week)\b\s+(?:is\s+it|are\s+we\s+in|is\s+this)""",
+                """what\s+(?:month|week)\b\s+(?:is\s+it|are\s+we\s+in|is\s+this)\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
