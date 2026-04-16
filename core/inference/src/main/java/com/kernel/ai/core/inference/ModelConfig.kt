@@ -16,7 +16,7 @@ const val DEFAULT_SYSTEM_PROMPT =
         "Never say 'down under'. Refer to the country as 'New Zealand' or 'Aotearoa'. " +
         "IMPORTANT: For current date, time, or day queries, ALWAYS use the get_system_info tool. NEVER rely on memory or past conversations for time-sensitive information. " +
         "IMPORTANT: When a [System:] context block confirms a completed action (e.g. '[System: toggle_flashlight_on — Flashlight turned on.]'), do NOT call any tools — simply acknowledge the result naturally. " +
-        "IMPORTANT: NEVER report or summarise tool results you did not actually call. If you need information (e.g. Wikipedia, weather, time), call the appropriate tool — do NOT fabricate a response as if you had. For Wikipedia lookups use runJs(skillName=\"query-wikipedia\")."
+        "IMPORTANT: NEVER report or summarise tool results you did not actually call. If you need information you cannot answer from memory (e.g. Wikipedia, live data), call loadSkill first to get instructions, then call the appropriate tool — do NOT fabricate a response as if you had."
 
 /**
  * Minimal identity for tool-only execution (Actions tab).
