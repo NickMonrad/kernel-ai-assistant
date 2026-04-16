@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-04-15 (restructured — parent/sub-issue hierarchy, PR #339 merged, #340 analysis complete)
+> **Last updated:** 2026-04-16 (post-sprint: #343 thinking toggle shipped PR #413; #353 MiniLM classifier complete; #373 FallThrough wired; #402 #403 #405 bugs fixed; DND shipped; #407 WebSearchSkill added as future work)
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -153,7 +153,7 @@ The architectural foundation that determines tool call accuracy and response qua
 | [#341](https://github.com/NickMonrad/kernel-ai-assistant/issues/341) | Lazy skill loading (`load_skill` pattern) — refactor monolithic system prompt to on-demand skill instructions | ✅ Done | 🔴 High |
 | [#372](https://github.com/NickMonrad/kernel-ai-assistant/issues/372) | Native SDK tool calling — migrate from custom `<\|tool_call\>` tokens to LiteRT-LM `@Tool` annotations with constrained decoding | ✅ Done | 🔴 High |
 | [#342](https://github.com/NickMonrad/kernel-ai-assistant/issues/342) | Model settings — add topK, fix temp 1.0/0.7 conflict, task-aware presets | ✅ Done — PR #388 | 🟡 Medium |
-| [#343](https://github.com/NickMonrad/kernel-ai-assistant/issues/343) | Thinking budget configuration — toggle + budget for Gemma-4 think mode | ⚠ Partial — PR #388 (UI toggle done; budget pending LiteRT-LM SDK support) | 🟡 Medium |
+| [#343](https://github.com/NickMonrad/kernel-ai-assistant/issues/343) | Thinking budget configuration — toggle + budget for Gemma-4 think mode | ✅ Done — PR #413 (toggle wired to LiteRT-LM Channel API; E-4B defaults ON, E-2B hidden; persisted in Room DB) | 🟡 Medium |
 | [#231](https://github.com/NickMonrad/kernel-ai-assistant/issues/231) | NPU fallback — QTI Snapdragon device detection fix | ⬜ Pending | 🟡 Medium |
 | [#301](https://github.com/NickMonrad/kernel-ai-assistant/issues/301) | Switch vec0 tables to `distance_metric=cosine` | ⬜ Pending | 🟢 Low |
 | [#230](https://github.com/NickMonrad/kernel-ai-assistant/issues/230) | Review `safeTokenCount()` token alignment logic | ⬜ Pending | 🟢 Low |
@@ -187,9 +187,9 @@ The architectural foundation that determines tool call accuracy and response qua
 | [#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256) | SMS/email — pre-populate recipient from contacts | ⬜ Pending | 🟡 Medium |
 | [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Maps & location — navigate, open, nearby search | ⬜ Pending | 🟡 Medium |
 | [#327](https://github.com/NickMonrad/kernel-ai-assistant/issues/327) | Full date-specific alarms via `AlarmManager.setExact()` | ⬜ Pending | 🟢 Low |
+| [#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407) | WebSearchSkill — LLM tool calling via Brave/Tavily API | ⬜ Pending | 🟡 Medium |
 
 **Still pending (no issue yet):**
-- `set_do_not_disturb` — `NotificationManager.setInterruptionFilter()`
 - `add_to_shopping_list` — Room-backed local list
 - WiFi / Bluetooth / Airplane / Hotspot toggles — settings intent fallbacks
 
@@ -199,10 +199,12 @@ The architectural foundation that determines tool call accuracy and response qua
 - ✅ toggle_flashlight (#247)
 - ✅ send_email / send_sms (#247)
 - ✅ get_weather GPS + city (#274, #269)
+- ✅ get_weather — profile location fallback (#403 fix, PR #412)
 - ✅ query_wikipedia (#257)
 - ✅ save_memory / search_memory (#257, #270, quality fixes #326)
 - ✅ get_system_info (datetime fix PR #339)
 - ✅ create_calendar_event (PR #309, date/time parsing PR #325)
+- ✅ set_do_not_disturb (shipped — `NotificationManager.setInterruptionFilter()`, PR #390)
 
 ---
 
@@ -258,7 +260,8 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | Refactor Actions tab to use `QuickIntentRouter` | ✅ Done | PR #366 |
 | Quick Actions tab UI (#221) | ✅ Done | FAB, bottom sheet, Room persistence |
 | Bottom nav bar (Chats / Actions) | ✅ Done | PR #221 |
-| Actions tab FallThrough → LLM bridge | ⬜ Pending | #373 — unmatched queries dead-end instead of routing to chat |
+| Actions tab FallThrough → LLM bridge | ✅ Done | #373/#405 — FallThrough queries correctly navigate to Chat with query intact (PR #410) |
+| MiniLM-L6-v2 INT8 classifier ([#353](https://github.com/NickMonrad/kernel-ai-assistant/issues/353)) | ✅ Done | Phase 2 complete — 30+ intents, 10-12 phrases each, bundled TFLite model (PRs #406 #408 #409) |
 
 ### Known Issues / Decisions
 
@@ -422,13 +425,19 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#340](https://github.com/NickMonrad/kernel-ai-assistant/issues/340) | Skill loading architecture vs AI Edge Gallery | Phase 3 (research) | ✅ Closed — decomposed into #341, #342, #343 |
 | [#341](https://github.com/NickMonrad/kernel-ai-assistant/issues/341) | Lazy skill loading (`load_skill` pattern) | Phase 3A | ✅ Done — PR #369 |
 | [#342](https://github.com/NickMonrad/kernel-ai-assistant/issues/342) | Model settings: topK, temperature, task-aware presets | Phase 3A | ✅ Done — PR #388 |
-| [#343](https://github.com/NickMonrad/kernel-ai-assistant/issues/343) | Thinking budget configuration (toggle + budget) | Phase 3A | ⚠ Partial — PR #388 (UI toggle; budget pending SDK) |
+| [#343](https://github.com/NickMonrad/kernel-ai-assistant/issues/343) | Thinking budget configuration (toggle + budget) | Phase 3A | ✅ Done — PR #413 (toggle wired to LiteRT-LM Channel API) |
 | [#345](https://github.com/NickMonrad/kernel-ai-assistant/issues/345) | Phase 3A: Inference & Prompt Architecture (parent) | Phase 3 | 🔖 Tracking |
 | [#346](https://github.com/NickMonrad/kernel-ai-assistant/issues/346) | Phase 3B: Brand & Visual Identity (parent) | Phase 3 | 🔖 Tracking |
 | [#347](https://github.com/NickMonrad/kernel-ai-assistant/issues/347) | Phase 3C: Core Skills Completion (parent) | Phase 3 | 🔖 Tracking |
 | [#348](https://github.com/NickMonrad/kernel-ai-assistant/issues/348) | Phase 3D: Memory & Data Improvements (parent) | Phase 3 | 🔖 Tracking |
 | [#349](https://github.com/NickMonrad/kernel-ai-assistant/issues/349) | Phase 3E: Community & Integration Skills (parent) | Phase 3 | 🔖 Tracking |
 | [#350](https://github.com/NickMonrad/kernel-ai-assistant/issues/350) | Phase 3F: Voice Interface (parent) | Phase 3 | 🔖 Tracking |
+| [#353](https://github.com/NickMonrad/kernel-ai-assistant/issues/353) | Tier 2: QuickIntentRouter + MiniLM classifier | Phase 3 | ✅ Done — MiniLM-L6-v2 INT8 bundled, 30+ intents, PRs #406 #408 #409 |
+| [#373](https://github.com/NickMonrad/kernel-ai-assistant/issues/373) | Actions tab FallThrough → Chat bridge | Phase 3 | ✅ Done — PR #410 (deferred initialQuery until ViewModel ready) |
+| [#402](https://github.com/NickMonrad/kernel-ai-assistant/issues/402) | Profile parser truncation — loses hardware/gaming/AI prefs | Phase 3 (bug) | ✅ Fixed — PR #411 (location field, `.take(20)`, new pattern categories) |
+| [#403](https://github.com/NickMonrad/kernel-ai-assistant/issues/403) | Weather skill ignores profile location — GPS-only | Phase 3 (bug) | ✅ Fixed — PR #412 (profile location fallback via Nominatim) |
+| [#405](https://github.com/NickMonrad/kernel-ai-assistant/issues/405) | FallThrough bridge drops query — Chat opens blank | Phase 3 (bug) | ✅ Fixed — PR #410 (race condition fix) |
+| [#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407) | WebSearchSkill — Brave/Tavily API for LLM tool calling | Phase 3C | ⬜ Pending |
 
 ---
 
