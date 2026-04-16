@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -76,7 +77,10 @@ fun ScheduledAlarmsScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showCreateDialog = true }) {
+            FloatingActionButton(
+                onClick = { showCreateDialog = true },
+                modifier = Modifier.testTag("alarm_fab"),
+            ) {
                 Icon(Icons.Default.Add, contentDescription = "Create alarm")
             }
         },
@@ -250,6 +254,7 @@ private fun AlarmCreateEditDialog(
             }
             AlertDialog(
                 onDismissRequest = onDismiss,
+                modifier = Modifier.testTag("alarm_dialog"),
                 icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
                 title = { Text(if (isEdit) "Edit alarm" else "New alarm") },
                 text = {
@@ -263,14 +268,17 @@ private fun AlarmCreateEditDialog(
                         OutlinedTextField(
                             value = label,
                             onValueChange = { label = it },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().testTag("alarm_label_input"),
                             placeholder = { Text("Label (optional)") },
                             singleLine = true,
                         )
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { onConfirm(triggerAtMillis, label.takeIf { it.isNotBlank() }) }) {
+                    TextButton(
+                        onClick = { onConfirm(triggerAtMillis, label.takeIf { it.isNotBlank() }) },
+                        modifier = Modifier.testTag("alarm_save_button"),
+                    ) {
                         Text(if (isEdit) "Save" else "Set alarm")
                     }
                 },
