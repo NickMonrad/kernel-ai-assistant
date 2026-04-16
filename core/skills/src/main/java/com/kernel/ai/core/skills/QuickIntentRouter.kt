@@ -181,7 +181,7 @@ class QuickIntentRouter(
                 """(?:add|create|schedule|put|book|set)\s+(?:a\s+|an\s+)?(?:calendar\s+)?(?:event|appointment|meeting|entry|invite|session|booking)\b""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
         ),
         IntentPattern(
             intentName = "create_calendar_event",
@@ -189,7 +189,7 @@ class QuickIntentRouter(
                 """(?:set\s+up|schedule)\s+(?:a\s+|an\s+)?meeting\b""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
         ),
         IntentPattern(
             intentName = "create_calendar_event",
@@ -197,7 +197,7 @@ class QuickIntentRouter(
                 """block\s+(?:out\s+)?(?:time\s+)?(?:on\s+(?:my\s+)?calendar\b|(?:this|next)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|morning|afternoon|evening)\b|tomorrow\b)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
         ),
         IntentPattern(
             intentName = "create_calendar_event",
@@ -205,7 +205,7 @@ class QuickIntentRouter(
                 """put\s+.{3,40}\s+(?:in|on|into)\s+(?:my\s+)?calendar\b""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
         ),
         // "invite Sarah to my Friday dinner" / "invite John and Sarah to the team meeting"
         IntentPattern(
@@ -214,7 +214,7 @@ class QuickIntentRouter(
                 """^invite\s+.+\s+to\s+(?:my\s+|the\s+|a\s+|an\s+)?.{3,}""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
         ),
 
         // ── Do Not Disturb ──
@@ -262,13 +262,28 @@ class QuickIntentRouter(
         ),
 
         // ── Time / Date ──
+        // query_type drives the response format in NativeIntentHandler.getTime():
+        //   "time"        → just the time (e.g. "It's 7:27 PM")
+        //   "date"        → just the date (e.g. "Today is Thursday, 16 April 2026")
+        //   "day_of_week" → just the weekday name
+        //   "year"        → just the year
+        //   "month"       → just the month name
+        //   "week"        → week number
+        //   (absent)      → full datetime (fallback)
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(?:time|date|day)""",
+                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(time|date|day)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { match, _ ->
+                when (match.groupValues[1].lowercase()) {
+                    "time" -> mapOf("query_type" to "time")
+                    "date" -> mapOf("query_type" to "date")
+                    "day" -> mapOf("query_type" to "day_of_week")
+                    else -> emptyMap()
+                }
+            },
         ),
         IntentPattern(
             intentName = "get_time",
@@ -276,23 +291,44 @@ class QuickIntentRouter(
                 """what\s+time\s+is\s+it""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { _, _ -> mapOf("query_type" to "time") },
         ),
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """(?:tell|give)\s+me\s+(?:the\s+)?(?:time|date)""",
+                """(?:tell|give)\s+me\s+(?:the\s+)?(time|date)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { match, _ ->
+                when (match.groupValues[1].lowercase()) {
+                    "time" -> mapOf("query_type" to "time")
+                    "date" -> mapOf("query_type" to "date")
+                    else -> emptyMap()
+                }
+            },
         ),
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what\s+(?:day|date)\s+is\s+(?:it|today)""",
+                """what\s+(day|date)\s+is\s+(?:it|today)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { match, _ ->
+                when (match.groupValues[1].lowercase()) {
+                    "day" -> mapOf("query_type" to "day_of_week")
+                    "date" -> mapOf("query_type" to "date")
+                    else -> emptyMap()
+                }
+            },
+        ),
+        // "what day of the week is it" — explicit pattern so it doesn't fall to LLM
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+day\s+of\s+the\s+week\s+(?:is\s+it|it\s+is|are\s+we\s+in)\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week") },
         ),
         // Pattern: "what's today's date" / "what is today's date" (must be before broader "what is today")
         IntentPattern(
@@ -301,7 +337,7 @@ class QuickIntentRouter(
                 """what(?:'s| is)\s+today'?s\s+(?:date|day)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { _, _ -> mapOf("query_type" to "date") },
         ),
         // Pattern: "what is today" / "what's today"
         IntentPattern(
@@ -310,7 +346,7 @@ class QuickIntentRouter(
                 """what(?:'s| is)\s+today""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { _, _ -> mapOf("query_type" to "date") },
         ),
         // Pattern: "what year is it" / "what year are we in"
         IntentPattern(
@@ -319,7 +355,7 @@ class QuickIntentRouter(
                 """what\s+year\s+(?:is\s+it|are\s+we\s+in|is\s+this)\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { _, _ -> mapOf("query_type" to "year") },
         ),
         // Pattern: "what year is it currently" / "what's the year"
         IntentPattern(
@@ -328,7 +364,7 @@ class QuickIntentRouter(
                 """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?year\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { _, _ -> mapOf("query_type" to "year") },
         ),
         // Pattern: "is it still Monday" / "is it Monday today" / "is today Monday" / "is it Friday today"
         IntentPattern(
@@ -337,25 +373,37 @@ class QuickIntentRouter(
                 """(?:is\s+it\s+(?:still\s+)?|is\s+today\s+)(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+today)?\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week") },
         ),
         // Pattern: "what month is it" / "what week is it" / "what month are we in"
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what\s+(?:month|week)\b\s+(?:is\s+it|are\s+we\s+in|is\s+this)\s*$""",
+                """what\s+(month|week)\b\s+(?:is\s+it|are\s+we\s+in|is\s+this)\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { match, _ ->
+                when (match.groupValues[1].lowercase()) {
+                    "month" -> mapOf("query_type" to "month")
+                    "week" -> mapOf("query_type" to "week")
+                    else -> emptyMap()
+                }
+            },
         ),
         // Pattern: "what's the month" / "what's the week"
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(?:month|week)\s*$""",
+                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(month|week)\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { match, _ ->
+                when (match.groupValues[1].lowercase()) {
+                    "month" -> mapOf("query_type" to "month")
+                    "week" -> mapOf("query_type" to "week")
+                    else -> emptyMap()
+                }
+            },
         ),
 
         // ── Volume ──
@@ -739,6 +787,28 @@ class QuickIntentRouter(
     // ── Parameter parsing helpers ─────────────────────────────────────────────
 
     companion object {
+        /**
+         * Builds calendar intent params from a raw user query. Always includes `raw_query`.
+         * Attempts to pre-extract a `extracted_title` hint from "for a/an X" phrasing so the
+         * LLM prompt can be made more specific (reducing "title is required" failures).
+         */
+        fun extractCalendarHints(raw: String): Map<String, String> {
+            val params = mutableMapOf("raw_query" to raw)
+            // Match "for a/an X" or "for X" where X doesn't start with a date/time keyword.
+            // Stops before at/from/on/next/this/tomorrow/weekday names/digits.
+            val titleMatch = Regex(
+                """(?:^|\s)for\s+(?:a\s+|an\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:at|from|on|next|this|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d)|$)""",
+                RegexOption.IGNORE_CASE,
+            ).find(raw)
+            titleMatch?.groupValues?.get(1)?.trim()
+                ?.takeIf { it.isNotBlank() && it.length >= 2 }
+                ?.let { title ->
+                    params["extracted_title"] = title.split(" ")
+                        .joinToString(" ") { w -> w.replaceFirstChar { c -> c.uppercase() } }
+                }
+            return params
+        }
+
         fun parseAlarmTime(raw: String): Map<String, String> {
             val params = mutableMapOf<String, String>()
             val cleaned = raw.lowercase().trim()
@@ -770,6 +840,18 @@ class QuickIntentRouter(
             val dayMatch = dayRegex.find(cleaned)
             if (dayMatch != null) {
                 params["day"] = normalizeDayName(dayMatch.groupValues[1].lowercase())
+            }
+
+            // Extract label from "called X", "named X", "labeled X", "labelled X" — mirrors parseTimerDuration.
+            // Non-greedy capture with lookahead to stop before time/date keywords so
+            // "alarm called wake up at 7am" extracts "wake up", not "wake up at 7am".
+            val labelRegex = Regex(
+                """(?:called|named|label(?:l?)ed)\s+(.+?)(?=\s+(?:at|on|for|by|from|tomorrow|today|tonight|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(?::\d{2})?\s*(?:am|pm))(?:\s|$)|$)""",
+                RegexOption.IGNORE_CASE,
+            )
+            val labelMatch = labelRegex.find(cleaned)
+            if (labelMatch != null) {
+                params["label"] = labelMatch.groupValues[1].trim()
             }
 
             return params

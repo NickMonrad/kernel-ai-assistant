@@ -558,9 +558,11 @@ class ChatViewModel @Inject constructor(
                     matchedIntent.params["title"].isNullOrBlank()
                 ) {
                     val rawQuery = matchedIntent.params["raw_query"] ?: text
+                    val titleHint = matchedIntent.params["extracted_title"]
+                    val titleClause = if (titleHint != null) "The event title is likely \"$titleHint\". " else ""
                     systemContext = "[System: User wants to create a calendar event. " +
                         "Their request: \"$rawQuery\". " +
-                        "Extract the event title, date, and time, then call " +
+                        "${titleClause}Extract the event title, date, and time, then call " +
                         "runIntent(intentName=\"create_calendar_event\", ...). " +
                         "Pass the date exactly as the user said it. Pass time as HH:MM 24h.]"
                     // fall through to E4B — do NOT execute now
