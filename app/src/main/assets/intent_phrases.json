@@ -495,7 +495,18 @@
         "can you tell me the date",
         "what day is it",
         "date check",
-        "what is today"
+        "what is today",
+        "what year is it",
+        "what year are we in",
+        "what year is this",
+        "what's the current year",
+        "is it still Tuesday",
+        "is today Monday",
+        "is it Friday today",
+        "is today the weekend",
+        "what month is it",
+        "what month are we in",
+        "what week is it"
       ]
     }
   }
