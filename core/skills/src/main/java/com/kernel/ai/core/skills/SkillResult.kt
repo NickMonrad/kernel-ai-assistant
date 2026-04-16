@@ -1,8 +1,13 @@
 package com.kernel.ai.core.skills
 
 sealed class SkillResult {
-    /** Skill ran successfully. [content] is injected back into the conversation. */
+    /** Skill ran successfully. [content] is injected back into the conversation as system context
+     *  so the LLM can produce a natural conversational wrapper around it. */
     data class Success(val content: String) : SkillResult()
+    /** Skill ran successfully and [content] should be shown to the user verbatim — the LLM is
+     *  bypassed entirely. Use for skills that return structured data (e.g. weather readings,
+     *  sensor values) where LLM rephrasing risks corrupting numbers or units. */
+    data class DirectReply(val content: String) : SkillResult()
     /** Skill not found in registry. */
     data class UnknownSkill(val skillName: String) : SkillResult()
     /** Skill found but execution failed. */
