@@ -450,8 +450,9 @@ private fun ModelRow(
                     }
                     is DownloadState.Error -> {
                         Column(horizontalAlignment = Alignment.End) {
-                            if (state.licenceRequired && model.licenceUrl != null) {
-                                TextButton(onClick = { onViewLicence(model.licenceUrl) }) {
+                            val licenceUrl = model.licenceUrl
+                            if (state.licenceRequired && licenceUrl != null) {
+                                TextButton(onClick = { onViewLicence(licenceUrl) }) {
                                     Text("Accept licence")
                                 }
                             }
