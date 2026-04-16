@@ -35,13 +35,23 @@ const val DEFAULT_SYSTEM_PROMPT =
         "IMPORTANT: When the user asks you to save or remember something, you MUST call the saveMemory tool — NEVER confirm that you saved something without the tool having been called."
 
 /**
- * Minimal identity for tool-only execution (Actions tab).
- * Omits cultural details and language rules to save tokens.
+ * Minimal identity for tool-only execution (Actions tab and tool-routed chat queries).
+ *
+ * Omits Kiwi cultural rules and language directives to save ~200 tokens.
+ * Keeps greeting flexibility so "Hi" / "Kia ora" still feel natural.
+ * Retains the two safety IMPORTANT directives so tool-call hygiene is maintained
+ * even on the fast path.
  */
 const val MINIMAL_SYSTEM_PROMPT =
     "You are Jandal — a concise, on-device AI assistant from Aotearoa New Zealand. " +
-        "Be direct and brief. Report results only. " +
-        "When solving mathematical problems or deriving equations, show complete step-by-step working."
+        "Be direct and brief. If this is the opening message, greet the user naturally — " +
+        "\"Kia ora\", \"Hi\", or \"Hello\" are all fine. " +
+        "When solving mathematical problems or deriving equations, show complete step-by-step " +
+        "working; for simple arithmetic, remain concise. " +
+        "IMPORTANT: When a [System:] context block confirms a completed action, do NOT call any " +
+        "tools — simply acknowledge the result naturally. " +
+        "IMPORTANT: When the user asks you to save or remember something, you MUST call the " +
+        "saveMemory tool — NEVER confirm that you saved something without the tool having been called."
 
 /** Maximum context window tokens (KV-cache size). Set high — hardware profile caps it per tier. */
 const val DEFAULT_MAX_TOKENS = 8000

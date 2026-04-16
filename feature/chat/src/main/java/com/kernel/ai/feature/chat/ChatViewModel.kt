@@ -708,6 +708,21 @@ class ChatViewModel @Inject constructor(
             val effectiveRagContext = if (isToolQuery) "" else ragContext
             val effectiveRagTokenCost = if (isToolQuery) 0 else ragTokenCost
 
+            // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
+            // the previous turn to resolve what "that/it/this" refers to. Inject the last
+            // user+assistant pair as a lightweight context block — still no RAG or personality.
+            val anaphoraContext: String = if (isToolQuery && looksLikeAnaphora(text)) {
+                val priorMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
+                val lastPair = priorMessages.takeLast(2)
+                if (lastPair.isEmpty()) "" else buildString {
+                    append("[Context: previous exchange]\n")
+                    for (msg in lastPair) {
+                        val speaker = if (msg.role == ChatMessage.Role.USER) "User" else "Jandal"
+                        append("$speaker: ${msg.content}\n")
+                    }
+                }.trimEnd()
+            } else ""
+
             if (needsHistoryReplay || proactiveReset) {
                 needsHistoryReplay = false
                 val allMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
@@ -728,6 +743,7 @@ class ChatViewModel @Inject constructor(
 
             prompt = buildString {
                 if (effectiveRagContext.isNotBlank()) append("$effectiveRagContext\n\n")
+                if (anaphoraContext.isNotBlank()) append("$anaphoraContext\n\n")
                 if (systemContext != null) append("$systemContext\n\n")
                 // Greeting instruction injected per-turn so turn 1 says "Kia ora" and
                 // subsequent turns explicitly suppress greetings — without invalidating the KV cache.
@@ -1145,6 +1161,25 @@ class ChatViewModel @Inject constructor(
                 lower.contains(keyword)
             }
         }
+    }
+
+    /**
+     * Returns true if [text] contains an anaphoric reference — i.e. the user says "that",
+     * "this", "it", "the above", or similar, implying they need the previous turn's content
+     * to resolve the referent (#491).
+     *
+     * Used alongside [looksLikeToolQuery] to decide whether to inject the last conversation
+     * pair as lightweight context even when full RAG is stripped.
+     */
+    private fun looksLikeAnaphora(text: String): Boolean {
+        val lower = text.lowercase().trim()
+        return Regex(
+            """^(save|remember|store|add|note|keep)\s+(that|this|it)\b|
+               \b(look|search|find|check)\s+(that|it|this)\s+(up|out)\b|
+               ^(what|how|why|when|where)\s+(is|was|were|did)\s+(that|it|this)\b|
+               \bthat\b|\bthe above\b|\bthe previous\b""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
+        ).containsMatchIn(lower)
     }
 
     /**
