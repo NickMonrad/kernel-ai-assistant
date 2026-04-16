@@ -102,6 +102,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -415,7 +416,7 @@ private fun MessageBubble(
         // Thinking bubble — expandable, shows chain-of-thought content when tapped
         if (showThinkingProcess && !message.thinkingText.isNullOrBlank()) {
             var expanded by rememberSaveable { mutableStateOf(false) }
-            Column(modifier = Modifier.padding(bottom = 4.dp)) {
+            Column(modifier = Modifier.padding(bottom = 4.dp).testTag("think_bubble")) {
                 Row(
                     modifier = Modifier.clickable { expanded = !expanded },
                     verticalAlignment = Alignment.CenterVertically,
@@ -444,7 +445,7 @@ private fun MessageBubble(
                             text = message.thinkingText!!,
                             style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(8.dp),
+                            modifier = Modifier.padding(8.dp).testTag("think_bubble_content"),
                         )
                     }
                 }
@@ -829,7 +830,7 @@ private fun ToolCallChip(toolCall: ToolCallInfo, modifier: Modifier = Modifier) 
     var expanded by remember { mutableStateOf(false) }
     val clipboardManager = LocalClipboardManager.current
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().testTag("tool_chip"),
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surfaceVariant,
         tonalElevation = 1.dp,
