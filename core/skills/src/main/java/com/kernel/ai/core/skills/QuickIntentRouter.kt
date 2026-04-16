@@ -530,7 +530,7 @@ class QuickIntentRouter(
 
         // ── Weather ──
         IntentPattern(
-            intentName = "get_weather",
+            intentName = "get_weather_gps",
             regex = Regex(
                 """(?:what(?:'s| is)\s+(?:the\s+)?weather(?:\s+(?:like|today|tonight|now|outside|currently))?|how(?:'s|\s+is)\s+(?:the\s+)?weather(?:\s+(?:today|tonight|now|outside))?|weather\s+(?:today|tonight|now|outside|forecast|this\s+week))\s*$""",
                 RegexOption.IGNORE_CASE,
