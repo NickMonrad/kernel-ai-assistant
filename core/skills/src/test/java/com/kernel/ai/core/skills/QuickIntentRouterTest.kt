@@ -1784,6 +1784,8 @@ class QuickIntentRouterTest {
             Arguments.of("what is the year 1984 about"),
             Arguments.of("what is the week's schedule"),
             Arguments.of("what is the month's budget"),
+            Arguments.of("is it Friday's episode tonight"),
+            Arguments.of("is it Saturday's game on"),
         )
     }
 

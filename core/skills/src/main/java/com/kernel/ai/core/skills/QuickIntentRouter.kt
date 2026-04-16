@@ -290,7 +290,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """(?:is\s+it\s+(?:still\s+)?|is\s+today\s+)(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+today)?""",
+                """(?:is\s+it\s+(?:still\s+)?|is\s+today\s+)(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+today)?\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
