@@ -732,8 +732,15 @@ class NativeIntentHandler @Inject constructor(
     private fun resolveTime(timeStr: String): LocalTime? {
         val raw = timeStr.trim()
 
+        // 0. Expand compact formats before any other normalisation.
+        //    "630am" → "6:30am", "630" → "6:30", "0630" → "06:30", "1245pm" → "12:45pm"
+        val expanded = Regex("""^(\d{1,2})(\d{2})\s*(am|pm|AM|PM)?$""").replace(raw) { m ->
+            val meridiem = m.groupValues[3]
+            "${m.groupValues[1]}:${m.groupValues[2]}${meridiem}"
+        }
+
         // 1. Strip extra trailing digits after a valid HH:mm prefix (e.g. "18:0000" → "18:00").
-        val stripped = Regex("""^(\d{1,2}:\d{2})\d+(.*)$""").replace(raw) { m ->
+        val stripped = Regex("""^(\d{1,2}:\d{2})\d+(.*)$""").replace(expanded) { m ->
             m.groupValues[1] + m.groupValues[2]
         }
 
@@ -763,7 +770,7 @@ class NativeIntentHandler @Inject constructor(
                 return LocalTime.parse(input, fmt)
             } catch (_: DateTimeParseException) { /* try next */ }
         }
-        Log.w(TAG, "resolveTime: could not parse '$raw' (normalized to '$input')")
+        Log.w(TAG, "resolveTime: could not parse '$raw' (expanded='$expanded', normalized='$input')")
         return null
     }
 }
