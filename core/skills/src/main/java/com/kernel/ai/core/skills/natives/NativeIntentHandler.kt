@@ -20,8 +20,10 @@ import android.provider.Settings
 import android.util.Log
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
+import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
 import com.kernel.ai.core.skills.SkillResult
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -72,7 +74,10 @@ private const val TAG = "KernelAI"
  *   navigate_to             — Google Maps / geo: URI (params: destination)
  *   find_nearby             — geo: URI nearby search (params: query)
  *   make_call               — ACTION_DIAL with contact resolution (params: contact)
- *   add_to_list             — Stub pending Room DB (#315) (params: item, list_name?)
+ *   add_to_list             — Insert item into list (params: item, list_name?) — returns DirectReply
+ *   create_list             — Create a named list (params: list_name)
+ *   get_list_items          — Retrieve unchecked items from a list (params: list_name?)
+ *   remove_from_list        — Remove an item from a list (params: item, list_name?)
  *   smart_home_on/off       — Stub pending HA/Google Home (#311/#312) (params: device)
  */
 @Singleton
@@ -80,6 +85,7 @@ class NativeIntentHandler @Inject constructor(
     @ApplicationContext private val context: Context,
     private val scheduledAlarmDao: ScheduledAlarmDao,
     private val listItemDao: ListItemDao,
+    private val listNameDao: ListNameDao,
     private val contactAliasRepository: ContactAliasRepository,
 ) {
 
@@ -113,6 +119,9 @@ class NativeIntentHandler @Inject constructor(
                 "find_nearby" -> findNearby(params)
                 "make_call" -> makeCall(params)
                 "add_to_list" -> addToList(params)
+                "create_list" -> createList(params)
+                "get_list_items" -> getListItems(params)
+                "remove_from_list" -> removeFromList(params)
                 "smart_home_on" -> handleSmartHome(params["device"] ?: "device", true)
                 "smart_home_off" -> handleSmartHome(params["device"] ?: "device", false)
                 else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
@@ -759,18 +768,54 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
-    // ── List Management (#315) ────────────────────────────────────────────────
+    // ── List Management (#315 / #476 / #477) ─────────────────────────────────
+
+    private fun normalizeListName(raw: String): String = when (raw.lowercase().trim()) {
+        "grocery list", "groceries", "grocery" -> "shopping list"
+        "todo", "to do", "todos", "to-do" -> "to-do list"
+        else -> raw.lowercase().trim()
+    }
 
     private fun addToList(params: Map<String, String>): SkillResult {
         val item = params["item"] ?: return SkillResult.Failure("add_to_list", "No item specified")
         val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
-        val listName = when (raw) {
-            "grocery list", "groceries", "grocery" -> "shopping list"
-            "todo", "to do", "todos", "to-do" -> "to-do list"
-            else -> raw
+        val listName = normalizeListName(raw)
+        runBlocking {
+            listNameDao.insert(ListNameEntity(name = listName))
+            listItemDao.insert(ListItemEntity(listName = listName, item = item))
         }
-        runBlocking { listItemDao.insert(ListItemEntity(listName = listName, item = item)) }
-        return SkillResult.Success("Added \"$item\" to your $listName.")
+        return SkillResult.DirectReply("Added \"$item\" to your $listName.")
+    }
+
+    private fun createList(params: Map<String, String>): SkillResult {
+        val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
+        val name = raw.lowercase().trim()
+        runBlocking { listNameDao.insert(ListNameEntity(name = name)) }
+        return SkillResult.DirectReply("Created list \"$name\".")
+    }
+
+    private fun getListItems(params: Map<String, String>): SkillResult {
+        val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
+        val listName = normalizeListName(raw)
+        val items = runBlocking { listItemDao.getByList(listName) }
+        return if (items.isEmpty()) {
+            SkillResult.DirectReply("Your $listName is empty.")
+        } else {
+            val bullets = items.joinToString("\n") { "• ${it.item}" }
+            SkillResult.DirectReply("$listName (${items.size} item${if (items.size == 1) "" else "s"}):\n$bullets")
+        }
+    }
+
+    private fun removeFromList(params: Map<String, String>): SkillResult {
+        val item = params["item"] ?: return SkillResult.Failure("remove_from_list", "No item specified")
+        val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
+        val listName = normalizeListName(raw)
+        val all = runBlocking { listItemDao.getByList(listName) }
+        val match = all.firstOrNull { it.item.equals(item, ignoreCase = true) }
+            ?: all.firstOrNull { it.item.contains(item, ignoreCase = true) }
+            ?: return SkillResult.DirectReply("\"$item\" not found in $listName.")
+        runBlocking { listItemDao.deleteItem(match.id) }
+        return SkillResult.DirectReply("Removed \"${match.item}\" from $listName.")
     }
 
     // ── Smart Home (stub — pending #311 / #312) ───────────────────────────────
