@@ -18,6 +18,7 @@ import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
+import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
 import com.kernel.ai.core.skills.SkillResult
@@ -75,6 +76,7 @@ private const val TAG = "KernelAI"
 class NativeIntentHandler @Inject constructor(
     @ApplicationContext private val context: Context,
     private val scheduledAlarmDao: ScheduledAlarmDao,
+    private val contactAliasRepository: ContactAliasRepository,
 ) {
 
     fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -625,7 +627,15 @@ class NativeIntentHandler @Inject constructor(
 
     private fun makeCall(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: return SkillResult.Failure("make_call", "No contact specified")
-        val phoneNumber = resolveContactNumber(contact) ?: contact
+        // If the input looks like a phone number (digits, +, spaces, dashes), dial it directly.
+        val looksLikeNumber = contact.replace(Regex("[\\s\\-().+]"), "").all { it.isDigit() } &&
+            contact.replace(Regex("[\\s\\-().+]"), "").isNotEmpty()
+        val phoneNumber = resolveContactNumber(contact)
+            ?: if (looksLikeNumber) contact
+            else return SkillResult.Failure(
+                "make_call",
+                "Couldn't find a contact for '$contact'. You can add them in Settings → People & Contacts.",
+            )
         return try {
             val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phoneNumber)}")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -638,6 +648,17 @@ class NativeIntentHandler @Inject constructor(
     }
 
     private fun resolveContactNumber(name: String): String? {
+        // 1. Alias check — strip common prefixes, normalise, look up in DB
+        val normalised = name.trim().lowercase()
+            .removePrefix("my ").removePrefix("the ")
+            .trim()
+        val aliasMatch = runBlocking { contactAliasRepository.getByAlias(normalised) }
+        if (aliasMatch != null) {
+            Log.d(TAG, "Alias resolved: '$name' → '${aliasMatch.displayName}' (${aliasMatch.phoneNumber})")
+            return aliasMatch.phoneNumber
+        }
+
+        // 2. Fall through to ContactsContract fuzzy search
         return try {
             val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
             val projection = arrayOf(

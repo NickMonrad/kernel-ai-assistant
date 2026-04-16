@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.kernel.ai.core.memory.dao.ContactAliasDao
 import com.kernel.ai.core.memory.dao.ConversationDao
 import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
@@ -14,6 +15,7 @@ import com.kernel.ai.core.memory.dao.ModelSettingsDao
 import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
+import com.kernel.ai.core.memory.entity.ContactAliasEntity
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
@@ -35,8 +37,9 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ModelSettingsEntity::class,
         QuickActionEntity::class,
         ScheduledAlarmEntity::class,
+        ContactAliasEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -52,6 +55,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun modelSettingsDao(): ModelSettingsDao
     abstract fun quickActionDao(): QuickActionDao
     abstract fun scheduledAlarmDao(): ScheduledAlarmDao
+    abstract fun contactAliasDao(): ContactAliasDao
 
     companion object {
         /** Adds lastDistilledAt to conversations (#165) and lastAccessedAt to episodic_memories (#167). */
@@ -151,6 +155,13 @@ abstract class KernelDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+            }
+        }
+
+        /** Creates contact_aliases table for relationship-name to contact mapping (#355). */
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `contact_aliases` (`alias` TEXT NOT NULL, `displayName` TEXT NOT NULL, `contactId` TEXT NOT NULL, `phoneNumber` TEXT NOT NULL, PRIMARY KEY(`alias`))")
             }
         }
     }
