@@ -415,7 +415,11 @@
         "add to my calendar",
         "schedule this",
         "create an event",
-        "calendar entry please"
+        "calendar entry please",
+        "set up a meeting",
+        "block time on my calendar",
+        "put something in my calendar",
+        "schedule a meeting for"
       ]
     },
     "play_youtube": {
