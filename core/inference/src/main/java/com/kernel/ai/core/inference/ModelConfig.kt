@@ -46,8 +46,12 @@ const val MINIMAL_SYSTEM_PROMPT =
 /** Maximum context window tokens (KV-cache size). Set high — hardware profile caps it per tier. */
 const val DEFAULT_MAX_TOKENS = 8000
 
-/** Sampler defaults for CPU/GPU backends. NPU requires null samplerConfig. */
-val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 64, topP = 0.95, temperature = 0.7)
+/**
+ * Reference sampler defaults matching Google's Gemma 4 E4B model card.
+ * Actual runtime values come from [ModelSettingsEntity] (user-configurable, defaults to 1.0/0.95/64).
+ * NPU backend ignores SamplerConfig entirely (hardware sampler used instead).
+ */
+val DEFAULT_SAMPLER_CONFIG = SamplerConfig(topK = 64, topP = 0.95f, temperature = 1.0f)
 
 /**
  * Controls how much of the Jandal identity is injected into the system prompt.
