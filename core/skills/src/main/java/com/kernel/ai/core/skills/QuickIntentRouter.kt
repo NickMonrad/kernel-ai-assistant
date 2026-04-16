@@ -207,6 +207,15 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
         ),
+        // "invite Sarah to my Friday dinner" / "invite John and Sarah to the team meeting"
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """^invite\s+.+\s+to\s+(?:my\s+|the\s+|a\s+|an\s+)?.{3,}""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
+        ),
 
         // ── Do Not Disturb ──
         IntentPattern(

@@ -136,10 +136,13 @@ class NativeIntentHandler @Inject constructor(
     // ── Email ─────────────────────────────────────────────────────────────────
 
     private fun sendEmail(params: Map<String, String>): SkillResult {
-        // SECURITY: do NOT populate EXTRA_EMAIL from LLM output — recipient must be chosen by user
-        // in the mail app to prevent prompt-injection exfiltration.
+        // Resolve recipient from on-device contacts only (never from raw LLM text).
+        // Only pre-populate if exactly one match is found — avoids wrong-recipient risk.
+        val contact = params["contact"]
+        val resolvedEmail = contact?.let { resolveContactEmail(it) }
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "message/rfc822"
+            if (resolvedEmail != null) putExtra(Intent.EXTRA_EMAIL, arrayOf(resolvedEmail))
             putExtra(Intent.EXTRA_SUBJECT, params["subject"] ?: "")
             putExtra(Intent.EXTRA_TEXT, params["body"] ?: "")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -147,7 +150,8 @@ class NativeIntentHandler @Inject constructor(
         context.startActivity(Intent.createChooser(intent, "Send email").apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         })
-        return SkillResult.Success("Email composer opened.")
+        val recipientLabel = resolvedEmail?.let { " to $it" } ?: ""
+        return SkillResult.Success("Email composer opened$recipientLabel.")
     }
 
     // ── SMS ───────────────────────────────────────────────────────────────────
@@ -342,6 +346,13 @@ class NativeIntentHandler @Inject constructor(
             params["description"]?.takeIf { it.isNotBlank() }?.let {
                 putExtra(CalendarContract.Events.DESCRIPTION, it)
             }
+            // Attendees: resolve each name to email from contacts; skip unresolvable names
+            val attendeeEmails = params["attendees"]
+                ?.split(",")
+                ?.mapNotNull { it.trim().takeIf { n -> n.isNotBlank() }?.let { n -> resolveContactEmail(n) } }
+                ?.joinToString(",")
+                ?.takeIf { it.isNotBlank() }
+            if (attendeeEmails != null) putExtra(Intent.EXTRA_EMAIL, attendeeEmails)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
 
@@ -352,7 +363,8 @@ class NativeIntentHandler @Inject constructor(
             context.startActivity(intent)
             val timeLabel = if (timeStr != null) " at $timeStr" else " (all day)"
             val resolvedDateStr = date.format(DateTimeFormatter.ISO_LOCAL_DATE)
-            SkillResult.Success("Calendar opened — '${title}' on $resolvedDateStr$timeLabel. Please review and save in your calendar app.")
+            val attendeesLabel = params["attendees"]?.takeIf { it.isNotBlank() }?.let { " with $it" } ?: ""
+            SkillResult.Success("Calendar opened — '${title}' on $resolvedDateStr$timeLabel$attendeesLabel. Please review and save in your calendar app.")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("run_intent", "No calendar app found on this device.")
         }
@@ -658,7 +670,7 @@ class NativeIntentHandler @Inject constructor(
             return aliasMatch.phoneNumber
         }
 
-        // 2. Fall through to ContactsContract fuzzy search
+        // 2. ContactsContract fuzzy search — only pre-populate if unique match
         return try {
             val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
             val projection = arrayOf(
@@ -668,14 +680,14 @@ class NativeIntentHandler @Inject constructor(
             val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
             val selectionArgs = arrayOf("%$name%")
             context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val number = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER))
-                    val displayName = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME))
-                    Log.d(TAG, "Contact resolved: '$name' → '$displayName' ($number)")
-                    number
-                } else {
-                    Log.d(TAG, "Contact not found for '$name'")
-                    null
+                val matches = mutableListOf<String>()
+                while (cursor.moveToNext()) {
+                    matches += cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER))
+                }
+                when (matches.size) {
+                    0 -> { Log.d(TAG, "Contact not found for '$name'"); null }
+                    1 -> { Log.d(TAG, "Contact resolved: '$name' → ${matches[0]}"); matches[0] }
+                    else -> { Log.d(TAG, "Multiple contacts match '$name' — not pre-populating"); null }
                 }
             }
         } catch (e: SecurityException) {
@@ -683,6 +695,39 @@ class NativeIntentHandler @Inject constructor(
             null
         } catch (e: Exception) {
             Log.w(TAG, "Contact lookup failed for '$name'", e)
+            null
+        }
+    }
+
+    /** Resolves a contact name to an email address. Only pre-populates on unique match. */
+    private fun resolveContactEmail(name: String): String? {
+        return try {
+            val uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI
+            val projection = arrayOf(
+                ContactsContract.CommonDataKinds.Email.ADDRESS,
+                ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY,
+            )
+            val selection = "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?"
+            val selectionArgs = arrayOf("%$name%")
+            context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                val matches = mutableListOf<String>()
+                while (cursor.moveToNext()) {
+                    val address = cursor.getString(
+                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Email.ADDRESS)
+                    )
+                    if (!address.isNullOrBlank()) matches += address
+                }
+                when (matches.size) {
+                    0 -> { Log.d(TAG, "No email found for '$name'"); null }
+                    1 -> { Log.d(TAG, "Email resolved: '$name' → ${matches[0]}"); matches[0] }
+                    else -> { Log.d(TAG, "Multiple emails match '$name' — not pre-populating"); null }
+                }
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "READ_CONTACTS permission not granted — cannot resolve email for '$name'", e)
+            null
+        } catch (e: Exception) {
+            Log.w(TAG, "Email lookup failed for '$name'", e)
             null
         }
     }
