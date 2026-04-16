@@ -91,7 +91,8 @@ class RunIntentSkill @Inject constructor(
         "Set alarm 9pm called dinner → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"9pm\",\"label\":\"dinner\"}')",
         "Set alarm Monday 7am → runIntent(intentName=\"set_alarm\", parameters='{\"time\":\"7am\",\"day\":\"monday\"}')",
         "Set timer 3min → runIntent(intentName=\"set_timer\", parameters='{\"duration_seconds\":\"180\"}')",
-        "Calendar event → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Lunch\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}')",
+        "Calendar event (explicit date) → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Lunch\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}')",
+        "Calendar event (relative date) → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Cancel MightyApe\",\"date\":\"next thursday\",\"time\":\"16:00\"}')",
         // System toggles
         "Turn on DND → runIntent(intentName=\"toggle_dnd_on\", parameters=\"{}\")",
         "Enable Wi-Fi → runIntent(intentName=\"toggle_wifi\", parameters='{\"state\":\"on\"}')",
@@ -132,7 +133,7 @@ class RunIntentSkill @Inject constructor(
         appendLine("SCHEDULING:")
         appendLine("  set_alarm — params: time (\"10pm\", \"9:30am\"), day (optional: \"tomorrow\", \"monday\"), label (optional)")
         appendLine("  set_timer — params: duration_seconds (\"180\" for 3 min), label (optional)")
-        appendLine("  create_calendar_event — params: title, date (YYYY-MM-DD or \"tomorrow\"), time (HH:MM), duration_minutes (optional), description (optional)")
+        appendLine("  create_calendar_event — params: title, date (pass relative terms as-is: \"tomorrow\", \"next thursday\"; or YYYY-MM-DD for explicit dates), time (HH:MM), duration_minutes (optional), description (optional)")
         appendLine()
         appendLine("SYSTEM TOGGLES:")
         appendLine("  toggle_dnd_on, toggle_dnd_off — No params")
@@ -177,7 +178,9 @@ class RunIntentSkill @Inject constructor(
         appendLine("'schedule [topic] on [date]', 'send a calendar invite', 'send an invite for',")
         appendLine("'calendar invite', 'set up a meeting', 'block time on my calendar',")
         appendLine("'put [X] in my calendar' → runIntent with intentName=create_calendar_event.")
-        appendLine("Resolve relative dates (tomorrow, next Friday) to YYYY-MM-DD. Pass time as HH:MM.")
+        appendLine("Pass relative dates EXACTLY as the user said (e.g. \"tomorrow\", \"next thursday\", \"next friday\") —")
+        appendLine("do NOT calculate or convert them to YYYY-MM-DD. The system resolves them correctly.")
+        appendLine("Only use YYYY-MM-DD if the user stated an explicit date. Pass time as HH:MM (24h).")
         appendLine("NEVER confirm event was created without calling the tool.")
         appendLine("'remind me in X minutes/seconds' is set_timer, NOT create_calendar_event.")
         appendLine()
