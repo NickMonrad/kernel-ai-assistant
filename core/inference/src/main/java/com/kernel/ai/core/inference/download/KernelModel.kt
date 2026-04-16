@@ -29,6 +29,11 @@ enum class KernelModel(
      * to the download request when this is `true`.
      */
     val isGated: Boolean = false,
+    /**
+     * URL to the HuggingFace model licence page. Non-null for gated models — shown in the
+     * Model Management UI so users can accept the licence before downloading.
+     */
+    val licenceUrl: String? = null,
 ) {
     GEMMA_4_E2B(
         displayName = "Gemma 4 E-2B",
@@ -40,6 +45,7 @@ enum class KernelModel(
         preferredForTier = null,
         // Ungated since Apr 2026 — no auth token required.
         isGated = false,
+        licenceUrl = null,
     ),
 
     /**
@@ -55,6 +61,7 @@ enum class KernelModel(
         preferredForTier = HardwareTier.FLAGSHIP,
         // Ungated since Apr 2026 — no auth token required.
         isGated = false,
+        licenceUrl = null,
     ),
 
     /**
@@ -72,6 +79,7 @@ enum class KernelModel(
         isRequired = true,
         preferredForTier = null,
         isGated = true,
+        licenceUrl = "https://huggingface.co/litert-community/embeddinggemma-300m",
     ),
 
     /**
@@ -86,6 +94,7 @@ enum class KernelModel(
         isRequired = false,
         preferredForTier = null,
         isGated = true,
+        licenceUrl = "https://huggingface.co/litert-community/embeddinggemma-300m",
     ),
 
     /**
@@ -101,6 +110,7 @@ enum class KernelModel(
         isRequired = true,
         preferredForTier = null,
         isGated = true,
+        licenceUrl = "https://huggingface.co/litert-community/embeddinggemma-300m",
     );
 
     /**

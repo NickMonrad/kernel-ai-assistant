@@ -32,6 +32,8 @@ sealed class DownloadState {
      * Download failed.
      *
      * @param message Human-readable error description.
+     * @param licenceRequired True when the server returned 401/403 — the user must accept
+     *   the model licence on HuggingFace before downloading.
      */
-    data class Error(val message: String) : DownloadState()
+    data class Error(val message: String, val licenceRequired: Boolean = false) : DownloadState()
 }

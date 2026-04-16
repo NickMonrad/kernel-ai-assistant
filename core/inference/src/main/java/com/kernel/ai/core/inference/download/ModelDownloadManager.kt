@@ -21,6 +21,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -100,6 +101,17 @@ class ModelDownloadManager @Inject constructor(
                 Log.i(TAG, "Auto-queuing ${model.displayName} for tier ${tier.name}")
                 startDownload(model)
             }
+        // Auto-trigger gated required models when user signs in
+        scope.launch {
+            authRepository.isAuthenticated
+                .filter { it }
+                .collect {
+                    KernelModel.entries
+                        .filter { m -> m.isGated && m.isRequired }
+                        .filter { m -> _downloadStates.value[m] is DownloadState.NotDownloaded }
+                        .forEach { m -> startDownload(m) }
+                }
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -191,6 +203,20 @@ class ModelDownloadManager @Inject constructor(
      */
     fun getModelPath(model: KernelModel): String? {
         return if (model.isDownloaded(context)) model.localFile(context).absolutePath else null
+    }
+
+    /**
+     * Re-checks the filesystem for [model] and updates [downloadStates] accordingly.
+     * Call this after manually deleting a model file so the UI reflects [DownloadState.NotDownloaded].
+     */
+    fun refreshState(model: KernelModel) {
+        val newState = if (model.isDownloaded(context)) {
+            DownloadState.Downloaded(model.localFile(context).absolutePath)
+        } else {
+            DownloadState.NotDownloaded
+        }
+        updateState(model, newState)
+        Log.i(TAG, "Refreshed state for ${model.displayName}: $newState")
     }
 
     /** True when all models required for this device tier are present on disk. */
@@ -316,10 +342,19 @@ class ModelDownloadManager @Inject constructor(
                             Log.i(TAG, "Worker failed but file present — treating as Downloaded: ${model.displayName}")
                             DownloadState.Downloaded(localPath = localFile.absolutePath)
                         } else {
-                            val errorMsg = info.outputData.getString(KEY_ERROR_MESSAGE)
-                                ?: "Download failed"
-                            Log.w(TAG, "Download failed for ${model.displayName}: $errorMsg")
-                            DownloadState.Error(message = errorMsg)
+                            val errorKey = info.outputData.getString(KEY_ERROR)
+                            if (errorKey == "LICENCE_REQUIRED") {
+                                Log.w(TAG, "Licence required for ${model.displayName}")
+                                DownloadState.Error(
+                                    message = "Accept the model licence on HuggingFace before downloading.",
+                                    licenceRequired = true,
+                                )
+                            } else {
+                                val errorMsg = info.outputData.getString(KEY_ERROR_MESSAGE)
+                                    ?: "Download failed"
+                                Log.w(TAG, "Download failed for ${model.displayName}: $errorMsg")
+                                DownloadState.Error(message = errorMsg)
+                            }
                         }
                     }
 
