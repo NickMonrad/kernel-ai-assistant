@@ -740,9 +740,9 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(resultContent)
                                 needsHistoryReplay = true
                             } else {
-                                // Normal text response
+                                // Normal text response — write corrected content to UI state
                                 _messages.update { msgs ->
-                                    msgs.map { if (it.id == assistantMsgId) it.copy(isStreaming = false) else it }
+                                    msgs.map { if (it.id == assistantMsgId) it.copy(content = fullContent, isStreaming = false) else it }
                                 }
                                 val savedAssistantMsgId = conversationRepository.addMessage(convId, "assistant", fullContent, thinking)
                                 ragRepository.indexMessage(savedAssistantMsgId, convId, fullContent)
@@ -1017,7 +1017,7 @@ class ChatViewModel @Inject constructor(
         Regex("""\d+""").findAll(systemContext).forEach { match ->
             val expected = match.value
             if (expected.length < 2) return@forEach         // single digits can't be truncated
-            if (corrected.contains(expected)) return@forEach // already present — no fix needed
+            if (corrected.contains("$expected%")) return@forEach // already present as percentage — no fix needed
             // Only repair percentage values — safe, avoids false-positives on other numbers
             corrected = corrected.replace(Regex("""(\d+)%""")) { pctMatch ->
                 val found = pctMatch.groupValues[1]
