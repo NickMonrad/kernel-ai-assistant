@@ -12,6 +12,7 @@ import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.dao.ModelSettingsDao
 import com.kernel.ai.core.memory.dao.QuickActionDao
+import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
@@ -20,6 +21,7 @@ import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
 import com.kernel.ai.core.memory.entity.MessageEntity
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import com.kernel.ai.core.memory.entity.QuickActionEntity
+import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
 import com.kernel.ai.core.memory.entity.UserProfileEntity
 
 @Database(
@@ -32,8 +34,9 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         CoreMemoryEntity::class,
         ModelSettingsEntity::class,
         QuickActionEntity::class,
+        ScheduledAlarmEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -48,6 +51,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun coreMemoryDao(): CoreMemoryDao
     abstract fun modelSettingsDao(): ModelSettingsDao
     abstract fun quickActionDao(): QuickActionDao
+    abstract fun scheduledAlarmDao(): ScheduledAlarmDao
 
     companion object {
         /** Adds lastDistilledAt to conversations (#165) and lastAccessedAt to episodic_memories (#167). */
@@ -130,6 +134,23 @@ abstract class KernelDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE model_settings ADD COLUMN topK INTEGER NOT NULL DEFAULT 40")
                 db.execSQL("ALTER TABLE model_settings ADD COLUMN showThinkingProcess INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
+        /** Creates scheduled_alarms table for exact AlarmManager scheduling (#327). */
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS scheduled_alarms (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        triggerAtMillis INTEGER NOT NULL,
+                        label TEXT,
+                        createdAt INTEGER NOT NULL,
+                        fired INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
             }
         }
     }
