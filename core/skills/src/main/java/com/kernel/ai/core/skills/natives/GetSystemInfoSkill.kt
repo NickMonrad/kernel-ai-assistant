@@ -72,7 +72,7 @@ class GetSystemInfoSkill @Inject constructor(
                 }
 
                 Log.d(TAG, "GetSystemInfoSkill executed successfully")
-                SkillResult.Success(info.trim())
+                SkillResult.DirectReply(info.trim())
             } catch (e: Exception) {
                 Log.e(TAG, "GetSystemInfoSkill failed", e)
                 SkillResult.Failure(name, e.message ?: "Failed to retrieve system info")
