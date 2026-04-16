@@ -4,6 +4,7 @@ import com.google.ai.edge.litertlm.ToolProvider
 import com.google.ai.edge.litertlm.tool
 import com.kernel.ai.core.skills.natives.GetSystemInfoSkill
 import com.kernel.ai.core.skills.natives.GetWeatherSkill
+import com.kernel.ai.core.skills.natives.GetWeatherUnifiedSkill
 import com.kernel.ai.core.skills.natives.SaveMemorySkill
 import com.kernel.ai.core.skills.natives.SearchMemorySkill
 import dagger.Binds
@@ -37,6 +38,10 @@ abstract class SkillsModule {
     @Binds
     @IntoSet
     abstract fun bindGetWeatherSkill(skill: GetWeatherSkill): Skill
+
+    @Binds
+    @IntoSet
+    abstract fun bindGetWeatherUnifiedSkill(skill: GetWeatherUnifiedSkill): Skill
 
     @Binds
     @IntoSet

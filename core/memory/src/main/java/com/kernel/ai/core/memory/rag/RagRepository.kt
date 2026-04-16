@@ -40,16 +40,18 @@ class RagRepository @Inject constructor(
     companion object {
         private const val TAG = "RagRepository"
         private const val TABLE = "message_embeddings"
-        private const val DEFAULT_TOP_K = 5
+        private const val DEFAULT_TOP_K = 3
         /** Minimum message content length to surface in search results.
          *  Prevents short conversational acknowledgements ("Choice bro", "The above")
          *  from polluting search_memory responses. */
         private const val MIN_MESSAGE_CONTENT_LENGTH = 20
 
         /** Maximum L2 distance to include a result (0 = identical, sqrt(2) ≈ 1.41 = opposite for unit vectors).
-         *  1.10 ≈ cos_sim ≥ 0.40 for unit-normalized 768-dim vectors: L2 = sqrt(2 * (1 - cos_sim)).
-         *  Without this, top-K always returns results even when nothing is actually related. */
-        private const val MAX_DISTANCE = 1.10f
+         *  0.90 ≈ cos_sim ≥ 0.595 for unit-normalized 768-dim vectors: L2 = sqrt(2 * (1 - cos_sim)).
+         *  Tighter than core/episodic thresholds (1.10) because message history retrieval uses
+         *  verbatim text that is lexically closer to queries — a tighter floor filters low-relevance
+         *  historical messages and reduces token cost without losing genuinely relevant context. */
+        private const val MAX_DISTANCE = 0.90f
 
         /** Sibling expansion caps for searchCoreAndEpisodic. */
         private const val SIBLING_MAX_PER_CONVERSATION = 3
