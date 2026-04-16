@@ -281,7 +281,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?year\b""",
+                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?year\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
