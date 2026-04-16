@@ -133,7 +133,7 @@ class KernelAIToolSet @Inject constructor(
 
     @Tool(description = "Save an important fact or preference to the user's long-term memory. Use when the user says 'remember', 'save', 'note that', or 'don't forget'")
     fun saveMemory(
-        @ToolParam(description = "The content to remember, written as a clear factual statement") content: String,
+        @ToolParam(description = "The exact fact or preference to save, verbatim as the user stated it — NOT a meta-summary or description of what they said. Example: 'Nick prefers dark mode' or 'Nick\\'s dog is called Biscuit'. Never write 'The user wants to remember X'.") content: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "save_memory"
