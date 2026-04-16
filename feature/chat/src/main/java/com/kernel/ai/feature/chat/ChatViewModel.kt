@@ -696,6 +696,18 @@ class ChatViewModel @Inject constructor(
             val tokenBudget = activeContextWindowSize
             val proactiveReset = estimatedTokensUsed > (tokenBudget * 0.75).toInt()
 
+            // Context stripping for tool-routable queries (#438, #481).
+            // When the router had a best-guess intent (FallThrough with non-null bestGuess)
+            // or the query matches known tool-trigger keywords, strip the Jandal personality
+            // and RAG context to free ~1000 tokens for tool-call reasoning. These queries
+            // don't benefit from episodic memory or cultural tone — they need clear headspace.
+            val isToolQuery = (routeResult is QuickIntentRouter.RouteResult.FallThrough &&
+                routeResult.bestGuess != null) ||
+                looksLikeToolQuery(text)
+            val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
+            val effectiveRagContext = if (isToolQuery) "" else ragContext
+            val effectiveRagTokenCost = if (isToolQuery) 0 else ragTokenCost
+
             if (needsHistoryReplay || proactiveReset) {
                 needsHistoryReplay = false
                 val allMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
@@ -704,22 +716,25 @@ class ChatViewModel @Inject constructor(
                 )
                 val selected = contextWindowManager.selectHistory(turns, ContextWindowManager.historyBudget(activeContextWindowSize))
                 // Inject history into the system prompt so Gemma treats it as background context.
-                val systemPromptWithHistory = buildSystemPrompt(selected, isFirstReply = isFirstReply)
+                val systemPromptWithHistory = buildSystemPrompt(selected, isFirstReply = isFirstReply, identityTier = effectiveIdentityTier)
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
                 // Re-baseline from selected history, then add the RAG cost for this turn.
                 estimatedTokensUsed = selected.sumOf {
                     contextWindowManager.estimateTokens(it.first) + contextWindowManager.estimateTokens(it.second)
-                } + ragTokenCost
+                } + effectiveRagTokenCost
             } else {
-                estimatedTokensUsed += ragTokenCost
+                estimatedTokensUsed += effectiveRagTokenCost
             }
 
             prompt = buildString {
-                if (ragContext.isNotBlank()) append("$ragContext\n\n")
+                if (effectiveRagContext.isNotBlank()) append("$effectiveRagContext\n\n")
                 if (systemContext != null) append("$systemContext\n\n")
                 // Greeting instruction injected per-turn so turn 1 says "Kia ora" and
                 // subsequent turns explicitly suppress greetings — without invalidating the KV cache.
-                append("[System: ${jandalPersona.buildGreetingInstruction(isFirstReply)}]\n\n")
+                // Suppressed entirely for tool queries to keep the prompt focused.
+                if (!isToolQuery) {
+                    append("[System: ${jandalPersona.buildGreetingInstruction(isFirstReply)}]\n\n")
+                }
                 append(text)
             }
 
@@ -815,14 +830,23 @@ class ChatViewModel @Inject constructor(
                                 // native tool calls and forcing a replay drops prior turns from the
                                 // tight history budget, causing context amnesia (#446).
                             } else {
-                                // Normal text response — write corrected content to UI state
-                                _messages.update { msgs ->
-                                    msgs.map { if (it.id == assistantMsgId) it.copy(content = fullContent, isStreaming = false) else it }
+                                // Normal text response — but first check for hallucinated tool
+                                // confirmations. If the model claims to have saved/added/created
+                                // something without actually calling a tool, replace its response
+                                // with an honest failure message rather than surfacing false data.
+                                val displayContent = if (looksLikeToolConfirmation(fullContent)) {
+                                    Log.w("KernelAI", "Hallucination guard triggered — model confirmed action without tool call")
+                                    "I wasn't able to complete that action — please try again, or try phrasing it differently."
+                                } else {
+                                    fullContent
                                 }
-                                val savedAssistantMsgId = conversationRepository.addMessage(convId, "assistant", fullContent, thinking)
-                                ragRepository.indexMessage(savedAssistantMsgId, convId, fullContent)
+                                _messages.update { msgs ->
+                                    msgs.map { if (it.id == assistantMsgId) it.copy(content = displayContent, isStreaming = false) else it }
+                                }
+                                val savedAssistantMsgId = conversationRepository.addMessage(convId, "assistant", displayContent, thinking)
+                                ragRepository.indexMessage(savedAssistantMsgId, convId, displayContent)
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
-                                    contextWindowManager.estimateTokens(fullContent)
+                                    contextWindowManager.estimateTokens(displayContent)
                             }
 
                             // Clear streaming tracking now that the message is fully persisted.
@@ -1094,6 +1118,36 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
+     * Returns true if [query] looks like a tool-routable request that doesn't benefit from
+     * the full Jandal personality or episodic RAG context (#438, #481).
+     *
+     * Used to switch to [IdentityTier.MINIMAL] and skip RAG injection for device-action
+     * and tool-calling queries, freeing ~1000 tokens for tool-call reasoning.
+     */
+    private fun looksLikeToolQuery(query: String): Boolean {
+        val lower = query.lowercase().trim()
+        val toolKeywords = listOf(
+            "save", "remember", "note that", "don't forget", "store",
+            "add to", "put on", "put in", "add .+ to .+ list",
+            "create .+ list", "make .+ list", "remove from", "delete from",
+            "what's on my", "show my", "read my .+ list",
+            "set alarm", "set a timer", "set timer", "remind me",
+            "send email", "send sms", "send a text", "call ",
+            "search wikipedia", "look up", "wikipedia",
+            "turn on", "turn off", "toggle", "open app",
+            "play ", "navigate to", "directions to",
+            "what time", "what's the time", "battery", "get battery",
+        )
+        return toolKeywords.any { keyword ->
+            if (keyword.contains(Regex("[.+*?]"))) {
+                Regex(keyword, RegexOption.IGNORE_CASE).containsMatchIn(lower)
+            } else {
+                lower.contains(keyword)
+            }
+        }
+    }
+
+    /**
      * Corrects digit-truncated numbers in a model response when a [System:] skill context was
      * injected. E.g. model reads "Battery is at 92%" from context but outputs "9%" — a known
      * Gemma-4 generation artefact. Only corrects percentage values to avoid false positives.
@@ -1118,6 +1172,33 @@ class ChatViewModel @Inject constructor(
             }
         }
         return corrected
+    }
+
+    /**
+     * Returns true if [response] looks like the model confirmed a tool action without
+     * actually calling any tool — the classic Gemma-4 hallucination pattern.
+     *
+     * Matches phrases the model uses when it believes it completed an action:
+     * "I've saved that", "Added milk to your list", "Done!", "Memory saved" etc.
+     * Only checked when [wasToolCalled] is false to avoid false positives.
+     *
+     * On a positive match the caller should replace the response with an honest
+     * failure message rather than surfacing fabricated confirmation to the user.
+     */
+    private fun looksLikeToolConfirmation(response: String): Boolean {
+        val lower = response.lowercase()
+        // Past-tense action completions when no tool was called
+        val actionPhrases = listOf(
+            "i've saved", "i have saved", "saved that", "saved to memory", "saved to your memory",
+            "memory saved", "noted that", "i'll remember", "i've noted",
+            "added to your", "added that to", "added it to",
+            "i've added", "i have added", "item added",
+            "created your", "i've created", "list created", "created a new",
+            "set an alarm", "alarm set", "timer set", "i've set",
+            "turned on", "turned off", "toggled",
+            "done!", "all done", "got it, i've", "sure thing",
+        )
+        return actionPhrases.any { lower.contains(it) }
     }
 }
 

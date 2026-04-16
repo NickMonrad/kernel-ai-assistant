@@ -849,6 +849,52 @@ class QuickIntentRouter(
                 )
             },
         ),
+        // "put milk on my shopping list" / "put eggs on the grocery list"
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """put\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(.+?)\s+list""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to match.groupValues[1].trim(),
+                    "list_name" to match.groupValues[2].trim(),
+                )
+            },
+        ),
+        // "create a groceries list" / "make a new shopping list" / "start a meal plan list"
+        IntentPattern(
+            intentName = "create_list",
+            regex = Regex(
+                """(?:create|make|start|new)\s+(?:a\s+|an\s+|my\s+|new\s+)?(.+?)\s+list""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+        ),
+        // "remove milk from my shopping list" / "take eggs off the grocery list"
+        IntentPattern(
+            intentName = "remove_from_list",
+            regex = Regex(
+                """(?:remove|delete|take|cross off)\s+(.+?)\s+(?:from|off)\s+(?:(?:my|the)\s+)?(.+?)\s+list""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to match.groupValues[1].trim(),
+                    "list_name" to match.groupValues[2].trim(),
+                )
+            },
+        ),
+        // "what's on my shopping list" / "show me my grocery list" / "read out my to-do list"
+        IntentPattern(
+            intentName = "get_list_items",
+            regex = Regex(
+                """(?:what(?:'s|\s+is)\s+on|show(?:\s+me)?|read(?:\s+out)?|get|list)\s+(?:(?:my|the)\s+)?(.+?)\s+list""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+        ),
 
         // ── Save Memory ──
         // Pattern: "save [to/that/...] memory that X" / "save this to memory: X"
@@ -869,14 +915,26 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
         ),
-        // Pattern: "note that X" / "make a note that X"
+        // Pattern: "note that X" / "make a note that X" / "don't forget that X"
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """(?:note|don't forget|don't forget)\s+(?:that\s+)?[:\-–]?\s*(.+)""",
+                """(?:(?:make\s+a\s+)?note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+        ),
+        // Pattern: "my X is Y" — captures personal facts like "my dog's name is Biscuit"
+        // Anchored to start of message and requires "my" to reduce false positives.
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """^my\s+(.{3,60})\s+is\s+(.{1,100})$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, raw ->
+                mapOf("content" to raw.trim())
+            },
         ),
 
         // ── Smart Home (MUST BE LAST — most generic) ──
