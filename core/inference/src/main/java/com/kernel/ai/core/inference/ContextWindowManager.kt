@@ -44,16 +44,30 @@ class ContextWindowManager {
     /**
      * Returns the most recent (user, assistant) pairs from [turns] that fit
      * within [budget] tokens, in chronological order.
+     *
+     * When the most recent turn alone exceeds [budget] (e.g. a very long tool
+     * result), it is included truncated rather than dropping all history. This
+     * prevents complete context amnesia (#446) when a single large turn fills
+     * the budget.
      */
     fun selectHistory(
         turns: List<Pair<String, String>>,
         budget: Int,
     ): List<Pair<String, String>> {
+        if (turns.isEmpty() || budget <= 0) return emptyList()
         var remaining = budget
         val result = ArrayDeque<Pair<String, String>>()
         for (turn in turns.reversed()) {
             val cost = estimateTokens(turn.first) + estimateTokens(turn.second)
-            if (remaining < cost) break
+            if (remaining < cost) {
+                // If we haven't collected any turns yet, the most recent turn alone exceeds
+                // the budget. Include it truncated so at least one turn of context survives.
+                if (result.isEmpty() && remaining > 0) {
+                    val maxCharsEach = (remaining * CHARS_PER_TOKEN) / 2
+                    result.addFirst(turn.first.take(maxCharsEach) to turn.second.take(maxCharsEach))
+                }
+                break
+            }
             result.addFirst(turn)
             remaining -= cost
         }
