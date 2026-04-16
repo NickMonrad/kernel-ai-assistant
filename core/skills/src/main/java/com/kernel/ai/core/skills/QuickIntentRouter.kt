@@ -529,10 +529,39 @@ class QuickIntentRouter(
         ),
 
         // ── Weather ──
+        // City-named weather: "weather in Auckland" / "what's the weather in London" /
+        // "weather forecast for Paris" — captures city into `location` param.
         IntentPattern(
-            intentName = "get_weather_gps",
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather(?:\s+(?:like|today|tonight|now))?\s+in\s+|how(?:'s|\s+is)\s+(?:the\s+)?weather\s+in\s+|weather(?:\s+forecast)?\s+(?:in|for|at)\s+)([\w\s,]+?)(?:\s+today|\s+tonight|\s+now|\s+forecast|\s+this\s+week)?\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("location" to match.groupValues[1].trim()) },
+        ),
+        // GPS weather: current location queries with no city mentioned.
+        IntentPattern(
+            intentName = "get_weather",
             regex = Regex(
                 """(?:what(?:'s| is)\s+(?:the\s+)?weather(?:\s+(?:like|today|tonight|now|outside|currently))?|how(?:'s|\s+is)\s+(?:the\s+)?weather(?:\s+(?:today|tonight|now|outside))?|weather\s+(?:today|tonight|now|outside|forecast|this\s+week))\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Precipitation: "will it rain", "is it raining", "do I need an umbrella"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:will\s+it\s+rain|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Temperature queries: "how hot/cold is it", "what's the temperature outside"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:how\s+(?:hot|cold|warm)\s+is\s+it|what(?:'s| is)\s+(?:the\s+)?temperature(?:\s+(?:outside|today|now|currently))?|temperature\s+(?:outside|today|now|currently))""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
