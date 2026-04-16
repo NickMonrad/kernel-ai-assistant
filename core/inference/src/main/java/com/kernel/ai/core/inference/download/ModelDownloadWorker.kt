@@ -12,6 +12,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -33,6 +34,8 @@ const val KEY_PROGRESS_BYTES = "progress_bytes"
 const val KEY_DOWNLOAD_RATE = "download_rate_bps"
 const val KEY_REMAINING_MS = "remaining_ms"
 const val KEY_ERROR_MESSAGE = "error_message"
+const val KEY_ERROR = "error"
+const val KEY_ERROR_CODE = "error_code"
 /** Optional HuggingFace Bearer token — present when downloading a gated model. */
 const val KEY_HF_ACCESS_TOKEN = "hf_access_token"
 
@@ -90,6 +93,9 @@ class ModelDownloadWorker(
             )
             Log.i(TAG, "Download complete: ${outputFile.absolutePath}")
             Result.success()
+        } catch (e: LicenceRequiredException) {
+            Log.w(TAG, "Licence required (HTTP ${e.responseCode}) for $downloadUrl")
+            Result.failure(workDataOf(KEY_ERROR to "LICENCE_REQUIRED", KEY_ERROR_CODE to e.responseCode))
         } catch (e: IOException) {
             Log.e(TAG, "Download failed: ${e.message}", e)
             Result.failure(errorData(e.message ?: "Unknown I/O error"))
@@ -122,6 +128,9 @@ class ModelDownloadWorker(
         connection.connect()
 
         val responseCode = connection.responseCode
+        if (responseCode == 401 || responseCode == 403) {
+            throw LicenceRequiredException(responseCode)
+        }
         if (responseCode != HttpURLConnection.HTTP_OK && responseCode != HttpURLConnection.HTTP_PARTIAL) {
             throw IOException("HTTP $responseCode for $url")
         }
@@ -241,3 +250,6 @@ class ModelDownloadWorker(
     private fun errorData(message: String): Data =
         Data.Builder().putString(KEY_ERROR_MESSAGE, message).build()
 }
+
+/** Thrown when the server returns 401 or 403 — model licence must be accepted first. */
+private class LicenceRequiredException(val responseCode: Int) : IOException("HTTP $responseCode — licence required")

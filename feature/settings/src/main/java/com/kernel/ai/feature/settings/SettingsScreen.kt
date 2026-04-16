@@ -2,19 +2,18 @@ package com.kernel.ai.feature.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
@@ -27,7 +26,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -38,16 +36,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.kernel.ai.core.inference.download.KernelModel
-import kotlinx.coroutines.launch
 
 /** Amber / HuggingFace brand colour — same as in OnboardingScreen. */
 private val HfOrange = Color(0xFFFF9D00)
@@ -59,12 +54,13 @@ fun SettingsScreen(
     onNavigateToUserProfile: () -> Unit = {},
     onNavigateToMemory: () -> Unit = {},
     onNavigateToModelSettings: () -> Unit = {},
+    onNavigateToModelManagement: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
+    val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(Unit) {
         viewModel.saveError.collect { message ->
@@ -115,144 +111,26 @@ fun SettingsScreen(
                 HorizontalDivider()
             }
 
-            // ── Conversation Model Selection ──────────────────────────────────
             Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Conversation model",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
 
-            // Auto option
+            // ── Model Management ──────────────────────────────────────────────
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { viewModel.setPreferredModel(null) },
-                headlineContent = { Text("Auto") },
-                supportingContent = { Text("Select best model for your hardware") },
-                leadingContent = {
-                    RadioButton(
-                        selected = uiState.preferredModel == null,
-                        onClick = { viewModel.setPreferredModel(null) },
-                    )
-                },
-            )
-
-            // E2B option
-            ListItem(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        if (uiState.e2bDownloaded) {
-                            viewModel.setPreferredModel(KernelModel.GEMMA_4_E2B)
-                        } else {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("E2B not downloaded")
-                            }
-                        }
-                    },
-                headlineContent = {
-                    Text(
-                        text = "E2B — Gemma 4 E-2B",
-                        color = if (uiState.e2bDownloaded)
-                            MaterialTheme.colorScheme.onSurface
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                supportingContent = {
-                    Text(
-                        text = if (uiState.e2bDownloaded) "2.4 GB · Efficient, runs on all devices"
-                               else "Not downloaded · 2.4 GB",
-                        color = if (uiState.e2bDownloaded)
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        else
-                            MaterialTheme.colorScheme.error,
-                    )
-                },
-                leadingContent = {
-                    RadioButton(
-                        selected = uiState.preferredModel == KernelModel.GEMMA_4_E2B,
-                        onClick = {
-                            if (uiState.e2bDownloaded) {
-                                viewModel.setPreferredModel(KernelModel.GEMMA_4_E2B)
-                            } else {
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("E2B not downloaded")
-                                }
-                            }
-                        },
-                        enabled = uiState.e2bDownloaded,
-                    )
-                },
-                trailingContent = if (!uiState.e2bDownloaded) {
-                    {
-                        TextButton(onClick = { viewModel.downloadModel(KernelModel.GEMMA_4_E2B) }) {
-                            Text("Download")
-                        }
-                    }
-                } else null,
-            )
-
-            // E4B option
-            ListItem(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        if (uiState.e4bDownloaded) {
-                            viewModel.setPreferredModel(KernelModel.GEMMA_4_E4B)
-                        } else {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("E4B not downloaded")
-                            }
-                        }
-                    },
-                headlineContent = {
-                    Text(
-                        text = "E4B — Gemma 4 E-4B",
-                        color = if (uiState.e4bDownloaded)
-                            MaterialTheme.colorScheme.onSurface
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                supportingContent = {
-                    Text(
-                        text = if (uiState.e4bDownloaded) "3.4 GB · Higher quality, flagship devices"
-                               else "Not downloaded · 3.4 GB",
-                        color = if (uiState.e4bDownloaded)
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        else
-                            MaterialTheme.colorScheme.error,
-                    )
-                },
-                leadingContent = {
-                    RadioButton(
-                        selected = uiState.preferredModel == KernelModel.GEMMA_4_E4B,
-                        onClick = {
-                            if (uiState.e4bDownloaded) {
-                                viewModel.setPreferredModel(KernelModel.GEMMA_4_E4B)
-                            } else {
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("E4B not downloaded")
-                                }
-                            }
-                        },
-                        enabled = uiState.e4bDownloaded,
-                    )
-                },
-                trailingContent = if (!uiState.e4bDownloaded) {
-                    {
-                        TextButton(onClick = { viewModel.downloadModel(KernelModel.GEMMA_4_E4B) }) {
-                            Text("Download")
-                        }
-                    }
-                } else null,
+                    .clickable { onNavigateToModelManagement() },
+                headlineContent = { Text("Model management") },
+                supportingContent = { Text("Downloads, storage and model preferences") },
+                leadingContent = { Icon(Icons.Default.Download, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
 
             HorizontalDivider()
             Spacer(modifier = Modifier.height(8.dp))
+
+            // Auto option
+            // E2B option
+            // E4B option
+            // (Model selection moved to ModelManagementScreen)
 
             // ── User Profile ──────────────────────────────────────────────────
             ListItem(
@@ -316,6 +194,7 @@ fun SettingsScreen(
                 username = uiState.hfUsername,
                 onSignIn = { viewModel.startAuth() },
                 onSignOut = { viewModel.signOutHuggingFace() },
+                onViewLicence = { uriHandler.openUri("https://huggingface.co/litert-community/embeddinggemma-300m") },
             )
             HorizontalDivider()
         }
@@ -360,6 +239,7 @@ private fun HuggingFaceAccountRow(
     username: String?,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
+    onViewLicence: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (isAuthenticated) {
@@ -371,7 +251,14 @@ private fun HuggingFaceAccountRow(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             },
-            supportingContent = { Text("Gated models unlocked") },
+            supportingContent = {
+                Column {
+                    Text("Gated models unlocked")
+                    TextButton(onClick = onViewLicence, contentPadding = PaddingValues(0.dp)) {
+                        Text("View licence →", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
             leadingContent = {
                 Icon(
                     imageVector = Icons.Default.AccountCircle,
@@ -389,7 +276,14 @@ private fun HuggingFaceAccountRow(
         ListItem(
             modifier = modifier.fillMaxWidth(),
             headlineContent = { Text("Not signed in") },
-            supportingContent = { Text("Sign in to download gated models (Gemma 4, EmbeddingGemma)") },
+            supportingContent = {
+                Column {
+                    Text("Required to download EmbeddingGemma (gated). Accept licence before downloading.")
+                    TextButton(onClick = onViewLicence, contentPadding = PaddingValues(0.dp)) {
+                        Text("View licence →", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
             leadingContent = {
                 Icon(
                     imageVector = Icons.Default.AccountCircle,
