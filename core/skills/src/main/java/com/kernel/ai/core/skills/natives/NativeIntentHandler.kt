@@ -653,7 +653,10 @@ class NativeIntentHandler @Inject constructor(
             "tomorrow" -> return today.plusDays(1)
         }
 
-        // Day-of-week names with optional "next"/"this" prefix (all resolve identically)
+        // Day-of-week names with optional "next"/"this" prefix.
+        // "this <day>" returns today if today matches (user means the current week's occurrence).
+        // "next <day>" and bare day names always skip to the next future occurrence.
+        val isThis = normalized.startsWith("this ")
         val dayName = normalized.removePrefix("next ").removePrefix("this ").trim()
         val targetDow: DayOfWeek? = when (dayName) {
             "monday" -> DayOfWeek.MONDAY
@@ -666,10 +669,8 @@ class NativeIntentHandler @Inject constructor(
             else -> null
         }
         if (targetDow != null) {
-            // Always return the next future occurrence — never today.
-            // TemporalAdjusters.next() guarantees this; "next wednesday" and plain "wednesday"
-            // behave identically (both skip to the upcoming occurrence in the future).
-            return today.with(TemporalAdjusters.next(targetDow))
+            return if (isThis && today.dayOfWeek == targetDow) today
+            else today.with(TemporalAdjusters.next(targetDow))
         }
 
         // Strict ISO first, then progressively more lenient formats.
