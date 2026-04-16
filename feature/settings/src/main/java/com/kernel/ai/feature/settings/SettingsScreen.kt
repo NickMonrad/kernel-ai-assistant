@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
@@ -56,6 +57,7 @@ fun SettingsScreen(
     onNavigateToModelSettings: () -> Unit = {},
     onNavigateToModelManagement: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
+    onNavigateToContactAliases: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -152,6 +154,18 @@ fun SettingsScreen(
                 headlineContent = { Text("Memory") },
                 supportingContent = { Text("Manage stored memories") },
                 leadingContent = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
+
+            // ── People & Contacts ─────────────────────────────────────────────
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToContactAliases() },
+                headlineContent = { Text("People & Contacts") },
+                supportingContent = { Text("Map nicknames to contacts for calling") },
+                leadingContent = { Icon(Icons.Default.People, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()
