@@ -850,6 +850,35 @@ class QuickIntentRouter(
             },
         ),
 
+        // ── Save Memory ──
+        // Pattern: "save [to/that/...] memory that X" / "save this to memory: X"
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """(?:save|store|keep)\s+(?:to\s+memory|in\s+memory|that|this|it)\s*[:\-–]?\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+        ),
+        // Pattern: "remember that X" / "remember: X"
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """remember\s+(?:that\s+)?[:\-–]?\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+        ),
+        // Pattern: "note that X" / "make a note that X"
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """(?:note|don't forget|don't forget)\s+(?:that\s+)?[:\-–]?\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+        ),
+
         // ── Smart Home (MUST BE LAST — most generic) ──
         // Exclude media/computing devices that the phone can't directly control.
         IntentPattern(
