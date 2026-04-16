@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
@@ -58,6 +59,7 @@ fun SettingsScreen(
     onNavigateToModelManagement: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
     onNavigateToContactAliases: () -> Unit = {},
+    onNavigateToScheduledAlarms: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -166,6 +168,18 @@ fun SettingsScreen(
                 headlineContent = { Text("People & Contacts") },
                 supportingContent = { Text("Map nicknames to contacts for calling") },
                 leadingContent = { Icon(Icons.Default.People, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
+
+            // ── Scheduled Alarms ─────────────────────────────────────────────
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToScheduledAlarms() },
+                headlineContent = { Text("Scheduled Alarms") },
+                supportingContent = { Text("View and cancel upcoming alarms set by Jandal") },
+                leadingContent = { Icon(Icons.Default.Alarm, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()
