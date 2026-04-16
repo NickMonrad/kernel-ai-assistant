@@ -18,7 +18,6 @@ import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
-import com.kernel.ai.alarm.AlarmBroadcastReceiver
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
 import com.kernel.ai.core.skills.SkillResult
@@ -202,9 +201,13 @@ class NativeIntentHandler @Inject constructor(
             runBlocking { scheduledAlarmDao.insert(alarmEntity) }
 
             val alarmManager = context.getSystemService(AlarmManager::class.java)
-            val alarmIntent = Intent(context, AlarmBroadcastReceiver::class.java).apply {
-                putExtra(AlarmBroadcastReceiver.EXTRA_LABEL, label ?: "Alarm")
-                putExtra(AlarmBroadcastReceiver.EXTRA_ALARM_ID, alarmId)
+            val alarmIntent = Intent().apply {
+                component = android.content.ComponentName(
+                    context.packageName,
+                    "com.kernel.ai.alarm.AlarmBroadcastReceiver",
+                )
+                putExtra("alarm_label", label ?: "Alarm")
+                putExtra("alarm_id", alarmId)
             }
             val pendingIntent = PendingIntent.getBroadcast(
                 context,
