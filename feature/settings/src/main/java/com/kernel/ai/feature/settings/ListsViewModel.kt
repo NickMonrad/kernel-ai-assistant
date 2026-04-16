@@ -3,7 +3,9 @@ package com.kernel.ai.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
+import com.kernel.ai.core.memory.entity.ListNameEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -17,6 +19,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ListsViewModel @Inject constructor(
     private val dao: ListItemDao,
+    private val listNameDao: ListNameDao,
 ) : ViewModel() {
 
     /** All items grouped by list name — used by the drill-in item screen. */
@@ -25,9 +28,10 @@ class ListsViewModel @Inject constructor(
             .map { items -> items.groupBy { it.listName } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    /** Distinct list names, alphabetical — for the overview screen. */
+    /** List names from the lists table — persists even when lists are empty. */
     val listNames: StateFlow<List<String>> =
-        dao.observeAllLists()
+        listNameDao.observeAll()
+            .map { it.map { e -> e.name } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Item counts keyed by list name — shown in the overview. */
@@ -47,6 +51,15 @@ class ListsViewModel @Inject constructor(
     fun setListSearchQuery(q: String) { _listSearchQuery.value = q }
     fun setItemSearchQuery(q: String) { _itemSearchQuery.value = q }
     fun clearItemSearchQuery() { _itemSearchQuery.value = "" }
+
+    /** Creates a new list entry in the lists table (idempotent — IGNORE conflict). */
+    fun addList(name: String) {
+        val trimmed = name.trim().lowercase()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            listNameDao.insert(ListNameEntity(name = trimmed))
+        }
+    }
 
     fun toggleChecked(item: ListItemEntity) {
         viewModelScope.launch {
@@ -71,6 +84,10 @@ class ListsViewModel @Inject constructor(
     }
 
     fun deleteList(listName: String) {
-        viewModelScope.launch { dao.deleteList(listName) }
+        viewModelScope.launch {
+            dao.deleteList(listName)
+            listNameDao.deleteByName(listName)
+        }
     }
 }
+

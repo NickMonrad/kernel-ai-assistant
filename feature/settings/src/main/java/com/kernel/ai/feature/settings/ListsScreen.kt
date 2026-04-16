@@ -174,7 +174,10 @@ fun ListsScreen(
         CreateListDialog(
             onConfirm = { name ->
                 showCreateDialog = false
-                if (name.isNotBlank()) onOpenList(name.trim())
+                if (name.isNotBlank()) {
+                    viewModel.addList(name)
+                    onOpenList(name.trim().lowercase())
+                }
             },
             onDismiss = { showCreateDialog = false },
         )
