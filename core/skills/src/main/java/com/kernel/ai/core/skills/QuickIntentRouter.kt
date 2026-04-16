@@ -178,7 +178,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_calendar_event",
             regex = Regex(
-                """(?:add|create|schedule|put|book)\s+(?:a\s+|an\s+)?(?:calendar\s+)?(?:event|appointment|meeting|entry|invite|session|booking)\b""",
+                """(?:add|create|schedule|put|book|set)\s+(?:a\s+|an\s+)?(?:calendar\s+)?(?:event|appointment|meeting|entry|invite|session|booking)\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> mapOf("raw_query" to raw) },
