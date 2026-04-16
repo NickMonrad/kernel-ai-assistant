@@ -319,7 +319,7 @@ class RagRepository @Inject constructor(
                         id = entity.id,
                         content = entity.content,
                         source = "episodic",
-                        score = 0f,
+                        score = -0.5f, // below all initial hits (floor is ~-0.10f at max distance)
                         lastAccessedAt = entity.lastAccessedAt,
                         conversationId = entity.conversationId,
                     )
