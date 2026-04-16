@@ -85,4 +85,7 @@ interface EpisodicMemoryDao {
 
     @Query("UPDATE episodic_memories SET vectorized = 1 WHERE rowId = :rowId")
     suspend fun markVectorized(rowId: Long)
+
+    @Query("SELECT * FROM episodic_memories WHERE conversationId IN (:conversationIds) ORDER BY createdAt DESC")
+    suspend fun getByConversationIds(conversationIds: List<String>): List<EpisodicMemoryEntity>
 }

@@ -3,6 +3,7 @@ package com.kernel.ai.core.memory.rag
 import android.util.Log
 import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.EmbeddingEngine
+import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
@@ -34,6 +35,7 @@ class RagRepository @Inject constructor(
     private val messageDao: MessageDao,
     private val embeddingDao: MessageEmbeddingDao,
     private val memoryRepository: MemoryRepository,
+    private val episodicMemoryDao: EpisodicMemoryDao,
 ) {
     companion object {
         private const val TAG = "RagRepository"
@@ -48,6 +50,10 @@ class RagRepository @Inject constructor(
          *  1.10 ≈ cos_sim ≥ 0.40 for unit-normalized 768-dim vectors: L2 = sqrt(2 * (1 - cos_sim)).
          *  Without this, top-K always returns results even when nothing is actually related. */
         private const val MAX_DISTANCE = 1.10f
+
+        /** Sibling expansion caps for searchCoreAndEpisodic. */
+        private const val SIBLING_MAX_PER_CONVERSATION = 3
+        private const val SIBLING_MAX_CONVERSATIONS = 2
     }
 
     private var tableCreated = false
@@ -287,11 +293,40 @@ class RagRepository @Inject constructor(
         val queryVector = embeddingEngine.embed(query)
         if (queryVector.isEmpty()) return@withContext emptyList()
         runCatching {
-            memoryRepository.searchMemories(
+            val initialResults = memoryRepository.searchMemories(
                 queryVector = queryVector,
                 coreTopK = topK,
                 episodicTopK = topK,
             )
+
+            // Sibling expansion: fetch all episodic entries from the same conversations as
+            // the initial episodic hits, capped to avoid bloating the result set.
+            val episodicHitConversationIds = initialResults
+                .filter { it.source == "episodic" && it.conversationId != null }
+                .mapNotNull { it.conversationId }
+                .distinct()
+                .take(SIBLING_MAX_CONVERSATIONS)
+
+            if (episodicHitConversationIds.isEmpty()) return@runCatching initialResults
+
+            val alreadyReturnedIds = initialResults.map { it.id }.toSet()
+            val siblings = episodicMemoryDao.getByConversationIds(episodicHitConversationIds)
+                .filter { it.id !in alreadyReturnedIds }
+                .groupBy { it.conversationId }
+                .flatMap { (_, entries) -> entries.take(SIBLING_MAX_PER_CONVERSATION) }
+                .map { entity ->
+                    MemorySearchResult(
+                        id = entity.id,
+                        content = entity.content,
+                        source = "episodic",
+                        score = 0f,
+                        lastAccessedAt = entity.lastAccessedAt,
+                        conversationId = entity.conversationId,
+                    )
+                }
+
+            Log.d(TAG, "searchCoreAndEpisodic: ${initialResults.size} initial + ${siblings.size} siblings from ${episodicHitConversationIds.size} conversation(s)")
+            initialResults + siblings
         }.getOrElse {
             Log.w(TAG, "searchCoreAndEpisodic failed: ${it.message}")
             emptyList()
