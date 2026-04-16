@@ -37,9 +37,9 @@ class QuickIntentRouterSmokeTest {
             Arguments.of("what day is it", "get_time"),
             Arguments.of("what's today's date", "get_time"),
 
-            // get_weather
-            Arguments.of("what's the weather", "get_weather"),
-            Arguments.of("weather today", "get_weather"),
+            // get_weather_gps
+            Arguments.of("what's the weather", "get_weather_gps"),
+            Arguments.of("weather today", "get_weather_gps"),
 
             // set_alarm
             Arguments.of("set an alarm for 7am", "set_alarm"),
