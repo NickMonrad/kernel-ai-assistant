@@ -60,7 +60,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val inferenceEngine: InferenceEngine,
     private val downloadManager: ModelDownloadManager,
     private val conversationRepository: ConversationRepository,
@@ -301,6 +301,9 @@ class ChatViewModel @Inject constructor(
         try {
         val id = navConversationId ?: conversationRepository.createConversation()
         conversationId = id
+        // Persist resolved ID so process-death recreation restores the right conversation
+        // instead of creating a fresh one on every cold start.
+        savedStateHandle["conversationId"] = id
 
         // Load persisted title immediately so UI shows it on back-navigation.
         val conversation = conversationRepository.getConversation(id)
@@ -551,6 +554,19 @@ class ChatViewModel @Inject constructor(
                 is QuickIntentRouter.RouteResult.FallThrough -> null
             }
             if (matchedIntent != null) {
+                // Calendar intent matched by classifier but params not extractable via regex —
+                // skip immediate execution and fall through to E4B with a structured hint.
+                if (matchedIntent.intentName == "create_calendar_event" &&
+                    matchedIntent.params["title"].isNullOrBlank()
+                ) {
+                    val rawQuery = matchedIntent.params["raw_query"] ?: text
+                    systemContext = "[System: User wants to create a calendar event. " +
+                        "Their request: \"$rawQuery\". " +
+                        "Extract the event title, date, and time, then call " +
+                        "runIntent(intentName=\"create_calendar_event\", ...). " +
+                        "Pass the date exactly as the user said it. Pass time as HH:MM 24h.]"
+                    // fall through to E4B — do NOT execute now
+                } else {
                 // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
                 // handled by the run_intent skill — they aren't top-level skill names.
                 // Resolve: direct skill match first, then fall back to run_intent.
@@ -580,6 +596,7 @@ class ChatViewModel @Inject constructor(
                         else -> { /* UnknownSkill/ParseError — fall through to E4B unchanged */ }
                     }
                 }
+                } // end else (non-calendar or calendar with params)
             }
 
             // Lazy-init Gemma-4 if not yet loaded.
