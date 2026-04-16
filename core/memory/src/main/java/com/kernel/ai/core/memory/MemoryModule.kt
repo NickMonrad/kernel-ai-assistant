@@ -3,6 +3,7 @@ package com.kernel.ai.core.memory
 import android.content.Context
 import androidx.room.Room
 import com.kernel.ai.core.memory.dao.ContactAliasDao
+import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ConversationDao
 import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
@@ -59,6 +60,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_11_12,
                     KernelDatabase.MIGRATION_12_13,
                     KernelDatabase.MIGRATION_13_14,
+                    KernelDatabase.MIGRATION_14_15,
                 )
                 .build()
 
@@ -91,6 +93,9 @@ abstract class MemoryModule {
 
         @Provides
         fun provideContactAliasDao(db: KernelDatabase): ContactAliasDao = db.contactAliasDao()
+
+        @Provides
+        fun provideListItemDao(db: KernelDatabase): ListItemDao = db.listItemDao()
 
         @Provides
         @Singleton

@@ -19,7 +19,9 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import com.kernel.ai.core.memory.ContactAliasRepository
+import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
+import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
 import com.kernel.ai.core.skills.SkillResult
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -77,6 +79,7 @@ private const val TAG = "KernelAI"
 class NativeIntentHandler @Inject constructor(
     @ApplicationContext private val context: Context,
     private val scheduledAlarmDao: ScheduledAlarmDao,
+    private val listItemDao: ListItemDao,
     private val contactAliasRepository: ContactAliasRepository,
 ) {
 
@@ -756,13 +759,18 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
-    // ── List Management (stub — pending #315) ─────────────────────────────────
+    // ── List Management (#315) ────────────────────────────────────────────────
 
     private fun addToList(params: Map<String, String>): SkillResult {
         val item = params["item"] ?: return SkillResult.Failure("add_to_list", "No item specified")
-        val list = params["list_name"] ?: "shopping list"
-        // TODO: Wire to Room DB list feature (#315)
-        return SkillResult.Success("Added \"$item\" to your $list")
+        val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
+        val listName = when (raw) {
+            "grocery list", "groceries", "grocery" -> "shopping list"
+            "todo", "to do", "todos", "to-do" -> "to-do list"
+            else -> raw
+        }
+        runBlocking { listItemDao.insert(ListItemEntity(listName = listName, item = item)) }
+        return SkillResult.Success("Added \"$item\" to your $listName.")
     }
 
     // ── Smart Home (stub — pending #311 / #312) ───────────────────────────────

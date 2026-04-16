@@ -25,6 +25,7 @@ import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
 import com.kernel.ai.feature.settings.AboutScreen
 import com.kernel.ai.feature.settings.ContactAliasesScreen
+import com.kernel.ai.feature.settings.ListsScreen
 import com.kernel.ai.feature.settings.MemoryScreen
 import com.kernel.ai.feature.settings.ModelManagementScreen
 import com.kernel.ai.feature.settings.ModelSettingsScreen
@@ -44,6 +45,7 @@ private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management"
 private const val ROUTE_ABOUT = "settings/about"
 private const val ROUTE_CONTACT_ALIASES = "settings/contact_aliases"
 private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
+private const val ROUTE_LISTS = "settings/lists"
 private const val ARG_CONVERSATION_ID = "conversationId"
 private const val ARG_INITIAL_QUERY = "initialQuery"
 
@@ -215,6 +217,9 @@ fun KernelNavHost() {
                     onNavigateToScheduledAlarms = {
                         navController.navigate(ROUTE_SCHEDULED_ALARMS)
                     },
+                    onNavigateToLists = {
+                        navController.navigate(ROUTE_LISTS)
+                    },
                 )
             }
 
@@ -261,6 +266,12 @@ fun KernelNavHost() {
 
             composable(ROUTE_SCHEDULED_ALARMS) {
                 ScheduledAlarmsScreen(
+                    onBack = { navController.popBackStack() },
+                )
+            }
+
+            composable(ROUTE_LISTS) {
+                ListsScreen(
                     onBack = { navController.popBackStack() },
                 )
             }
