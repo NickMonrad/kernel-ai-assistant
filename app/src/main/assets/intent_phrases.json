@@ -495,7 +495,24 @@
         "can you tell me the date",
         "what day is it",
         "date check",
-        "what is today"
+        "what is today",
+        "what year is it",
+        "what year are we in",
+        "what year is this",
+        "what's the current year",
+        "is it still Tuesday",
+        "is today Monday",
+        "is it Friday today",
+        "is today the weekend",
+        "what month is it",
+        "what month are we in",
+        "what week is it",
+        "what day does Christmas fall on",
+        "what day does New Year fall on this year",
+        "what day does Easter fall on this year",
+        "when is Christmas this year",
+        "what date is Thanksgiving this year",
+        "what day is New Year's Day this year"
       ]
     }
   }

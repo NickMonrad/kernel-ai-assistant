@@ -1269,6 +1269,32 @@ class QuickIntentRouterTest {
             Arguments.of("what's today's date"),
             Arguments.of("what is today's date"),
             Arguments.of("what's today's day"),
+            // year queries
+            Arguments.of("what year is it"),
+            Arguments.of("what year are we in"),
+            Arguments.of("what year is this"),
+            Arguments.of("what's the year"),
+            Arguments.of("what's the current year"),
+            Arguments.of("what is the current year"),
+            // "is it still [day]" / "is today [day]"
+            Arguments.of("is it still Tuesday"),
+            Arguments.of("is it still monday"),
+            Arguments.of("is today Friday"),
+            Arguments.of("is it Friday today"),
+            Arguments.of("is it Monday today"),
+            // month / week queries
+            Arguments.of("what month is it"),
+            Arguments.of("what month are we in"),
+            Arguments.of("what week is it"),
+            Arguments.of("what week are we in"),
+            Arguments.of("what's the month"),
+            Arguments.of("what is the current month"),
+            // holiday date queries
+            Arguments.of("what day does Christmas fall on"),
+            Arguments.of("what day does New Year fall on this year"),
+            Arguments.of("what day does Easter fall on this year"),
+            Arguments.of("when is Christmas this year"),
+            Arguments.of("what date is Easter this year"),
         )
 
         @JvmStatic
