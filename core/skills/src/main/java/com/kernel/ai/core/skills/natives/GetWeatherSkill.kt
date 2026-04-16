@@ -245,7 +245,7 @@ class GetWeatherSkill @Inject constructor(
         }.trimEnd()
 
         Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast for $locationLabel")
-        return SkillResult.Success(text)
+        return SkillResult.DirectReply(text)
     }
 
     private fun formatForecastDate(dateStr: String): String {
@@ -317,7 +317,7 @@ class GetWeatherSkill @Inject constructor(
         }
 
         Log.d(TAG, "GetWeatherSkill: fetched weather for $locationLabel")
-        return SkillResult.Success(text)
+        return SkillResult.DirectReply(text)
     }
 
     // ── WMO code → description / emoji ───────────────────────────────────────

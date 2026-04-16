@@ -169,6 +169,12 @@ class ActionsViewModel @Inject constructor(
         skillName: String,
         result: SkillResult,
     ): QuickActionEntity = when (result) {
+        is SkillResult.DirectReply -> QuickActionEntity(
+            userQuery = query,
+            skillName = skillName,
+            resultText = result.content,
+            isSuccess = true,
+        )
         is SkillResult.Success -> QuickActionEntity(
             userQuery = query,
             skillName = skillName,

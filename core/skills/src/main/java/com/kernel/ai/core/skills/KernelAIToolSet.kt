@@ -183,6 +183,7 @@ class KernelAIToolSet @Inject constructor(
             }
             when (result) {
                 is SkillResult.Success -> mapOf("result" to result.content)
+                is SkillResult.DirectReply -> mapOf("result" to result.content)
                 is SkillResult.Failure -> mapOf("error" to result.error)
                 is SkillResult.ParseError -> mapOf("error" to "Parse error: ${result.reason}")
                 is SkillResult.UnknownSkill -> mapOf("error" to "Unknown skill: ${result.skillName}")
