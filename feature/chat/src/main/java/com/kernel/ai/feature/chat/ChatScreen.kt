@@ -412,14 +412,43 @@ private fun MessageBubble(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
     ) {
-        // Thinking text (collapsed, italics)
+        // Thinking bubble — expandable, shows chain-of-thought content when tapped
         if (showThinkingProcess && !message.thinkingText.isNullOrBlank()) {
-            Text(
-                text = "Thinking…",
-                style = MaterialTheme.typography.labelSmall.copy(fontStyle = FontStyle.Italic),
-                color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.padding(bottom = 2.dp),
-            )
+            var expanded by rememberSaveable { mutableStateOf(false) }
+            Column(modifier = Modifier.padding(bottom = 4.dp)) {
+                Row(
+                    modifier = Modifier.clickable { expanded = !expanded },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Thinking…",
+                        style = MaterialTheme.typography.labelSmall.copy(fontStyle = FontStyle.Italic),
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (expanded) "Collapse thinking" else "Expand thinking",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+                AnimatedVisibility(visible = expanded) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .widthIn(max = 320.dp),
+                    ) {
+                        Text(
+                            text = message.thinkingText!!,
+                            style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(8.dp),
+                        )
+                    }
+                }
+            }
         }
 
         // Tool call chip (shown above message bubble for assistant messages)
