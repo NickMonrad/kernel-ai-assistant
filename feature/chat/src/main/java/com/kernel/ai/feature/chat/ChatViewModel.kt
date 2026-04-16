@@ -1140,47 +1140,9 @@ class ChatViewModel @Inject constructor(
      * Used to switch to [IdentityTier.MINIMAL] and skip RAG injection for device-action
      * and tool-calling queries, freeing ~1000 tokens for tool-call reasoning.
      */
-    private fun looksLikeToolQuery(query: String): Boolean {
-        val lower = query.lowercase().trim()
-        val toolKeywords = listOf(
-            "save", "remember", "note that", "don't forget", "store",
-            "add to", "put on", "put in", "add .+ to .+ list",
-            "create .+ list", "make .+ list", "remove from", "delete from",
-            "what's on my", "show my", "read my .+ list",
-            "set alarm", "set a timer", "set timer", "remind me",
-            "send email", "send sms", "send a text", "call ",
-            "search wikipedia", "look up", "wikipedia",
-            "turn on", "turn off", "toggle", "open app",
-            "play ", "navigate to", "directions to",
-            "what time", "what's the time", "battery", "get battery",
-        )
-        return toolKeywords.any { keyword ->
-            if (keyword.contains(Regex("[.+*?]"))) {
-                Regex(keyword, RegexOption.IGNORE_CASE).containsMatchIn(lower)
-            } else {
-                lower.contains(keyword)
-            }
-        }
-    }
+    private fun looksLikeToolQuery(query: String): Boolean = com.kernel.ai.feature.chat.looksLikeToolQuery(query)
 
-    /**
-     * Returns true if [text] contains an anaphoric reference — i.e. the user says "that",
-     * "this", "it", "the above", or similar, implying they need the previous turn's content
-     * to resolve the referent (#491).
-     *
-     * Used alongside [looksLikeToolQuery] to decide whether to inject the last conversation
-     * pair as lightweight context even when full RAG is stripped.
-     */
-    private fun looksLikeAnaphora(text: String): Boolean {
-        val lower = text.lowercase().trim()
-        return Regex(
-            """^(save|remember|store|add|note|keep)\s+(that|this|it)\b|
-               \b(look|search|find|check)\s+(that|it|this)\s+(up|out)\b|
-               ^(what|how|why|when|where)\s+(is|was|were|did)\s+(that|it|this)\b|
-               \bthat\b|\bthe above\b|\bthe previous\b""",
-            setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
-        ).containsMatchIn(lower)
-    }
+    private fun looksLikeAnaphora(text: String): Boolean = com.kernel.ai.feature.chat.looksLikeAnaphora(text)
 
     /**
      * Corrects digit-truncated numbers in a model response when a [System:] skill context was
@@ -1209,32 +1171,8 @@ class ChatViewModel @Inject constructor(
         return corrected
     }
 
-    /**
-     * Returns true if [response] looks like the model confirmed a tool action without
-     * actually calling any tool — the classic Gemma-4 hallucination pattern.
-     *
-     * Matches phrases the model uses when it believes it completed an action:
-     * "I've saved that", "Added milk to your list", "Done!", "Memory saved" etc.
-     * Only checked when [wasToolCalled] is false to avoid false positives.
-     *
-     * On a positive match the caller should replace the response with an honest
-     * failure message rather than surfacing fabricated confirmation to the user.
-     */
-    private fun looksLikeToolConfirmation(response: String): Boolean {
-        val lower = response.lowercase()
-        // Past-tense action completions when no tool was called
-        val actionPhrases = listOf(
-            "i've saved", "i have saved", "saved that", "saved to memory", "saved to your memory",
-            "memory saved", "noted that", "i'll remember", "i've noted",
-            "added to your", "added that to", "added it to",
-            "i've added", "i have added", "item added",
-            "created your", "i've created", "list created", "created a new",
-            "set an alarm", "alarm set", "timer set", "i've set",
-            "turned on", "turned off", "toggled",
-            "done!", "all done", "got it, i've", "sure thing",
-        )
-        return actionPhrases.any { lower.contains(it) }
-    }
+    private fun looksLikeToolConfirmation(response: String): Boolean =
+        com.kernel.ai.feature.chat.looksLikeToolConfirmation(response)
 }
 
 private fun formatBytes(bytes: Long): String = when {

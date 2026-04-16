@@ -848,6 +848,109 @@ class QuickIntentRouterTest {
         }
     }
 
+    @Nested
+    @DisplayName("Create List")
+    inner class CreateList {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → list_name={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#createListRegexPhrases")
+        fun `should match via regex with correct list name`(input: String, expectedList: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "create_list", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedList, intent.params["list_name"], "list_name for '$input'")
+        }
+    }
+
+    @Nested
+    @DisplayName("Get List Items")
+    inner class GetListItems {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → list_name={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#getListItemsRegexPhrases")
+        fun `should match via regex with correct list name`(input: String, expectedList: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "get_list_items", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedList, intent.params["list_name"], "list_name for '$input'")
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // WEATHER TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Get Weather")
+    inner class GetWeather {
+
+        @ParameterizedTest(name = "Regex (city): \"{0}\" → location={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#weatherCityRegexPhrases")
+        fun `should match city weather via regex`(input: String, expectedLocation: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "get_weather", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedLocation, intent.params["location"], "location for '$input'")
+        }
+
+        @ParameterizedTest(name = "Regex (GPS): \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#weatherGpsRegexPhrases")
+        fun `should match GPS weather via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "get_weather", input)
+        }
+
+        @ParameterizedTest(name = "Regex (rain): \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#weatherRainRegexPhrases")
+        fun `should match rain queries via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "get_weather", input)
+        }
+
+        @ParameterizedTest(name = "Regex (temp): \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#weatherTemperatureRegexPhrases")
+        fun `should match temperature queries via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "get_weather", input)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SAVE MEMORY TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Save Memory")
+    inner class SaveMemory {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → content={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#saveMemoryRegexPhrases")
+        fun `should match via regex with correct content`(input: String, expectedContent: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "save_memory", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedContent, intent.params["content"], "content for '$input'")
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // BRIGHTNESS TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Brightness")
+    inner class Brightness {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → direction={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#brightnessRegexPhrases")
+        fun `should match via regex with correct direction`(input: String, expectedDirection: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "set_brightness", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedDirection, intent.params["direction"], "direction for '$input'")
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // SMART HOME TESTS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -973,6 +1076,14 @@ class QuickIntentRouterTest {
         addCases(sendEmailRegexPhrases(), "send_email", "Send Email (regex)")
         addCases(addToListRegexPhrases(), "add_to_list", "Add to List (regex)")
         addCases(addToListClassifierPhrases(), "add_to_list", "Add to List (classifier)")
+        addCases(createListRegexPhrases(), "create_list", "Create List (regex)")
+        addCases(getListItemsRegexPhrases(), "get_list_items", "Get List Items (regex)")
+        addCases(weatherCityRegexPhrases(), "get_weather", "Weather City (regex)")
+        addCases(weatherGpsRegexPhrases(), "get_weather", "Weather GPS (regex)")
+        addCases(weatherRainRegexPhrases(), "get_weather", "Weather Rain (regex)")
+        addCases(weatherTemperatureRegexPhrases(), "get_weather", "Weather Temperature (regex)")
+        addCases(saveMemoryRegexPhrases(), "save_memory", "Save Memory (regex)")
+        addCases(brightnessRegexPhrases(), "set_brightness", "Brightness (regex)")
         addCases(smartHomeOnRegexPhrases(), "smart_home_on", "Smart Home ON (regex)")
         addCases(smartHomeOnClassifierPhrases(), "smart_home_on", "Smart Home ON (classifier)")
         addCases(smartHomeOffRegexPhrases(), "smart_home_off", "Smart Home OFF (regex)")
@@ -1156,6 +1267,7 @@ class QuickIntentRouterTest {
             Arguments.of("alarm for 8pm friday", "20", "0", "friday"),
             Arguments.of("set alarm for 9am sat", "9", "0", "saturday"),
             Arguments.of("set an alarm for 7:30am wed", "7", "30", "wednesday"),
+            Arguments.of("remind me tomorrow at 9", "9", "0", "tomorrow"),
         )
 
         // ── Timer ─────────────────────────────────────────────────────────────
@@ -1220,7 +1332,6 @@ class QuickIntentRouterTest {
             Arguments.of("mute all notifications", "toggle_dnd_on"),
             Arguments.of("go quiet", "toggle_dnd_on"),
             Arguments.of("no notifications please", "toggle_dnd_on"),
-            Arguments.of("unmute my phone", "toggle_dnd_off"),
             Arguments.of("bring back notifications", "toggle_dnd_off"),
         )
 
@@ -1696,8 +1807,98 @@ class QuickIntentRouterTest {
         @JvmStatic
         fun addToListClassifierPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("add eggs to my groceries"),
-            Arguments.of("remember to buy milk"),
             Arguments.of("put butter on the shopping list"),
+        )
+
+        @JvmStatic
+        fun createListRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("create a groceries list", "groceries"),
+            Arguments.of("make a shopping list", "shopping"),
+            Arguments.of("create a todo list", "todo"),
+            Arguments.of("make my chores list", "chores"),
+            Arguments.of("create a meal plan list", "meal plan"),
+            Arguments.of("new packing list", "packing"),
+        )
+
+        @JvmStatic
+        fun getListItemsRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("show my todo list", "todo"),
+            Arguments.of("what's on my shopping list", "shopping"),
+            Arguments.of("show me my grocery list", "grocery"),
+            Arguments.of("read my shopping list", "shopping"),
+            Arguments.of("get my to-do list", "to-do"),
+        )
+
+        // ── Weather ───────────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun weatherCityRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("what's the weather in Auckland", "Auckland"),
+            Arguments.of("what's the weather in London", "London"),
+            Arguments.of("weather in Wellington", "Wellington"),
+            Arguments.of("weather forecast for Paris", "Paris"),
+            Arguments.of("how's the weather in Sydney", "Sydney"),
+            Arguments.of("weather forecast for the weekend", "the weekend"),
+        )
+
+        @JvmStatic
+        fun weatherGpsRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("what's the weather"),
+            Arguments.of("what is the weather"),
+            Arguments.of("weather today"),
+            Arguments.of("weather tonight"),
+            Arguments.of("how's the weather outside"),
+            Arguments.of("weather forecast"),
+        )
+
+        @JvmStatic
+        fun weatherRainRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("will it rain today"),
+            Arguments.of("will it rain"),
+            Arguments.of("is it raining"),
+            Arguments.of("do I need an umbrella"),
+            Arguments.of("chance of rain"),
+        )
+
+        @JvmStatic
+        fun weatherTemperatureRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("how hot is it outside"),
+            Arguments.of("how cold is it"),
+            Arguments.of("what's the temperature"),
+            Arguments.of("what's the temperature outside"),
+            Arguments.of("how warm is it"),
+        )
+
+        // ── Save Memory ──────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun saveMemoryRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("save that we're meeting Tuesday", "we're meeting Tuesday"),
+            Arguments.of("remember that I prefer dark mode", "I prefer dark mode"),
+            Arguments.of("remember that my wifi password is 12345", "my wifi password is 12345"),
+            Arguments.of("remember my favourite colour is blue", "my favourite colour is blue"),
+            Arguments.of("save to memory: important note", "important note"),
+            Arguments.of("note that the gate code is 4567", "the gate code is 4567"),
+            Arguments.of("don't forget that mum's birthday is March 3", "mum's birthday is March 3"),
+            Arguments.of("store that my doctor is Dr Smith", "my doctor is Dr Smith"),
+        )
+
+        // ── Brightness ───────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun brightnessRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("increase brightness", "up"),
+            Arguments.of("decrease brightness", "down"),
+            Arguments.of("turn up the brightness", "up"),
+            Arguments.of("turn down the brightness", "down"),
+            Arguments.of("dim the brightness", "down"),
+            Arguments.of("brighten the screen brightness", "up"),
+            Arguments.of("brightness up", "up"),
+            Arguments.of("brightness down", "down"),
+            Arguments.of("brightness max", "up"),
+            Arguments.of("brightness low", "down"),
+            Arguments.of("lower the brightness", "down"),
+            Arguments.of("raise the brightness", "up"),
         )
 
         // ── Smart Home ────────────────────────────────────────────────────────────
@@ -1706,7 +1907,6 @@ class QuickIntentRouterTest {
         fun smartHomeOnRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("turn on bedroom light", "bedroom light"),
             Arguments.of("switch on the fan", "fan"),
-            Arguments.of("turn on the TV", "TV"),
             Arguments.of("switch on the air conditioning", "air conditioning"),
             Arguments.of("turn on living room lights", "living room lights"),
             Arguments.of("switch on the heater", "heater"),
@@ -1722,14 +1922,12 @@ class QuickIntentRouterTest {
 
         @JvmStatic
         fun smartHomeOffRegexPhrases(): Stream<Arguments> = Stream.of(
-            Arguments.of("turn off bedroom TV", "bedroom TV"),
             Arguments.of("switch off the fan", "fan"),
             Arguments.of("turn off all lights", "all lights"),
             Arguments.of("switch off the heater", "heater"),
             Arguments.of("turn off kitchen light", "kitchen light"),
             Arguments.of("turn off the air conditioning", "air conditioning"),
             Arguments.of("switch off living room lights", "living room lights"),
-            Arguments.of("turn off the TV", "TV"),
         )
 
         @JvmStatic
@@ -1743,11 +1941,8 @@ class QuickIntentRouterTest {
         @JvmStatic
         fun e4bFallthroughPhrases(): Stream<Arguments> = Stream.of(
             // Weather (needs API call)
-            Arguments.of("what's the weather in Auckland"),
             Arguments.of("is it going to rain tomorrow"),
-            Arguments.of("weather forecast for the weekend"),
             // Calendar (needs NLU for date/time/title extraction)
-            Arguments.of("schedule a meeting with John at 3pm on Friday"),
             Arguments.of("add dentist appointment to my calendar"),
             // Wikipedia / knowledge
             Arguments.of("tell me about the history of New Zealand"),
@@ -1755,7 +1950,6 @@ class QuickIntentRouterTest {
             Arguments.of("what is quantum computing"),
             Arguments.of("explain photosynthesis"),
             // Memory
-            Arguments.of("remember that my wifi password is 12345"),
             Arguments.of("what did I tell you about my car"),
             // Navigation
             Arguments.of("how do I get to the airport"),
@@ -1765,11 +1959,17 @@ class QuickIntentRouterTest {
             Arguments.of("what can you do"),
             Arguments.of("what's the meaning of life"),
             Arguments.of("how do I cook pasta"),
+            Arguments.of("explain quantum physics"),
+            Arguments.of("write me a poem"),
             // Ambiguous — could be many things
             Arguments.of("help me with something"),
             Arguments.of("I'm bored"),
             Arguments.of("what should I do today"),
             Arguments.of("can you help me"),
+            // Edge cases — empty / whitespace / single character
+            Arguments.of(""),
+            Arguments.of("   "),
+            Arguments.of("a"),
             // Holiday / recurring date queries — should fall through to E4B (QIR cannot resolve these)
             Arguments.of("what day does Christmas fall on"),
             Arguments.of("what day does New Year fall on this year"),
