@@ -16,8 +16,10 @@ class ContextWindowManager {
         /** Reserved for the model's generated response. */
         const val RESPONSE_RESERVE = 1024
 
-        /** Reserved for system prompt + datetime + user profile + RAG context. */
-        const val SYSTEM_OVERHEAD = 2048
+        /** Reserved for system prompt + datetime + user profile + RAG context.
+         *  Actual measured overhead: ~800 tokens (system prompt) + ~400 (RAG/profile) + 200 buffer = ~1400.
+         *  Previously 2048 — over-reserved, leaving only ~1024 tokens for history on a 4096 window. */
+        const val SYSTEM_OVERHEAD = 1400
 
         /**
          * Tokens available for conversation history given [contextWindowSize].
