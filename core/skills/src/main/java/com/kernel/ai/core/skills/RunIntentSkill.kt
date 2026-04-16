@@ -27,7 +27,7 @@ class RunIntentSkill @Inject constructor(
             "Do Not Disturb, volume control, system toggles (Wi-Fi, Bluetooth, airplane mode, hotspot), " +
             "media playback (local, YouTube, Spotify, Netflix, Plex), navigation, calls, app launching, and info queries. " +
             "For alarms: pass the time exactly as the user said it using the 'time' parameter (e.g. time:\"10pm\", time:\"9:30am\", time:\"22:00\"). " +
-            "For calendar events, date accepts YYYY-MM-DD or relative terms like 'tomorrow', 'next wednesday'."
+            "For calendar events, date accepts YYYY-MM-DD or relative terms like 'tomorrow', 'next wednesday', 'this friday'."
 
     override val schema = SkillSchema(
         parameters = mapOf(
@@ -133,7 +133,7 @@ class RunIntentSkill @Inject constructor(
         appendLine("SCHEDULING:")
         appendLine("  set_alarm — params: time (\"10pm\", \"9:30am\"), day (optional: \"tomorrow\", \"monday\"), label (optional)")
         appendLine("  set_timer — params: duration_seconds (\"180\" for 3 min), label (optional)")
-        appendLine("  create_calendar_event — params: title, date (pass relative terms as-is: \"tomorrow\", \"next thursday\"; or YYYY-MM-DD for explicit dates), time (HH:MM), duration_minutes (optional), description (optional)")
+        appendLine("  create_calendar_event — params: title, date (pass relative terms as-is: \"tomorrow\", \"next thursday\", \"this friday\"; or YYYY-MM-DD for explicit dates), time (HH:MM), duration_minutes (optional), description (optional)")
         appendLine()
         appendLine("SYSTEM TOGGLES:")
         appendLine("  toggle_dnd_on, toggle_dnd_off — No params")
@@ -178,7 +178,7 @@ class RunIntentSkill @Inject constructor(
         appendLine("'schedule [topic] on [date]', 'send a calendar invite', 'send an invite for',")
         appendLine("'calendar invite', 'set up a meeting', 'block time on my calendar',")
         appendLine("'put [X] in my calendar' → runIntent with intentName=create_calendar_event.")
-        appendLine("Pass relative dates EXACTLY as the user said (e.g. \"tomorrow\", \"next thursday\", \"next friday\") —")
+        appendLine("Pass relative dates EXACTLY as the user said (e.g. \"tomorrow\", \"next thursday\", \"this friday\") —")
         appendLine("do NOT calculate or convert them to YYYY-MM-DD. The system resolves them correctly.")
         appendLine("Only use YYYY-MM-DD if the user stated an explicit date. Pass time as HH:MM (24h).")
         appendLine("NEVER confirm event was created without calling the tool.")

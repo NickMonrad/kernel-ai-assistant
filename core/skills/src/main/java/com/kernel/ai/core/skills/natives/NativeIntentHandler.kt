@@ -653,8 +653,8 @@ class NativeIntentHandler @Inject constructor(
             "tomorrow" -> return today.plusDays(1)
         }
 
-        // Day-of-week names with optional "next" prefix (both resolve identically)
-        val dayName = normalized.removePrefix("next ").trim()
+        // Day-of-week names with optional "next"/"this" prefix (all resolve identically)
+        val dayName = normalized.removePrefix("next ").removePrefix("this ").trim()
         val targetDow: DayOfWeek? = when (dayName) {
             "monday" -> DayOfWeek.MONDAY
             "tuesday" -> DayOfWeek.TUESDAY
