@@ -10,8 +10,13 @@ import javax.inject.Singleton
 class ContactAliasRepository @Inject constructor(private val dao: ContactAliasDao) {
     fun getAllAliases(): Flow<List<ContactAliasEntity>> = dao.getAllAliases()
 
+    private fun normalise(alias: String): String =
+        alias.trim().lowercase()
+            .removePrefix("my ").removePrefix("the ")
+            .trim()
+
     suspend fun getByAlias(alias: String): ContactAliasEntity? =
-        dao.getByAlias(alias.trim().lowercase())
+        dao.getByAlias(normalise(alias))
 
     suspend fun addAlias(
         alias: String,
@@ -19,8 +24,8 @@ class ContactAliasRepository @Inject constructor(private val dao: ContactAliasDa
         contactId: String,
         phoneNumber: String,
     ) {
-        dao.insert(ContactAliasEntity(alias.trim().lowercase(), displayName, contactId, phoneNumber))
+        dao.insert(ContactAliasEntity(normalise(alias), displayName, contactId, phoneNumber))
     }
 
-    suspend fun deleteAlias(alias: String) = dao.delete(alias.trim().lowercase())
+    suspend fun deleteAlias(alias: String) = dao.delete(normalise(alias))
 }

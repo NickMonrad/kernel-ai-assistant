@@ -627,8 +627,12 @@ class NativeIntentHandler @Inject constructor(
 
     private fun makeCall(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: return SkillResult.Failure("make_call", "No contact specified")
+        // If the input looks like a phone number (digits, +, spaces, dashes), dial it directly.
+        val looksLikeNumber = contact.replace(Regex("[\\s\\-().+]"), "").all { it.isDigit() } &&
+            contact.replace(Regex("[\\s\\-().+]"), "").isNotEmpty()
         val phoneNumber = resolveContactNumber(contact)
-            ?: return SkillResult.Failure(
+            ?: if (looksLikeNumber) contact
+            else return SkillResult.Failure(
                 "make_call",
                 "Couldn't find a contact for '$contact'. You can add them in Settings → People & Contacts.",
             )

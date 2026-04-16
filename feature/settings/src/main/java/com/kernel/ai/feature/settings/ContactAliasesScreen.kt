@@ -188,7 +188,7 @@ private fun AddAliasDialog(
         }
     }
 
-    val canSave = aliasText.isNotBlank() && selectedContactId != null
+    val canSave = aliasText.isNotBlank() && selectedContactId != null && selectedPhoneNumber != null
 
     AlertDialog(
         onDismissRequest = onDismiss,
