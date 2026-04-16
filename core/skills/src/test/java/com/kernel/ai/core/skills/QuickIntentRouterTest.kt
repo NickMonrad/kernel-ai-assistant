@@ -1269,6 +1269,27 @@ class QuickIntentRouterTest {
             Arguments.of("what's today's date"),
             Arguments.of("what is today's date"),
             Arguments.of("what's today's day"),
+            // year queries
+            Arguments.of("what year is it"),
+            Arguments.of("what year are we in"),
+            Arguments.of("what year is this"),
+            Arguments.of("what's the year"),
+            Arguments.of("what's the current year"),
+            Arguments.of("what is the current year"),
+            // "is it still [day]" / "is today [day]"
+            Arguments.of("is it still Tuesday"),
+            Arguments.of("is it still monday"),
+            Arguments.of("is today Friday"),
+            Arguments.of("is it Friday today"),
+            Arguments.of("is it Monday today"),
+            // month / week queries
+            Arguments.of("what month is it"),
+            Arguments.of("what month are we in"),
+            Arguments.of("what week is it"),
+            Arguments.of("what week are we in"),
+            Arguments.of("what's the month"),
+            Arguments.of("what is the current month"),
+
         )
 
         @JvmStatic
@@ -1749,6 +1770,28 @@ class QuickIntentRouterTest {
             Arguments.of("I'm bored"),
             Arguments.of("what should I do today"),
             Arguments.of("can you help me"),
+            // Holiday / recurring date queries — should fall through to E4B (QIR cannot resolve these)
+            Arguments.of("what day does Christmas fall on"),
+            Arguments.of("what day does New Year fall on this year"),
+            Arguments.of("what day does Easter fall on this year"),
+            Arguments.of("when is Christmas this year"),
+            Arguments.of("what date is Easter this year"),
+            Arguments.of("what date is Thanksgiving this year"),
+            Arguments.of("what day is New Year's Day this year"),
+            // Boundary false-positives — must NOT match QIR date/time patterns
+            Arguments.of("what is the monthly cost"),
+            Arguments.of("what is the weekly schedule"),
+            Arguments.of("what is the year 1984 about"),
+            Arguments.of("what is the week's schedule"),
+            Arguments.of("what is the month's budget"),
+            Arguments.of("is it Friday's episode tonight"),
+            Arguments.of("is it Saturday's game on"),
+            Arguments.of("what year is this movie set in"),
+            Arguments.of("what year is it set in"),
+            Arguments.of("what year are we in the sequence"),
+            Arguments.of("what month is this charge for"),
+            Arguments.of("what month is this invoice for"),
+            Arguments.of("what week is this training on"),
         )
     }
 
