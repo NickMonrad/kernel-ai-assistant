@@ -293,6 +293,16 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, raw -> extractCalendarHints(raw) },
         ),
+        // "set a dental appointment" / "book a hair appointment" — requires article "a/an" so
+        // bare-noun forms like "add dentist appointment to my calendar" fall through to LLM.
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """(?:add|create|schedule|put|book|set)\s+(?:a|an)\s+(?:\S+\s+){1,4}?(?:appointment|meeting|event|session|booking)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
+        ),
 
         // ── Do Not Disturb ──
         IntentPattern(
@@ -522,7 +532,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:what(?:'s| is)\s+(?:the\s+)?weather|how(?:'s|\s+is)\s+(?:the\s+)?weather|weather\s+(?:today|tonight|now|outside|forecast|this\s+week))""",
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather(?:\s+(?:like|today|tonight|now|outside|currently))?|how(?:'s|\s+is)\s+(?:the\s+)?weather(?:\s+(?:today|tonight|now|outside))?|weather\s+(?:today|tonight|now|outside|forecast|this\s+week))\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
