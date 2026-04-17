@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-04-16 (post-sprint: #343 thinking toggle shipped PR #413; #353 MiniLM classifier complete; #373 FallThrough wired; #402 #403 #405 bugs fixed; DND shipped; #407 WebSearchSkill added as future work)
+> **Last updated:** 2026-04-17 (Sprint 4 complete: PRs #520 #528 #530 merged — media controls, podcasts, timer management, side panel, alarm multiselect, bulk list add, profile crash fix, mailto URI fix, opencode agents)
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -464,9 +464,13 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407) | WebSearchSkill — Brave/Tavily API for LLM tool calling | Phase 3C | ⬜ Pending |
 | [#493](https://github.com/NickMonrad/kernel-ai-assistant/issues/493) | Multi-turn spike — slot fill loop, disambig chips | Phase 3G | ✅ Done (spike) |
 | [#518](https://github.com/NickMonrad/kernel-ai-assistant/issues/518) | Research: multi-turn dialog state machine patterns | Phase 3G | ✅ Done (research) |
-| [#519](https://github.com/NickMonrad/kernel-ai-assistant/issues/519) | User profile parser bugs + Phase 2b LLM extraction | Phase 3D | ⬜ PR #520 open |
-| [#521](https://github.com/NickMonrad/kernel-ai-assistant/issues/521) | Media control intents: pause, stop, skip, previous | Phase 3H | ⬜ Pending |
+| [#519](https://github.com/NickMonrad/kernel-ai-assistant/issues/519) | User profile parser bugs + Phase 2b LLM extraction | Phase 3D | ✅ Done — PR #520 |
+| [#521](https://github.com/NickMonrad/kernel-ai-assistant/issues/521) | Media control intents: pause, stop, skip, previous | Phase 3H | ✅ Done — PR #520 |
 | [#522](https://github.com/NickMonrad/kernel-ai-assistant/issues/522) | Multi-turn dialog management — Phase 2 full implementation | Phase 3G | ⬜ Pending |
+| [#524](https://github.com/NickMonrad/kernel-ai-assistant/issues/524) | Add podcast patterns to QIR | Phase 3H | ✅ Done — PR #520 |
+| [#525](https://github.com/NickMonrad/kernel-ai-assistant/issues/525) | Timer management — list, pause, cancel individual timers | Phase 3H | ✅ Done — PR #520 |
+| [#526](https://github.com/NickMonrad/kernel-ai-assistant/issues/526) | Side panel: active alarms and timers in nav drawer | Phase 3H | ✅ Done — PR #530 |
+| [#529](https://github.com/NickMonrad/kernel-ai-assistant/issues/529) | Improve LLM tool selection for bulk list operations | Phase 3H | 🔄 Open — on-device verification needed |
 
 ---
 
