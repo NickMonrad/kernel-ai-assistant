@@ -193,7 +193,7 @@ class GetWeatherSkill @Inject constructor(
         withContext(Dispatchers.IO) {
             val url = "https://api.open-meteo.com/v1/forecast" +
                 "?latitude=$lat&longitude=$lon" +
-                "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code" +
+                "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
                 "&timezone=auto&forecast_days=$days&wind_speed_unit=ms"
             val request = Request.Builder().url(url).build()
             httpClient.newCall(request).execute().use { response ->
@@ -217,6 +217,9 @@ class GetWeatherSkill @Inject constructor(
         val minTemps = daily.getJSONArray("temperature_2m_min")
         val precip = daily.getJSONArray("precipitation_sum")
         val codes = daily.getJSONArray("weather_code")
+        val uvMaxArr = daily.optJSONArray("uv_index_max")
+        val sunriseArr = daily.optJSONArray("sunrise")
+        val sunsetArr = daily.optJSONArray("sunset")
 
         val len = dates.length()
         if (len == 0) return SkillResult.Failure(name, "No forecast data returned.")
@@ -240,7 +243,17 @@ class GetWeatherSkill @Inject constructor(
                 val highStr = if (!high.isNaN()) "%.0f°C".format(high) else "?°C"
                 val lowStr = if (!low.isNaN()) "%.0f°C".format(low) else "?°C"
                 val rainStr = "%.0fmm rain".format(rain)
-                append("$formattedDate: $emoji $desc $highStr / $lowStr, $rainStr\n")
+                val uvMax = uvMaxArr?.let { if (i < it.length() && !it.isNull(i)) it.getDouble(i) else null }
+                val uvStr = uvMax?.let { " | UV max: %.0f (%s)".format(it, uvIndexLabel(it)) } ?: ""
+                val sunrise = sunriseArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
+                val sunset = sunsetArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
+                val sunStr = when {
+                    sunrise != null && sunset != null -> " | 🌅 $sunrise / $sunset"
+                    sunrise != null -> " | 🌅 $sunrise"
+                    sunset != null -> " | 🌇 $sunset"
+                    else -> ""
+                }
+                append("$formattedDate: $emoji $desc $highStr / $lowStr, $rainStr$uvStr$sunStr\n")
             }
         }.trimEnd()
 
@@ -264,6 +277,33 @@ class GetWeatherSkill @Inject constructor(
         }
     }
 
+    // ── Air quality fetch ─────────────────────────────────────────────────────
+
+    private data class AirQualityData(val usAqi: Int?, val pm25: Double?)
+
+    private suspend fun fetchAirQuality(lat: Double, lon: Double): AirQualityData? =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "https://air-quality-api.open-meteo.com/v1/air-quality" +
+                    "?latitude=$lat&longitude=$lon&current=us_aqi,pm2_5&timezone=auto"
+                val request = Request.Builder().url(url).build()
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@withContext null
+                    val body = response.body?.string() ?: return@withContext null
+                    val json = JSONObject(body)
+                    val current = json.optJSONObject("current") ?: return@withContext null
+                    val usAqi = if (current.has("us_aqi") && !current.isNull("us_aqi"))
+                        current.getInt("us_aqi") else null
+                    val pm25 = if (current.has("pm2_5") && !current.isNull("pm2_5"))
+                        current.getDouble("pm2_5") else null
+                    AirQualityData(usAqi, pm25)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Air quality fetch failed — degrading gracefully", e)
+                null
+            }
+        }
+
     // ── Weather fetch ─────────────────────────────────────────────────────────
 
     private suspend fun fetchWeather(lat: Double, lon: Double, displayName: String?): SkillResult =
@@ -271,23 +311,21 @@ class GetWeatherSkill @Inject constructor(
             val url = "https://api.open-meteo.com/v1/forecast" +
                 "?latitude=$lat&longitude=$lon" +
                 "&current=temperature_2m,apparent_temperature,relative_humidity_2m," +
-                "weather_code,wind_speed_10m,precipitation_probability" +
-                "&wind_speed_unit=ms"
-            val request = Request.Builder().url(url).build()
-            httpClient.newCall(request).execute().use { response ->
+                "weather_code,wind_speed_10m,precipitation_probability,precipitation,uv_index" +
+                "&daily=uv_index_max,sunrise,sunset" +
+                "&forecast_days=1&timezone=auto&wind_speed_unit=ms"
+            val weatherBody = httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext SkillResult.Failure(
-                        name,
-                        "Weather API returned ${response.code}.",
-                    )
+                    return@withContext SkillResult.Failure(name, "Weather API returned ${response.code}.")
                 }
-                val body = response.body?.string()
+                response.body?.string()
                     ?: return@withContext SkillResult.Failure(name, "Empty weather response.")
-                parseWeatherResponse(body, displayName)
             }
+            val airQuality = fetchAirQuality(lat, lon)
+            parseWeatherResponse(weatherBody, displayName, airQuality)
         }
 
-    private fun parseWeatherResponse(json: String, displayName: String?): SkillResult {
+    private fun parseWeatherResponse(json: String, displayName: String?, airQuality: AirQualityData?): SkillResult {
         val obj = JSONObject(json)
         val current = obj.getJSONObject("current")
 
@@ -297,27 +335,100 @@ class GetWeatherSkill @Inject constructor(
         val weatherCode = current.optInt("weather_code", -1)
         val windSpeed = current.optDouble("wind_speed_10m", Double.NaN)
         val precipChance = current.optInt("precipitation_probability", -1)
+        val precipitation = current.optDouble("precipitation", Double.NaN)
+        val uvIndex = if (current.has("uv_index") && !current.isNull("uv_index"))
+            current.getDouble("uv_index") else null
+
+        // Daily fields (first element = today)
+        val daily = obj.optJSONObject("daily")
+        val uvIndexMax = daily?.optJSONArray("uv_index_max")?.let {
+            if (it.length() > 0 && !it.isNull(0)) it.getDouble(0) else null
+        }
+        val sunriseRaw = daily?.optJSONArray("sunrise")?.let {
+            if (it.length() > 0 && !it.isNull(0)) it.getString(0) else null
+        }
+        val sunsetRaw = daily?.optJSONArray("sunset")?.let {
+            if (it.length() > 0 && !it.isNull(0)) it.getString(0) else null
+        }
+        val sunriseTime = sunriseRaw?.substringAfterLast("T")
+        val sunsetTime = sunsetRaw?.substringAfterLast("T")
 
         val locationLabel = displayName
             ?: "%.4f, %.4f".format(obj.optDouble("latitude"), obj.optDouble("longitude"))
+        val emoji = wmoEmoji(weatherCode)
         val description = wmoDescription(weatherCode)
 
-        val tempStr = if (!temp.isNaN()) "%.1f°C".format(temp) else "unknown"
-        val feelsStr = if (!feelsLike.isNaN()) "%.1f°C".format(feelsLike) else "unknown"
-        val windStr = if (!windSpeed.isNaN()) "%.1f m/s".format(windSpeed) else "unknown"
-        val humidStr = if (humidity >= 0) "$humidity%" else "unknown"
-        val precipStr = if (precipChance >= 0) "$precipChance%" else "unknown"
-
         val text = buildString {
-            append("Weather in $locationLabel: $description. ")
-            append("Temperature: $tempStr (feels like $feelsStr). ")
-            append("Humidity: $humidStr. ")
-            append("Wind: $windStr. ")
-            append("Precipitation chance: $precipStr.")
-        }
+            // Line 1: location, temperature
+            val tempStr = if (!temp.isNaN()) "%.0f°C".format(temp) else "?"
+            val feelsStr = if (!feelsLike.isNaN()) "%.0f°C".format(feelsLike) else "?"
+            appendLine("$emoji $locationLabel — $tempStr (feels like $feelsStr) — $description")
+
+            // Line 2: humidity + wind
+            val humidStr = if (humidity >= 0) "$humidity%" else null
+            val windStr = if (!windSpeed.isNaN()) "%.1f m/s".format(windSpeed) else null
+            if (humidStr != null || windStr != null) {
+                val parts = listOfNotNull(
+                    humidStr?.let { "💧 Humidity: $it" },
+                    windStr?.let { "💨 Wind: $it" },
+                )
+                appendLine(parts.joinToString(" | "))
+            }
+
+            // Line 3: precipitation
+            val precipLine = buildString {
+                if (!precipitation.isNaN() && precipitation > 0.0) append("🌧 Precipitation: %.1fmm".format(precipitation))
+                if (precipChance >= 0) {
+                    if (isNotEmpty()) append(" | ")
+                    append("☔ Chance: $precipChance%")
+                }
+            }
+            if (precipLine.isNotEmpty()) appendLine(precipLine)
+
+            // Line 4: UV index
+            if (uvIndex != null || uvIndexMax != null) {
+                val uvLine = buildString {
+                    if (uvIndex != null) append("☀️ UV Index: %.0f (%s)".format(uvIndex, uvIndexLabel(uvIndex)))
+                    if (uvIndexMax != null) {
+                        if (isNotEmpty()) append(" | ")
+                        append("Max today: %.0f".format(uvIndexMax))
+                    }
+                }
+                appendLine(uvLine)
+            }
+
+            // Line 5: air quality
+            val aqi = airQuality?.usAqi
+            if (aqi != null) appendLine("🌬 Air Quality: $aqi (${aqiLabel(aqi)})")
+
+            // Line 6: sunrise/sunset
+            if (sunriseTime != null || sunsetTime != null) {
+                val parts = listOfNotNull(
+                    sunriseTime?.let { "🌅 Sunrise: $it" },
+                    sunsetTime?.let { "Sunset: $it" },
+                )
+                appendLine(parts.joinToString(" | "))
+            }
+        }.trimEnd()
 
         Log.d(TAG, "GetWeatherSkill: fetched weather for $locationLabel")
         return SkillResult.DirectReply(text)
+    }
+
+    private fun uvIndexLabel(uv: Double): String = when {
+        uv <= 2 -> "Low"
+        uv <= 5 -> "Moderate"
+        uv <= 7 -> "High"
+        uv <= 10 -> "Very High"
+        else -> "Extreme"
+    }
+
+    private fun aqiLabel(aqi: Int): String = when {
+        aqi <= 50 -> "Good"
+        aqi <= 100 -> "Moderate"
+        aqi <= 150 -> "Unhealthy for Sensitive Groups"
+        aqi <= 200 -> "Unhealthy"
+        else -> "Very Unhealthy"
     }
 
     // ── WMO code → description / emoji ───────────────────────────────────────

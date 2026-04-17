@@ -913,6 +913,27 @@ class QuickIntentRouterTest {
             val result = regexOnlyRouter.route(input)
             assertRegexMatch(result, "get_weather", input)
         }
+
+        @ParameterizedTest(name = "Regex (UV): \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#weatherUvRegexPhrases")
+        fun `should match UV index queries via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "get_weather", input)
+        }
+
+        @ParameterizedTest(name = "Regex (AQI): \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#weatherAqiRegexPhrases")
+        fun `should match air quality queries via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "get_weather", input)
+        }
+
+        @ParameterizedTest(name = "Regex (sunrise/sunset): \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#weatherSunriseRegexPhrases")
+        fun `should match sunrise and sunset queries via regex`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "get_weather", input)
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1082,6 +1103,9 @@ class QuickIntentRouterTest {
         addCases(weatherGpsRegexPhrases(), "get_weather", "Weather GPS (regex)")
         addCases(weatherRainRegexPhrases(), "get_weather", "Weather Rain (regex)")
         addCases(weatherTemperatureRegexPhrases(), "get_weather", "Weather Temperature (regex)")
+        addCases(weatherUvRegexPhrases(), "get_weather", "Weather UV (regex)")
+        addCases(weatherAqiRegexPhrases(), "get_weather", "Weather AQI (regex)")
+        addCases(weatherSunriseRegexPhrases(), "get_weather", "Weather Sunrise/Sunset (regex)")
         addCases(saveMemoryRegexPhrases(), "save_memory", "Save Memory (regex)")
         addCases(brightnessRegexPhrases(), "set_brightness", "Brightness (regex)")
         addCases(smartHomeOnRegexPhrases(), "smart_home_on", "Smart Home ON (regex)")
@@ -1867,6 +1891,38 @@ class QuickIntentRouterTest {
             Arguments.of("what's the temperature"),
             Arguments.of("what's the temperature outside"),
             Arguments.of("how warm is it"),
+        )
+
+        @JvmStatic
+        fun weatherUvRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("what's the UV index"),
+            Arguments.of("what is the UV index"),
+            Arguments.of("is the UV high today"),
+            Arguments.of("is the UV bad"),
+            Arguments.of("UV index today"),
+            Arguments.of("how high is the UV"),
+        )
+
+        @JvmStatic
+        fun weatherAqiRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("what's the air quality"),
+            Arguments.of("what is the AQI"),
+            Arguments.of("how's the air quality"),
+            Arguments.of("air quality today"),
+            Arguments.of("is the air clean"),
+            Arguments.of("is the air polluted"),
+        )
+
+        @JvmStatic
+        fun weatherSunriseRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("what time is sunrise"),
+            Arguments.of("what time is sunset"),
+            Arguments.of("when does the sun rise"),
+            Arguments.of("when does the sun set"),
+            Arguments.of("sunrise time"),
+            Arguments.of("sunset time"),
+            Arguments.of("when is sunrise"),
+            Arguments.of("when is sunset"),
         )
 
         // ── Save Memory ──────────────────────────────────────────────────────────
