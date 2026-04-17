@@ -222,6 +222,14 @@ def cleanup_side_effects() -> None:
     for msg in ("cancel the timer", "cancel all alarms"):
         send_text(msg)
         time.sleep(3)  # Brief pause — just enough for the intent to dispatch
+    # Force-stop all clock apps to silence any ringing timers/alarms that have
+    # already fired (send_text cancels pending ones; force-stop kills active alerts).
+    for pkg in (
+        "com.sec.android.app.clockpackage",  # Samsung Clock
+        "com.android.deskclock",             # AOSP Clock
+        "com.google.android.deskclock",      # Google Clock
+    ):
+        run_adb("shell", "am", "force-stop", pkg)
 
 
 def extract_intent(logcat_output: str) -> str | None:

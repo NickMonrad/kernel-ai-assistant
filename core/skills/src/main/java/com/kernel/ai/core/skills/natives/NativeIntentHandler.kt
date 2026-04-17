@@ -100,6 +100,7 @@ class NativeIntentHandler @Inject constructor(
                 "send_sms" -> sendSms(params)
                 "set_alarm" -> setAlarm(params)
                 "set_timer" -> setTimer(params)
+                "cancel_timer" -> cancelTimer()
                 "create_calendar_event" -> createCalendarEvent(params)
                 "get_battery" -> getBattery()
                 "get_time", "get_date" -> getTime(params)
@@ -317,6 +318,20 @@ class NativeIntentHandler @Inject constructor(
             SkillResult.Success("Timer set for $label.")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("run_intent", "No clock app found to set a timer.")
+        }
+    }
+
+    private fun cancelTimer(): SkillResult {
+        // ACTION_DISMISS_TIMER (API 26+) stops any ringing timer and cancels
+        // all running timers — covers both "stop that noise" and "cancel timer".
+        val intent = Intent(AlarmClock.ACTION_DISMISS_TIMER).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        return try {
+            context.startActivity(intent)
+            SkillResult.Success("Timer cancelled.")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("run_intent", "No clock app found to cancel the timer.")
         }
     }
 
