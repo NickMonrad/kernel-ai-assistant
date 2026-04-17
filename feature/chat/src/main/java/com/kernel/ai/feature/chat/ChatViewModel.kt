@@ -682,6 +682,7 @@ class ChatViewModel @Inject constructor(
                         is com.kernel.ai.core.skills.SkillResult.DirectReply -> {
                             // Skill produced a complete, self-contained reply — show it verbatim
                             // and bypass the LLM entirely to avoid number/unit corruption.
+                            Log.d("KernelAI", "DirectReply: ${skillResult.content.take(200)}")
                             appendAssistantMessageWithToolCall(
                                 convId = convId,
                                 content = skillResult.content,

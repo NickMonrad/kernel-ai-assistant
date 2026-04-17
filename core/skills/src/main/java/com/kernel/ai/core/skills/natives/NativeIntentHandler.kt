@@ -17,7 +17,10 @@ import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
+import android.telephony.TelephonyManager
 import android.util.Log
+import android.view.KeyEvent
+import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
@@ -25,6 +28,7 @@ import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
+import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.skills.SkillResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.DayOfWeek
@@ -54,7 +58,7 @@ private const val TAG = "KernelAI"
  * Supported intents:
  *   toggle_flashlight_on    — Camera2 torch on
  *   toggle_flashlight_off   — Camera2 torch off
- *   send_email              — ACTION_SEND mail chooser (params: subject, body)
+ *   send_email              — ACTION_SENDTO mailto: URI (params: subject, body)
  *   send_sms                — ACTION_SENDTO SMS composer (params: message)
  *   set_alarm               — AlarmClock.ACTION_SET_ALARM (params: hours, minutes, label)
  *   set_timer               — AlarmClock.ACTION_SET_TIMER (params: duration_seconds, label)
@@ -70,15 +74,29 @@ private const val TAG = "KernelAI"
  *   play_media              — INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH (params: query, artist?)
  *   play_media_album        — INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH album focus (params: album, artist?)
  *   play_media_playlist     — INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH playlist focus (params: playlist)
+ *   pause_media             — AudioManager KEYCODE_MEDIA_PAUSE
+ *   stop_media              — AudioManager KEYCODE_MEDIA_STOP
+ *   next_track              — AudioManager KEYCODE_MEDIA_NEXT
+ *   previous_track          — AudioManager KEYCODE_MEDIA_PREVIOUS
+ *   play_podcast            — Browser search for podcast (stub) (params: show)
+ *   podcast_skip_forward    — AudioManager KEYCODE_MEDIA_FAST_FORWARD (params: seconds)
+ *   podcast_skip_back       — AudioManager KEYCODE_MEDIA_REWIND (params: seconds)
+ *   podcast_speed           — DirectReply (app-level support required) (params: rate)
  *   play_plex               — Plex deep link (params: title)
  *   navigate_to             — Google Maps / geo: URI (params: destination)
  *   find_nearby             — geo: URI nearby search (params: query)
  *   make_call               — ACTION_DIAL with contact resolution (params: contact)
  *   add_to_list             — Insert item into list (params: item, list_name?) — returns DirectReply
+ *   bulk_add_to_list        — Insert multiple items at once (params: items (CSV or JSON array), list_name?) — returns DirectReply
  *   create_list             — Create a named list (params: list_name)
  *   get_list_items          — Retrieve unchecked items from a list (params: list_name?)
  *   remove_from_list        — Remove an item from a list (params: item, list_name?)
  *   smart_home_on/off       — Stub pending HA/Google Home (#311/#312) (params: device)
+ *   cancel_alarm            — AlarmClock.ACTION_DISMISS_ALARM (params: label?)
+ *   get_weather             — Opens Google search for weather (params: location?)
+ *   get_system_info         — Returns storage and RAM info — returns DirectReply
+ *   save_memory             — Saves content to long-term core memory (params: content)
+ *   set_brightness          — Sets screen brightness (params: value?, direction?, is_percent?)
  */
 @Singleton
 class NativeIntentHandler @Inject constructor(
@@ -87,6 +105,8 @@ class NativeIntentHandler @Inject constructor(
     private val listItemDao: ListItemDao,
     private val listNameDao: ListNameDao,
     private val contactAliasRepository: ContactAliasRepository,
+    private val memoryRepository: MemoryRepository,
+    private val embeddingEngine: EmbeddingEngine,
 ) {
 
     fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -99,6 +119,11 @@ class NativeIntentHandler @Inject constructor(
                 "send_sms" -> sendSms(params)
                 "set_alarm" -> setAlarm(params)
                 "set_timer" -> setTimer(params)
+                "cancel_timer" -> cancelTimer()
+                "list_timers" -> listTimers()
+                "cancel_timer_named" -> cancelTimerNamed(params)
+                "get_timer_remaining" -> getTimerRemaining(params)
+                "cancel_alarm" -> cancelAlarm(params)
                 "create_calendar_event" -> createCalendarEvent(params)
                 "get_battery" -> getBattery()
                 "get_time", "get_date" -> getTime(params)
@@ -112,18 +137,33 @@ class NativeIntentHandler @Inject constructor(
                 "play_media", "play_media_album", "play_media_playlist" -> playMedia(params)
                 "play_youtube" -> playYoutube(params)
                 "play_spotify" -> playSpotify(params)
+                "play_plexamp" -> playPlexamp(params)
+                "play_youtube_music" -> playYoutubeMusic(params)
                 "play_netflix" -> playNetflix(params)
                 "play_plex" -> playPlex(params)
+                "play_podcast" -> playPodcast(params)
+                "podcast_skip_forward" -> podcastSkip(params, forward = true)
+                "podcast_skip_back" -> podcastSkip(params, forward = false)
+                "podcast_speed" -> setPodcastSpeed(params)
+                "pause_media" -> dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PAUSE)
+                "stop_media" -> dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_STOP)
+                "next_track" -> dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_NEXT)
+                "previous_track" -> dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS)
                 "open_app" -> openApp(params)
                 "navigate_to" -> navigateTo(params)
                 "find_nearby" -> findNearby(params)
                 "make_call" -> makeCall(params)
                 "add_to_list" -> addToList(params)
+                "bulk_add_to_list" -> bulkAddToList(params)
                 "create_list" -> createList(params)
                 "get_list_items" -> getListItems(params)
                 "remove_from_list" -> removeFromList(params)
                 "smart_home_on" -> handleSmartHome(params["device"] ?: "device", true)
                 "smart_home_off" -> handleSmartHome(params["device"] ?: "device", false)
+                "get_weather" -> getWeather(params)
+                "get_system_info" -> getSystemInfo()
+                "save_memory" -> saveMemory(params)
+                "set_brightness" -> setBrightness(params)
                 else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
             }
         } catch (e: Exception) {
@@ -149,30 +189,41 @@ class NativeIntentHandler @Inject constructor(
     // ── Email ─────────────────────────────────────────────────────────────────
 
     private fun sendEmail(params: Map<String, String>): SkillResult {
-        // Resolve recipient from on-device contacts only (never from raw LLM text).
-        // Only pre-populate if exactly one match is found — avoids wrong-recipient risk.
+        // Use ACTION_SENDTO with mailto: URI so the system routes directly to an
+        // email app instead of showing the generic share sheet (ACTION_SEND behaviour).
         val contact = params["contact"]
         val resolvedEmail = contact?.let { resolveContactEmail(it) }
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "message/rfc822"
-            if (resolvedEmail != null) putExtra(Intent.EXTRA_EMAIL, arrayOf(resolvedEmail))
-            putExtra(Intent.EXTRA_SUBJECT, params["subject"] ?: "")
-            putExtra(Intent.EXTRA_TEXT, params["body"] ?: "")
+        val mailtoUri = if (resolvedEmail != null) {
+            val subject = Uri.encode(params["subject"] ?: "")
+            val body = Uri.encode(params["body"] ?: "")
+            // Email address must NOT be percent-encoded (RFC 6068) — only query params are encoded
+            Uri.parse("mailto:$resolvedEmail?subject=$subject&body=$body")
+        } else {
+            val subject = Uri.encode(params["subject"] ?: "")
+            val body = Uri.encode(params["body"] ?: "")
+            Uri.parse("mailto:?subject=$subject&body=$body")
+        }
+        val intent = Intent(Intent.ACTION_SENDTO, mailtoUri).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        context.startActivity(Intent.createChooser(intent, "Send email").apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        })
-        val recipientLabel = resolvedEmail?.let { " to $it" } ?: ""
-        return SkillResult.Success("Email composer opened$recipientLabel.")
+        return try {
+            context.startActivity(intent)
+            val recipientLabel = resolvedEmail?.let { " to $it" } ?: ""
+            SkillResult.Success("Email composer opened$recipientLabel.")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("send_email", "No email app available")
+        }
     }
 
     // ── SMS ───────────────────────────────────────────────────────────────────
 
     private fun sendSms(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: params["phone"]
-        val number = contact?.let { resolveContactNumber(it) ?: it }
-        val smsUri = if (number != null) "smsto:${Uri.encode(number)}" else "smsto:"
+        // resolveContactNumber returns null for self-terms when own number unavailable;
+        // fall back to blank URI rather than passing the literal word through as a number.
+        val number = contact?.let { resolveContactNumber(it) }
+            ?: contact?.takeIf { it.none { c -> c.isLetter() } }  // keep raw numeric strings
+        val smsUri = if (!number.isNullOrBlank()) "smsto:${Uri.encode(number)}" else "smsto:"
         val intent = Intent(Intent.ACTION_SENDTO).apply {
             data = Uri.parse(smsUri)
             putExtra("sms_body", params["message"] ?: "")
@@ -304,16 +355,126 @@ class NativeIntentHandler @Inject constructor(
         }
         return try {
             context.startActivity(intent)
+            val durationMs = seconds * 1000L
+            val label = params["label"]?.takeIf { it.isNotBlank() }
+            runBlocking {
+                scheduledAlarmDao.insert(ScheduledAlarmEntity(
+                    id = UUID.randomUUID().toString(),
+                    entryType = "TIMER",
+                    label = label,
+                    durationMs = durationMs,
+                    startedAtMs = System.currentTimeMillis(),
+                    triggerAtMillis = System.currentTimeMillis() + durationMs,
+                    createdAt = System.currentTimeMillis(),
+                ))
+            }
             val mins = seconds / 60
             val secs = seconds % 60
-            val label = when {
+            val labelStr = when {
                 mins > 0 && secs > 0 -> "$mins min $secs sec"
                 mins > 0 -> "$mins minute${if (mins != 1) "s" else ""}"
                 else -> "$seconds seconds"
             }
-            SkillResult.Success("Timer set for $label.")
+            SkillResult.Success("Timer set for $labelStr.")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("run_intent", "No clock app found to set a timer.")
+        }
+    }
+
+    private fun cancelTimer(): SkillResult {
+        // ACTION_DISMISS_TIMER (API 26+) stops any ringing timer and cancels
+        // all running timers — covers both "stop that noise" and "cancel timer".
+        val intent = Intent(AlarmClock.ACTION_DISMISS_TIMER).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        return try {
+            context.startActivity(intent)
+            SkillResult.Success("Timer cancelled.")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("run_intent", "No clock app found to cancel the timer.")
+        }
+    }
+
+    // ── Timer Registry ────────────────────────────────────────────────────────
+
+    private fun listTimers(): SkillResult {
+        val timers = runBlocking { scheduledAlarmDao.getAllTimers() }
+        if (timers.isEmpty()) return SkillResult.DirectReply("No timers running.")
+        val now = System.currentTimeMillis()
+        val lines = timers.mapIndexed { i, t ->
+            val label = t.label ?: "Timer ${i + 1}"
+            val remaining = t.durationMs?.let { dur ->
+                t.startedAtMs?.let { start ->
+                    val remMs = (start + dur) - now
+                    if (remMs > 0) formatDuration(remMs / 1000) else "finished"
+                }
+            } ?: "unknown"
+            "• $label — $remaining remaining"
+        }
+        return SkillResult.DirectReply(lines.joinToString("\n"))
+    }
+
+    private fun cancelTimerNamed(params: Map<String, String>): SkillResult {
+        val name = params["name"] ?: return cancelTimer()
+        val deleted = runBlocking {
+            val byName = scheduledAlarmDao.deleteTimerByName(name)
+            if (byName > 0) byName
+            else parseDurationToMs(name)?.let { scheduledAlarmDao.deleteTimerByDuration(it) } ?: 0
+        }
+        if (deleted == 0) return SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
+        // Also dismiss via clock app so any ringing/running timer actually stops
+        return try {
+            context.startActivity(Intent(AlarmClock.ACTION_DISMISS_TIMER).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            })
+            SkillResult.Success("Cancelled the $name timer")
+        } catch (e: ActivityNotFoundException) {
+            // DB entry removed — partial success
+            SkillResult.Success("Cancelled the $name timer (clock app unavailable to stop it)")
+        }
+    }
+
+    private fun getTimerRemaining(params: Map<String, String>): SkillResult {
+        val name = params["name"]
+        val timers = runBlocking { scheduledAlarmDao.getAllTimers() }
+        if (timers.isEmpty()) return SkillResult.DirectReply("No timers running.")
+        val timer = if (name != null) {
+            timers.firstOrNull { it.label?.contains(name, ignoreCase = true) == true }
+                ?: timers.first()
+        } else timers.first()
+        val now = System.currentTimeMillis()
+        val remMs = timer.durationMs?.let { dur ->
+            timer.startedAtMs?.let { start -> (start + dur) - now }
+        }
+        return if (remMs != null && remMs > 0) {
+            val label = timer.label ?: "Timer"
+            SkillResult.DirectReply("$label — ${formatDuration(remMs / 1000)} remaining")
+        } else {
+            SkillResult.DirectReply("Timer has finished.")
+        }
+    }
+
+    private fun formatDuration(seconds: Long): String {
+        val hrs = seconds / 3600
+        val mins = (seconds % 3600) / 60
+        val secs = seconds % 60
+        return when {
+            hrs > 0 && mins > 0 -> "${hrs}h ${mins}m"
+            hrs > 0 -> "${hrs} hour${if (hrs != 1L) "s" else ""}"
+            mins > 0 && secs > 0 -> "${mins}m ${secs}s"
+            mins > 0 -> "${mins} minute${if (mins != 1L) "s" else ""}"
+            else -> "${secs} seconds"
+        }
+    }
+
+    private fun parseDurationToMs(text: String): Long? {
+        val match = Regex("""(\d+)\s*(minute|min|hour|hr|second|sec)""", RegexOption.IGNORE_CASE).find(text)
+            ?: return null
+        val amount = match.groupValues[1].toLongOrNull() ?: return null
+        return when (match.groupValues[2].lowercase()) {
+            "hour", "hr" -> amount * 3_600_000L
+            "minute", "min" -> amount * 60_000L
+            else -> amount * 1_000L
         }
     }
 
@@ -448,19 +609,29 @@ class NativeIntentHandler @Inject constructor(
     // ── Volume ────────────────────────────────────────────────────────────────
 
     private fun setVolume(params: Map<String, String>): SkillResult {
-        val raw = params["value"]?.toIntOrNull()
-            ?: return SkillResult.Failure("set_volume", "No volume value provided")
-        val isPercent = params["is_percent"] == "true"
         val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        val targetVol = if (isPercent) {
-            (raw.coerceIn(0, 100) * maxVol / 100.0).roundToInt()
-        } else {
-            // 1-10 scale mapped to stream range
-            ((raw.coerceIn(1, 10) - 1) * maxVol / 9.0).roundToInt()
+        val currentVol = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val direction = params["direction"]
+        val raw = params["value"]?.toIntOrNull()
+        val isPercent = params["is_percent"] == "true"
+
+        val targetVol = when {
+            direction == "up" -> (currentVol + (maxVol * 0.15).toInt()).coerceAtMost(maxVol)
+            direction == "down" -> (currentVol - (maxVol * 0.15).toInt()).coerceAtLeast(0)
+            direction == "max" -> maxVol
+            direction == "min" || direction == "mute" -> 0
+            raw != null && isPercent -> (raw.coerceIn(0, 100) * maxVol / 100.0).roundToInt()
+            raw != null -> ((raw.coerceIn(1, 10) - 1) * maxVol / 9.0).roundToInt()
+            else -> return SkillResult.Failure("set_volume", "No volume value or direction provided")
         }
         am.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, AudioManager.FLAG_SHOW_UI)
-        return SkillResult.Success("Volume set to ${if (isPercent) "$raw%" else "$raw/10"}")
+        val pct = (targetVol * 100 / maxVol)
+        return SkillResult.Success(when {
+            direction == "mute" || targetVol == 0 -> "Volume muted"
+            direction != null -> "Volume ${if (direction == "up") "increased" else "decreased"} to $pct%"
+            else -> "Volume set to $pct%"
+        })
     }
 
     // ── Wi-Fi ─────────────────────────────────────────────────────────────────
@@ -536,6 +707,24 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
+    // ── Media Transport Controls ──────────────────────────────────────────
+
+    private fun dispatchMediaKey(keyCode: Int): SkillResult {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val down = KeyEvent(KeyEvent.ACTION_DOWN, keyCode)
+        val up   = KeyEvent(KeyEvent.ACTION_UP,   keyCode)
+        am.dispatchMediaKeyEvent(down)
+        am.dispatchMediaKeyEvent(up)
+        val label = when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PAUSE    -> "Paused"
+            KeyEvent.KEYCODE_MEDIA_STOP     -> "Stopped"
+            KeyEvent.KEYCODE_MEDIA_NEXT     -> "Skipped to next track"
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "Previous track"
+            else -> "Done"
+        }
+        return SkillResult.Success(label)
+    }
+
     // ── Plex ──────────────────────────────────────────────────────────────────
 
     private fun playPlex(params: Map<String, String>): SkillResult {
@@ -596,6 +785,45 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
+    // ── Plexamp ──
+
+    private fun playPlexamp(params: Map<String, String>): SkillResult {
+        val query = params["query"] ?: return SkillResult.Failure("play_plexamp", "No search query provided")
+        return try {
+            val intent = Intent(Intent.ACTION_SEARCH).apply {
+                `package` = "tv.plex.labs.plexamp"
+                putExtra(SearchManager.QUERY, query)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Searching Plexamp for: $query")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("play_plexamp", "Plexamp app not installed")
+        }
+    }
+
+    // ── YouTube Music ──
+
+    private fun playYoutubeMusic(params: Map<String, String>): SkillResult {
+        val query = params["query"] ?: return SkillResult.Failure("play_youtube_music", "No search query provided")
+        return try {
+            val intent = Intent(Intent.ACTION_SEARCH).apply {
+                `package` = "com.google.android.apps.youtube.music"
+                putExtra(SearchManager.QUERY, query)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Searching YouTube Music for: $query")
+        } catch (e: ActivityNotFoundException) {
+            val webIntent = Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://music.youtube.com/search?q=${Uri.encode(query)}")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(webIntent)
+            SkillResult.Success("Opening YouTube Music in browser for: $query")
+        }
+    }
+
     // ── Netflix ──
 
     private fun playNetflix(params: Map<String, String>): SkillResult {
@@ -616,6 +844,41 @@ class NativeIntentHandler @Inject constructor(
             context.startActivity(webIntent)
             SkillResult.Success("Opening Netflix in browser for: $query")
         }
+    }
+
+    // ── Podcast Controls ──────────────────────────────────────────────────
+
+    private fun playPodcast(params: Map<String, String>): SkillResult {
+        val show = params["show"]
+        // Try to open a podcast app or fall back to search
+        return try {
+            val query = if (show != null) "$show podcast" else "podcast"
+            val uri = Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}")
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Searching for${if (show != null) " $show" else ""} podcast")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("play_podcast", "No app available to play podcasts")
+        }
+    }
+
+    private fun podcastSkip(params: Map<String, String>, forward: Boolean): SkillResult {
+        val seconds = params["seconds"]?.toIntOrNull() ?: if (forward) 30 else 15
+        // Dispatch media key — KEYCODE_MEDIA_FAST_FORWARD / REWIND
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val keyCode = if (forward) KeyEvent.KEYCODE_MEDIA_FAST_FORWARD else KeyEvent.KEYCODE_MEDIA_REWIND
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+        val dir = if (forward) "forward" else "back"
+        return SkillResult.Success("Skipped $dir ${seconds}s")
+    }
+
+    private fun setPodcastSpeed(params: Map<String, String>): SkillResult {
+        val rate = params["rate"]?.toFloatOrNull() ?: 1.0f
+        // Playback speed requires app-level support — return DirectReply to inform user
+        return SkillResult.DirectReply("Playback speed control requires support from the active podcast app. Current request: ${rate}x")
     }
 
     // ── Open App ──
@@ -678,6 +941,7 @@ class NativeIntentHandler @Inject constructor(
 
     private fun makeCall(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: return SkillResult.Failure("make_call", "No contact specified")
+
         // If the input looks like a phone number (digits, +, spaces, dashes), dial it directly.
         val looksLikeNumber = contact.replace(Regex("[\\s\\-().+]"), "").all { it.isDigit() } &&
             contact.replace(Regex("[\\s\\-().+]"), "").isNotEmpty()
@@ -688,17 +952,37 @@ class NativeIntentHandler @Inject constructor(
                 "Couldn't find a contact for '$contact'. You can add them in Settings → People & Contacts.",
             )
         return try {
-            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phoneNumber)}")).apply {
+            // Use ACTION_CALL to auto-dial (hands-free use case — e.g. driving).
+            // Falls back to ACTION_DIAL if CALL_PHONE permission not yet granted.
+            val canCall = context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            val action = if (canCall) Intent.ACTION_CALL else Intent.ACTION_DIAL
+            val intent = Intent(action, Uri.parse("tel:${Uri.encode(phoneNumber)}")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
-            SkillResult.Success("Opening dialer for $contact")
+            SkillResult.Success(if (canCall) "Calling $contact" else "Opening dialer for $contact (grant Phone permission for auto-dial)")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("make_call", "No phone app available")
         }
     }
 
     private fun resolveContactNumber(name: String): String? {
+        // 0. Self-referential aliases — resolve to device's own phone number
+        val selfTerms = setOf("myself", "me", "my number", "my phone", "my cell")
+        val normalised0 = name.trim().lowercase()
+        if (normalised0 in selfTerms) {
+            val ownNumber = try {
+                val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+                tm?.line1Number?.takeIf { it.isNotBlank() }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not retrieve own phone number", e)
+                null
+            }
+            Log.d(TAG, "Self-referential contact '$name' → own number: $ownNumber")
+            return ownNumber  // null means SMS composer opens without pre-filled number
+        }
+
         // 1. Alias check — strip common prefixes, normalise, look up in DB
         val normalised = name.trim().lowercase()
             .removePrefix("my ").removePrefix("the ")
@@ -790,6 +1074,28 @@ class NativeIntentHandler @Inject constructor(
         return SkillResult.DirectReply("Added \"$item\" to your $listName.")
     }
 
+    private fun bulkAddToList(params: Map<String, String>): SkillResult {
+        val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
+        val listName = normalizeListName(raw)
+        val itemsParam = params["items"]
+            ?: return SkillResult.Failure("bulk_add_to_list", "No items specified")
+        val items: List<String> = try {
+            val arr = org.json.JSONArray(itemsParam)
+            (0 until arr.length()).map { arr.getString(it).trim() }.filter { it.isNotBlank() }
+        } catch (_: Exception) {
+            itemsParam.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        }
+        if (items.isEmpty()) return SkillResult.Failure("bulk_add_to_list", "No valid items to add")
+        runBlocking {
+            listNameDao.insert(ListNameEntity(name = listName))
+            items.forEach { listItemDao.insert(ListItemEntity(listName = listName, item = it)) }
+        }
+        return SkillResult.DirectReply(
+            "Added ${items.size} item${if (items.size == 1) "" else "s"} to your $listName:\n" +
+                items.joinToString(", ")
+        )
+    }
+
     private fun createList(params: Map<String, String>): SkillResult {
         val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
         val name = raw.lowercase().trim()
@@ -829,6 +1135,117 @@ class NativeIntentHandler @Inject constructor(
             "smart_home",
             "Smart home control requires Home Assistant (#311) or Google Home (#312) integration. Cannot $action $device yet.",
         )
+    }
+
+    // ── Cancel Alarm ──────────────────────────────────────────────────────────
+
+    private fun cancelAlarm(params: Map<String, String>): SkillResult {
+        val label = params["label"]
+        val intent = Intent(AlarmClock.ACTION_DISMISS_ALARM).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            if (label != null) {
+                putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE, AlarmClock.ALARM_SEARCH_MODE_LABEL)
+                putExtra(AlarmClock.EXTRA_MESSAGE, label)
+            } else {
+                putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE, AlarmClock.ALARM_SEARCH_MODE_NEXT)
+            }
+        }
+        return try {
+            context.startActivity(intent)
+            SkillResult.Success(if (label != null) "Cancelling alarm: $label" else "Opening alarms to cancel")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("cancel_alarm", "No clock app found")
+        }
+    }
+
+    // ── Get Weather ───────────────────────────────────────────────────────────
+
+    private fun getWeather(params: Map<String, String>): SkillResult {
+        val location = params["location"]
+        val query = if (location != null) "weather in $location" else "weather"
+        return try {
+            val uri = Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}")
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Opening weather${if (location != null) " for $location" else ""}")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("get_weather", "No browser available")
+        }
+    }
+
+    // ── Get System Info ───────────────────────────────────────────────────────
+
+    private fun getSystemInfo(): SkillResult {
+        val sb = StringBuilder()
+        // Storage
+        val stat = android.os.StatFs(android.os.Environment.getDataDirectory().path)
+        val totalBytes = stat.totalBytes
+        val freeBytes = stat.availableBytes
+        val totalGb = totalBytes / (1024.0 * 1024 * 1024)
+        val freeGb = freeBytes / (1024.0 * 1024 * 1024)
+        sb.append("Storage: %.1f GB free of %.1f GB".format(freeGb, totalGb))
+        // RAM
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val memInfo = android.app.ActivityManager.MemoryInfo()
+        am.getMemoryInfo(memInfo)
+        val freeRamMb = memInfo.availMem / (1024 * 1024)
+        val totalRamMb = memInfo.totalMem / (1024 * 1024)
+        sb.append(" | RAM: ${freeRamMb}MB free of ${totalRamMb}MB")
+        return SkillResult.DirectReply(sb.toString())
+    }
+
+    // ── Save Memory ───────────────────────────────────────────────────────────
+
+    private fun saveMemory(params: Map<String, String>): SkillResult {
+        val content = params["content"]?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("save_memory", "No content to save")
+        return try {
+            runBlocking {
+                val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
+                memoryRepository.addCoreMemory(
+                    content = content,
+                    source = "agent",
+                    embeddingVector = vector ?: floatArrayOf(),
+                )
+            }
+            SkillResult.Success("✓ Saved: \"${content.take(100)}\"")
+        } catch (e: Exception) {
+            Log.e(TAG, "save_memory failed", e)
+            SkillResult.Failure("save_memory", e.message ?: "Failed to save memory")
+        }
+    }
+
+    // ── Set Brightness ────────────────────────────────────────────────────────
+
+    private fun setBrightness(params: Map<String, String>): SkillResult {
+        if (!Settings.System.canWrite(context)) {
+            val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                data = Uri.parse("package:${context.packageName}")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            return SkillResult.Success("Please grant permission to change brightness, then try again")
+        }
+        val direction = params["direction"]
+        val value = params["value"]?.toIntOrNull()
+        val isPercent = params["is_percent"] == "true"
+        val currentBrightness = Settings.System.getInt(
+            context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128
+        )
+        val targetBrightness = when {
+            value != null && isPercent -> (value.coerceIn(0, 100) * 255 / 100.0).toInt()
+            value != null -> value.coerceIn(0, 255)
+            direction == "up" -> (currentBrightness + 51).coerceAtMost(255)   // +20%
+            direction == "down" -> (currentBrightness - 51).coerceAtLeast(0)  // -20%
+            direction == "max" -> 255
+            direction == "min" -> 0
+            else -> return SkillResult.Failure("set_brightness", "No brightness value or direction provided")
+        }
+        Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, targetBrightness)
+        val pct = (targetBrightness * 100 / 255)
+        return SkillResult.Success("Brightness set to $pct%")
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.settings
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,8 +15,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -54,7 +59,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ScheduledAlarmsScreen(
     onBack: () -> Unit = {},
@@ -62,26 +67,47 @@ fun ScheduledAlarmsScreen(
 ) {
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
     var pendingCancel by remember { mutableStateOf<ScheduledAlarmEntity?>(null) }
+    var pendingCancelIds by remember { mutableStateOf<Set<String>?>(null) }
     var editingAlarm by remember { mutableStateOf<ScheduledAlarmEntity?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf(emptySet<String>()) }
+    val inSelectionMode = selectedIds.isNotEmpty()
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Scheduled Alarms") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
+            if (inSelectionMode) {
+                TopAppBar(
+                    title = { Text("${selectedIds.size} selected") },
+                    navigationIcon = {
+                        IconButton(onClick = { selectedIds = emptySet() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancel selection")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { pendingCancelIds = selectedIds }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete selected")
+                        }
+                    },
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("Scheduled Alarms") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                )
+            }
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showCreateDialog = true },
-                modifier = Modifier.testTag("alarm_fab"),
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Create alarm")
+            if (!inSelectionMode) {
+                FloatingActionButton(
+                    onClick = { showCreateDialog = true },
+                    modifier = Modifier.testTag("alarm_fab"),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Create alarm")
+                }
             }
         },
     ) { innerPadding ->
@@ -114,7 +140,19 @@ fun ScheduledAlarmsScreen(
                 items(alarms, key = { it.id }) { alarm ->
                     AlarmRow(
                         alarm = alarm,
-                        onTap = { editingAlarm = alarm },
+                        inSelectionMode = inSelectionMode,
+                        isSelected = alarm.id in selectedIds,
+                        onTap = {
+                            if (inSelectionMode) {
+                                selectedIds = if (alarm.id in selectedIds)
+                                    selectedIds - alarm.id else selectedIds + alarm.id
+                            } else {
+                                editingAlarm = alarm
+                            }
+                        },
+                        onLongPress = {
+                            selectedIds = selectedIds + alarm.id
+                        },
                         onCancel = { pendingCancel = alarm },
                         onToggle = { viewModel.toggleEnabled(alarm) },
                     )
@@ -146,6 +184,7 @@ fun ScheduledAlarmsScreen(
         )
     }
 
+    // Single alarm cancel
     pendingCancel?.let { alarm ->
         AlertDialog(
             onDismissRequest = { pendingCancel = null },
@@ -165,6 +204,26 @@ fun ScheduledAlarmsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingCancel = null }) { Text("Keep") }
+            },
+        )
+    }
+
+    // Bulk cancel confirmation
+    pendingCancelIds?.let { ids ->
+        AlertDialog(
+            onDismissRequest = { pendingCancelIds = null },
+            icon = { Icon(Icons.Default.Delete, contentDescription = null) },
+            title = { Text("Delete ${ids.size} alarm${if (ids.size == 1) "" else "s"}?") },
+            text = { Text("This will permanently cancel the selected alarms.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    alarms.filter { it.id in ids }.forEach { viewModel.cancelAlarm(it) }
+                    pendingCancelIds = null
+                    selectedIds = emptySet()
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingCancelIds = null }) { Text("Keep") }
             },
         )
     }
@@ -191,7 +250,6 @@ private fun AlarmCreateEditDialog(
 
     var label by remember { mutableStateOf(existingAlarm?.label ?: "") }
 
-    // Step: "date" → "time" → "confirm"
     var step by remember { mutableStateOf("date") }
 
     val dateState = rememberDatePickerState(
@@ -241,7 +299,6 @@ private fun AlarmCreateEditDialog(
         "label" -> {
             val selectedDateUtcMillis = dateState.selectedDateMillis ?: return
             val triggerAtMillis = remember(selectedDateUtcMillis, timeState.hour, timeState.minute) {
-                // selectedDateMillis is midnight UTC — convert to local date then apply local time
                 val localDate = Instant.ofEpochMilli(selectedDateUtcMillis)
                     .atZone(ZoneId.of("UTC")).toLocalDate()
                 localDate.atTime(LocalTime.of(timeState.hour, timeState.minute))
@@ -290,10 +347,14 @@ private fun AlarmCreateEditDialog(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AlarmRow(
     alarm: ScheduledAlarmEntity,
+    inSelectionMode: Boolean,
+    isSelected: Boolean,
     onTap: () -> Unit,
+    onLongPress: () -> Unit,
     onCancel: () -> Unit,
     onToggle: () -> Unit,
 ) {
@@ -305,7 +366,10 @@ private fun AlarmRow(
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onTap),
+            .combinedClickable(
+                onClick = onTap,
+                onLongClick = onLongPress,
+            ),
         headlineContent = {
             Text(
                 text = alarm.label ?: "Alarm",
@@ -320,24 +384,32 @@ private fun AlarmRow(
             )
         },
         leadingContent = {
-            Icon(
-                Icons.Default.Alarm,
-                contentDescription = null,
-                tint = if (alarm.enabled) MaterialTheme.colorScheme.primary
-                       else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (inSelectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onTap() },
+                )
+            } else {
+                Icon(
+                    Icons.Default.Alarm,
+                    contentDescription = null,
+                    tint = if (alarm.enabled) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         },
         trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
-                    checked = alarm.enabled,
-                    onCheckedChange = { onToggle() },
-                )
-                IconButton(onClick = onCancel) {
-                    Icon(Icons.Default.Delete, contentDescription = "Cancel alarm")
+            if (!inSelectionMode) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = alarm.enabled,
+                        onCheckedChange = { onToggle() },
+                    )
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.Default.Delete, contentDescription = "Cancel alarm")
+                    }
                 }
             }
         },
     )
 }
-
