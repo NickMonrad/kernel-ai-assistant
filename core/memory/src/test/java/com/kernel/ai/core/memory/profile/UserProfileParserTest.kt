@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test
 
 class UserProfileParserTest {
 
+    // ── Name extraction ──────────────────────────────────────────────────────
+
     @Nested
     inner class NameExtraction {
         @Test
@@ -17,7 +19,7 @@ class UserProfileParserTest {
         }
 
         @Test
-        fun `extracts name from 'I'm X'`() {
+        fun `extracts name from 'I'm X' where X is a proper name`() {
             val result = UserProfileParser.parse("I'm Nick Monrad. I like coffee.")
             assertEquals("Nick Monrad", result.name)
         }
@@ -29,11 +31,34 @@ class UserProfileParserTest {
         }
 
         @Test
+        fun `extracts name from informal 'X here' pattern`() {
+            // B4: "Nick here" was missed before
+            val result = UserProfileParser.parse("Nick here, I'm a dev in NZ. Please be concise.")
+            assertEquals("Nick", result.name)
+        }
+
+        @Test
+        fun `does not extract article as name from role sentence`() {
+            // B1: "I'm an Android developer" was incorrectly yielding name="an Android"
+            val result = UserProfileParser.parse("I'm an Android developer working on AI.")
+            assertNull(result.name)
+        }
+
+        @Test
+        fun `does not extract role keyword as name`() {
+            // B1 variant: "I'm a developer" must not produce name="a"
+            val result = UserProfileParser.parse("I'm a software developer. I use Linux.")
+            assertNull(result.name)
+        }
+
+        @Test
         fun `returns null when no name pattern found`() {
             val result = UserProfileParser.parse("I use a Samsung S23 Ultra.")
             assertNull(result.name)
         }
     }
+
+    // ── Role extraction ───────────────────────────────────────────────────────
 
     @Nested
     inner class RoleExtraction {
@@ -49,10 +74,48 @@ class UserProfileParserTest {
             val result = UserProfileParser.parse("I am a software engineer at Google.")
             assertEquals("software engineer at Google", result.role)
         }
+
+        @Test
+        fun `extracts role with technologist keyword`() {
+            // B5: "Technologist" was not in ROLE_KEYWORDS
+            val result = UserProfileParser.parse("I am a Principal Technologist at LAB3.")
+            assertEquals("Principal Technologist at LAB3", result.role)
+        }
+
+        @Test
+        fun `extracts role for abbreviated dev keyword`() {
+            // B5: "dev" was not in ROLE_KEYWORDS
+            val result = UserProfileParser.parse("I'm a dev based in Wellington. I prefer dark mode.")
+            assertEquals("dev", result.role)
+        }
+
+        @Test
+        fun `strips location suffix from role when on same sentence`() {
+            // B2: "developer based in Auckland" should yield role="developer"
+            val result = UserProfileParser.parse("I'm a software developer based in Auckland.")
+            assertEquals("software developer", result.role)
+            assertEquals("Auckland", result.location)
+        }
     }
+
+    // ── Location extraction ───────────────────────────────────────────────────
 
     @Nested
     inner class LocationExtraction {
+        @Test
+        fun `preserves comma-separated city and country in Location label`() {
+            // B7: "Location: Brisbane, QLD, Australia" was truncated to "Brisbane" at the first comma
+            val result = UserProfileParser.parse("Location: Brisbane, QLD, Australia. I use Linux.")
+            assertEquals("Brisbane, QLD, Australia", result.location)
+        }
+
+        @Test
+        fun `extracts location from 'based in X' without capturing relative clause`() {
+            // B3: "based in Wellington who works on mobile apps" was capturing the relative clause
+            val result = UserProfileParser.parse("I'm a developer based in Wellington who works on mobile apps.")
+            assertEquals("Wellington", result.location)
+        }
+
         @Test
         fun `extracts location from 'based in X'`() {
             val result = UserProfileParser.parse("I'm Nick. Based in Auckland, New Zealand. I use a Mac.")
@@ -66,6 +129,8 @@ class UserProfileParserTest {
         }
     }
 
+    // ── Environment extraction ────────────────────────────────────────────────
+
     @Nested
     inner class EnvironmentExtraction {
         @Test
@@ -74,7 +139,22 @@ class UserProfileParserTest {
             assertEquals(2, result.environment.size)
             assertTrue(result.environment[0].contains("Samsung"))
         }
+
+        @Test
+        fun `extracts section-header Systems pattern`() {
+            // B8: "Systems: CachyOS (Main PC)" was falling to context
+            val result = UserProfileParser.parse("Systems: CachyOS (Main PC), Bazzite OS (ROG Ally).")
+            assertTrue(result.environment.isNotEmpty(), "Systems: should go to environment")
+        }
+
+        @Test
+        fun `extracts section-header Homelab pattern`() {
+            val result = UserProfileParser.parse("Homelab: Extensive Docker environment (Plex, Nextcloud).")
+            assertTrue(result.environment.isNotEmpty(), "Homelab: should go to environment")
+        }
     }
+
+    // ── Rule extraction ───────────────────────────────────────────────────────
 
     @Nested
     inner class RuleExtraction {
@@ -83,7 +163,96 @@ class UserProfileParserTest {
             val result = UserProfileParser.parse("I prefer concise answers. Always use dark mode.")
             assertEquals(2, result.rules.size)
         }
+
+        @Test
+        fun `extracts 'Do not' imperative rule`() {
+            // B6: "Do not try to inject..." was falling to context
+            val result = UserProfileParser.parse("Do not try to inject meal planning advice unless asked.")
+            assertTrue(result.rules.isNotEmpty(), "'Do not' should be a rule")
+        }
+
+        @Test
+        fun `extracts Tone section as rule`() {
+            // B6: "Tone: Prefers concise..." was falling to context
+            val result = UserProfileParser.parse("Tone: Prefers concise, technically precise, and actionable information.")
+            assertTrue(result.rules.isNotEmpty(), "Tone: section should go to rules")
+        }
+
+        @Test
+        fun `extracts third-person Prefers as rule`() {
+            val result = UserProfileParser.parse("Prefers local-first suggestions over cloud dependencies.")
+            assertTrue(result.rules.isNotEmpty(), "Third-person Prefers should be a rule")
+        }
     }
+
+    // ── Real-world profile (#509) ─────────────────────────────────────────────
+
+    @Nested
+    inner class RealWorldProfile {
+        private val nick509Profile = """
+            my name is Nick
+            I am a Principal Technologist at LAB3. High technical literacy.
+            Location: Brisbane, QLD, Australia. originally from nz
+            Family: Married with three children (ages 1 (Lachlan), 5 (Freyja), and 10(Emilie)) and a Hungarian Vizsla dog named Xena.
+            Technical Environment
+            Systems: CachyOS (Main PC), Bazzite OS (ROG Ally). Windows 11 (Homelab/ Plex Server, other Docker, *arr stack)
+            Hardware: Main PC: AMD Ryzen 5700X3D | Radeon RX 9070 XT | 32GB RAM, HomeLab: Ryzen 5600 | GTX 1060 | 32GB RAM
+            Network: Static IP; avoids dynamic DNS dependencies.
+            Homelab: Extensive Docker environment (Plex, *arr stack, Nginx). Currently migrating from Google services to self-hosted alternatives like Plexamp, Nextcloud.
+            Local AI: Uses llama.cpp, and OpenCode. Prioritizes local-first compute and privacy.
+            Smart Home: Advanced Home Assistant user (YAML focus). Integrates Fox ESS solar/battery and multi-zone climate control.
+            Gaming: PC-centric (e.g., Cyberpunk 2077, The Witcher 3). Also has a PS5 and plays ARPGs like Ghost of Yotei.
+            Cooking: Strong preference for RecipeTin Eats (Nagi's recipes) for meal planning.
+            Tone: Prefers concise, technically precise, and actionable information.
+            AI Instruction Hook: Assume expert-level knowledge of Linux, containerization, and AI hardware optimization.
+            Prioritize local-first suggestions over cloud dependencies. When providing recipes, default to RecipeTin Eats. Do not try to inject meal planning advice unless asked.
+        """.trimIndent()
+
+        @Test
+        fun `extracts name`() {
+            val result = UserProfileParser.parse(nick509Profile)
+            assertEquals("Nick", result.name)
+        }
+
+        @Test
+        fun `extracts role as Principal Technologist`() {
+            val result = UserProfileParser.parse(nick509Profile)
+            assertTrue(result.role?.contains("Technologist") == true, "role was: ${UserProfileParser.parse(nick509Profile).role}")
+        }
+
+        @Test
+        fun `extracts location preserving QLD and Australia`() {
+            val result = UserProfileParser.parse(nick509Profile)
+            assertTrue(result.location?.contains("Brisbane") == true && result.location?.contains("Australia") == true,
+                "location was: ${result.location}")
+        }
+
+        @Test
+        fun `has non-empty environment`() {
+            val result = UserProfileParser.parse(nick509Profile)
+            assertTrue(result.environment.isNotEmpty(), "environment was empty")
+        }
+
+        @Test
+        fun `Prioritize and When providing go to rules`() {
+            val result = UserProfileParser.parse(nick509Profile)
+            val rulesText = result.rules.joinToString(" ")
+            assertTrue(rulesText.contains("local-first", ignoreCase = true) ||
+                rulesText.contains("RecipeTin", ignoreCase = true),
+                "rules were: ${result.rules}")
+        }
+
+        @Test
+        fun `Tone section goes to rules not context`() {
+            val result = UserProfileParser.parse(nick509Profile)
+            val inRules = result.rules.any { it.contains("concise", ignoreCase = true) }
+            val inContext = result.context.any { it.contains("Tone:", ignoreCase = true) }
+            assertTrue(inRules, "Tone: entry should be in rules, not context. rules=${result.rules}")
+            assertTrue(!inContext, "Tone: should not be in context")
+        }
+    }
+
+    // ── Full profile ──────────────────────────────────────────────────────────
 
     @Nested
     inner class FullProfile {
