@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Menu
@@ -46,6 +47,7 @@ import com.kernel.ai.feature.settings.ModelManagementScreen
 import com.kernel.ai.feature.settings.ModelSettingsScreen
 import com.kernel.ai.feature.settings.ScheduledAlarmsScreen
 import com.kernel.ai.feature.settings.SettingsScreen
+import com.kernel.ai.feature.settings.SidePanelScreen
 import com.kernel.ai.feature.settings.UserProfileScreen
 import kotlinx.coroutines.launch
 
@@ -61,6 +63,7 @@ private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management"
 private const val ROUTE_ABOUT = "settings/about"
 private const val ROUTE_CONTACT_ALIASES = "settings/contact_aliases"
 private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
+private const val ROUTE_SIDE_PANEL = "settings/side_panel"
 private const val ROUTE_LISTS = "lists"
 private const val ROUTE_LIST_ITEMS = "lists/{listName}"
 private const val ARG_LIST_NAME = "listName"
@@ -122,6 +125,18 @@ fun KernelNavHost(initialChatQuery: String? = null) {
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
                         navController.navigate(ROUTE_SCHEDULED_ALARMS) {
+                            launchSingleTop = true
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                )
+                NavigationDrawerItem(
+                    label = { Text("Active Timers & Alarms") },
+                    icon = { Icon(Icons.Default.Timer, contentDescription = null) },
+                    selected = currentBaseRoute == ROUTE_SIDE_PANEL,
+                    onClick = {
+                        coroutineScope.launch { drawerState.close() }
+                        navController.navigate(ROUTE_SIDE_PANEL) {
                             launchSingleTop = true
                         }
                     },
@@ -330,6 +345,12 @@ fun KernelNavHost(initialChatQuery: String? = null) {
 
                 composable(ROUTE_SCHEDULED_ALARMS) {
                     ScheduledAlarmsScreen(
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(ROUTE_SIDE_PANEL) {
+                    SidePanelScreen(
                         onBack = { navController.popBackStack() },
                     )
                 }
