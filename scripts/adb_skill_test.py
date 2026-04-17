@@ -31,6 +31,7 @@ ACTIVITY = f"{PACKAGE}/com.kernel.ai.MainActivity"
 SETTINGS_ACTIVITY = f"{PACKAGE}/com.kernel.ai.MainActivity"  # Settings reached via in-app nav
 LOGCAT_TAG = "KernelAI"
 INTENT_PATTERN = re.compile(r"NativeIntentHandler\.handle:\s*intent=(\S+)")
+DIRECTREPLY_PATTERN = re.compile(r"DirectReply:\s*(.+)")
 PROFILE_LLM_PATTERN = re.compile(r"Profile LLM extraction succeeded")
 PROFILE_FALLBACK_PATTERN = re.compile(r"Profile regex fallback")
 PROFILE_YAML_PATTERN = re.compile(r"name:\s*(.+)")
@@ -78,6 +79,7 @@ class TestCase:
     message: str
     expect_intent: str
     xfail: bool = False  # True = intent not yet implemented; failure is expected
+    expect_reply_contains: str | None = None  # if set, verify DirectReply logcat contains this (best-effort)
 
 
 TEST_CASES: list[TestCase] = [
@@ -87,9 +89,9 @@ TEST_CASES: list[TestCase] = [
     TestCase("remind me tomorrow at 9", "set_alarm"),
     TestCase("cancel my 7am alarm", "cancel_alarm"),
     TestCase("turn off all my alarms", "cancel_alarm"),
-    # Timer (long durations to avoid firing mid-run)
-    TestCase("set a timer for 99 minutes", "set_timer"),
-    TestCase("start a 97 minute timer", "set_timer"),
+    # Timer
+    TestCase("set a timer for 10 minutes", "set_timer"),
+    TestCase("start a 5 minute timer", "set_timer"),
     TestCase("cancel the timer", "cancel_timer"),
     TestCase("stop the timer", "cancel_timer"),
     # Weather
@@ -107,11 +109,11 @@ TEST_CASES: list[TestCase] = [
     # Calendar
     TestCase("create a meeting for tomorrow at 2pm", "create_calendar_event"),
     TestCase("schedule a dentist appointment Friday at 10", "create_calendar_event"),
-    # Time / date
-    TestCase("what time is it", "get_time"),
-    TestCase("what's today's date", "get_time"),
-    # Battery
-    TestCase("what's my battery level", "get_battery"),
+    # Time / date — DirectReply: verify numeric time/date in response
+    TestCase("what time is it", "get_time", expect_reply_contains=r"\d+:\d+"),
+    TestCase("what's today's date", "get_time", expect_reply_contains=r"202[4-9]|20[3-9]\d"),
+    # Battery — DirectReply: verify percentage symbol in response
+    TestCase("what's my battery level", "get_battery", expect_reply_contains=r"\d+%"),
     TestCase("how much battery do I have", "get_battery"),
     # System info
     TestCase("how much storage do I have left", "get_system_info"),
@@ -177,10 +179,10 @@ TEST_CASES: list[TestCase] = [
     # Cancel alarm
     TestCase("delete my alarm", "cancel_alarm"),
     TestCase("get rid of all alarms", "cancel_alarm"),
-    # Timer (long durations to avoid firing mid-run)
-    TestCase("timer 95 min", "set_timer"),
-    TestCase("start a 98 minute timer", "set_timer"),
-    TestCase("countdown 96 minutes", "set_timer"),
+    # Timer
+    TestCase("timer 5 min", "set_timer"),
+    TestCase("start a one hour timer", "set_timer"),
+    TestCase("countdown 10 minutes", "set_timer"),
     # Cancel timer
     TestCase("turn off the timer", "cancel_timer"),
     TestCase("dismiss the timer", "cancel_timer"),
@@ -290,10 +292,10 @@ TEST_CASES: list[TestCase] = [
 
     # ── #525 Timer Management ────────────────────────────────────────────
     # list_timers
-    TestCase("what timers do I have", "list_timers"),
+    TestCase("what timers do I have", "list_timers", expect_reply_contains=r"."),
     TestCase("show my timers", "list_timers"),
     TestCase("how many timers are running", "list_timers"),
-    TestCase("list timers", "list_timers"),
+    TestCase("list timers", "list_timers", expect_reply_contains=r"."),
     # cancel_timer_named
     TestCase("cancel the pasta timer", "cancel_timer_named"),
     TestCase("cancel the 10 minute timer", "cancel_timer_named"),
@@ -400,6 +402,12 @@ def extract_intent(logcat_output: str) -> str | None:
     return matches[0] if matches else None
 
 
+def extract_reply(logcat_output: str) -> str | None:
+    """Extract the first DirectReply content from logcat output."""
+    m = DIRECTREPLY_PATTERN.search(logcat_output)
+    return m.group(1).strip() if m else None
+
+
 def run_tests(dry_run: bool = False) -> int:
     """Execute all test cases. Returns non-zero on failures."""
     results: list[tuple[TestCase, str | None, bool]] = []
@@ -411,7 +419,8 @@ def run_tests(dry_run: bool = False) -> int:
         print()
         for i, tc in enumerate(TEST_CASES, 1):
             print(f"  [{i:2d}] \"{tc.message}\"")
-            print(f"       expect → {tc.expect_intent}")
+            suffix = f" | reply_contains={tc.expect_reply_contains!r}" if tc.expect_reply_contains else ""
+            print(f"       expect → {tc.expect_intent}{suffix}")
         print()
         print(f"  Total: {len(TEST_CASES)} test cases")
         print("=" * 70)
@@ -478,9 +487,21 @@ def run_tests(dry_run: bool = False) -> int:
         actual = extract_intent(logcat)
         passed = actual == tc.expect_intent
 
+        # DirectReply verification — best-effort, warn but don't fail the test
+        reply_warn: str | None = None
+        if passed and tc.expect_reply_contains is not None:
+            reply_text = extract_reply(logcat)
+            if reply_text is None:
+                reply_warn = "no DirectReply logged"
+            elif not re.search(tc.expect_reply_contains, reply_text):
+                reply_warn = f"reply {reply_text!r} didn't match {tc.expect_reply_contains!r}"
+
         results.append((tc, actual, passed))
         if passed:
-            print("✓")
+            if reply_warn:
+                print(f"✓ [reply warn: {reply_warn}]")
+            else:
+                print("✓")
         elif tc.xfail:
             print(f"✗ (xfail — not yet implemented)")
         else:

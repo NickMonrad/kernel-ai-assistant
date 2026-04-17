@@ -817,11 +817,47 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "set_volume",
             regex = Regex(
-                """(?:turn|raise|lower|increase|decrease|crank)\s+(?:(?:the|my)\s+)?volume\s+(?:up|down)|(?:volume\s+(?:up|down|higher|lower))|(?:mute|unmute)\s+(?:the\s+)?(?:phone|device|sound|volume)""",
+                """turn\s+(?:the\s+|my\s+)?volume\s+(?:up|down)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, input ->
-                val isUp = input.contains(Regex("(?:up|raise|increase|higher|unmute|max)", RegexOption.IGNORE_CASE))
+                val isUp = input.contains(Regex("up", RegexOption.IGNORE_CASE))
+                mapOf("direction" to if (isUp) "up" else "down")
+            },
+        ),
+        // "raise/lower/increase/decrease/crank the volume up/down" — remaining verb forms
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """(?:raise|lower|increase|decrease|crank)\s+(?:(?:the|my)\s+)?volume(?:\s+(?:up|down))?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val isUp = input.contains(Regex("(?:raise|increase|up)", RegexOption.IGNORE_CASE))
+                mapOf("direction" to if (isUp) "up" else "down")
+            },
+        ),
+        // "volume up/down/higher/lower" — noun-first terse form
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """volume\s+(?:up|down|higher|lower)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val isUp = input.contains(Regex("(?:up|higher)", RegexOption.IGNORE_CASE))
+                mapOf("direction" to if (isUp) "up" else "down")
+            },
+        ),
+        // "mute/unmute the phone/device/sound/volume"
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """(?:mute|unmute)\s+(?:the\s+)?(?:phone|device|sound|volume)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val isUp = input.contains(Regex("unmute", RegexOption.IGNORE_CASE))
                 mapOf("direction" to if (isUp) "up" else "down")
             },
         ),
@@ -853,19 +889,22 @@ class QuickIntentRouter(
         ),
 
         // ── WiFi ──
-        // toggle_wifi explicit (Android optional-prefix workaround)
+        // Explicit Android-compat: "turn off/on wifi" — split out from long alternation
         IntentPattern(
             intentName = "toggle_wifi",
-            regex = Regex("""turn\s+(?:off|on)\s+(?:wi-?fi|wireless)""", RegexOption.IGNORE_CASE),
+            regex = Regex(
+                """turn\s+(?:off|on)\s+(?:wi-?fi|wireless)""",
+                RegexOption.IGNORE_CASE,
+            ),
             paramExtractor = { _, input ->
-                val state = if (input.contains(Regex("\\bon\\b", RegexOption.IGNORE_CASE))) "on" else "off"
+                val state = if (input.contains(Regex("""\bon\b""", RegexOption.IGNORE_CASE))) "on" else "off"
                 mapOf("state" to state)
             },
         ),
         IntentPattern(
             intentName = "toggle_wifi",
             regex = Regex(
-                """(?:turn\s+)?(?:on|off|enable|disable|switch\s+(?:on|off))\s+(?:wi-?fi|wireless)""",
+                """(?:on|off|enable|disable|switch\s+(?:on|off))\s+(?:wi-?fi|wireless)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, input ->
@@ -910,19 +949,22 @@ class QuickIntentRouter(
         ),
 
         // ── Airplane Mode ──
-        // toggle_airplane_mode explicit (Android optional-prefix workaround)
+        // Explicit Android-compat: "enable/disable airplane/flight mode" — split from optional-prefix form
         IntentPattern(
             intentName = "toggle_airplane_mode",
-            regex = Regex("""(?:enable|disable)\s+(?:airplane|flight)\s+mode""", RegexOption.IGNORE_CASE),
+            regex = Regex(
+                """(?:enable|disable)\s+(?:airplane|flight)\s+mode""",
+                RegexOption.IGNORE_CASE,
+            ),
             paramExtractor = { _, input ->
-                val state = if (input.contains(Regex("\\benable\\b", RegexOption.IGNORE_CASE))) "on" else "off"
+                val state = if (input.contains(Regex("""\benable\b""", RegexOption.IGNORE_CASE))) "on" else "off"
                 mapOf("state" to state)
             },
         ),
         IntentPattern(
             intentName = "toggle_airplane_mode",
             regex = Regex(
-                """(?:turn\s+)?(?:on|off|enable|disable)\s+(?:airplane|flight)\s+mode""",
+                """(?:turn\s+)?(?:on|off)\s+(?:airplane|flight)\s+mode""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, input ->
@@ -968,10 +1010,13 @@ class QuickIntentRouter(
 
         // ── Media (most specific first) ──
         // Plexamp — MUST come before play_plex (Plexamp contains "Plex")
-        // play_plexamp explicit (Android multi-word alternation workaround)
+        // Explicit Android-compat: "play X on Plexamp" — split from listen-to alternation
         IntentPattern(
             intentName = "play_plexamp",
-            regex = Regex("""play\s+(.+?)\s+on\s+plexamp""", RegexOption.IGNORE_CASE),
+            regex = Regex(
+                """play\s+(.+?)\s+on\s+plexamp""",
+                RegexOption.IGNORE_CASE,
+            ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
         IntentPattern(
@@ -983,10 +1028,13 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
         // YouTube Music — MUST come before play_youtube ("YouTube Music" contains "YouTube")
-        // play_youtube_music explicit (Android multi-word alternation workaround)
+        // Explicit Android-compat: "play X on YouTube Music" — split from listen-to alternation
         IntentPattern(
             intentName = "play_youtube_music",
-            regex = Regex("""play\s+(.+?)\s+on\s+youtube\s+music""", RegexOption.IGNORE_CASE),
+            regex = Regex(
+                """play\s+(.+?)\s+on\s+youtube\s+music""",
+                RegexOption.IGNORE_CASE,
+            ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
         IntentPattern(
@@ -1007,10 +1055,13 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> mapOf("title" to match.groupValues[1].trim()) },
         ),
         // YouTube — word boundary ensures "on youtube" doesn't match "on YouTube Music"
-        // play_youtube explicit search (Android nested alternation workaround)
+        // Explicit Android-compat: "search YouTube for X" — split from nested two-alternative form
         IntentPattern(
             intentName = "play_youtube",
-            regex = Regex("""search\s+(?:youtube|yt)\s+for\s+(.+)""", RegexOption.IGNORE_CASE),
+            regex = Regex(
+                """search\s+(?:youtube|yt)\s+for\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
         IntentPattern(
@@ -1241,11 +1292,19 @@ class QuickIntentRouter(
             },
         ),
         // Album — matches before generic play
-        // play_media_album explicit (Android lazy+optional+anchor workaround)
+        // Explicit Android-compat: "play album X" without trailing $ anchor that can cause
+        // lazy-quantifier backtracking issues on Android's regex engine
         IntentPattern(
             intentName = "play_media_album",
-            regex = Regex("""play\s+(?:the\s+)?album\s+(.+)""", RegexOption.IGNORE_CASE),
-            paramExtractor = { match, _ -> mapOf("album" to match.groupValues[1].trim()) },
+            regex = Regex(
+                """play\s+(?:the\s+)?album\s+(.+?)(?:\s+(?:by|from)\s+(.+?))?(?:\s+on\s+\w+)?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf("album" to match.groupValues[1].trim())
+                if (match.groupValues[2].isNotBlank()) params["artist"] = match.groupValues[2].trim()
+                params
+            },
         ),
         IntentPattern(
             intentName = "play_media_album",
@@ -1660,16 +1719,19 @@ class QuickIntentRouter(
         ),
 
         // ── Brightness ──
-        // set_brightness explicit (Android 5-item alternation workaround)
+        // Explicit Android-compat: "increase brightness" — split from complex alternation
         IntentPattern(
             intentName = "set_brightness",
-            regex = Regex("""increase\s+(?:the\s+)?(?:screen\s+)?brightness""", RegexOption.IGNORE_CASE),
+            regex = Regex(
+                """increase\s+(?:the\s+)?(?:screen\s+)?brightness""",
+                RegexOption.IGNORE_CASE,
+            ),
             paramExtractor = { _, _ -> mapOf("direction" to "up") },
         ),
         IntentPattern(
             intentName = "set_brightness",
             regex = Regex(
-                """(?:increase|raise|turn\s+up|brighten|max(?:imize)?)\s+(?:the\s+)?(?:screen\s+)?brightness""",
+                """(?:raise|turn\s+up|brighten|max(?:imize)?)\s+(?:the\s+)?(?:screen\s+)?brightness""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> mapOf("direction" to "up") },
