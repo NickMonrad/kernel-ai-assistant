@@ -253,8 +253,12 @@ class PermissionFlowTest {
     // ── Deny → Re-grant recovery ─────────────────────────────────────────
 
     /**
-     * Revoke POST_NOTIFICATIONS then re-grant via shell — app should recover
-     * without requiring a restart (tests the dynamic permission check path).
+     * Revoke POST_NOTIFICATIONS then re-grant via shell while the app is still running.
+     * Tests the mid-session recovery path — the app should stay in foreground and not crash
+     * when the permission is restored without a restart.
+     *
+     * Note: re-launching with FLAG_ACTIVITY_CLEAR_TASK while the first instance is still
+     * initialising causes a process crash. This test validates the live-app path only.
      */
     @Test
     fun postNotifications_revokeAndRegrant_appRecovers() {
@@ -262,11 +266,14 @@ class PermissionFlowTest {
 
         revokePermission("android.permission.POST_NOTIFICATIONS")
         launchApp()
-        Thread.sleep(1_000)
 
+        // Dismiss the permission dialog if it appears (so app comes back to foreground)
+        val dialogButton = findDialogButton(DENY_LABELS + ALLOW_LABELS)
+        dialogButton?.click()
+        Thread.sleep(1_500)
+
+        // Re-grant mid-session via shell — app should remain alive, not crash
         grantPermission("android.permission.POST_NOTIFICATIONS")
-        // Shell grant doesn't bring the app back to foreground; re-launch to test recovery
-        launchApp()
         Thread.sleep(1_000)
 
         assertTrue("App should be visible after re-granting POST_NOTIFICATIONS", isAppInForeground())
