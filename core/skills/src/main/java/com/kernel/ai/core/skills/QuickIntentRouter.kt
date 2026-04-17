@@ -759,6 +759,24 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
+        // Plexamp — "play X on plexamp" / "play X in plexamp"
+        IntentPattern(
+            intentName = "play_plexamp",
+            regex = Regex(
+                """(?:play|listen\s+to)\s+(.+?)\s+(?:on|in)\s+plexamp""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // YouTube Music — "play X on youtube music"
+        IntentPattern(
+            intentName = "play_youtube_music",
+            regex = Regex(
+                """(?:play|listen\s+to)\s+(.+?)\s+on\s+youtube\s+music""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
         // Netflix — "play X on netflix" / "watch X on netflix"
         IntentPattern(
             intentName = "play_netflix",

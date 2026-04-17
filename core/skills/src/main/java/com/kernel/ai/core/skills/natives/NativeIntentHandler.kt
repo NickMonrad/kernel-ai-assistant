@@ -112,6 +112,8 @@ class NativeIntentHandler @Inject constructor(
                 "play_media", "play_media_album", "play_media_playlist" -> playMedia(params)
                 "play_youtube" -> playYoutube(params)
                 "play_spotify" -> playSpotify(params)
+                "play_plexamp" -> playPlexamp(params)
+                "play_youtube_music" -> playYoutubeMusic(params)
                 "play_netflix" -> playNetflix(params)
                 "play_plex" -> playPlex(params)
                 "open_app" -> openApp(params)
@@ -593,6 +595,45 @@ class NativeIntentHandler @Inject constructor(
             }
             context.startActivity(webIntent)
             SkillResult.Success("Opening Spotify in browser for: $query")
+        }
+    }
+
+    // ── Plexamp ──
+
+    private fun playPlexamp(params: Map<String, String>): SkillResult {
+        val query = params["query"] ?: return SkillResult.Failure("play_plexamp", "No search query provided")
+        return try {
+            val intent = Intent(Intent.ACTION_SEARCH).apply {
+                `package` = "tv.plex.labs.plexamp"
+                putExtra(SearchManager.QUERY, query)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Searching Plexamp for: $query")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("play_plexamp", "Plexamp app not installed")
+        }
+    }
+
+    // ── YouTube Music ──
+
+    private fun playYoutubeMusic(params: Map<String, String>): SkillResult {
+        val query = params["query"] ?: return SkillResult.Failure("play_youtube_music", "No search query provided")
+        return try {
+            val intent = Intent(Intent.ACTION_SEARCH).apply {
+                `package` = "com.google.android.apps.youtube.music"
+                putExtra(SearchManager.QUERY, query)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Searching YouTube Music for: $query")
+        } catch (e: ActivityNotFoundException) {
+            val webIntent = Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://music.youtube.com/search?q=${Uri.encode(query)}")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(webIntent)
+            SkillResult.Success("Opening YouTube Music in browser for: $query")
         }
     }
 
