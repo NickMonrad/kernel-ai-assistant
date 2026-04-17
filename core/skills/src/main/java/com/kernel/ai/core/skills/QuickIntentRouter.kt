@@ -925,6 +925,194 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("app_name" to match.groupValues[1].trim()) },
         ),
+        // ── Podcast Controls ──
+        // play_podcast — MUST require "podcast" or "episode" keyword to avoid collision with play_media/play_spotify
+        IntentPattern(
+            intentName = "play_podcast",
+            regex = Regex(
+                """(?i)\bplay\s+(?:the\s+)?(?:latest\s+)?(?:episode\s+of\s+|podcast\s+)?(.+?)\s+podcast\b""",
+            ),
+            paramExtractor = { match, _ ->
+                val show = match.groupValues[1].trim()
+                if (show.isNotBlank()) mapOf("show" to show) else emptyMap()
+            },
+        ),
+        IntentPattern(
+            intentName = "play_podcast",
+            regex = Regex(
+                """(?i)\bplay\s+(?:the\s+)?latest\s+episode\s+of\s+(.+)""",
+            ),
+            paramExtractor = { match, _ ->
+                val show = match.groupValues[1].trim()
+                if (show.isNotBlank()) mapOf("show" to show) else emptyMap()
+            },
+        ),
+        IntentPattern(
+            intentName = "play_podcast",
+            regex = Regex(
+                """(?i)\bput\s+on\s+(?:the\s+)?(.+?)\s+podcast\b""",
+            ),
+            paramExtractor = { match, _ ->
+                val show = match.groupValues[1].trim()
+                if (show.isNotBlank()) mapOf("show" to show) else emptyMap()
+            },
+        ),
+        IntentPattern(
+            intentName = "play_podcast",
+            regex = Regex(
+                """(?i)\b(?:listen\s+to|subscribe\s+to)\s+(?:the\s+)?(.+?)\s+(?:podcast|episode)\b""",
+            ),
+            paramExtractor = { match, _ ->
+                val show = match.groupValues[1].trim()
+                if (show.isNotBlank()) mapOf("show" to show) else emptyMap()
+            },
+        ),
+        // podcast_skip_forward — skip forward N seconds / skip intro
+        IntentPattern(
+            intentName = "podcast_skip_forward",
+            regex = Regex(
+                """(?i)\bskip\s+(?:forward|ahead)\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+            ),
+            paramExtractor = { match, _ ->
+                val amount = match.groupValues[1].toIntOrNull() ?: 30
+                val unit = match.groupValues[2].lowercase()
+                val seconds = if (unit.startsWith("min")) amount * 60 else amount
+                mapOf("seconds" to seconds.toString())
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_skip_forward",
+            regex = Regex(
+                """(?i)\bforward\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+            ),
+            paramExtractor = { match, _ ->
+                val amount = match.groupValues[1].toIntOrNull() ?: 30
+                val unit = match.groupValues[2].lowercase()
+                val seconds = if (unit.startsWith("min")) amount * 60 else amount
+                mapOf("seconds" to seconds.toString())
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_skip_forward",
+            regex = Regex(
+                """(?i)\bskip\s+(?:the\s+)?intro\b""",
+            ),
+            paramExtractor = { _, _ ->
+                mapOf("seconds" to "30")  // default for "skip the intro"
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_skip_forward",
+            regex = Regex(
+                """(?i)\bskip\s+ahead\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+            ),
+            paramExtractor = { match, _ ->
+                val amount = match.groupValues[1].toIntOrNull() ?: 30
+                val unit = match.groupValues[2].lowercase()
+                val seconds = if (unit.startsWith("min")) amount * 60 else amount
+                mapOf("seconds" to seconds.toString())
+            },
+        ),
+        // podcast_skip_back — rewind / back N seconds
+        IntentPattern(
+            intentName = "podcast_skip_back",
+            regex = Regex(
+                """(?i)\b(?:go\s+)?back\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+            ),
+            paramExtractor = { match, _ ->
+                val amount = match.groupValues[1].toIntOrNull() ?: 15
+                val unit = match.groupValues[2].lowercase()
+                val seconds = if (unit.startsWith("min")) amount * 60 else amount
+                mapOf("seconds" to seconds.toString())
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_skip_back",
+            regex = Regex(
+                """(?i)\brewind\s+(?:(\d+)\s*(second|sec|minute|min)s?)?\b""",
+            ),
+            paramExtractor = { match, _ ->
+                val amount = match.groupValues[1].toIntOrNull()
+                val unit = match.groupValues.getOrNull(2)?.lowercase() ?: "second"
+                val seconds = when {
+                    amount == null -> 15  // default rewind
+                    unit.startsWith("min") -> amount * 60
+                    else -> amount
+                }
+                mapOf("seconds" to seconds.toString())
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_skip_back",
+            regex = Regex(
+                """(?i)\bback\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+            ),
+            paramExtractor = { match, _ ->
+                val amount = match.groupValues[1].toIntOrNull() ?: 15
+                val unit = match.groupValues[2].lowercase()
+                val seconds = if (unit.startsWith("min")) amount * 60 else amount
+                mapOf("seconds" to seconds.toString())
+            },
+        ),
+        // podcast_speed — set playback rate
+        IntentPattern(
+            intentName = "podcast_speed",
+            regex = Regex(
+                """(?i)\bplay\s+at\s+([\d.]+)x\s*(?:speed)?\b""",
+            ),
+            paramExtractor = { match, _ ->
+                val speed = match.groupValues[1].toFloatOrNull() ?: 1.0f
+                mapOf("rate" to speed.toString())
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_speed",
+            regex = Regex(
+                """(?i)\bset\s+(?:playback\s+)?speed\s+to\s+([\d.]+)x?\b""",
+            ),
+            paramExtractor = { match, _ ->
+                val speed = match.groupValues[1].toFloatOrNull() ?: 1.0f
+                mapOf("rate" to speed.toString())
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_speed",
+            regex = Regex(
+                """(?i)\b(normal|regular)\s+speed\b""",
+            ),
+            paramExtractor = { _, _ ->
+                mapOf("rate" to "1.0")
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_speed",
+            regex = Regex(
+                """(?i)\bslow\s+down\s+(?:the\s+)?(?:podcast|playback|audio)\b""",
+            ),
+            paramExtractor = { _, _ ->
+                mapOf("rate" to "0.75")
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_speed",
+            regex = Regex(
+                """(?i)\bspeed\s+up\s+(?:the\s+)?(?:podcast|playback|audio)\b""",
+            ),
+            paramExtractor = { _, _ ->
+                mapOf("rate" to "1.5")
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_speed",
+            regex = Regex(
+                """(?i)\b(faster|slower)\s+(?:playback|speed|podcast)?\b""",
+            ),
+            paramExtractor = { match, _ ->
+                val text = match.value.lowercase()
+                val rate = if (text.contains("slower")) 0.75f else 1.5f
+                mapOf("rate" to rate.toString())
+            },
+        ),
         // Album — matches before generic play
         IntentPattern(
             intentName = "play_media_album",

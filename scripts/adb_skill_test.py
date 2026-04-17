@@ -265,25 +265,25 @@ TEST_CASES: list[TestCase] = [
 
     # ── #524 Podcast Patterns ────────────────────────────────────────────
     # play_podcast
-    TestCase("play the Joe Rogan podcast", "play_podcast", xfail=True),
-    TestCase("play the latest episode of Serial", "play_podcast", xfail=True),
-    TestCase("put on the Daily podcast", "play_podcast", xfail=True),
-    TestCase("play the news podcast", "play_podcast", xfail=True),
+    TestCase("play the Joe Rogan podcast", "play_podcast"),
+    TestCase("play the latest episode of Serial", "play_podcast"),
+    TestCase("put on the Daily podcast", "play_podcast"),
+    TestCase("play the news podcast", "play_podcast"),
     # podcast_skip_forward
-    TestCase("skip forward 2 minutes", "podcast_skip_forward", xfail=True),
-    TestCase("skip ahead 5 minutes", "podcast_skip_forward", xfail=True),
-    TestCase("skip the intro", "podcast_skip_forward", xfail=True),
-    TestCase("forward 30 seconds", "podcast_skip_forward", xfail=True),
+    TestCase("skip forward 2 minutes", "podcast_skip_forward"),
+    TestCase("skip ahead 5 minutes", "podcast_skip_forward"),
+    TestCase("skip the intro", "podcast_skip_forward"),
+    TestCase("forward 30 seconds", "podcast_skip_forward"),
     # podcast_skip_back
-    TestCase("go back 30 seconds", "podcast_skip_back", xfail=True),
-    TestCase("rewind 10 seconds", "podcast_skip_back", xfail=True),
-    TestCase("back 15 seconds", "podcast_skip_back", xfail=True),
+    TestCase("go back 30 seconds", "podcast_skip_back"),
+    TestCase("rewind 10 seconds", "podcast_skip_back"),
+    TestCase("back 15 seconds", "podcast_skip_back"),
     TestCase("I missed that, go back", "podcast_skip_back", xfail=True),
     # podcast_speed
-    TestCase("play at 1.5x speed", "podcast_speed", xfail=True),
-    TestCase("set playback speed to 2x", "podcast_speed", xfail=True),
-    TestCase("normal speed", "podcast_speed", xfail=True),
-    TestCase("slow down the podcast", "podcast_speed", xfail=True),
+    TestCase("play at 1.5x speed", "podcast_speed"),
+    TestCase("set playback speed to 2x", "podcast_speed"),
+    TestCase("normal speed", "podcast_speed"),
+    TestCase("slow down the podcast", "podcast_speed"),
 
     # ── #525 Timer Management ────────────────────────────────────────────
     # list_timers

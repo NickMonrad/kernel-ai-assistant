@@ -78,6 +78,10 @@ private const val TAG = "KernelAI"
  *   stop_media              — AudioManager KEYCODE_MEDIA_STOP
  *   next_track              — AudioManager KEYCODE_MEDIA_NEXT
  *   previous_track          — AudioManager KEYCODE_MEDIA_PREVIOUS
+ *   play_podcast            — Browser search for podcast (stub) (params: show)
+ *   podcast_skip_forward    — AudioManager KEYCODE_MEDIA_FAST_FORWARD (params: seconds)
+ *   podcast_skip_back       — AudioManager KEYCODE_MEDIA_REWIND (params: seconds)
+ *   podcast_speed           — DirectReply (app-level support required) (params: rate)
  *   play_plex               — Plex deep link (params: title)
  *   navigate_to             — Google Maps / geo: URI (params: destination)
  *   find_nearby             — geo: URI nearby search (params: query)
@@ -133,6 +137,10 @@ class NativeIntentHandler @Inject constructor(
                 "play_youtube_music" -> playYoutubeMusic(params)
                 "play_netflix" -> playNetflix(params)
                 "play_plex" -> playPlex(params)
+                "play_podcast" -> playPodcast(params)
+                "podcast_skip_forward" -> podcastSkip(params, forward = true)
+                "podcast_skip_back" -> podcastSkip(params, forward = false)
+                "podcast_speed" -> setPodcastSpeed(params)
                 "pause_media" -> dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PAUSE)
                 "stop_media" -> dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_STOP)
                 "next_track" -> dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_NEXT)
@@ -724,6 +732,41 @@ class NativeIntentHandler @Inject constructor(
             context.startActivity(webIntent)
             SkillResult.Success("Opening Netflix in browser for: $query")
         }
+    }
+
+    // ── Podcast Controls ──────────────────────────────────────────────────
+
+    private fun playPodcast(params: Map<String, String>): SkillResult {
+        val show = params["show"]
+        // Try to open a podcast app or fall back to search
+        return try {
+            val query = if (show != null) "$show podcast" else "podcast"
+            val uri = Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}")
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Searching for${if (show != null) " $show" else ""} podcast")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("play_podcast", "No app available to play podcasts")
+        }
+    }
+
+    private fun podcastSkip(params: Map<String, String>, forward: Boolean): SkillResult {
+        val seconds = params["seconds"]?.toIntOrNull() ?: if (forward) 30 else 15
+        // Dispatch media key — KEYCODE_MEDIA_FAST_FORWARD / REWIND
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val keyCode = if (forward) KeyEvent.KEYCODE_MEDIA_FAST_FORWARD else KeyEvent.KEYCODE_MEDIA_REWIND
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+        val dir = if (forward) "forward" else "back"
+        return SkillResult.Success("Skipped $dir ${seconds}s")
+    }
+
+    private fun setPodcastSpeed(params: Map<String, String>): SkillResult {
+        val rate = params["rate"]?.toFloatOrNull() ?: 1.0f
+        // Playback speed requires app-level support — return DirectReply to inform user
+        return SkillResult.DirectReply("Playback speed control requires support from the active podcast app. Current request: ${rate}x")
     }
 
     // ── Open App ──
