@@ -413,20 +413,21 @@ class NativeIntentHandler @Inject constructor(
 
     private fun cancelTimerNamed(params: Map<String, String>): SkillResult {
         val name = params["name"] ?: return cancelTimer()
-        return runBlocking {
-            val deleted = scheduledAlarmDao.deleteTimerByName(name)
-            if (deleted > 0) {
-                SkillResult.Success("Cancelled the $name timer")
-            } else {
-                val durationMs = parseDurationToMs(name)
-                if (durationMs != null) {
-                    val deletedByDur = scheduledAlarmDao.deleteTimerByDuration(durationMs)
-                    if (deletedByDur > 0) SkillResult.Success("Cancelled the $name timer")
-                    else SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
-                } else {
-                    SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
-                }
-            }
+        val deleted = runBlocking {
+            val byName = scheduledAlarmDao.deleteTimerByName(name)
+            if (byName > 0) byName
+            else parseDurationToMs(name)?.let { scheduledAlarmDao.deleteTimerByDuration(it) } ?: 0
+        }
+        if (deleted == 0) return SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
+        // Also dismiss via clock app so any ringing/running timer actually stops
+        return try {
+            context.startActivity(Intent(AlarmClock.ACTION_DISMISS_TIMER).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            })
+            SkillResult.Success("Cancelled the $name timer")
+        } catch (e: ActivityNotFoundException) {
+            // DB entry removed — partial success
+            SkillResult.Success("Cancelled the $name timer (clock app unavailable to stop it)")
         }
     }
 
