@@ -29,6 +29,7 @@ hiltNavigationCompose = "1.2.0"
 junit = "5.11.4"
 mockk = "1.13.16"
 coroutinesTest = "1.10.1"
+uiautomator = "2.3.0"
 
 # LiteRT
 litertlm = "0.10.0"
@@ -114,6 +115,9 @@ security-crypto = { group = "androidx.security", name = "security-crypto", versi
 # Weather skill deps
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+
+# Testing — UIAutomator
+uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
