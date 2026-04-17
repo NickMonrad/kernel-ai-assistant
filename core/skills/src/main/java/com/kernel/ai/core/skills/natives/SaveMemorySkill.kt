@@ -57,7 +57,8 @@ If the user says 'remember that', infer what 'that' refers to from recent contex
 Do NOT ask what to save — always infer and call the tool.
 
 NEVER use save_memory to add items to a shopping list, grocery list, to-do list, or
-any other named list — use run_intent with bulk_add_to_list for that instead.
+any other named list — use run_intent with add_to_list (single item) or
+bulk_add_to_list (two or more items) for that instead.
     """.trimIndent()
 
     override suspend fun execute(call: SkillCall): SkillResult {
