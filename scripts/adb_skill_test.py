@@ -17,20 +17,24 @@ App must be installed as com.kernel.ai.debug.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shlex
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 
 ADB = os.path.expanduser("~/Android/Sdk/platform-tools/adb")
 PACKAGE = "com.kernel.ai.debug"
 ACTIVITY = f"{PACKAGE}/com.kernel.ai.MainActivity"
 SETTINGS_ACTIVITY = f"{PACKAGE}/com.kernel.ai.MainActivity"  # Settings reached via in-app nav
 LOGCAT_TAG = "KernelAI"
-INTENT_PATTERN = re.compile(r"NativeIntentHandler\.handle:\s*intent=(\S+)")
+INTENT_PATTERN = re.compile(r"NativeIntentHandler\.handle:\s*intent=(\S+)\s+params=(\{[^}]*\})")
+INTENT_NAME_PATTERN = re.compile(r"NativeIntentHandler\.handle:\s*intent=(\S+)")
 DIRECTREPLY_PATTERN = re.compile(r"DirectReply:\s*(.+)")
 PROFILE_LLM_PATTERN = re.compile(r"Profile LLM extraction succeeded")
 PROFILE_FALLBACK_PATTERN = re.compile(r"Profile regex fallback")
@@ -38,6 +42,7 @@ PROFILE_YAML_PATTERN = re.compile(r"name:\s*(.+)")
 THINKING_PATTERN = re.compile(r"Thinking tokens:\s*(\d+)")
 WAIT_SECONDS = 20
 PROFILE_WAIT_SECONDS = 45  # LLM extraction needs more time than QIR
+REPORTS_DIR = Path(__file__).parent / "test-reports"
 
 
 # ── Profile test cases ────────────────────────────────────────────────────────
@@ -80,6 +85,23 @@ class TestCase:
     expect_intent: str
     xfail: bool = False  # True = intent not yet implemented; failure is expected
     expect_reply_contains: str | None = None  # if set, verify DirectReply logcat contains this (best-effort)
+    expect_params: dict[str, str] | None = None  # if set, assert these key=value pairs appear in extracted params
+
+
+@dataclass
+class TestResult:
+    """Structured outcome of a single test case — written to the JSON report."""
+    index: int
+    message: str
+    expect_intent: str
+    actual_intent: str | None
+    expect_params: dict[str, str] | None
+    actual_params: dict[str, str]
+    intent_passed: bool
+    params_passed: bool  # True when no expect_params set (no assertion)
+    param_failures: list[str]  # human-readable descriptions of param mismatches
+    xfail: bool
+    reply_warn: str | None
 
 
 TEST_CASES: list[TestCase] = [
@@ -99,13 +121,20 @@ TEST_CASES: list[TestCase] = [
     TestCase("will it rain today", "get_weather"),
     TestCase("how hot is it outside", "get_weather"),
     # Lists
-    TestCase("add milk to my shopping list", "add_to_list"),
-    TestCase("put eggs on the grocery list", "add_to_list"),
-    TestCase("create a list called groceries", "create_list"),
-    TestCase("show my todo list", "get_list_items"),
-    TestCase("what's on my shopping list", "get_list_items"),
-    TestCase("remove milk from my shopping list", "remove_from_list"),
-    TestCase("delete eggs from the grocery list", "remove_from_list"),
+    TestCase("add milk to my shopping list", "add_to_list",
+             expect_params={"item": "milk", "list_name": "shopping"}),
+    TestCase("put eggs on the grocery list", "add_to_list",
+             expect_params={"item": "eggs", "list_name": "grocery"}),
+    TestCase("create a list called groceries", "create_list",
+             expect_params={"list_name": "groceries"}),
+    TestCase("show my todo list", "get_list_items",
+             expect_params={"list_name": "todo"}),
+    TestCase("what's on my shopping list", "get_list_items",
+             expect_params={"list_name": "shopping"}),
+    TestCase("remove milk from my shopping list", "remove_from_list",
+             expect_params={"item": "milk", "list_name": "shopping"}),
+    TestCase("delete eggs from the grocery list", "remove_from_list",
+             expect_params={"item": "eggs", "list_name": "grocery"}),
     # Calendar
     TestCase("create a meeting for tomorrow at 2pm", "create_calendar_event"),
     TestCase("schedule a dentist appointment Friday at 10", "create_calendar_event"),
@@ -196,7 +225,8 @@ TEST_CASES: list[TestCase] = [
     TestCase("chuck milk on the list", "add_to_list"),
     TestCase("read me my grocery list", "get_list_items"),
     TestCase("take milk off the shopping list", "remove_from_list"),
-    TestCase("make a new list called holiday packing", "create_list"),
+    TestCase("make a new list called holiday packing", "create_list",
+             expect_params={"list_name": "holiday packing"}),
     # Calendar
     TestCase("book a dentist appointment for next Thursday at 2pm", "create_calendar_event"),
     TestCase("add a meeting to my calendar for Friday at 3pm", "create_calendar_event"),
@@ -423,10 +453,25 @@ def cleanup_side_effects() -> None:
         run_adb("shell", "am", "force-stop", pkg)
 
 
-def extract_intent(logcat_output: str) -> str | None:
-    """Extract the first intent= value from logcat output (logcat is cleared before each test)."""
-    matches = INTENT_PATTERN.findall(logcat_output)
-    return matches[0] if matches else None
+def extract_intent(logcat_output: str) -> tuple[str | None, dict[str, str]]:
+    """Extract the intent name and params from logcat output.
+
+    Returns (intent_name, params_dict). params_dict is empty if not found.
+    The log line format is:
+        NativeIntentHandler.handle: intent=<name> params={key=value, ...}
+    """
+    m = INTENT_PATTERN.search(logcat_output)
+    if m:
+        intent_name = m.group(1)
+        raw_params = m.group(2)
+        # Kotlin's Map.toString() produces {key1=value1, key2=value2}
+        params: dict[str, str] = {}
+        for kv in re.finditer(r"(\w+)=([^,}]+)", raw_params):
+            params[kv.group(1)] = kv.group(2).strip()
+        return intent_name, params
+    # Fallback: intent name only (older log format without params)
+    m2 = INTENT_NAME_PATTERN.search(logcat_output)
+    return (m2.group(1) if m2 else None), {}
 
 
 def extract_reply(logcat_output: str) -> str | None:
@@ -435,9 +480,124 @@ def extract_reply(logcat_output: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
+def check_params(
+    expect: dict[str, str] | None,
+    actual: dict[str, str],
+) -> tuple[bool, list[str]]:
+    """Check expected params against actual. Returns (passed, failure_descriptions)."""
+    if not expect:
+        return True, []
+    failures = []
+    for k, v in expect.items():
+        actual_v = actual.get(k)
+        # Partial match: expected value just needs to appear in actual (handles list_name="shopping" vs "shopping list")
+        if actual_v is None:
+            failures.append(f"{k}: expected {v!r} but key missing")
+        elif v.lower() not in actual_v.lower() and actual_v.lower() not in v.lower():
+            failures.append(f"{k}: expected {v!r} got {actual_v!r}")
+    return len(failures) == 0, failures
+
+
+def save_report(results: list[TestResult], suite: str = "skills") -> Path:
+    """Serialise results to a timestamped JSON file in scripts/test-reports/ and return the path."""
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    report_path = REPORTS_DIR / f"{ts}_{suite}.json"
+
+    total = len(results)
+    passed = sum(1 for r in results if r.intent_passed and r.params_passed and not r.xfail)
+    xfails = sum(1 for r in results if r.xfail and not r.intent_passed)
+    failures = total - passed - xfails
+
+    report = {
+        "suite": suite,
+        "timestamp": ts,
+        "summary": {
+            "total": total,
+            "passed": passed,
+            "xfail": xfails,
+            "failed": failures,
+        },
+        "results": [
+            {
+                "index": r.index,
+                "message": r.message,
+                "expect_intent": r.expect_intent,
+                "actual_intent": r.actual_intent,
+                "expect_params": r.expect_params,
+                "actual_params": r.actual_params,
+                "intent_passed": r.intent_passed,
+                "params_passed": r.params_passed,
+                "param_failures": r.param_failures,
+                "xfail": r.xfail,
+                "reply_warn": r.reply_warn,
+                "status": (
+                    "xfail" if r.xfail and not r.intent_passed
+                    else "pass" if r.intent_passed and r.params_passed
+                    else "fail"
+                ),
+            }
+            for r in results
+        ],
+    }
+    report_path.write_text(json.dumps(report, indent=2))
+    return report_path
+
+
+def analyse_results(results: list[TestResult]) -> None:
+    """Print a pattern analysis section after the summary table."""
+    failures = [r for r in results if not r.xfail and (not r.intent_passed or not r.params_passed)]
+    if not failures:
+        print("\n  ✅ No failures to analyse.")
+        return
+
+    print("\n  FAILURE ANALYSIS")
+    print("  " + "-" * 68)
+
+    # Group intent routing failures by actual (mis-routed) intent
+    intent_failures = [r for r in failures if not r.intent_passed]
+    param_failures  = [r for r in failures if r.intent_passed and not r.params_passed]
+
+    if intent_failures:
+        by_actual: dict[str, list[TestResult]] = {}
+        for r in intent_failures:
+            key = r.actual_intent or "NO_MATCH"
+            by_actual.setdefault(key, []).append(r)
+        print(f"\n  Intent routing failures ({len(intent_failures)}):")
+        for actual, group in sorted(by_actual.items(), key=lambda x: -len(x[1])):
+            expected_intents = sorted({r.expect_intent for r in group})
+            print(f"    → routed as {actual!r} instead of {expected_intents}:")
+            for r in group:
+                print(f"       [{r.index:3d}] \"{r.message}\"")
+
+    if param_failures:
+        print(f"\n  Param extraction failures ({len(param_failures)}):")
+        for r in param_failures:
+            print(f"    [{r.index:3d}] \"{r.message}\"  (intent={r.expect_intent})")
+            for pf in r.param_failures:
+                print(f"           ✗ {pf}")
+
+    # Highlight intents with high failure rates
+    by_intent: dict[str, list[TestResult]] = {}
+    for r in results:
+        by_intent.setdefault(r.expect_intent, []).append(r)
+    hot = [
+        (intent, grp)
+        for intent, grp in by_intent.items()
+        if len(grp) >= 2 and sum(1 for r in grp if not r.intent_passed and not r.xfail) / len(grp) >= 0.5
+    ]
+    if hot:
+        print(f"\n  ⚠️  High-failure-rate intents (≥50% of cases failing):")
+        for intent, grp in sorted(hot, key=lambda x: -len(x[1])):
+            n_fail = sum(1 for r in grp if not r.intent_passed and not r.xfail)
+            print(f"    {intent}: {n_fail}/{len(grp)} failing")
+
+    print()
+
+
 def run_tests(dry_run: bool = False) -> int:
     """Execute all test cases. Returns non-zero on failures."""
-    results: list[tuple[TestCase, str | None, bool]] = []
+    results: list[TestResult] = []
 
     if dry_run:
         print("=" * 70)
@@ -461,6 +621,10 @@ def run_tests(dry_run: bool = False) -> int:
     print("  ADB SKILL REGRESSION TEST")
     print("=" * 70)
     print()
+
+    # Keep screen awake for the duration of the test run (restored on exit)
+    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    run_adb("shell", "svc", "power", "stayon", "usb")
 
     # Warm up: send a dummy query to trigger model load, wait for NativeIntentHandler to fire
     print("  [init] Warming up model (this takes ~30s on first run) ...", end=" ", flush=True)
@@ -511,28 +675,41 @@ def run_tests(dry_run: bool = False) -> int:
         send_text(tc.message)
         time.sleep(WAIT_SECONDS)
         logcat = read_logcat()
-        actual = extract_intent(logcat)
-        passed = actual == tc.expect_intent
+        actual_intent, actual_params = extract_intent(logcat)
+        intent_passed = actual_intent == tc.expect_intent
+        params_ok, param_failures = check_params(tc.expect_params, actual_params)
+        overall_passed = intent_passed and params_ok
 
         # DirectReply verification — best-effort, warn but don't fail the test
         reply_warn: str | None = None
-        if passed and tc.expect_reply_contains is not None:
+        if intent_passed and tc.expect_reply_contains is not None:
             reply_text = extract_reply(logcat)
             if reply_text is None:
                 reply_warn = "no DirectReply logged"
             elif not re.search(tc.expect_reply_contains, reply_text):
                 reply_warn = f"reply {reply_text!r} didn't match {tc.expect_reply_contains!r}"
 
-        results.append((tc, actual, passed))
-        if passed:
-            if reply_warn:
-                print(f"✓ [reply warn: {reply_warn}]")
-            else:
-                print("✓")
+        results.append(TestResult(
+            index=i,
+            message=tc.message,
+            expect_intent=tc.expect_intent,
+            actual_intent=actual_intent,
+            expect_params=tc.expect_params,
+            actual_params=actual_params,
+            intent_passed=intent_passed,
+            params_passed=params_ok,
+            param_failures=param_failures,
+            xfail=tc.xfail,
+            reply_warn=reply_warn,
+        ))
+        if overall_passed:
+            print("✓" + (f" [reply warn: {reply_warn}]" if reply_warn else ""))
         elif tc.xfail:
-            print(f"✗ (xfail — not yet implemented)")
+            print("✗ (xfail — not yet implemented)")
+        elif not intent_passed:
+            print(f"✗ (got {actual_intent or 'NO_MATCH'})")
         else:
-            print(f"✗ (got {actual or 'NO_MATCH'})")
+            print(f"✗ (params: {'; '.join(param_failures)})")
 
         # Hang up after call tests so they don't stay open
         if tc.expect_intent == "make_call":
@@ -547,27 +724,37 @@ def run_tests(dry_run: bool = False) -> int:
 
     failures = 0
     xfails = 0
-    for i, (tc, actual, passed) in enumerate(results, 1):
-        if passed:
+    for r in results:
+        if r.intent_passed and r.params_passed:
             icon = "  ✓"
-        elif tc.xfail:
+        elif r.xfail:
             icon = "  ✗"
         else:
             icon = "  ✗"
-        actual_str = actual or "NO_MATCH"
-        suffix = " (xfail)" if not passed and tc.xfail else ""
-        print(f"  {i:3d}  {icon:>6}  {tc.expect_intent:<24}  {actual_str:<24}  \"{tc.message}\"{suffix}")
-        if not passed:
-            if tc.xfail:
-                xfails += 1
-            else:
-                failures += 1
+        actual_str = r.actual_intent or "NO_MATCH"
+        suffix = " (xfail)" if not r.intent_passed and r.xfail else ""
+        if not r.intent_passed and not r.xfail:
+            detail = actual_str
+        elif not r.params_passed and not r.xfail:
+            detail = f"{actual_str} [param fail]"
+        else:
+            detail = actual_str
+        print(f"  {r.index:3d}  {icon:>6}  {r.expect_intent:<24}  {detail:<24}  \"{r.message}\"{suffix}")
+        if not r.xfail and (not r.intent_passed or not r.params_passed):
+            failures += 1
+        elif r.xfail and not r.intent_passed:
+            xfails += 1
 
     print("-" * 70)
     total = len(results)
     passed_count = total - failures - xfails
     print(f"  PASSED: {passed_count}/{total}  XFAIL: {xfails}/{total}  FAILED: {failures}/{total}")
     print("=" * 70)
+
+    analyse_results(results)
+    report_path = save_report(results, suite="skills")
+    print(f"  Report saved → {report_path}")
+    print()
 
     # Post-run cleanup: cancel any timers/alarms set during testing
     print()
@@ -576,6 +763,9 @@ def run_tests(dry_run: bool = False) -> int:
     print("done")
     print("  [cleanup] Removing contact alias fixture ...", end=" ", flush=True)
     teardown_contact_alias_fixture()
+    print("done")
+    print("  [cleanup] Restoring screen-timeout behaviour ...", end=" ", flush=True)
+    run_adb("shell", "svc", "power", "stayon", "false")
     print("done")
 
     return 1 if failures > 0 else 0
@@ -691,7 +881,7 @@ def run_profile_tests(dry_run: bool = False) -> int:
     print("ready" if warmed else "timeout (proceeding anyway)")
     print()
 
-    results: list[tuple[ProfileTestCase, dict[str, str | None], bool]] = []
+    results: list[TestResult] = []
 
     for i, tc in enumerate(PROFILE_TEST_CASES, 1):
         print(f"  [{i}/{len(PROFILE_TEST_CASES)}] {tc.name} ...", end=" ", flush=True)
@@ -714,7 +904,19 @@ def run_profile_tests(dry_run: bool = False) -> int:
         ):
             passed = False
 
-        results.append((tc, extracted, passed))
+        results.append(TestResult(
+            index=i,
+            message=tc.name,
+            expect_intent=tc.name,
+            actual_intent=extracted["method"],
+            expect_params=None,
+            actual_params={k: v for k, v in extracted.items() if v is not None},
+            intent_passed=passed,
+            params_passed=True,
+            param_failures=[],
+            xfail=False,
+            reply_warn=None,
+        ))
         method_tag = f"[{extracted['method'] or 'NO_LOG'}]"
         print("✓" if passed else "✗", method_tag)
 
@@ -722,14 +924,14 @@ def run_profile_tests(dry_run: bool = False) -> int:
     print()
     print("-" * 70)
     failures = 0
-    for tc, extracted, passed in results:
-        icon = "  ✓" if passed else "  ✗"
-        print(f"  {icon}  {tc.name}")
-        print(f"       method={extracted['method']}, "
-              f"name={extracted['name']!r}, "
-              f"role={extracted['role']!r}, "
-              f"location={extracted['location']!r}")
-        if not passed:
+    for r in results:
+        icon = "  ✓" if r.intent_passed else "  ✗"
+        print(f"  {icon}  {r.message}")
+        print(f"       method={r.actual_intent}, "
+              f"name={r.actual_params.get('name')!r}, "
+              f"role={r.actual_params.get('role')!r}, "
+              f"location={r.actual_params.get('location')!r}")
+        if not r.intent_passed:
             failures += 1
 
     print("-" * 70)
@@ -737,6 +939,12 @@ def run_profile_tests(dry_run: bool = False) -> int:
     passed_count = total - failures
     print(f"  PASSED: {passed_count}/{total}  FAILED: {failures}/{total}")
     print("=" * 70)
+
+    analyse_results(results)
+    report_path = save_report(results, suite="profile")
+    print(f"  Report saved → {report_path}")
+    print()
+
     return 1 if failures > 0 else 0
 
 
