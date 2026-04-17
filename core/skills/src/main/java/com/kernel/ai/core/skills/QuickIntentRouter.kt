@@ -745,20 +745,38 @@ class QuickIntentRouter(
         ),
 
         // ── Media (most specific first) ──
-        // Plex — matches before generic play
+        // Plexamp — MUST come before play_plex (Plexamp contains "Plex")
+        IntentPattern(
+            intentName = "play_plexamp",
+            regex = Regex(
+                """(?:play|listen\s+to)\s+(.+?)\s+(?:on|in)\s+plexamp""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // YouTube Music — MUST come before play_youtube ("YouTube Music" contains "YouTube")
+        IntentPattern(
+            intentName = "play_youtube_music",
+            regex = Regex(
+                """(?:play|listen\s+to)\s+(.+?)\s+on\s+youtube\s+music""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // Plex — word boundary ensures "on plex" doesn't match "on Plexamp"
         IntentPattern(
             intentName = "play_plex",
             regex = Regex(
-                """(?:play|watch)\s+(.+?)\s+on\s+plex""",
+                """(?:play|watch)\s+(.+?)\s+on\s+plex\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("title" to match.groupValues[1].trim()) },
         ),
-        // YouTube — "play X on youtube" / "watch X on youtube" / "search youtube for X"
+        // YouTube — word boundary ensures "on youtube" doesn't match "on YouTube Music"
         IntentPattern(
             intentName = "play_youtube",
             regex = Regex(
-                """(?:(?:play|watch|search)\s+(.+?)\s+on\s+youtube|search\s+(?:youtube|yt)(?:\s+for)?\s+(.+))""",
+                """(?:(?:play|watch|search)\s+(.+?)\s+on\s+youtube\b|search\s+(?:youtube|yt)(?:\s+for)?\s+(.+))""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -770,24 +788,6 @@ class QuickIntentRouter(
             intentName = "play_spotify",
             regex = Regex(
                 """(?:play|listen\s+to)\s+(.+?)\s+on\s+spotify""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
-        ),
-        // Plexamp — "play X on plexamp" / "play X in plexamp"
-        IntentPattern(
-            intentName = "play_plexamp",
-            regex = Regex(
-                """(?:play|listen\s+to)\s+(.+?)\s+(?:on|in)\s+plexamp""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
-        ),
-        // YouTube Music — "play X on youtube music"
-        IntentPattern(
-            intentName = "play_youtube_music",
-            regex = Regex(
-                """(?:play|listen\s+to)\s+(.+?)\s+on\s+youtube\s+music""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
