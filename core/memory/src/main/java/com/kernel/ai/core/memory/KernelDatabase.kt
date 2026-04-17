@@ -45,7 +45,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 19,
+    version = 20,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -218,6 +218,15 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN entry_type TEXT NOT NULL DEFAULT 'ALARM'")
                 db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN duration_ms INTEGER DEFAULT NULL")
                 db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN started_at_ms INTEGER DEFAULT NULL")
+            }
+        }
+
+        /** Deduplicates list names and adds unique index to prevent future duplicates crashing LazyColumn. */
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Keep only the earliest row for each duplicate list name
+                db.execSQL("DELETE FROM lists WHERE id NOT IN (SELECT MIN(id) FROM lists GROUP BY name)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_lists_name ON lists(name)")
             }
         }
     }
