@@ -58,7 +58,7 @@ private const val TAG = "KernelAI"
  * Supported intents:
  *   toggle_flashlight_on    — Camera2 torch on
  *   toggle_flashlight_off   — Camera2 torch off
- *   send_email              — ACTION_SEND mail chooser (params: subject, body)
+ *   send_email              — ACTION_SENDTO mailto: URI (params: subject, body)
  *   send_sms                — ACTION_SENDTO SMS composer (params: message)
  *   set_alarm               — AlarmClock.ACTION_SET_ALARM (params: hours, minutes, label)
  *   set_timer               — AlarmClock.ACTION_SET_TIMER (params: duration_seconds, label)
@@ -187,30 +187,40 @@ class NativeIntentHandler @Inject constructor(
     // ── Email ─────────────────────────────────────────────────────────────────
 
     private fun sendEmail(params: Map<String, String>): SkillResult {
-        // Resolve recipient from on-device contacts only (never from raw LLM text).
-        // Only pre-populate if exactly one match is found — avoids wrong-recipient risk.
+        // Use ACTION_SENDTO with mailto: URI so the system routes directly to an
+        // email app instead of showing the generic share sheet (ACTION_SEND behaviour).
         val contact = params["contact"]
         val resolvedEmail = contact?.let { resolveContactEmail(it) }
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "message/rfc822"
-            if (resolvedEmail != null) putExtra(Intent.EXTRA_EMAIL, arrayOf(resolvedEmail))
-            putExtra(Intent.EXTRA_SUBJECT, params["subject"] ?: "")
-            putExtra(Intent.EXTRA_TEXT, params["body"] ?: "")
+        val mailtoUri = if (resolvedEmail != null) {
+            val subject = Uri.encode(params["subject"] ?: "")
+            val body = Uri.encode(params["body"] ?: "")
+            Uri.parse("mailto:${Uri.encode(resolvedEmail)}?subject=$subject&body=$body")
+        } else {
+            val subject = Uri.encode(params["subject"] ?: "")
+            val body = Uri.encode(params["body"] ?: "")
+            Uri.parse("mailto:?subject=$subject&body=$body")
+        }
+        val intent = Intent(Intent.ACTION_SENDTO, mailtoUri).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        context.startActivity(Intent.createChooser(intent, "Send email").apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        })
-        val recipientLabel = resolvedEmail?.let { " to $it" } ?: ""
-        return SkillResult.Success("Email composer opened$recipientLabel.")
+        return try {
+            context.startActivity(intent)
+            val recipientLabel = resolvedEmail?.let { " to $it" } ?: ""
+            SkillResult.Success("Email composer opened$recipientLabel.")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("send_email", "No email app available")
+        }
     }
 
     // ── SMS ───────────────────────────────────────────────────────────────────
 
     private fun sendSms(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: params["phone"]
-        val number = contact?.let { resolveContactNumber(it) ?: it }
-        val smsUri = if (number != null) "smsto:${Uri.encode(number)}" else "smsto:"
+        // resolveContactNumber returns null for self-terms when own number unavailable;
+        // fall back to blank URI rather than passing the literal word through as a number.
+        val number = contact?.let { resolveContactNumber(it) }
+            ?: contact?.takeIf { it.none { c -> c.isLetter() } }  // keep raw numeric strings
+        val smsUri = if (!number.isNullOrBlank()) "smsto:${Uri.encode(number)}" else "smsto:"
         val intent = Intent(Intent.ACTION_SENDTO).apply {
             data = Uri.parse(smsUri)
             putExtra("sms_body", params["message"] ?: "")
@@ -927,6 +937,7 @@ class NativeIntentHandler @Inject constructor(
 
     private fun makeCall(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: return SkillResult.Failure("make_call", "No contact specified")
+
         // If the input looks like a phone number (digits, +, spaces, dashes), dial it directly.
         val looksLikeNumber = contact.replace(Regex("[\\s\\-().+]"), "").all { it.isDigit() } &&
             contact.replace(Regex("[\\s\\-().+]"), "").isNotEmpty()
