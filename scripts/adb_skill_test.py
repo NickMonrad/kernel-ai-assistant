@@ -305,6 +305,33 @@ TEST_CASES: list[TestCase] = [
     TestCase("how long left on my timer", "get_timer_remaining"),
     TestCase("how much time is left on the pasta timer", "get_timer_remaining"),
     TestCase("how long until the timer goes off", "get_timer_remaining"),
+
+    # ── #529 Bulk list add (LLM-routed — not QIR; xfail until #529 verified) ──
+    # These utterances should route to bulk_add_to_list via Gemma-4 @Tool selection,
+    # NOT to save_memory. Marked xfail pending on-device verification (#529).
+    TestCase("save all those ingredients to my shopping list", "bulk_add_to_list", xfail=True),
+    TestCase("add eggs, milk, and bread to the shopping list", "bulk_add_to_list", xfail=True),
+    TestCase("put tortilla chips, beef mince, and kidney beans on my grocery list", "bulk_add_to_list", xfail=True),
+    TestCase("add these items to my list: apples, bananas, oranges", "bulk_add_to_list", xfail=True),
+
+    # ── Sprint 4: Additional list operation NL variants ──────────────────
+    # add_to_list
+    TestCase("stick bananas on the shopping list", "add_to_list"),
+    TestCase("add tomatoes to the grocery list", "add_to_list"),
+    TestCase("pop coffee on my list", "add_to_list"),
+    TestCase("put sunscreen on the holiday list", "add_to_list"),
+    # get_list_items
+    TestCase("what's on my grocery list", "get_list_items"),
+    TestCase("show me the shopping list", "get_list_items"),
+    TestCase("read out my holiday list", "get_list_items"),
+    TestCase("what do I need to get", "get_list_items"),
+    # remove_from_list
+    TestCase("cross milk off the shopping list", "remove_from_list"),
+    TestCase("I've got bread, take it off the list", "remove_from_list"),
+    TestCase("strike eggs off my grocery list", "remove_from_list"),
+    # create_list
+    TestCase("make me a list for camping", "create_list"),
+    TestCase("create a new list called work tasks", "create_list"),
 ]
 
 
