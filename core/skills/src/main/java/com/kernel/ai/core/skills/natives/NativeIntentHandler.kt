@@ -196,7 +196,8 @@ class NativeIntentHandler @Inject constructor(
         val mailtoUri = if (resolvedEmail != null) {
             val subject = Uri.encode(params["subject"] ?: "")
             val body = Uri.encode(params["body"] ?: "")
-            Uri.parse("mailto:${Uri.encode(resolvedEmail)}?subject=$subject&body=$body")
+            // Email address must NOT be percent-encoded (RFC 6068) — only query params are encoded
+            Uri.parse("mailto:$resolvedEmail?subject=$subject&body=$body")
         } else {
             val subject = Uri.encode(params["subject"] ?: "")
             val body = Uri.encode(params["body"] ?: "")
