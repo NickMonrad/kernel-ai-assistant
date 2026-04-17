@@ -84,30 +84,85 @@ TEST_CASES: list[TestCase] = [
     TestCase("set an alarm for 7am", "set_alarm"),
     TestCase("wake me up at 6:30", "set_alarm"),
     TestCase("remind me tomorrow at 9", "set_alarm"),
+    TestCase("cancel my 7am alarm", "cancel_alarm"),
+    TestCase("turn off all my alarms", "cancel_alarm"),
+    # Timer
+    TestCase("set a timer for 10 minutes", "set_timer"),
+    TestCase("start a 5 minute timer", "set_timer"),
+    TestCase("cancel the timer", "cancel_timer"),
+    TestCase("stop the timer", "cancel_timer"),
     # Weather
     TestCase("what's the weather in Auckland", "get_weather"),
     TestCase("will it rain today", "get_weather"),
     TestCase("how hot is it outside", "get_weather"),
     # Lists
     TestCase("add milk to my shopping list", "add_to_list"),
+    TestCase("put eggs on the grocery list", "add_to_list"),
     TestCase("create a list called groceries", "create_list"),
     TestCase("show my todo list", "get_list_items"),
+    TestCase("what's on my shopping list", "get_list_items"),
+    TestCase("remove milk from my shopping list", "remove_from_list"),
+    TestCase("delete eggs from the grocery list", "remove_from_list"),
+    # Calendar
+    TestCase("create a meeting for tomorrow at 2pm", "create_calendar_event"),
+    TestCase("schedule a dentist appointment Friday at 10", "create_calendar_event"),
     # Time / date
     TestCase("what time is it", "get_time"),
     TestCase("what's today's date", "get_time"),
     # Battery
     TestCase("what's my battery level", "get_battery"),
     TestCase("how much battery do I have", "get_battery"),
+    # System info
+    TestCase("how much storage do I have left", "get_system_info"),
+    TestCase("what's my RAM usage", "get_system_info"),
     # Memory
     TestCase("save that we're meeting Tuesday", "save_memory"),
     TestCase("remember that I prefer dark mode", "save_memory"),
-    # Toggles
+    # Calls
+    TestCase("call voicemail", "make_call"),
+    TestCase("call my voicemail", "make_call"),
+    # SMS
+    TestCase("text Alex that I'm running late", "send_sms"),
+    TestCase("send a message to Sarah saying I'll be there at 3", "send_sms"),
+    # Email
+    TestCase("send an email to John about the project update", "send_email"),
+    TestCase("email Sarah the meeting notes", "send_email"),
+    # Navigation
+    TestCase("navigate to the airport", "navigate_to"),
+    TestCase("give me directions to Westfield", "navigate_to"),
+    # Nearby
+    TestCase("find a coffee shop near me", "find_nearby"),
+    TestCase("what restaurants are nearby", "find_nearby"),
+    # Apps
+    TestCase("open Spotify", "open_app"),
+    TestCase("launch Google Maps", "open_app"),
+    # Media — generic
+    TestCase("play some jazz music", "play_media"),
+    TestCase("play a song by Fleetwood Mac", "play_media"),
+    # Media — platform-specific
+    TestCase("play Stranger Things on Netflix", "play_netflix"),
+    TestCase("play Inception on Plex", "play_plex"),
+    TestCase("play Taylor Swift on Spotify", "play_spotify"),
+    TestCase("search YouTube for cat videos", "play_youtube"),
+    TestCase("play my workout playlist", "play_media_playlist"),
+    TestCase("play the album Dark Side of the Moon", "play_media_album"),
+    # Volume
+    TestCase("turn the volume up", "set_volume"),
+    TestCase("set volume to 50 percent", "set_volume"),
+    # Toggles — wifi / bt / brightness / hotspot / airplane / DND
     TestCase("turn off wifi", "toggle_wifi"),
     TestCase("enable bluetooth", "toggle_bluetooth"),
     TestCase("increase brightness", "set_brightness"),
+    TestCase("turn on hotspot", "toggle_hotspot"),
+    TestCase("enable airplane mode", "toggle_airplane_mode"),
+    TestCase("enable do not disturb", "toggle_dnd_on"),
+    TestCase("turn off do not disturb", "toggle_dnd_off"),
     # Flashlight
     TestCase("turn on the torch", "toggle_flashlight_on"),
     TestCase("turn off the flashlight", "toggle_flashlight_off"),
+    # Smart home
+    TestCase("turn on the living room lights", "smart_home_on"),
+    TestCase("switch off the bedroom lamp", "smart_home_off"),
 ]
 
 
