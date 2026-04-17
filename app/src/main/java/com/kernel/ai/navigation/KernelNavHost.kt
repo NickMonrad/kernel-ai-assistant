@@ -359,7 +359,7 @@ fun KernelNavHost(initialChatQuery: String? = null) {
                     ListsScreen(
                         onBack = { navController.popBackStack() },
                         onOpenList = { listName ->
-                            navController.navigate("lists/$listName")
+                            navController.navigate("lists/${android.net.Uri.encode(listName)}")
                         },
                     )
                 }
@@ -368,7 +368,8 @@ fun KernelNavHost(initialChatQuery: String? = null) {
                     route = ROUTE_LIST_ITEMS,
                     arguments = listOf(navArgument(ARG_LIST_NAME) { type = NavType.StringType }),
                 ) { backStackEntry ->
-                    val listName = backStackEntry.arguments?.getString(ARG_LIST_NAME) ?: return@composable
+                    val listName = backStackEntry.arguments?.getString(ARG_LIST_NAME)
+                        ?.let { android.net.Uri.decode(it) } ?: return@composable
                     ListItemsScreen(
                         listName = listName,
                         onBack = { navController.popBackStack() },
