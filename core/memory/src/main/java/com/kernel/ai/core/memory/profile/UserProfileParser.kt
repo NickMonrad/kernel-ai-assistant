@@ -20,12 +20,21 @@ package com.kernel.ai.core.memory.profile
 object UserProfileParser {
 
     private val NAME_PATTERNS = listOf(
-        Regex("""(?i)\b(?:my name is|i'm|i am|call me|name:\s*)\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)"""),
+        // Inline (?i:...) on prefix only — [A-Z] remains strict uppercase so "I'm an Android dev" won't match "an"
+        Regex("""(?i:my name is|call me|name:\s*)\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)"""),
+        // Strict uppercase [A-Z] (no (?i) flag here) prevents matching "I'm an X" → "an"
+        Regex("""(?i:i'm|i am)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)"""),
+        // Informal: "Nick here" or "This is Nick"
+        Regex("""^([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)\s+here\b"""),
+        Regex("""(?i:this is|it's|hey[,]?\s+i'm)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)"""),
     )
 
     private val LOCATION_PATTERNS = listOf(
-        Regex("""(?i)\b(?:i live in|i'm from|i am from|i'm located in|i'm based in|location:\s*|my (?:city|town|location) is)\s+(.+?)(?:\.|,|$)"""),
-        Regex("""(?i)\b(?:based in|located in)\s+(.+?)(?:\.|,|$)"""),  // standalone only — combined role+location handled below
+        // Explicit "Location:" label — capture full value until period or newline (NOT comma, so "Brisbane, QLD, Australia" is preserved)
+        Regex("""(?i:location:\s*)(.+?)(?:\.|$)"""),
+        // Prose patterns — stop before relative clauses (who/which/that/where)
+        Regex("""(?i)\b(?:i live in|i'm from|i am from|i'm located in|i'm based in|my (?:city|town|location) is)\s+(.+?)(?:\s+who\b|\s+which\b|\s+that\b|\s+where\b|\.|$)"""),
+        Regex("""(?i)\b(?:based in|located in)\s+(.+?)(?:\s+who\b|\s+which\b|\s+that\b|\s+where\b|\.|$)"""),
     )
 
     private val ROLE_PATTERNS = listOf(
@@ -36,23 +45,38 @@ object UserProfileParser {
         "developer", "engineer", "designer", "manager", "analyst", "architect",
         "consultant", "student", "researcher", "programmer", "admin", "devops",
         "writer", "teacher", "professional", "specialist",
+        // Common abbreviations and additional titles
+        "technologist", "dev", "eng", "cto", "ceo", "vp", "pm", "tpm", "sre", "qa",
+        "director", "lead", "principal", "founder", "freelancer", "contractor",
     )
 
     private val ENVIRONMENT_PATTERNS = listOf(
         Regex("""(?i)\b(?:i use|i have|i run|i'm (?:on|using)|running|device:\s*)\s+(.+?)(?:\.|$)"""),
+        // Section-header style: "Systems: X", "Hardware: X", "Network: X", "Homelab: X", "Local AI: X"
+        Regex("""(?i)^(?:systems?|hardware|network|homelab|local ai|ai tools?|devices?):\s*(.+)"""),
     )
 
     private val RULE_PATTERNS = listOf(
-        Regex("""(?i)\b(?:i prefer|i like|i want|always|never|don'?t|please)\s+(.+?)(?:\.|$)"""),
-        Regex("""(?i)\b(?:prioritize|when providing|when asked about|default to)\s+(.+?)(?:\.|$)"""),
+        Regex("""(?i)\b(?:i prefer|i like|i want|always|never|don'?t|do not|please)\s+(.+?)(?:\.|$)"""),
+        Regex("""(?i)\b(?:prioritize|when providing|when asked about|default to|assume)\s+(.+?)(?:\.|$)"""),
+        // Imperative commands: "Set my X to Y", "Use X for Y"
+        Regex("""(?i)^(?:set my|keep .+ (?:as|at|on)|use .+ for)\s+(.+?)(?:\.|$)"""),
+        // Section-header tone/style instructions: "Tone: Prefers X", "Style: X", "AI Instruction Hook: X"
+        Regex("""(?i)^(?:tone|style|ai instruction\s*hook|instructions?):\s*(.+)"""),
+        // Third-person preferences: "Prefers concise...", "Avoids..."
+        Regex("""(?i)^(?:prefers?|avoids?|expects?)\s+(.+?)(?:\.|$)"""),
     )
 
     private val HOBBY_PATTERNS = listOf(
         Regex("""(?i)\b(?:i play|i game on|i cook|i enjoy|my hobbies|hobby:|hobbies:|i'm into|i practice)\s+(.+?)(?:\.|$)"""),
+        // Section-header hobbies: "Gaming: X", "Cooking: X", "Reading: X"
+        Regex("""(?i)^(?:gaming|cooking|reading|sports?|music):\s*(.+)"""),
     )
 
     private val SMART_HOME_PATTERNS = listOf(
         Regex("""(?i)\b(?:i use home assistant|my smart home|i have smart (?:lights?|plugs?|switches?|home|devices?|speakers?|displays?|sensors?|locks?|thermostat)|smart home setup)\s*(.+?)(?:\.|$)"""),
+        // Section-header: "Smart Home: X"
+        Regex("""(?i)^(?:smart home|home automation):\s*(.+)"""),
     )
 
     private val AI_PATTERNS = listOf(

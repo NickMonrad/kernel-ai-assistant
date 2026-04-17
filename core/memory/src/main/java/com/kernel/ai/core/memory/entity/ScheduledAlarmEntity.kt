@@ -11,4 +11,7 @@ data class ScheduledAlarmEntity(
     val createdAt: Long,
     val fired: Boolean = false,
     val enabled: Boolean = true,
+    @androidx.room.ColumnInfo(name = "entry_type") val entryType: String = "ALARM",
+    @androidx.room.ColumnInfo(name = "duration_ms") val durationMs: Long? = null,
+    @androidx.room.ColumnInfo(name = "started_at_ms") val startedAtMs: Long? = null,
 )

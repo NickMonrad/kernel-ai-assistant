@@ -30,4 +30,16 @@ interface ScheduledAlarmDao {
 
     @Query("UPDATE scheduled_alarms SET enabled = :enabled WHERE id = :id")
     suspend fun setEnabled(id: String, enabled: Boolean)
+
+    @Query("SELECT * FROM scheduled_alarms WHERE entry_type = 'TIMER' ORDER BY started_at_ms DESC")
+    suspend fun getAllTimers(): List<ScheduledAlarmEntity>
+
+    @Query("DELETE FROM scheduled_alarms WHERE entry_type = 'TIMER' AND label = :name")
+    suspend fun deleteTimerByName(name: String): Int
+
+    @Query("DELETE FROM scheduled_alarms WHERE entry_type = 'TIMER' AND duration_ms = :durationMs")
+    suspend fun deleteTimerByDuration(durationMs: Long): Int
+
+    @Query("SELECT * FROM scheduled_alarms WHERE entry_type = 'TIMER' AND label = :name LIMIT 1")
+    suspend fun getTimerByName(name: String): ScheduledAlarmEntity?
 }

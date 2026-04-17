@@ -61,6 +61,8 @@ class RunIntentSkill @Inject constructor(
                     "play_media_playlist",
                     "play_youtube",
                     "play_spotify",
+                    "play_plexamp",
+                    "play_youtube_music",
                     "play_netflix",
                     "play_plex",
                     // Navigation
@@ -153,6 +155,8 @@ class RunIntentSkill @Inject constructor(
         appendLine("  play_media_playlist — params: playlist")
         appendLine("  play_youtube — params: query")
         appendLine("  play_spotify — params: query")
+        appendLine("  play_plexamp — params: query")
+        appendLine("  play_youtube_music — params: query")
         appendLine("  play_netflix — params: query")
         appendLine("  play_plex — params: title")
         appendLine()

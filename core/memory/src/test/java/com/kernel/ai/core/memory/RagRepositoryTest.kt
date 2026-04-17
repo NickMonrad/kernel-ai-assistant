@@ -2,6 +2,7 @@ package com.kernel.ai.core.memory
 
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.dao.MessageDao
+import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
 import com.kernel.ai.core.memory.entity.MessageEntity
@@ -33,12 +34,13 @@ class RagRepositoryTest {
     private val messageDao: MessageDao = mockk()
     private val embeddingDao: MessageEmbeddingDao = mockk()
     private val memoryRepository: MemoryRepository = mockk()
+    private val episodicMemoryDao: EpisodicMemoryDao = mockk()
 
     private lateinit var ragRepository: RagRepository
 
     @BeforeEach
     fun setUp() {
-        ragRepository = RagRepository(embeddingEngine, vectorStore, messageDao, embeddingDao, memoryRepository)
+        ragRepository = RagRepository(embeddingEngine, vectorStore, messageDao, embeddingDao, memoryRepository, episodicMemoryDao)
     }
 
     /**

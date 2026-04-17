@@ -1,7 +1,9 @@
 package com.kernel.ai.core.memory.repository
 
+import android.util.Log
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.entity.UserProfileEntity
+import com.kernel.ai.core.memory.profile.UserProfileExtractionUseCase
 import com.kernel.ai.core.memory.profile.UserProfileParser
 import com.kernel.ai.core.memory.profile.UserProfileYaml
 import kotlinx.coroutines.flow.Flow
@@ -12,6 +14,7 @@ import javax.inject.Singleton
 @Singleton
 class UserProfileRepository @Inject constructor(
     private val dao: UserProfileDao,
+    private val extractionUseCase: UserProfileExtractionUseCase,
 ) {
     /** Max character length — roughly 500 tokens. Enforced on save. */
     val maxLength = 2000
@@ -33,12 +36,17 @@ class UserProfileRepository @Inject constructor(
 
     /**
      * Save [text] as the user profile. Trims to [maxLength] if needed.
-     * Automatically runs heuristic parsing to populate structured fields.
+     * Attempts LLM-based extraction (#374 Phase 2b) first; falls back to heuristic regex
+     * if the inference engine is not ready. The parsed YAML is logged to logcat (tag KernelAI)
+     * so device testing can validate output via `adb logcat -s KernelAI`.
      * Pass an empty string to effectively clear the profile content.
      */
     suspend fun save(text: String) {
         val trimmed = text.take(maxLength)
-        val parsed = UserProfileParser.parse(trimmed)
+        val parsed = extractionUseCase.extract(trimmed)
+            ?: UserProfileParser.parse(trimmed).also { fallback ->
+                Log.d("KernelAI", "Profile regex fallback:\n${fallback.toYaml()}")
+            }
         val json = if (parsed.isEmpty()) null else parsed.toJson()
         dao.upsert(
             UserProfileEntity(

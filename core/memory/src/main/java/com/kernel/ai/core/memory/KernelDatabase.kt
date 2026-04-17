@@ -45,7 +45,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -210,6 +210,14 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_17_18 = object : Migration(17, 18) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+        /** Adds entry_type, duration_ms, started_at_ms to scheduled_alarms for timer registry (#525). */
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN entry_type TEXT NOT NULL DEFAULT 'ALARM'")
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN duration_ms INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN started_at_ms INTEGER DEFAULT NULL")
             }
         }
     }

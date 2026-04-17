@@ -28,6 +28,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -45,6 +46,11 @@ fun UserProfileScreen(
 ) {
     val savedProfile by viewModel.profileText.collectAsStateWithLifecycle()
     val structured by viewModel.structuredProfile.collectAsStateWithLifecycle()
+
+    // Keep the last non-null structured value so StructuredProfileCard has a safe
+    // reference during AnimatedVisibility's exit animation (prevents NPE when clear() fires).
+    var lastStructured by remember { mutableStateOf<UserProfileYaml?>(null) }
+    if (structured != null) lastStructured = structured
 
     // Local edit buffer — initialised from saved value.
     var editText by rememberSaveable(savedProfile) { mutableStateOf(savedProfile) }
@@ -124,8 +130,8 @@ fun UserProfileScreen(
             }
 
             // Structured preview — shows parsed fields from the saved profile
-            AnimatedVisibility(visible = structured != null && !structured!!.isEmpty()) {
-                StructuredProfileCard(profile = structured!!)
+            AnimatedVisibility(visible = structured?.isEmpty() == false) {
+                lastStructured?.let { StructuredProfileCard(profile = it) }
             }
 
             Spacer(Modifier.height(16.dp))
