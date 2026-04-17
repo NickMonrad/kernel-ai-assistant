@@ -623,6 +623,7 @@ class ChatViewModel @Inject constructor(
                     }
                 }
                 if (skill != null) {
+                    Log.d("KernelAI", "NativeIntentHandler.handle: intent=${matchedIntent.intentName} params=$callParams")
                     val skillResult = skill.execute(SkillCall(skill.name, callParams))
                     when (skillResult) {
                         is com.kernel.ai.core.skills.SkillResult.DirectReply -> {

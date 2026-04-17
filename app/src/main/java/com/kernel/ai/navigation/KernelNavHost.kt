@@ -23,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -70,7 +71,7 @@ private const val ARG_INITIAL_QUERY = "initialQuery"
 private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
 
 @Composable
-fun KernelNavHost() {
+fun KernelNavHost(initialChatQuery: String? = null) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -78,6 +79,16 @@ fun KernelNavHost() {
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
+
+    // ADB test harness: navigate to chat from any screen when chat_input extra is delivered
+    LaunchedEffect(initialChatQuery) {
+        if (!initialChatQuery.isNullOrBlank()) {
+            val encoded = Uri.encode(initialChatQuery)
+            navController.navigate("$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded") {
+                popUpTo(ROUTE_LIST)
+            }
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
