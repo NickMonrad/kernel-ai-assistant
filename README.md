@@ -50,6 +50,12 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 🧭 **Nav drawer** — Lists and Alarms accessible from Chat, Actions, and all main screens via hamburger menu
 - 📋 **Lists** — create and manage named lists via chat ("add milk to shopping list") or the Lists UI; full CRUD with active/completed sections
 - 🗓️ **Scheduled Alarms** — date-specific alarms scheduled via Jandal appear in the Alarms screen for review and cancellation
+- 📟 **Side panel** — slide-out drawer accessible from Chat and Settings shows active alarms and timers with live countdown; cancel any from the panel
+- 🎵 **Media controls** — pause, stop, skip, and previous track via Jandal ("skip song", "pause music")
+- 🎙️ **Podcast playback** — open a podcast app and start/resume playback ("play my podcasts", "resume podcast")
+- ⏱️ **Timer management** — list active timers and cancel individual ones ("cancel my 10 minute timer")
+- 🗑️ **Alarm multiselect delete** — select multiple alarms in the Alarms screen and delete them at once
+- 📝 **Bulk list add** — add multiple items to a list in one request ("save all ingredients to shopping list")
 
 ### Coming Soon
 - 🗣️ **Voice + text input** — tap-to-talk with auto-stop *(Phase 3)*
