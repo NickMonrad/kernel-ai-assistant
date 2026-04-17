@@ -200,10 +200,15 @@ def send_text(text: str) -> None:
     """Deliver chat_input extra via onNewIntent — navigates to chat from any screen."""
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     time.sleep(0.3)
+    # --activity-clear-top ensures our activity is at the top of its task so
+    # onNewIntent always fires, even when external apps (Calendar, Clock, Maps)
+    # were opened by previous tests and are covering the screen.
     run_adb(
         "shell",
         "am",
         "start",
+        "--activity-clear-top",
+        "--activity-single-top",
         "-n",
         ACTIVITY,
         "--es",
@@ -274,12 +279,18 @@ def run_tests(dry_run: bool = False) -> int:
     print("  [init] Cleaning up timers/alarms ...", end=" ", flush=True)
     cleanup_side_effects()
     print("done")
+
+    # Flush any logcat residue from the cleanup intents before starting tests.
+    time.sleep(WAIT_SECONDS)
+    clear_logcat()
+    time.sleep(1)
     print()
 
     for i, tc in enumerate(TEST_CASES, 1):
         print(f"  [{i:2d}/{len(TEST_CASES)}] \"{tc.message}\" ...", end=" ", flush=True)
 
         clear_logcat()
+        time.sleep(0.5)  # Brief pause to ensure logcat clear is flushed before sending
         send_text(tc.message)
         time.sleep(WAIT_SECONDS)
         logcat = read_logcat()
