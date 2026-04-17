@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -26,10 +27,10 @@ from dataclasses import dataclass
 
 ADB = os.path.expanduser("~/Android/Sdk/platform-tools/adb")
 PACKAGE = "com.kernel.ai.debug"
-ACTIVITY = f"{PACKAGE}/.MainActivity"
-LOGCAT_TAG = "NativeIntentHandler"
+ACTIVITY = f"{PACKAGE}/com.kernel.ai.MainActivity"
+LOGCAT_TAG = "KernelAI"
 INTENT_PATTERN = re.compile(r"NativeIntentHandler\.handle:\s*intent=(\S+)")
-WAIT_SECONDS = 5
+WAIT_SECONDS = 20
 
 
 @dataclass
@@ -71,13 +72,15 @@ TEST_CASES: list[TestCase] = [
 
 
 def run_adb(*args: str) -> str:
-    """Run an ADB command and return stdout."""
+    """Run an ADB command and return stdout. Prints stderr on non-zero exit."""
     result = subprocess.run(
         [ADB, *args],
         capture_output=True,
         text=True,
         timeout=30,
     )
+    if result.returncode != 0 and result.stderr:
+        print(f"\n  [adb warn] {result.stderr.strip()}", file=sys.stderr)
     return result.stdout
 
 
@@ -90,11 +93,9 @@ def read_logcat() -> str:
 
 
 def send_text(text: str) -> None:
-    """Launch the app and broadcast a chat message via ADB."""
-    # Wake the screen and unlock
+    """Deliver chat_input extra via onNewIntent — navigates to chat from any screen."""
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     time.sleep(0.3)
-    # Launch the app
     run_adb(
         "shell",
         "am",
@@ -103,14 +104,14 @@ def send_text(text: str) -> None:
         ACTIVITY,
         "--es",
         "chat_input",
-        text,
+        shlex.quote(text),
     )
 
 
 def extract_intent(logcat_output: str) -> str | None:
-    """Extract the last intent= value from logcat output."""
+    """Extract the first intent= value from logcat output (logcat is cleared before each test)."""
     matches = INTENT_PATTERN.findall(logcat_output)
-    return matches[-1] if matches else None
+    return matches[0] if matches else None
 
 
 def run_tests(dry_run: bool = False) -> int:
@@ -137,6 +138,25 @@ def run_tests(dry_run: bool = False) -> int:
     print("=" * 70)
     print("  ADB SKILL REGRESSION TEST")
     print("=" * 70)
+    print()
+
+    # Warm up: send a dummy query to trigger model load, wait for NativeIntentHandler to fire
+    print("  [init] Warming up model (this takes ~30s on first run) ...", end=" ", flush=True)
+    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    run_adb("shell", "am", "start", "-n", ACTIVITY)
+    time.sleep(3)
+    clear_logcat()
+    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    # Poll logcat until NativeIntentHandler fires (model loaded + QIR dispatched) or 60s timeout
+    deadline = time.time() + 60
+    warmed = False
+    while time.time() < deadline:
+        time.sleep(2)
+        log = read_logcat()
+        if "NativeIntentHandler.handle" in log:
+            warmed = True
+            break
+    print("ready" if warmed else "timeout (proceeding anyway)")
     print()
 
     for i, tc in enumerate(TEST_CASES, 1):
