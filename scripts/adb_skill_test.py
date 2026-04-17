@@ -283,8 +283,14 @@ def run_tests(dry_run: bool = False) -> int:
     print("ready" if warmed else "timeout (proceeding anyway)")
     print()
 
-    # Pre-run cleanup: cancel any leftover timers/alarms from previous runs
+    # Pre-run cleanup: silence any already-fired timers first, then cancel pending ones
     print("  [init] Cleaning up timers/alarms ...", end=" ", flush=True)
+    for pkg in (
+        "com.sec.android.app.clockpackage",
+        "com.android.deskclock",
+        "com.google.android.deskclock",
+    ):
+        run_adb("shell", "am", "force-stop", pkg)
     cleanup_side_effects()
     print("done")
 

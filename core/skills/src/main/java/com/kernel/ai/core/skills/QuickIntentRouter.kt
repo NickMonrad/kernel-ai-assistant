@@ -1223,18 +1223,61 @@ class QuickIntentRouter(
          */
         fun extractCalendarHints(raw: String): Map<String, String> {
             val params = mutableMapOf("raw_query" to raw)
-            // Match "for a/an X" or "for X" where X doesn't start with a date/time keyword.
-            // Stops before at/from/on/next/this/tomorrow/weekday names/digits.
-            val titleMatch = Regex(
-                """(?:^|\s)for\s+(?:a\s+|an\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:at|from|on|next|this|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d)|$)""",
+            val lower = raw.lowercase()
+
+            // ── Title ─────────────────────────────────────────────────────────────
+            // Try "for a/an X" first (e.g. "create a meeting for tomorrow" → "Meeting").
+            // Fall back to the noun phrase immediately after the verb+article, stopping
+            // before any temporal keyword (e.g. "schedule a dentist appointment Friday").
+            val titleFromFor = Regex(
+                """(?:^|\s)for\s+(?:a\s+|an\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:at|from|on|next|this|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d)|$)""",
                 RegexOption.IGNORE_CASE,
             ).find(raw)
-            titleMatch?.groupValues?.get(1)?.trim()
-                ?.takeIf { it.isNotBlank() && it.length >= 2 }
-                ?.let { title ->
-                    params["extracted_title"] = title.split(" ")
-                        .joinToString(" ") { w -> w.replaceFirstChar { c -> c.uppercase() } }
+            val titleFromVerb = Regex(
+                """(?:add|create|schedule|put|book|set)\s+(?:a\s+|an\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:for|at|from|on|next|this|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d)|$)""",
+                RegexOption.IGNORE_CASE,
+            ).find(raw)
+            val DATE_WORDS = setOf(
+                "today", "tomorrow", "next", "this",
+                "monday", "tuesday", "wednesday",
+                "thursday", "friday", "saturday", "sunday",
+            )
+            val rawTitle = run {
+                val fromFor = titleFromFor?.groupValues?.get(1)?.trim()
+                    ?.takeIf { it.isNotBlank() && it.length >= 2 && !DATE_WORDS.contains(it.lowercase()) }
+                fromFor ?: titleFromVerb?.groupValues?.get(1)?.trim()
+                    ?.takeIf { it.isNotBlank() && it.length >= 2 }
+            }
+            if (rawTitle != null) {
+                params["title"] = rawTitle.split(" ")
+                    .joinToString(" ") { w -> w.replaceFirstChar { c -> c.uppercase() } }
+            }
+
+            // ── Date: relative terms and day names (fed directly to resolveDate()) ──
+            val dateRegex = Regex(
+                """\b(today|tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b""",
+                RegexOption.IGNORE_CASE,
+            )
+            dateRegex.find(lower)?.value?.trim()?.let { params["date"] = it }
+
+            // ── Time: "at 2pm", "at 10:30am", "at noon/midnight", "at 10" ─────────
+            // Bare hours (no am/pm) are normalised to HH:00 so resolveTime() can parse.
+            val timeRegex = Regex(
+                """(?:at|@)\s+(noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}(?::\d{2})?)(?!\s*(?:am|pm))""",
+                RegexOption.IGNORE_CASE,
+            )
+            timeRegex.find(lower)?.groupValues?.get(1)?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { t ->
+                    params["time"] = when {
+                        t.lowercase() == "noon" -> "12:00pm"
+                        t.lowercase() == "midnight" -> "12:00am"
+                        // bare hour like "10" → "10:00" for resolveTime()
+                        t.matches(Regex("""\d{1,2}""")) -> "${t.padStart(2, '0')}:00"
+                        else -> t
+                    }
                 }
+
             return params
         }
 
