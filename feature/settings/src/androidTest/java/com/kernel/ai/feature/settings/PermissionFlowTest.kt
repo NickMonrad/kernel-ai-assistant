@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -59,8 +60,13 @@ class PermissionFlowTest {
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private fun launchApp() {
-        val intent = context.packageManager.getLaunchIntentForPackage(PACKAGE)
-            ?.apply { addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK) }
+        // getLaunchIntentForPackage is unreliable in the instrumented test context;
+        // construct the intent explicitly using the known MainActivity component.
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            component = ComponentName(PACKAGE, "com.kernel.ai.MainActivity")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        }
         context.startActivity(intent)
         device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), LAUNCH_TIMEOUT_MS)
     }
