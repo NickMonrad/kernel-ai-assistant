@@ -111,6 +111,7 @@ After calling searchMemory, incorporate its result into your reply naturally.
                 )
 
                 if (memoryResults.isEmpty() && messageResults.isEmpty()) {
+                    // Success: action result — LLM narration appropriate
                     return@withContext SkillResult.Success("No memories found matching '$query'.")
                 }
 
@@ -137,7 +138,8 @@ After calling searchMemory, incorporate its result into your reply naturally.
                     }
                 }
 
-                SkillResult.Success(sb.toString().trimEnd())
+                // DirectReply: structured list data — bypasses LLM to preserve dates/indices
+                SkillResult.DirectReply(sb.toString().trimEnd())
             } catch (e: Exception) {
                 Log.e(TAG, "SearchMemorySkill failed", e)
                 SkillResult.Failure(name, e.message ?: "Failed to search memories")
