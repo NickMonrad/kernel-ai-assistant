@@ -192,7 +192,11 @@ private fun TimerRow(
     nowMs: Long,
     onCancel: () -> Unit,
 ) {
-    val remainingMs = (timer.startedAtMs ?: 0L) + (timer.durationMs ?: 0L) - nowMs
+    val remainingMs = if (timer.startedAtMs != null && timer.durationMs != null) {
+        timer.startedAtMs + timer.durationMs - nowMs
+    } else {
+        -1L
+    }
     val countdownText = if (remainingMs <= 0) {
         "Time's up!"
     } else {
