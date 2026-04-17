@@ -435,16 +435,26 @@ private fun ModelRow(
                         }
                     }
                     is DownloadState.Downloaded -> {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = "Downloaded",
-                            tint = Color(0xFF4CAF50),
-                            modifier = Modifier.size(20.dp),
-                        )
-                        if (!model.isRequired) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            TextButton(onClick = onDelete) {
-                                Text("Delete", color = MaterialTheme.colorScheme.error)
+                        if (model.isBundled) {
+                            SuggestionChip(
+                                onClick = {},
+                                label = { Text("Built-in", style = MaterialTheme.typography.labelSmall) },
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                ),
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = "Downloaded",
+                                tint = Color(0xFF4CAF50),
+                                modifier = Modifier.size(20.dp),
+                            )
+                            if (!model.isRequired) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                TextButton(onClick = onDelete) {
+                                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                                }
                             }
                         }
                     }
