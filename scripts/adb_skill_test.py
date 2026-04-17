@@ -208,6 +208,9 @@ TEST_CASES: list[TestCase] = [
     # Calls
     TestCase("ring mum", "make_call"),
     TestCase("give Sarah a call", "make_call"),
+    # Contact alias resolution (fixture: 'zippy' → Voicemail / 121)
+    TestCase("call zippy", "make_call"),
+    TestCase("ring zippy", "make_call"),
     # SMS
     TestCase("text John saying I'll be 10 minutes late", "send_sms"),
     TestCase("message mum that I'm on my way", "send_sms"),
@@ -350,6 +353,32 @@ def send_text(text: str) -> None:
     )
 
 
+DB_PATH = f"/data/data/{PACKAGE}/databases/kernel_db"
+ALIAS_TEST_NAME = "zippy"       # test alias → resolves to Voicemail contact
+ALIAS_DISPLAY_NAME = "Voicemail"  # must match a real contact on the device
+
+
+VOICEMAIL_NUMBER = "121"         # provider voicemail shortcode
+
+
+def setup_contact_alias_fixture() -> bool:
+    """Insert test alias 'zippy' → Voicemail into Room contact_aliases table."""
+    run_adb(
+        "shell", "sqlite3", DB_PATH,
+        f"INSERT OR REPLACE INTO contact_aliases (alias, displayName, contactId, phoneNumber) "
+        f"VALUES ('{ALIAS_TEST_NAME}', '{ALIAS_DISPLAY_NAME}', '0', '{VOICEMAIL_NUMBER}');",
+    )
+    return True
+
+
+def teardown_contact_alias_fixture() -> None:
+    """Remove test alias inserted during setup."""
+    run_adb(
+        "shell", "sqlite3", DB_PATH,
+        f"DELETE FROM contact_aliases WHERE alias='{ALIAS_TEST_NAME}';",
+    )
+
+
 def cleanup_side_effects() -> None:
     """Cancel any timers and alarms set during testing to avoid them firing on the device."""
     for msg in ("cancel the timer", "cancel all alarms"):
@@ -427,6 +456,11 @@ def run_tests(dry_run: bool = False) -> int:
     cleanup_side_effects()
     print("done")
 
+    # Insert contact alias fixture for alias resolution tests
+    print("  [init] Setting up contact alias fixture ...", end=" ", flush=True)
+    setup_contact_alias_fixture()
+    print("done")
+
     # Flush any logcat residue from the cleanup intents before starting tests.
     time.sleep(WAIT_SECONDS)
     clear_logcat()
@@ -451,6 +485,11 @@ def run_tests(dry_run: bool = False) -> int:
             print(f"✗ (xfail — not yet implemented)")
         else:
             print(f"✗ (got {actual or 'NO_MATCH'})")
+
+        # Hang up after call tests so they don't stay open
+        if tc.expect_intent == "make_call":
+            time.sleep(2)
+            run_adb("shell", "input", "keyevent", "KEYCODE_ENDCALL")
 
     # Summary table
     print()
@@ -486,6 +525,9 @@ def run_tests(dry_run: bool = False) -> int:
     print()
     print("  [cleanup] Cancelling timers/alarms ...", end=" ", flush=True)
     cleanup_side_effects()
+    print("done")
+    print("  [cleanup] Removing contact alias fixture ...", end=" ", flush=True)
+    teardown_contact_alias_fixture()
     print("done")
 
     return 1 if failures > 0 else 0

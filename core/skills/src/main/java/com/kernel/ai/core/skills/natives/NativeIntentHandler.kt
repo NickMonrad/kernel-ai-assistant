@@ -948,11 +948,16 @@ class NativeIntentHandler @Inject constructor(
                 "Couldn't find a contact for '$contact'. You can add them in Settings → People & Contacts.",
             )
         return try {
-            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phoneNumber)}")).apply {
+            // Use ACTION_CALL to auto-dial (hands-free use case — e.g. driving).
+            // Falls back to ACTION_DIAL if CALL_PHONE permission not yet granted.
+            val canCall = context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            val action = if (canCall) Intent.ACTION_CALL else Intent.ACTION_DIAL
+            val intent = Intent(action, Uri.parse("tel:${Uri.encode(phoneNumber)}")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
-            SkillResult.Success("Opening dialer for $contact")
+            SkillResult.Success(if (canCall) "Calling $contact" else "Opening dialer for $contact (grant Phone permission for auto-dial)")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("make_call", "No phone app available")
         }
