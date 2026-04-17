@@ -74,6 +74,7 @@ Do NOT ask what to save — always infer and call the tool.
                     embeddingVector = vector,
                 )
                 Log.d(TAG, "SaveMemorySkill: stored core memory — '${content.take(60)}'")
+                // Success: action result — LLM narration appropriate
                 SkillResult.Success("✓ Saved: \"${content.take(100)}\".")
             } catch (e: Exception) {
                 Log.e(TAG, "SaveMemorySkill failed", e)

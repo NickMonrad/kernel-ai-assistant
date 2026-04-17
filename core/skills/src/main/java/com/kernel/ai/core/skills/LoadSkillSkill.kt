@@ -49,6 +49,7 @@ class LoadSkillSkill @Inject constructor(
     // load_skill's own fullInstructions are always embedded in the system prompt — no need
     // to load them lazily. This just returns the standard default.
 
+    // Success: instruction context for LLM — not user-facing
     override suspend fun execute(call: SkillCall): SkillResult {
         val skillName = call.arguments["skill_name"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure(name, "Missing required parameter: skill_name.")

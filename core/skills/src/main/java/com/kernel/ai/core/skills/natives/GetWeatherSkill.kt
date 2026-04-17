@@ -412,6 +412,7 @@ class GetWeatherSkill @Inject constructor(
         }.trimEnd()
 
         Log.d(TAG, "GetWeatherSkill: fetched weather for $locationLabel")
+        // DirectReply: structured data — numeric temperature/humidity/wind values
         return SkillResult.DirectReply(text)
     }
 

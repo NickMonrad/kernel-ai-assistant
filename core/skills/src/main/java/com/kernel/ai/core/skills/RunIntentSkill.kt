@@ -208,6 +208,7 @@ class RunIntentSkill @Inject constructor(
         examples.forEach { appendLine("  $it") }
     }
 
+    // Success: action result — delegates to NativeIntentHandler; LLM narration appropriate
     override suspend fun execute(call: SkillCall): SkillResult {
         val intentName = call.arguments["intent_name"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure(name, "Missing required parameter: intent_name.")
