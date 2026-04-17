@@ -122,8 +122,8 @@ TEST_CASES: list[TestCase] = [
     TestCase("call voicemail", "make_call"),
     TestCase("call my voicemail", "make_call"),
     # SMS
-    TestCase("text Alex that I'm running late", "send_sms"),
-    TestCase("send a message to Sarah saying I'll be there at 3", "send_sms"),
+    TestCase("text myself a reminder to buy groceries", "send_sms"),
+    TestCase("send a message to myself saying call the plumber", "send_sms"),
     # Email
     TestCase("send an email to John about the project update", "send_email"),
     TestCase("email Sarah the meeting notes", "send_email"),
