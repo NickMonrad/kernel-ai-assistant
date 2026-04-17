@@ -794,9 +794,26 @@ class QuickIntentRouter(
         ),
 
         // ── Volume ──
-        // Explicit Android-compat patterns — long multi-item alternations misbehave on Android's
-        // regex engine (same split applied to cancel_timer in commit 1abc6fc).
-        // "turn the/my volume up/down" — explicit two-word verb form before broader alternation
+        // set_volume explicit splits (Android long-alternation workaround)
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex("""turn\s+(?:(?:the|my)\s+)?volume\s+(?:up|down)""", RegexOption.IGNORE_CASE),
+            paramExtractor = { _, input ->
+                val isUp = input.contains(Regex("\\bup\\b", RegexOption.IGNORE_CASE))
+                mapOf("direction" to if (isUp) "up" else "down")
+            },
+        ),
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex("""(?:raise|increase)\s+(?:(?:the|my)\s+)?volume""", RegexOption.IGNORE_CASE),
+            paramExtractor = { _, _ -> mapOf("direction" to "up") },
+        ),
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex("""(?:lower|decrease|crank\s+down)\s+(?:(?:the|my)\s+)?volume""", RegexOption.IGNORE_CASE),
+            paramExtractor = { _, _ -> mapOf("direction" to "down") },
+        ),
+        // "turn the volume up/down" / "raise/lower the volume" — no numeric value
         IntentPattern(
             intentName = "set_volume",
             regex = Regex(
@@ -856,19 +873,17 @@ class QuickIntentRouter(
                 mapOf("direction" to if (isUp) "up" else "down")
             },
         ),
-        // "set volume to 50%" / "set volume to 50 percent" / "volume at 80"
-        // (%|percent) handles both the symbol and the English word form
+        // "set volume to 50%" / "volume at 80" / "set volume to 50 percent"
         IntentPattern(
             intentName = "set_volume",
             regex = Regex(
-                """(?:set\s+)?(?:turn\s+(?:the\s+)?)?volume(?:\s+(?:up|down))?\s+(?:to\s+|at\s+)?(\d+)\s*(?:%|percent)?""",
+                """(?:set\s+)?(?:the\s+)?volume\s+(?:to\s+|at\s+)?(\d+)\s*(?:%|percent)?""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input ->
-                val hasPercent = input.contains(Regex("""(\d+)\s*(?:%|percent)""", RegexOption.IGNORE_CASE))
                 mapOf(
                     "value" to match.groupValues[1],
-                    "is_percent" to if (hasPercent) "true" else "false",
+                    "is_percent" to if (input.contains(Regex("""\d+\s*(?:%|percent)""", RegexOption.IGNORE_CASE))) "true" else "false",
                 )
             },
         ),
@@ -1331,11 +1346,12 @@ class QuickIntentRouter(
         ),
 
         // ── Media Transport Controls ──
-        // pause_media — pause/hold on/wait [music/audio/etc]
+        // pause_media — pause [music/audio/etc]
         IntentPattern(
             intentName = "pause_media",
             regex = Regex(
-                """(?i)\b(?:pause|hold on|hold it|wait)\b(?:\s+(?:the\s+)?(?:music|song|audio|playback|podcast|video))?$""",
+                """\b(?:pause)\b(?:\s+(?:the\s+)?(?:music|song|audio|playback|podcast|video))?""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
@@ -1343,14 +1359,16 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "stop_media",
             regex = Regex(
-                """(?i)\b(?:stop|end)\s+(?:the\s+)?(?:music|song|audio|playback|podcast|video|playing)\b""",
+                """\b(?:stop|end)\s+(?:the\s+)?(?:music|song|audio|playback|podcast|video|playing)\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
         IntentPattern(
             intentName = "stop_media",
             regex = Regex(
-                """(?i)\bstop\s+playing\b""",
+                """\bstop\s+playing\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
