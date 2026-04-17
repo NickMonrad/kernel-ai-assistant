@@ -208,7 +208,14 @@ def send_text(text: str) -> None:
     )
 
 
-def extract_intent(logcat_output: str) -> str | None:
+def cleanup_side_effects() -> None:
+    """Cancel any timers and alarms set during testing to avoid them firing on the device."""
+    for msg in ("cancel the timer", "cancel all alarms"):
+        send_text(msg)
+        time.sleep(3)  # Brief pause — just enough for the intent to dispatch
+
+
+
     """Extract the first intent= value from logcat output (logcat is cleared before each test)."""
     matches = INTENT_PATTERN.findall(logcat_output)
     return matches[0] if matches else None
@@ -259,6 +266,12 @@ def run_tests(dry_run: bool = False) -> int:
     print("ready" if warmed else "timeout (proceeding anyway)")
     print()
 
+    # Pre-run cleanup: cancel any leftover timers/alarms from previous runs
+    print("  [init] Cleaning up timers/alarms ...", end=" ", flush=True)
+    cleanup_side_effects()
+    print("done")
+    print()
+
     for i, tc in enumerate(TEST_CASES, 1):
         print(f"  [{i:2d}/{len(TEST_CASES)}] \"{tc.message}\" ...", end=" ", flush=True)
 
@@ -291,6 +304,12 @@ def run_tests(dry_run: bool = False) -> int:
     passed_count = total - failures
     print(f"  PASSED: {passed_count}/{total}  FAILED: {failures}/{total}")
     print("=" * 70)
+
+    # Post-run cleanup: cancel any timers/alarms set during testing
+    print()
+    print("  [cleanup] Cancelling timers/alarms ...", end=" ", flush=True)
+    cleanup_side_effects()
+    print("done")
 
     return 1 if failures > 0 else 0
 
