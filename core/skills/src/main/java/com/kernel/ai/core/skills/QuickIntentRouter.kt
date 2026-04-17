@@ -215,7 +215,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_alarm",
             regex = Regex(
-                """(?:cancel|delete|remove|dismiss|clear|turn\s+off|stop)\s+(?:my\s+|the\s+|an?\s+)?alarm""",
+                """(?:cancel|delete|remove|dismiss|clear|turn\s+off|stop)\s+(?:(?:all\s+)?my\s+|the\s+|an?\s+|all\s+)?(?:\S+\s+)*alarms?""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -621,6 +621,19 @@ class QuickIntentRouter(
         ),
 
         // ── Volume ──
+        // "turn the volume up/down" / "raise/lower the volume" — no numeric value
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """(?:turn|raise|lower|increase|decrease|crank)\s+(?:(?:the|my)\s+)?volume\s+(?:up|down)|(?:volume\s+(?:up|down|higher|lower))|(?:mute|unmute)\s+(?:the\s+)?(?:phone|device|sound|volume)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val isUp = input.contains(Regex("(?:up|raise|increase|higher|unmute|max)", RegexOption.IGNORE_CASE))
+                mapOf("direction" to if (isUp) "up" else "down")
+            },
+        ),
+        // "set volume to 50%" / "volume at 80"
         IntentPattern(
             intentName = "set_volume",
             regex = Regex(
@@ -741,14 +754,16 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("title" to match.groupValues[1].trim()) },
         ),
-        // YouTube — "play X on youtube" / "watch X on youtube"
+        // YouTube — "play X on youtube" / "watch X on youtube" / "search youtube for X"
         IntentPattern(
             intentName = "play_youtube",
             regex = Regex(
-                """(?:play|watch|search)\s+(.+?)\s+on\s+youtube""",
+                """(?:(?:play|watch|search)\s+(.+?)\s+on\s+youtube|search\s+(?:youtube|yt)(?:\s+for)?\s+(.+))""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ ->
+                mapOf("query" to (match.groupValues[1].trim().ifEmpty { match.groupValues[2].trim() }))
+            },
         ),
         // Spotify — "play X on spotify"
         IntentPattern(
@@ -892,6 +907,15 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
+        // "what restaurants are nearby" / "what's nearby"
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """what\s+(.+?)\s+(?:are|is)\s+(?:near(?:by|\s+me)|close\s+by|around\s+here)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
 
         // ── Communication ──
         IntentPattern(
@@ -948,6 +972,15 @@ class QuickIntentRouter(
             intentName = "get_system_info",
             regex = Regex(
                 """(?:show|get|what(?:'s|\s+are)?)\s+(?:my\s+)?(?:device\s+(?:info|specs|details)|system\s+info(?:rmation)?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "how much storage/space/RAM do I have" / "what's my RAM usage"
+        IntentPattern(
+            intentName = "get_system_info",
+            regex = Regex(
+                """(?:how\s+much\s+(?:storage|space|memory|ram|disk\s+space)|what(?:'s|\s+is)\s+(?:my\s+)?(?:ram|memory|storage|cpu|disk)\s*(?:usage|left|remaining|level|status)?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -1095,11 +1128,11 @@ class QuickIntentRouter(
         ),
 
         // ── Smart Home (MUST BE LAST — most generic) ──
-        // Exclude media/computing devices that the phone can't directly control.
+        // Exclude media/computing devices and alarm/timer keywords that have dedicated intents.
         IntentPattern(
             intentName = "smart_home_on",
             regex = Regex(
-                """(?:turn|switch)\s+on\s+(?!.*\b(?:tv|television|music|tunes|spotify|netflix|youtube|plex)\b)(?:the\s+)?(.+)""",
+                """(?:turn|switch)\s+on\s+(?!.*\b(?:tv|television|music|tunes|spotify|netflix|youtube|plex|alarm|alarms|timer)\b)(?:the\s+)?(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
@@ -1107,7 +1140,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "smart_home_off",
             regex = Regex(
-                """(?:turn|switch)\s+off\s+(?!.*\b(?:tv|television|music|tunes|spotify|netflix|youtube|plex)\b)(?:the\s+)?(.+)""",
+                """(?:turn|switch)\s+off\s+(?!.*\b(?:tv|television|music|tunes|spotify|netflix|youtube|plex|alarm|alarms|timer)\b)(?:the\s+)?(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
