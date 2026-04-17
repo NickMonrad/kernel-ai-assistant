@@ -192,8 +192,10 @@ private fun TimerRow(
     nowMs: Long,
     onCancel: () -> Unit,
 ) {
-    val remainingMs = if (timer.startedAtMs != null && timer.durationMs != null) {
-        timer.startedAtMs + timer.durationMs - nowMs
+    val startedAtMs = timer.startedAtMs
+    val durationMs = timer.durationMs
+    val remainingMs = if (startedAtMs != null && durationMs != null) {
+        startedAtMs + durationMs - nowMs
     } else {
         -1L
     }
