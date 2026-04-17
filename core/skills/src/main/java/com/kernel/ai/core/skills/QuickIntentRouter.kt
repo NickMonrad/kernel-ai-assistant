@@ -577,6 +577,33 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        // UV index queries: "what's the UV index", "is the UV high today"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+(?:the\s+)?uv\s+index|is\s+(?:the\s+)?uv\s+(?:high|low|bad|strong)|uv\s+index(?:\s+(?:today|now|currently))?|how\s+(?:high|bad|strong)\s+is\s+(?:the\s+)?uv)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Air quality queries: "what's the air quality", "what's the AQI"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+(?:the\s+)?(?:air\s+quality|aqi)|how(?:'s|\s+is)\s+(?:the\s+)?air\s+quality|air\s+quality(?:\s+(?:today|now|index))?|is\s+(?:the\s+)?air\s+(?:clean|dirty|polluted|bad|good))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Sunrise/sunset queries: "what time is sunrise", "when does the sun set"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what\s+time\s+is\s+(?:sunrise|sunset)|when\s+(?:does\s+(?:the\s+)?sun\s+(?:rise|set)|is\s+(?:sunrise|sunset))|sunrise\s+(?:time|today)?|sunset\s+(?:time|today)?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
 
         // ── Volume ──
         IntentPattern(
