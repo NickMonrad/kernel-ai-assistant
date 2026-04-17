@@ -392,35 +392,38 @@ class NativeIntentHandler @Inject constructor(
         val pct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
         val charging = bm.isCharging
         val chargingSuffix = if (charging) " and charging" else ""
-        return SkillResult.Success("Battery is at $pct%$chargingSuffix")
+        // DirectReply: numeric sensor data — LLM rephrasing risks corrupting the percentage value.
+        return SkillResult.DirectReply("Battery is at $pct%$chargingSuffix")
     }
 
     // ── Time / Date ───────────────────────────────────────────────────────────
 
     private fun getTime(params: Map<String, String> = emptyMap()): SkillResult {
         val now = LocalDateTime.now()
+        // DirectReply: factual time/date data — LLM wrapping risks corrupting values
+        // (e.g. "3:47 PM" → "nearly four o'clock") and adds no value for a simple query.
         return when (params["query_type"]) {
-            "time" -> SkillResult.Success(
+            "time" -> SkillResult.DirectReply(
                 "It's ${now.format(DateTimeFormatter.ofPattern("h:mm a"))}",
             )
-            "date" -> SkillResult.Success(
+            "date" -> SkillResult.DirectReply(
                 "Today is ${now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
             )
-            "day_of_week" -> SkillResult.Success(
+            "day_of_week" -> SkillResult.DirectReply(
                 "It's ${now.format(DateTimeFormatter.ofPattern("EEEE"))}",
             )
-            "year" -> SkillResult.Success("It's ${now.year}")
-            "month" -> SkillResult.Success(
+            "year" -> SkillResult.DirectReply("It's ${now.year}")
+            "month" -> SkillResult.DirectReply(
                 "It's ${now.format(DateTimeFormatter.ofPattern("MMMM"))}",
             )
             "week" -> {
                 val week = now.get(WeekFields.ISO.weekOfWeekBasedYear())
-                SkillResult.Success("It's week $week of ${now.year}")
+                SkillResult.DirectReply("It's week $week of ${now.year}")
             }
             else -> {
                 val time = now.format(DateTimeFormatter.ofPattern("h:mm a"))
                 val date = now.format(DateTimeFormatter.ofPattern("EEEE, MMMM d"))
-                SkillResult.Success("It's $time on $date")
+                SkillResult.DirectReply("It's $time on $date")
             }
         }
     }
