@@ -119,6 +119,9 @@ class NativeIntentHandler @Inject constructor(
                 "set_alarm" -> setAlarm(params)
                 "set_timer" -> setTimer(params)
                 "cancel_timer" -> cancelTimer()
+                "list_timers" -> listTimers()
+                "cancel_timer_named" -> cancelTimerNamed(params)
+                "get_timer_remaining" -> getTimerRemaining(params)
                 "cancel_alarm" -> cancelAlarm(params)
                 "create_calendar_event" -> createCalendarEvent(params)
                 "get_battery" -> getBattery()
@@ -339,14 +342,27 @@ class NativeIntentHandler @Inject constructor(
         }
         return try {
             context.startActivity(intent)
+            val durationMs = seconds * 1000L
+            val label = params["label"]?.takeIf { it.isNotBlank() }
+            runBlocking {
+                scheduledAlarmDao.insert(ScheduledAlarmEntity(
+                    id = UUID.randomUUID().toString(),
+                    entryType = "TIMER",
+                    label = label,
+                    durationMs = durationMs,
+                    startedAtMs = System.currentTimeMillis(),
+                    triggerAtMillis = System.currentTimeMillis() + durationMs,
+                    createdAt = System.currentTimeMillis(),
+                ))
+            }
             val mins = seconds / 60
             val secs = seconds % 60
-            val label = when {
+            val labelStr = when {
                 mins > 0 && secs > 0 -> "$mins min $secs sec"
                 mins > 0 -> "$mins minute${if (mins != 1) "s" else ""}"
                 else -> "$seconds seconds"
             }
-            SkillResult.Success("Timer set for $label.")
+            SkillResult.Success("Timer set for $labelStr.")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("run_intent", "No clock app found to set a timer.")
         }
@@ -363,6 +379,88 @@ class NativeIntentHandler @Inject constructor(
             SkillResult.Success("Timer cancelled.")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("run_intent", "No clock app found to cancel the timer.")
+        }
+    }
+
+    // ── Timer Registry ────────────────────────────────────────────────────────
+
+    private fun listTimers(): SkillResult {
+        val timers = runBlocking { scheduledAlarmDao.getAllTimers() }
+        if (timers.isEmpty()) return SkillResult.DirectReply("No timers running.")
+        val now = System.currentTimeMillis()
+        val lines = timers.mapIndexed { i, t ->
+            val label = t.label ?: "Timer ${i + 1}"
+            val remaining = t.durationMs?.let { dur ->
+                t.startedAtMs?.let { start ->
+                    val remMs = (start + dur) - now
+                    if (remMs > 0) formatDuration(remMs / 1000) else "finished"
+                }
+            } ?: "unknown"
+            "• $label — $remaining remaining"
+        }
+        return SkillResult.DirectReply(lines.joinToString("\n"))
+    }
+
+    private fun cancelTimerNamed(params: Map<String, String>): SkillResult {
+        val name = params["name"] ?: return cancelTimer()
+        return runBlocking {
+            val deleted = scheduledAlarmDao.deleteTimerByName(name)
+            if (deleted > 0) {
+                SkillResult.Success("Cancelled the $name timer")
+            } else {
+                val durationMs = parseDurationToMs(name)
+                if (durationMs != null) {
+                    val deletedByDur = scheduledAlarmDao.deleteTimerByDuration(durationMs)
+                    if (deletedByDur > 0) SkillResult.Success("Cancelled the $name timer")
+                    else SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
+                } else {
+                    SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
+                }
+            }
+        }
+    }
+
+    private fun getTimerRemaining(params: Map<String, String>): SkillResult {
+        val name = params["name"]
+        val timers = runBlocking { scheduledAlarmDao.getAllTimers() }
+        if (timers.isEmpty()) return SkillResult.DirectReply("No timers running.")
+        val timer = if (name != null) {
+            timers.firstOrNull { it.label?.contains(name, ignoreCase = true) == true }
+                ?: timers.first()
+        } else timers.first()
+        val now = System.currentTimeMillis()
+        val remMs = timer.durationMs?.let { dur ->
+            timer.startedAtMs?.let { start -> (start + dur) - now }
+        }
+        return if (remMs != null && remMs > 0) {
+            val label = timer.label ?: "Timer"
+            SkillResult.DirectReply("$label — ${formatDuration(remMs / 1000)} remaining")
+        } else {
+            SkillResult.DirectReply("Timer has finished.")
+        }
+    }
+
+    private fun formatDuration(seconds: Long): String {
+        val hrs = seconds / 3600
+        val mins = (seconds % 3600) / 60
+        val secs = seconds % 60
+        return when {
+            hrs > 0 && mins > 0 -> "${hrs}h ${mins}m"
+            hrs > 0 -> "${hrs} hour${if (hrs != 1L) "s" else ""}"
+            mins > 0 && secs > 0 -> "${mins}m ${secs}s"
+            mins > 0 -> "${mins} minute${if (mins != 1L) "s" else ""}"
+            else -> "${secs} seconds"
+        }
+    }
+
+    private fun parseDurationToMs(text: String): Long? {
+        val match = Regex("""(\d+)\s*(minute|min|hour|hr|second|sec)""", RegexOption.IGNORE_CASE).find(text)
+            ?: return null
+        val amount = match.groupValues[1].toLongOrNull() ?: return null
+        return when (match.groupValues[2].lowercase()) {
+            "hour", "hr" -> amount * 3_600_000L
+            "minute", "min" -> amount * 60_000L
+            else -> amount * 1_000L
         }
     }
 

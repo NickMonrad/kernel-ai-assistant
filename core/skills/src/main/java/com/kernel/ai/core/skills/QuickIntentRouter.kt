@@ -315,10 +315,82 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        // cancel_timer_named must come before the generic cancel_timer patterns
+        IntentPattern(
+            intentName = "cancel_timer_named",
+            regex = Regex(
+                """(?:cancel|stop|dismiss|delete)\s+the\s+(?!timer\b)(.+?)\s+timer\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val name = match.groupValues.getOrNull(1)?.trim() ?: ""
+                if (name.isNotBlank()) mapOf("name" to name) else emptyMap()
+            },
+        ),
+        IntentPattern(
+            intentName = "cancel_timer_named",
+            regex = Regex(
+                """(?:cancel|stop|dismiss|delete)\s+(?:my\s+)?(?!the\s+timer\b)(\w[\w\s]+?)\s+timer\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val name = match.groupValues.getOrNull(1)?.trim() ?: ""
+                if (name.isNotBlank()) mapOf("name" to name) else emptyMap()
+            },
+        ),
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
                 """(?:cancel|stop|clear|end|dismiss)\s+(?:my\s+|the\s+|a\s+)?(?:timer|countdown)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // ── List Timers ──
+        IntentPattern(
+            intentName = "list_timers",
+            regex = Regex(
+                """(?:list|show|what|how\s+many)\b.{0,20}\btimers?\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "list_timers",
+            regex = Regex(
+                """timers?\s+(?:do\s+I\s+have|are\s+running|running)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // ── Timer Remaining ──
+        IntentPattern(
+            intentName = "get_timer_remaining",
+            regex = Regex(
+                """how\s+(?:long|much\s+time)\s+(?:is\s+)?(?:left|remaining)\b.{0,30}\btimer\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw ->
+                val nameMatch = Regex("""(?:the\s+)?(\w+)\s+timer""", RegexOption.IGNORE_CASE).find(raw)
+                val name = nameMatch?.groupValues?.getOrNull(1)
+                    ?.takeIf { it !in setOf("the", "my", "a", "an", "timer") }
+                if (name != null) mapOf("name" to name) else emptyMap()
+            },
+        ),
+        IntentPattern(
+            intentName = "get_timer_remaining",
+            regex = Regex(
+                """how\s+long\s+until\s+(?:the\s+)?timer\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "get_timer_remaining",
+            regex = Regex(
+                """timer\s+(?:time\s+)?remaining\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },

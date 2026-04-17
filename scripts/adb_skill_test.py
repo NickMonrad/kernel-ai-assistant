@@ -287,19 +287,19 @@ TEST_CASES: list[TestCase] = [
 
     # ── #525 Timer Management ────────────────────────────────────────────
     # list_timers
-    TestCase("what timers do I have", "list_timers", xfail=True),
-    TestCase("show my timers", "list_timers", xfail=True),
-    TestCase("how many timers are running", "list_timers", xfail=True),
-    TestCase("list timers", "list_timers", xfail=True),
+    TestCase("what timers do I have", "list_timers"),
+    TestCase("show my timers", "list_timers"),
+    TestCase("how many timers are running", "list_timers"),
+    TestCase("list timers", "list_timers"),
     # cancel_timer_named
-    TestCase("cancel the pasta timer", "cancel_timer_named", xfail=True),
-    TestCase("cancel the 10 minute timer", "cancel_timer_named", xfail=True),
-    TestCase("stop the egg timer", "cancel_timer_named", xfail=True),
-    TestCase("dismiss the laundry timer", "cancel_timer_named", xfail=True),
+    TestCase("cancel the pasta timer", "cancel_timer_named"),
+    TestCase("cancel the 10 minute timer", "cancel_timer_named"),
+    TestCase("stop the egg timer", "cancel_timer_named"),
+    TestCase("dismiss the laundry timer", "cancel_timer_named"),
     # get_timer_remaining
-    TestCase("how long left on my timer", "get_timer_remaining", xfail=True),
-    TestCase("how much time is left on the pasta timer", "get_timer_remaining", xfail=True),
-    TestCase("how long until the timer goes off", "get_timer_remaining", xfail=True),
+    TestCase("how long left on my timer", "get_timer_remaining"),
+    TestCase("how much time is left on the pasta timer", "get_timer_remaining"),
+    TestCase("how long until the timer goes off", "get_timer_remaining"),
 ]
 
 
