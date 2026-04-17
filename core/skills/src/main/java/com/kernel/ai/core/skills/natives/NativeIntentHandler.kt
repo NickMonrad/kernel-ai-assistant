@@ -19,6 +19,7 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.telephony.TelephonyManager
 import android.util.Log
+import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
@@ -26,6 +27,7 @@ import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
+import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.skills.SkillResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.DayOfWeek
@@ -80,6 +82,11 @@ private const val TAG = "KernelAI"
  *   get_list_items          — Retrieve unchecked items from a list (params: list_name?)
  *   remove_from_list        — Remove an item from a list (params: item, list_name?)
  *   smart_home_on/off       — Stub pending HA/Google Home (#311/#312) (params: device)
+ *   cancel_alarm            — AlarmClock.ACTION_DISMISS_ALARM (params: label?)
+ *   get_weather             — Opens Google search for weather (params: location?)
+ *   get_system_info         — Returns storage and RAM info — returns DirectReply
+ *   save_memory             — Saves content to long-term core memory (params: content)
+ *   set_brightness          — Sets screen brightness (params: value?, direction?, is_percent?)
  */
 @Singleton
 class NativeIntentHandler @Inject constructor(
@@ -88,6 +95,8 @@ class NativeIntentHandler @Inject constructor(
     private val listItemDao: ListItemDao,
     private val listNameDao: ListNameDao,
     private val contactAliasRepository: ContactAliasRepository,
+    private val memoryRepository: MemoryRepository,
+    private val embeddingEngine: EmbeddingEngine,
 ) {
 
     fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -101,6 +110,7 @@ class NativeIntentHandler @Inject constructor(
                 "set_alarm" -> setAlarm(params)
                 "set_timer" -> setTimer(params)
                 "cancel_timer" -> cancelTimer()
+                "cancel_alarm" -> cancelAlarm(params)
                 "create_calendar_event" -> createCalendarEvent(params)
                 "get_battery" -> getBattery()
                 "get_time", "get_date" -> getTime(params)
@@ -128,6 +138,10 @@ class NativeIntentHandler @Inject constructor(
                 "remove_from_list" -> removeFromList(params)
                 "smart_home_on" -> handleSmartHome(params["device"] ?: "device", true)
                 "smart_home_off" -> handleSmartHome(params["device"] ?: "device", false)
+                "get_weather" -> getWeather(params)
+                "get_system_info" -> getSystemInfo()
+                "save_memory" -> saveMemory(params)
+                "set_brightness" -> setBrightness(params)
                 else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
             }
         } catch (e: Exception) {
@@ -466,19 +480,29 @@ class NativeIntentHandler @Inject constructor(
     // ── Volume ────────────────────────────────────────────────────────────────
 
     private fun setVolume(params: Map<String, String>): SkillResult {
-        val raw = params["value"]?.toIntOrNull()
-            ?: return SkillResult.Failure("set_volume", "No volume value provided")
-        val isPercent = params["is_percent"] == "true"
         val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        val targetVol = if (isPercent) {
-            (raw.coerceIn(0, 100) * maxVol / 100.0).roundToInt()
-        } else {
-            // 1-10 scale mapped to stream range
-            ((raw.coerceIn(1, 10) - 1) * maxVol / 9.0).roundToInt()
+        val currentVol = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val direction = params["direction"]
+        val raw = params["value"]?.toIntOrNull()
+        val isPercent = params["is_percent"] == "true"
+
+        val targetVol = when {
+            direction == "up" -> (currentVol + (maxVol * 0.15).toInt()).coerceAtMost(maxVol)
+            direction == "down" -> (currentVol - (maxVol * 0.15).toInt()).coerceAtLeast(0)
+            direction == "max" -> maxVol
+            direction == "min" || direction == "mute" -> 0
+            raw != null && isPercent -> (raw.coerceIn(0, 100) * maxVol / 100.0).roundToInt()
+            raw != null -> ((raw.coerceIn(1, 10) - 1) * maxVol / 9.0).roundToInt()
+            else -> return SkillResult.Failure("set_volume", "No volume value or direction provided")
         }
         am.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, AudioManager.FLAG_SHOW_UI)
-        return SkillResult.Success("Volume set to ${if (isPercent) "$raw%" else "$raw/10"}")
+        val pct = (targetVol * 100 / maxVol)
+        return SkillResult.Success(when {
+            direction == "mute" || targetVol == 0 -> "Volume muted"
+            direction != null -> "Volume ${if (direction == "up") "increased" else "decreased"} to $pct%"
+            else -> "Volume set to $pct%"
+        })
     }
 
     // ── Wi-Fi ─────────────────────────────────────────────────────────────────
@@ -901,6 +925,117 @@ class NativeIntentHandler @Inject constructor(
             "smart_home",
             "Smart home control requires Home Assistant (#311) or Google Home (#312) integration. Cannot $action $device yet.",
         )
+    }
+
+    // ── Cancel Alarm ──────────────────────────────────────────────────────────
+
+    private fun cancelAlarm(params: Map<String, String>): SkillResult {
+        val label = params["label"]
+        val intent = Intent(AlarmClock.ACTION_DISMISS_ALARM).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            if (label != null) {
+                putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE, AlarmClock.ALARM_SEARCH_MODE_LABEL)
+                putExtra(AlarmClock.EXTRA_MESSAGE, label)
+            } else {
+                putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE, AlarmClock.ALARM_SEARCH_MODE_NEXT)
+            }
+        }
+        return try {
+            context.startActivity(intent)
+            SkillResult.Success(if (label != null) "Cancelling alarm: $label" else "Opening alarms to cancel")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("cancel_alarm", "No clock app found")
+        }
+    }
+
+    // ── Get Weather ───────────────────────────────────────────────────────────
+
+    private fun getWeather(params: Map<String, String>): SkillResult {
+        val location = params["location"]
+        val query = if (location != null) "weather in $location" else "weather"
+        return try {
+            val uri = Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}")
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Opening weather${if (location != null) " for $location" else ""}")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("get_weather", "No browser available")
+        }
+    }
+
+    // ── Get System Info ───────────────────────────────────────────────────────
+
+    private fun getSystemInfo(): SkillResult {
+        val sb = StringBuilder()
+        // Storage
+        val stat = android.os.StatFs(android.os.Environment.getDataDirectory().path)
+        val totalBytes = stat.totalBytes
+        val freeBytes = stat.availableBytes
+        val totalGb = totalBytes / (1024.0 * 1024 * 1024)
+        val freeGb = freeBytes / (1024.0 * 1024 * 1024)
+        sb.append("Storage: %.1f GB free of %.1f GB".format(freeGb, totalGb))
+        // RAM
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val memInfo = android.app.ActivityManager.MemoryInfo()
+        am.getMemoryInfo(memInfo)
+        val freeRamMb = memInfo.availMem / (1024 * 1024)
+        val totalRamMb = memInfo.totalMem / (1024 * 1024)
+        sb.append(" | RAM: ${freeRamMb}MB free of ${totalRamMb}MB")
+        return SkillResult.DirectReply(sb.toString())
+    }
+
+    // ── Save Memory ───────────────────────────────────────────────────────────
+
+    private fun saveMemory(params: Map<String, String>): SkillResult {
+        val content = params["content"]?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("save_memory", "No content to save")
+        return try {
+            runBlocking {
+                val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
+                memoryRepository.addCoreMemory(
+                    content = content,
+                    source = "agent",
+                    embeddingVector = vector ?: floatArrayOf(),
+                )
+            }
+            SkillResult.Success("✓ Saved: \"${content.take(100)}\"")
+        } catch (e: Exception) {
+            Log.e(TAG, "save_memory failed", e)
+            SkillResult.Failure("save_memory", e.message ?: "Failed to save memory")
+        }
+    }
+
+    // ── Set Brightness ────────────────────────────────────────────────────────
+
+    private fun setBrightness(params: Map<String, String>): SkillResult {
+        if (!Settings.System.canWrite(context)) {
+            val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                data = Uri.parse("package:${context.packageName}")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            return SkillResult.Success("Please grant permission to change brightness, then try again")
+        }
+        val direction = params["direction"]
+        val value = params["value"]?.toIntOrNull()
+        val isPercent = params["is_percent"] == "true"
+        val currentBrightness = Settings.System.getInt(
+            context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128
+        )
+        val targetBrightness = when {
+            value != null && isPercent -> (value.coerceIn(0, 100) * 255 / 100.0).toInt()
+            value != null -> value.coerceIn(0, 255)
+            direction == "up" -> (currentBrightness + 51).coerceAtMost(255)   // +20%
+            direction == "down" -> (currentBrightness - 51).coerceAtLeast(0)  // -20%
+            direction == "max" -> 255
+            direction == "min" -> 0
+            else -> return SkillResult.Failure("set_brightness", "No brightness value or direction provided")
+        }
+        Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, targetBrightness)
+        val pct = (targetBrightness * 100 / 255)
+        return SkillResult.Success("Brightness set to $pct%")
     }
 
     /**
