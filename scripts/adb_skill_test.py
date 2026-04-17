@@ -87,9 +87,9 @@ TEST_CASES: list[TestCase] = [
     TestCase("remind me tomorrow at 9", "set_alarm"),
     TestCase("cancel my 7am alarm", "cancel_alarm"),
     TestCase("turn off all my alarms", "cancel_alarm"),
-    # Timer
-    TestCase("set a timer for 10 minutes", "set_timer"),
-    TestCase("start a 5 minute timer", "set_timer"),
+    # Timer (long durations to avoid firing mid-run)
+    TestCase("set a timer for 99 minutes", "set_timer"),
+    TestCase("start a 97 minute timer", "set_timer"),
     TestCase("cancel the timer", "cancel_timer"),
     TestCase("stop the timer", "cancel_timer"),
     # Weather
@@ -177,10 +177,10 @@ TEST_CASES: list[TestCase] = [
     # Cancel alarm
     TestCase("delete my alarm", "cancel_alarm"),
     TestCase("get rid of all alarms", "cancel_alarm"),
-    # Timer
-    TestCase("timer 5 min", "set_timer"),
-    TestCase("start a one hour timer", "set_timer"),
-    TestCase("countdown 10 minutes", "set_timer"),
+    # Timer (long durations to avoid firing mid-run)
+    TestCase("timer 95 min", "set_timer"),
+    TestCase("start a 98 minute timer", "set_timer"),
+    TestCase("countdown 96 minutes", "set_timer"),
     # Cancel timer
     TestCase("turn off the timer", "cancel_timer"),
     TestCase("dismiss the timer", "cancel_timer"),

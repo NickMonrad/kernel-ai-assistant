@@ -42,4 +42,12 @@ interface ScheduledAlarmDao {
 
     @Query("SELECT * FROM scheduled_alarms WHERE entry_type = 'TIMER' AND label = :name LIMIT 1")
     suspend fun getTimerByName(name: String): ScheduledAlarmEntity?
+
+    /** Observe all unfired TIMER entries — for side panel live countdown. */
+    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND entry_type = 'TIMER' ORDER BY started_at_ms ASC")
+    fun observeActiveTimers(): Flow<List<ScheduledAlarmEntity>>
+
+    /** Observe all unfired ALARM entries — for side panel alarm list. */
+    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND entry_type = 'ALARM' ORDER BY triggerAtMillis ASC")
+    fun observeActiveAlarms(): Flow<List<ScheduledAlarmEntity>>
 }
