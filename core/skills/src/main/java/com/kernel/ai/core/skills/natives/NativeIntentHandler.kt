@@ -87,6 +87,7 @@ private const val TAG = "KernelAI"
  *   find_nearby             — geo: URI nearby search (params: query)
  *   make_call               — ACTION_DIAL with contact resolution (params: contact)
  *   add_to_list             — Insert item into list (params: item, list_name?) — returns DirectReply
+ *   bulk_add_to_list        — Insert multiple items at once (params: items (CSV or JSON array), list_name?) — returns DirectReply
  *   create_list             — Create a named list (params: list_name)
  *   get_list_items          — Retrieve unchecked items from a list (params: list_name?)
  *   remove_from_list        — Remove an item from a list (params: item, list_name?)
@@ -153,6 +154,7 @@ class NativeIntentHandler @Inject constructor(
                 "find_nearby" -> findNearby(params)
                 "make_call" -> makeCall(params)
                 "add_to_list" -> addToList(params)
+                "bulk_add_to_list" -> bulkAddToList(params)
                 "create_list" -> createList(params)
                 "get_list_items" -> getListItems(params)
                 "remove_from_list" -> removeFromList(params)
@@ -1069,6 +1071,28 @@ class NativeIntentHandler @Inject constructor(
             listItemDao.insert(ListItemEntity(listName = listName, item = item))
         }
         return SkillResult.DirectReply("Added \"$item\" to your $listName.")
+    }
+
+    private fun bulkAddToList(params: Map<String, String>): SkillResult {
+        val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
+        val listName = normalizeListName(raw)
+        val itemsParam = params["items"]
+            ?: return SkillResult.Failure("bulk_add_to_list", "No items specified")
+        val items: List<String> = try {
+            val arr = org.json.JSONArray(itemsParam)
+            (0 until arr.length()).map { arr.getString(it).trim() }.filter { it.isNotBlank() }
+        } catch (_: Exception) {
+            itemsParam.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        }
+        if (items.isEmpty()) return SkillResult.Failure("bulk_add_to_list", "No valid items to add")
+        runBlocking {
+            listNameDao.insert(ListNameEntity(name = listName))
+            items.forEach { listItemDao.insert(ListItemEntity(listName = listName, item = it)) }
+        }
+        return SkillResult.DirectReply(
+            "Added ${items.size} item${if (items.size == 1) "" else "s"} to your $listName:\n" +
+                items.joinToString(", ")
+        )
     }
 
     private fun createList(params: Map<String, String>): SkillResult {

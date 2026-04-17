@@ -49,13 +49,15 @@ Parameters:
   CORRECT: "Nick's cat is called Whiskers"
   WRONG:   "The user wants to remember the name of their cat"
 
-Memory rule: whenever the user says 'remember', 'save', 'note that', 'don't forget',
-'keep that in mind', 'save it', 'save that', 'remember that', or asks you to keep
-something in mind — you MUST immediately call saveMemory. NEVER output 'Got it',
-'I'll remember that', 'I've already saved that', or any confirmation text without
-calling the tool first. If the user says 'save it' or 'remember that', infer what
-'it'/'that' refers to from recent context.
+Memory rule: whenever the user says 'remember', 'note that', 'don't forget',
+'keep that in mind', 'remember that', or asks you to keep something in mind —
+you MUST immediately call saveMemory. NEVER output 'Got it', 'I'll remember that',
+or any confirmation text without calling the tool first.
+If the user says 'remember that', infer what 'that' refers to from recent context.
 Do NOT ask what to save — always infer and call the tool.
+
+NEVER use save_memory to add items to a shopping list, grocery list, to-do list, or
+any other named list — use run_intent with bulk_add_to_list for that instead.
     """.trimIndent()
 
     override suspend fun execute(call: SkillCall): SkillResult {
