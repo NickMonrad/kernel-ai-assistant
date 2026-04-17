@@ -251,7 +251,31 @@ Lower-priority skill additions — third-party integrations and local utilities.
 
 ---
 
-### Tier 2: QuickIntentRouter
+### 3G: Multi-turn Dialog Management
+
+Slot filling, disambiguation, confirmation, and context-switching — transforms single-shot command routing into a true conversational state machine.
+
+| Sub-Issue | Title | Status | Priority |
+|-----------|-------|--------|----------|
+| [#493](https://github.com/NickMonrad/kernel-ai-assistant/issues/493) | Multi-turn spike — slot fill loop for `send_sms` | ✅ Done (spike) | 🔴 High |
+| [#518](https://github.com/NickMonrad/kernel-ai-assistant/issues/518) | Research: dialog state machine patterns (Gemini brainstorm) | ✅ Done (research) | — |
+| [#522](https://github.com/NickMonrad/kernel-ai-assistant/issues/522) | Phase 2: full dialog management — 7 conversational paths, session stack, slot schemas for 9 intents | ⬜ Pending | 🔴 High |
+
+**Key design decisions (from #518 research):**
+- State machine: `IDLE → QIR_MATCH → SLOT_FILLING ↔ AWAITING_SLOT → CONFIRMING → EXECUTING`
+- Session stack for digressions (push/pop active intent when user switches topics mid-flow)
+- Confirmation required by default for high-stakes intents (SMS, call, email)
+- Max 3 slot-fill prompts before graceful abandon; explicit cancel always clears stack
+
+---
+
+### 3H: Media Playback Controls
+
+| Sub-Issue | Title | Status | Priority |
+|-----------|-------|--------|----------|
+| [#521](https://github.com/NickMonrad/kernel-ai-assistant/issues/521) | Add media control intents: pause, stop, skip, previous | ⬜ Pending | 🟡 Medium |
+
+---
 
 | Task | Status | Notes |
 |------|--------|-------|
@@ -438,6 +462,11 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#403](https://github.com/NickMonrad/kernel-ai-assistant/issues/403) | Weather skill ignores profile location — GPS-only | Phase 3 (bug) | ✅ Fixed — PR #412 (profile location fallback via Nominatim) |
 | [#405](https://github.com/NickMonrad/kernel-ai-assistant/issues/405) | FallThrough bridge drops query — Chat opens blank | Phase 3 (bug) | ✅ Fixed — PR #410 (race condition fix) |
 | [#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407) | WebSearchSkill — Brave/Tavily API for LLM tool calling | Phase 3C | ⬜ Pending |
+| [#493](https://github.com/NickMonrad/kernel-ai-assistant/issues/493) | Multi-turn spike — slot fill loop, disambig chips | Phase 3G | ✅ Done (spike) |
+| [#518](https://github.com/NickMonrad/kernel-ai-assistant/issues/518) | Research: multi-turn dialog state machine patterns | Phase 3G | ✅ Done (research) |
+| [#519](https://github.com/NickMonrad/kernel-ai-assistant/issues/519) | User profile parser bugs + Phase 2b LLM extraction | Phase 3D | ⬜ PR #520 open |
+| [#521](https://github.com/NickMonrad/kernel-ai-assistant/issues/521) | Media control intents: pause, stop, skip, previous | Phase 3H | ⬜ Pending |
+| [#522](https://github.com/NickMonrad/kernel-ai-assistant/issues/522) | Multi-turn dialog management — Phase 2 full implementation | Phase 3G | ⬜ Pending |
 
 ---
 
