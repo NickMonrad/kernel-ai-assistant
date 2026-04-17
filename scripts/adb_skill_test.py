@@ -628,9 +628,11 @@ def run_tests(dry_run: bool = False) -> int:
     print("=" * 70)
     print()
 
-    # Keep screen awake for the duration of the test run (restored on exit)
+    # Keep screen awake for the duration of the test run (restored on exit).
+    # svc stayon usb only works when actively charging; set max timeout as fallback.
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     run_adb("shell", "svc", "power", "stayon", "usb")
+    run_adb("shell", "settings", "put", "system", "screen_off_timeout", "2147483647")
 
     # Warm up: send a dummy query to trigger model load, wait for NativeIntentHandler to fire
     print("  [init] Warming up model (this takes ~30s on first run) ...", end=" ", flush=True)
@@ -772,6 +774,7 @@ def run_tests(dry_run: bool = False) -> int:
     print("done")
     print("  [cleanup] Restoring screen-timeout behaviour ...", end=" ", flush=True)
     run_adb("shell", "svc", "power", "stayon", "false")
+    run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")  # restore 60s
     print("done")
 
     return 1 if failures > 0 else 0

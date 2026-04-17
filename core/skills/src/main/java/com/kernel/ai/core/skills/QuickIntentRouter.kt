@@ -1331,7 +1331,23 @@ class QuickIntentRouter(
                 mapOf("playlist" to name)
             },
         ),
-        // Generic play — MUST come after plex/album/playlist
+        // "play the next one/song/track" — must be before generic play_media
+        IntentPattern(
+            intentName = "next_track",
+            regex = Regex(
+                """(?i)\bplay\s+(?:the\s+)?next\s+(?:one|song|track|video|episode)\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "play the previous one/track/song" — must be before generic play_media
+        IntentPattern(
+            intentName = "previous_track",
+            regex = Regex(
+                """(?i)\bplay\s+(?:the\s+)?(?:previous|last|prior)\s+(?:one|song|track|video|episode)\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Generic play — MUST come after plex/album/playlist/next/previous
         IntentPattern(
             intentName = "play_media",
             regex = Regex(
@@ -1346,12 +1362,19 @@ class QuickIntentRouter(
         ),
 
         // ── Media Transport Controls ──
-        // pause_media — pause [music/audio/etc]
+        // pause_media — pause [music/audio/etc] + colloquial "hold on"
         IntentPattern(
             intentName = "pause_media",
             regex = Regex(
                 """\b(?:pause)\b(?:\s+(?:the\s+)?(?:music|song|audio|playback|podcast|video))?""",
                 RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "pause_media",
+            regex = Regex(
+                """(?i)^hold\s+on$""",
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
@@ -1644,6 +1667,16 @@ class QuickIntentRouter(
                 mapOf("item" to item, "list_name" to listName)
             },
         ),
+        // "create a list called groceries" / "make a new list called holiday packing"
+        // Must come BEFORE generic create_list to prevent lazy (.+?) capturing "a" or "new"
+        IntentPattern(
+            intentName = "create_list",
+            regex = Regex(
+                """(?:create|make|start)\s+(?:a\s+|an\s+)?(?:new\s+)?list\s+called\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+        ),
         // "create a groceries list" / "make a new shopping list" / "start a meal plan list"
         IntentPattern(
             intentName = "create_list",
@@ -1789,7 +1822,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "smart_home_on",
             regex = Regex(
-                """^(?!(?:wifi|wi-fi|bluetooth|bt|hotspot|airplane|flight|dnd|torch|flashlight)\b)(?:the\s+)?(.+?)\s+on$""",
+                """^(?!(?:wifi|wi-fi|bluetooth|bt|hotspot|airplane|flight|dnd|torch|flashlight|hold)\b)(?:the\s+)?(.+?)\s+on$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
