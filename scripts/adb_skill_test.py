@@ -23,6 +23,7 @@ import re
 import shlex
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -106,14 +107,14 @@ class TestResult:
 
 TEST_CASES: list[TestCase] = [
     # Alarm
-    TestCase("set an alarm for 7am", "set_alarm"),
-    TestCase("wake me up at 6:30", "set_alarm"),
+    TestCase("set an alarm for 11pm", "set_alarm"),
+    TestCase("wake me up at 11:30", "set_alarm"),
     TestCase("remind me tomorrow at 9", "set_alarm"),
-    TestCase("cancel my 7am alarm", "cancel_alarm"),
+    TestCase("cancel my 11pm alarm", "cancel_alarm"),
     TestCase("turn off all my alarms", "cancel_alarm"),
     # Timer
-    TestCase("set a timer for 10 minutes", "set_timer"),
-    TestCase("start a 5 minute timer", "set_timer"),
+    TestCase("set a timer for 2 hours", "set_timer"),
+    TestCase("start a 2 hour timer", "set_timer"),
     TestCase("cancel the timer", "cancel_timer"),
     TestCase("stop the timer", "cancel_timer"),
     # Weather
@@ -202,16 +203,16 @@ TEST_CASES: list[TestCase] = [
 
     # ── Extended NL spec cases (section 5 of nl-test-specification.md) ──
     # Alarm
-    TestCase("alarm 7am", "set_alarm"),
-    TestCase("can you wake me at 7", "set_alarm"),
-    TestCase("I need an alarm for 6 in the morning", "set_alarm"),
+    TestCase("alarm 11:30pm", "set_alarm"),
+    TestCase("can you wake me at 11:30", "set_alarm"),
+    TestCase("I need an alarm for 11 tonight", "set_alarm"),
     # Cancel alarm
     TestCase("delete my alarm", "cancel_alarm"),
     TestCase("get rid of all alarms", "cancel_alarm"),
     # Timer
-    TestCase("timer 5 min", "set_timer"),
-    TestCase("start a one hour timer", "set_timer"),
-    TestCase("countdown 10 minutes", "set_timer"),
+    TestCase("timer 2 hours", "set_timer"),
+    TestCase("start a 3 hour timer", "set_timer"),
+    TestCase("countdown 2 hours", "set_timer"),
     # Cancel timer
     TestCase("turn off the timer", "cancel_timer"),
     TestCase("dismiss the timer", "cancel_timer"),
@@ -389,6 +390,30 @@ def read_logcat() -> str:
 def read_logcat_all() -> str:
     """Read KernelAI and LiteRtInferenceEngine tags (needed for warm-up and profile tests)."""
     return run_adb("logcat", "-d", "-s", f"{LOGCAT_TAG}:D", "-s", "LiteRtInferenceEngine:I")
+
+
+# ---------------------------------------------------------------------------
+# Screen keepalive
+# ---------------------------------------------------------------------------
+
+_keepalive_stop = threading.Event()
+
+
+def _keepalive_worker() -> None:
+    """Send KEYCODE_WAKEUP every 25 s to prevent screen sleep during test runs."""
+    while not _keepalive_stop.wait(25):
+        run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+
+
+def start_keepalive() -> threading.Thread:
+    _keepalive_stop.clear()
+    t = threading.Thread(target=_keepalive_worker, daemon=True, name="screen-keepalive")
+    t.start()
+    return t
+
+
+def stop_keepalive() -> None:
+    _keepalive_stop.set()
 
 
 def send_text(text: str) -> None:
@@ -629,10 +654,12 @@ def run_tests(dry_run: bool = False) -> int:
     print()
 
     # Keep screen awake for the duration of the test run (restored on exit).
-    # svc stayon usb only works when actively charging; set max timeout as fallback.
+    # svc stayon usb only works when actively charging; background keepalive thread
+    # sends KEYCODE_WAKEUP every 25 s as the primary mechanism, with max timeout as fallback.
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     run_adb("shell", "svc", "power", "stayon", "usb")
     run_adb("shell", "settings", "put", "system", "screen_off_timeout", "2147483647")
+    start_keepalive()
 
     # Warm up: send a dummy query to trigger model load, wait for NativeIntentHandler to fire
     print("  [init] Warming up model (this takes ~30s on first run) ...", end=" ", flush=True)
@@ -773,6 +800,7 @@ def run_tests(dry_run: bool = False) -> int:
     teardown_contact_alias_fixture()
     print("done")
     print("  [cleanup] Restoring screen-timeout behaviour ...", end=" ", flush=True)
+    stop_keepalive()
     run_adb("shell", "svc", "power", "stayon", "false")
     run_adb("shell", "settings", "put", "system", "screen_off_timeout", "60000")  # restore 60s
     print("done")
