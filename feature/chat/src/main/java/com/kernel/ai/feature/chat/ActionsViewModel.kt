@@ -101,6 +101,14 @@ class ActionsViewModel @Inject constructor(
                         _uiState.value = UiState.Idle
                         return@launch
                     }
+                    is QuickIntentRouter.RouteResult.NeedsSlot -> {
+                        // Multi-turn slot-filling isn't supported in the Actions tab —
+                        // navigate to Chat where the full conversation flow can handle it.
+                        Log.d(TAG, "ActionsViewModel: NeedsSlot for \"$query\" → navigating to chat")
+                        _events.emit(UiEvent.NavigateToChat(query))
+                        _uiState.value = UiState.Idle
+                        return@launch
+                    }
                 }
 
                 val entity = run {
