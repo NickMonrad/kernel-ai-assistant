@@ -554,11 +554,11 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // "am I running low on battery" / "running low on battery"
+        // "running low on battery" — bare form; conversational "am I running low?" → fallthrough to classifier
         IntentPattern(
             intentName = "get_battery",
             regex = Regex(
-                """(?:running|run)\s+low\s+on\s+(?:battery|charge|power)""",
+                """^(?:running|run)\s+low\s+on\s+(?:battery|charge|power)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -729,11 +729,12 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Precipitation: "will it rain", "is it raining", "do I need an umbrella"
+        // Precipitation: current state only — "will it rain", "is it raining", "do I need an umbrella"
+        // "is it going to rain tomorrow" → fallthrough (future forecast, needs E4B for context)
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:will\s+it\s+rain|is\s+it\s+(?:going\s+to|gonna)\s+rain|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain)""",
+                """(?:will\s+it\s+rain(?:\s+today|\s+tonight)?\s*$|is\s+it\s+(?:going\s+to|gonna)\s+rain(?:\s+today|\s+tonight)?\s*$|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain(?:\s+today|\s+tonight)?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -794,6 +795,21 @@ class QuickIntentRouter(
         ),
 
         // ── Volume ──
+        // Numeric-level forms must come BEFORE direction-only patterns to win the match
+        // "turn the volume up to 8" / "volume up to 5" / "volume down to 3"
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """(?:turn\s+)?(?:(?:the|my)\s+)?volume\s+(?:up|down)\s+to\s+(\d+)\s*(?:%|percent)?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input ->
+                mapOf(
+                    "value" to match.groupValues[1],
+                    "is_percent" to if (input.contains(Regex("""\d+\s*(?:%|percent)""", RegexOption.IGNORE_CASE))) "true" else "false",
+                )
+            },
+        ),
         // set_volume explicit splits (Android long-alternation workaround)
         IntentPattern(
             intentName = "set_volume",
@@ -1819,10 +1835,11 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
         ),
         // Terse: "lights on" / "heater on" — object + on, no verb
+        // Exclude question starters to prevent "what day does X fall on" → smart_home
         IntentPattern(
             intentName = "smart_home_on",
             regex = Regex(
-                """^(?!(?:wifi|wi-fi|bluetooth|bt|hotspot|airplane|flight|dnd|torch|flashlight|hold)\b)(?:the\s+)?(.+?)\s+on$""",
+                """^(?!(?:wifi|wi-fi|bluetooth|bt|hotspot|airplane|flight|dnd|torch|flashlight|hold|what|is|are|how|when|where|who|why|which|does|do|did|can|could|would|should|will|am|was|were)\b)(?:the\s+)?(.+?)\s+on$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
@@ -1844,11 +1861,11 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
         ),
-        // Colloquial: "kill the lights" / "kill the heater"
+        // Colloquial: "kill the lights" / "kill the heater" — exclude flashlight/torch words (send to classifier)
         IntentPattern(
             intentName = "smart_home_off",
             regex = Regex(
-                """kill\s+(?:the\s+)?(.+)""",
+                """kill\s+(?!(?:the\s+)?(?:light|lights|flashlight|torch)\b)(?:the\s+)?(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
