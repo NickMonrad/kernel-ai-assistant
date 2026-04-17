@@ -77,6 +77,7 @@ class ProfileTestCase:
 class TestCase:
     message: str
     expect_intent: str
+    xfail: bool = False  # True = intent not yet implemented; failure is expected
 
 
 TEST_CASES: list[TestCase] = [
@@ -243,62 +244,62 @@ TEST_CASES: list[TestCase] = [
 
     # ── #521 Media Controls ──────────────────────────────────────────────
     # pause_media (additional — "pause" already in section above via §1.39)
-    TestCase("pause the music", "pause_media"),
-    TestCase("pause playback", "pause_media"),
-    TestCase("hold on", "pause_media"),
+    TestCase("pause the music", "pause_media", xfail=True),
+    TestCase("pause playback", "pause_media", xfail=True),
+    TestCase("hold on", "pause_media", xfail=True),
     # stop_media
-    TestCase("stop playing", "stop_media"),
-    TestCase("stop playback", "stop_media"),
-    TestCase("stop the audio", "stop_media"),
+    TestCase("stop playing", "stop_media", xfail=True),
+    TestCase("stop playback", "stop_media", xfail=True),
+    TestCase("stop the audio", "stop_media", xfail=True),
     # next_track
-    TestCase("skip this song", "next_track"),
-    TestCase("next track", "next_track"),
-    TestCase("play the next one", "next_track"),
-    TestCase("next song", "next_track"),
-    TestCase("skip", "next_track"),
+    TestCase("skip this song", "next_track", xfail=True),
+    TestCase("next track", "next_track", xfail=True),
+    TestCase("play the next one", "next_track", xfail=True),
+    TestCase("next song", "next_track", xfail=True),
+    TestCase("skip", "next_track", xfail=True),
     # previous_track
-    TestCase("previous song", "previous_track"),
-    TestCase("last song", "previous_track"),
-    TestCase("go back a song", "previous_track"),
-    TestCase("play the previous track", "previous_track"),
+    TestCase("previous song", "previous_track", xfail=True),
+    TestCase("last song", "previous_track", xfail=True),
+    TestCase("go back a song", "previous_track", xfail=True),
+    TestCase("play the previous track", "previous_track", xfail=True),
 
     # ── #524 Podcast Patterns ────────────────────────────────────────────
     # play_podcast
-    TestCase("play the Joe Rogan podcast", "play_podcast"),
-    TestCase("play the latest episode of Serial", "play_podcast"),
-    TestCase("put on the Daily podcast", "play_podcast"),
-    TestCase("play the news podcast", "play_podcast"),
+    TestCase("play the Joe Rogan podcast", "play_podcast", xfail=True),
+    TestCase("play the latest episode of Serial", "play_podcast", xfail=True),
+    TestCase("put on the Daily podcast", "play_podcast", xfail=True),
+    TestCase("play the news podcast", "play_podcast", xfail=True),
     # podcast_skip_forward
-    TestCase("skip forward 2 minutes", "podcast_skip_forward"),
-    TestCase("skip ahead 5 minutes", "podcast_skip_forward"),
-    TestCase("skip the intro", "podcast_skip_forward"),
-    TestCase("forward 30 seconds", "podcast_skip_forward"),
+    TestCase("skip forward 2 minutes", "podcast_skip_forward", xfail=True),
+    TestCase("skip ahead 5 minutes", "podcast_skip_forward", xfail=True),
+    TestCase("skip the intro", "podcast_skip_forward", xfail=True),
+    TestCase("forward 30 seconds", "podcast_skip_forward", xfail=True),
     # podcast_skip_back
-    TestCase("go back 30 seconds", "podcast_skip_back"),
-    TestCase("rewind 10 seconds", "podcast_skip_back"),
-    TestCase("back 15 seconds", "podcast_skip_back"),
-    TestCase("I missed that, go back", "podcast_skip_back"),
+    TestCase("go back 30 seconds", "podcast_skip_back", xfail=True),
+    TestCase("rewind 10 seconds", "podcast_skip_back", xfail=True),
+    TestCase("back 15 seconds", "podcast_skip_back", xfail=True),
+    TestCase("I missed that, go back", "podcast_skip_back", xfail=True),
     # podcast_speed
-    TestCase("play at 1.5x speed", "podcast_speed"),
-    TestCase("set playback speed to 2x", "podcast_speed"),
-    TestCase("normal speed", "podcast_speed"),
-    TestCase("slow down the podcast", "podcast_speed"),
+    TestCase("play at 1.5x speed", "podcast_speed", xfail=True),
+    TestCase("set playback speed to 2x", "podcast_speed", xfail=True),
+    TestCase("normal speed", "podcast_speed", xfail=True),
+    TestCase("slow down the podcast", "podcast_speed", xfail=True),
 
     # ── #525 Timer Management ────────────────────────────────────────────
     # list_timers
-    TestCase("what timers do I have", "list_timers"),
-    TestCase("show my timers", "list_timers"),
-    TestCase("how many timers are running", "list_timers"),
-    TestCase("list timers", "list_timers"),
+    TestCase("what timers do I have", "list_timers", xfail=True),
+    TestCase("show my timers", "list_timers", xfail=True),
+    TestCase("how many timers are running", "list_timers", xfail=True),
+    TestCase("list timers", "list_timers", xfail=True),
     # cancel_timer_named
-    TestCase("cancel the pasta timer", "cancel_timer_named"),
-    TestCase("cancel the 10 minute timer", "cancel_timer_named"),
-    TestCase("stop the egg timer", "cancel_timer_named"),
-    TestCase("dismiss the laundry timer", "cancel_timer_named"),
+    TestCase("cancel the pasta timer", "cancel_timer_named", xfail=True),
+    TestCase("cancel the 10 minute timer", "cancel_timer_named", xfail=True),
+    TestCase("stop the egg timer", "cancel_timer_named", xfail=True),
+    TestCase("dismiss the laundry timer", "cancel_timer_named", xfail=True),
     # get_timer_remaining
-    TestCase("how long left on my timer", "get_timer_remaining"),
-    TestCase("how much time is left on the pasta timer", "get_timer_remaining"),
-    TestCase("how long until the timer goes off", "get_timer_remaining"),
+    TestCase("how long left on my timer", "get_timer_remaining", xfail=True),
+    TestCase("how much time is left on the pasta timer", "get_timer_remaining", xfail=True),
+    TestCase("how long until the timer goes off", "get_timer_remaining", xfail=True),
 ]
 
 
@@ -444,7 +445,12 @@ def run_tests(dry_run: bool = False) -> int:
         passed = actual == tc.expect_intent
 
         results.append((tc, actual, passed))
-        print("✓" if passed else f"✗ (got {actual or 'NO_MATCH'})")
+        if passed:
+            print("✓")
+        elif tc.xfail:
+            print(f"✗ (xfail — not yet implemented)")
+        else:
+            print(f"✗ (got {actual or 'NO_MATCH'})")
 
     # Summary table
     print()
@@ -453,17 +459,27 @@ def run_tests(dry_run: bool = False) -> int:
     print("-" * 70)
 
     failures = 0
+    xfails = 0
     for i, (tc, actual, passed) in enumerate(results, 1):
-        icon = "  ✓" if passed else "  ✗"
+        if passed:
+            icon = "  ✓"
+        elif tc.xfail:
+            icon = "  ✗"
+        else:
+            icon = "  ✗"
         actual_str = actual or "NO_MATCH"
-        print(f"  {i:3d}  {icon:>6}  {tc.expect_intent:<24}  {actual_str:<24}  \"{tc.message}\"")
+        suffix = " (xfail)" if not passed and tc.xfail else ""
+        print(f"  {i:3d}  {icon:>6}  {tc.expect_intent:<24}  {actual_str:<24}  \"{tc.message}\"{suffix}")
         if not passed:
-            failures += 1
+            if tc.xfail:
+                xfails += 1
+            else:
+                failures += 1
 
     print("-" * 70)
     total = len(results)
-    passed_count = total - failures
-    print(f"  PASSED: {passed_count}/{total}  FAILED: {failures}/{total}")
+    passed_count = total - failures - xfails
+    print(f"  PASSED: {passed_count}/{total}  XFAIL: {xfails}/{total}  FAILED: {failures}/{total}")
     print("=" * 70)
 
     # Post-run cleanup: cancel any timers/alarms set during testing

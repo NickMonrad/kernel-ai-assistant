@@ -306,10 +306,19 @@ class QuickIntentRouter(
         ),
 
         // ── Cancel Timer ──
+        // Explicit "turn off" pattern first — long alternation groups can misbehave on Android's regex engine
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """(?:cancel|stop|clear|end|dismiss|turn\s+off)\s+(?:my\s+|the\s+|a\s+)?(?:timer|countdown)""",
+                """turn\s+off\s+(?:my\s+|the\s+|a\s+)?(?:timer|countdown)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "cancel_timer",
+            regex = Regex(
+                """(?:cancel|stop|clear|end|dismiss)\s+(?:my\s+|the\s+|a\s+)?(?:timer|countdown)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
