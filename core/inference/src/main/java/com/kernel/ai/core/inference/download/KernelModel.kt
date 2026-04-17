@@ -34,6 +34,11 @@ enum class KernelModel(
      * Model Management UI so users can accept the licence before downloading.
      */
     val licenceUrl: String? = null,
+    /**
+     * If `true`, this model is bundled as an app asset and is always available without
+     * downloading. Model Management shows it as "Built-in" — no download or delete controls.
+     */
+    val isBundled: Boolean = false,
 ) {
     GEMMA_4_E2B(
         displayName = "Gemma 4 E-2B",
@@ -111,6 +116,22 @@ enum class KernelModel(
         preferredForTier = null,
         isGated = true,
         licenceUrl = "https://huggingface.co/litert-community/embeddinggemma-300m",
+    ),
+
+    /**
+     * all-MiniLM-L6-v2 (int8 TFLite) — fast semantic intent classifier bundled as an app asset.
+     * Powers the Tier 2 classifier in QuickIntentRouter. Not downloadable — always available.
+     * Shown in Model Management as "Built-in" for user awareness.
+     */
+    MINI_LM(
+        displayName = "MiniLM-L6 Intent Classifier",
+        fileName = "minilm-l6-v2-int8.tflite",
+        downloadUrl = "",
+        approxSizeBytes = 23_000_000L, // ~23 MB bundled asset
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        isBundled = true,
     );
 
     /**
@@ -134,8 +155,9 @@ fun KernelModel.localFile(context: Context): File {
     return File(modelsDir, fileName)
 }
 
-/** True if the model file exists and is non-empty. */
+/** True if the model file exists and is non-empty. Bundled models are always considered downloaded. */
 fun KernelModel.isDownloaded(context: Context): Boolean {
+    if (isBundled) return true
     val file = localFile(context)
     return file.exists() && file.length() > 0
 }

@@ -60,10 +60,10 @@ class ModelDownloadManager @Inject constructor(
     private val _downloadStates: MutableStateFlow<Map<KernelModel, DownloadState>> =
         MutableStateFlow(
             KernelModel.entries.associateWith { model ->
-                if (model.isDownloaded(context)) {
-                    DownloadState.Downloaded(model.localFile(context).absolutePath)
-                } else {
-                    DownloadState.NotDownloaded
+                when {
+                    model.isBundled -> DownloadState.Downloaded("bundled")
+                    model.isDownloaded(context) -> DownloadState.Downloaded(model.localFile(context).absolutePath)
+                    else -> DownloadState.NotDownloaded
                 }
             }
         )
@@ -129,6 +129,7 @@ class ModelDownloadManager @Inject constructor(
      *   Samsung's battery manager prevented from dispatching, and to restart FAILED jobs.
      */
     fun startDownload(model: KernelModel, force: Boolean = false) {
+        if (model.isBundled) return  // bundled assets are always available; nothing to download
         if (!force && model.isDownloaded(context)) {
             updateState(model, DownloadState.Downloaded(model.localFile(context).absolutePath))
             return
