@@ -110,6 +110,15 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        // Pattern: bare "torch" / "flashlight" — single-word terse command
+        IntentPattern(
+            intentName = "toggle_flashlight_on",
+            regex = Regex(
+                """^(?:torch|flashlight|flash\s*light)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
         // Pattern: "turn/switch off the torch" — verb + off + object
         IntentPattern(
             intentName = "toggle_flashlight_off",
@@ -215,7 +224,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_alarm",
             regex = Regex(
-                """(?:cancel|delete|remove|dismiss|clear|turn\s+off|stop)\s+(?:(?:all\s+)?my\s+|the\s+|an?\s+|all\s+)?(?:\S+\s+)*alarms?""",
+                """(?:cancel|delete|remove|dismiss|clear|turn\s+off|stop|get\s+rid\s+of)\s+(?:(?:all\s+)?my\s+|the\s+|an?\s+|all\s+)?(?:\S+\s+)*alarms?""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -265,12 +274,42 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, input -> parseTimerDuration(match, input) },
         ),
+        // "start a one hour timer" / "set a half hour timer" — written-out durations before open_app
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """(?:set|start|create)\s+(?:a\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|an?\s+|half\s+an?\s+)\s*(?:and\s+a\s+half\s+)?(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\s+(?:\w+\s+)*timer""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val wordMap = mapOf(
+                    "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5,
+                    "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10,
+                    "fifteen" to 15, "twenty" to 20, "thirty" to 30, "an" to 1, "a" to 1,
+                )
+                val lower = input.lowercase()
+                val numMatch = Regex("""(one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|an?)\s+(?:and\s+a\s+half\s+)?(hours?|hrs?|minutes?|mins?|seconds?|secs?)""").find(lower)
+                if (numMatch != null) {
+                    val qty = wordMap[numMatch.groupValues[1]] ?: 1
+                    val unit = numMatch.groupValues[2]
+                    val half = lower.contains("and a half") || lower.contains("and-a-half")
+                    val seconds = when {
+                        unit.startsWith("h") -> qty * 3600 + (if (half) 1800 else 0)
+                        unit.startsWith("m") -> qty * 60 + (if (half) 30 else 0)
+                        else -> qty + (if (half) 0 else 0)
+                    }
+                    mapOf("duration_seconds" to seconds.toString())
+                } else {
+                    emptyMap()
+                }
+            },
+        ),
 
         // ── Cancel Timer ──
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """(?:cancel|stop|clear|end|dismiss)\s+(?:my\s+|the\s+|a\s+)?(?:timer|countdown)""",
+                """(?:cancel|stop|clear|end|dismiss|turn\s+off)\s+(?:my\s+|the\s+|a\s+)?(?:timer|countdown)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -364,6 +403,23 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        // Terse: "DND on" / "DND off"
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """^(?:dnd|do\s+not\s+disturb)\s+on$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_dnd_off",
+            regex = Regex(
+                """^(?:dnd|do\s+not\s+disturb)\s+off$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
 
         // ── Battery ──
         IntentPattern(
@@ -404,6 +460,24 @@ class QuickIntentRouter(
             intentName = "get_battery",
             regex = Regex(
                 """how(?:'?s|\s+is)\s+my\s+(?:battery|charge|power)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "battery" — bare single-word query
+        IntentPattern(
+            intentName = "get_battery",
+            regex = Regex(
+                """^(?:battery|charge\s+level|power\s+level)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "am I running low on battery" / "running low on battery"
+        IntentPattern(
+            intentName = "get_battery",
+            regex = Regex(
+                """(?:running|run)\s+low\s+on\s+(?:battery|charge|power)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -578,16 +652,34 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:will\s+it\s+rain|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain)""",
+                """(?:will\s+it\s+rain|is\s+it\s+(?:going\s+to|gonna)\s+rain|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Temperature queries: "how hot/cold is it", "what's the temperature outside"
+        // Temperature queries: "how hot/cold is it", "what's the temperature outside", "temperature in Wellington"
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
                 """(?:how\s+(?:hot|cold|warm)\s+is\s+it|what(?:'s| is)\s+(?:the\s+)?temperature(?:\s+(?:outside|today|now|currently))?|temperature\s+(?:outside|today|now|currently))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "temperature in Wellington" — city-specific temperature query
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """temperature\s+in\s+([\w\s]+?)(?:\s+today|\s+now|\s+tonight)?\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("location" to match.groupValues[1].trim()) },
+        ),
+        // "what's it like outside" / "what's it like out there"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s|\s+is)\s+it\s+like\s+(?:outside|out\s+there|out)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -630,6 +722,18 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, input ->
                 val isUp = input.contains(Regex("(?:up|raise|increase|higher|unmute|max)", RegexOption.IGNORE_CASE))
+                mapOf("direction" to if (isUp) "up" else "down")
+            },
+        ),
+        // Terse: "louder" / "quieter" / "softer" / "mute"
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """^(?:louder|quieter|softer|mute|unmute)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val isUp = input.contains(Regex("(?:louder|unmute)", RegexOption.IGNORE_CASE))
                 mapOf("direction" to if (isUp) "up" else "down")
             },
         ),
@@ -783,11 +887,11 @@ class QuickIntentRouter(
                 mapOf("query" to (match.groupValues[1].trim().ifEmpty { match.groupValues[2].trim() }))
             },
         ),
-        // Spotify — "play X on spotify"
+        // Spotify — "play X on spotify" / "put on X on spotify"
         IntentPattern(
             intentName = "play_spotify",
             regex = Regex(
-                """(?:play|listen\s+to)\s+(.+?)\s+on\s+spotify""",
+                """(?:play|listen\s+to|put\s+on)\s+(.+?)\s+on\s+spotify""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
@@ -802,12 +906,12 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
         // Open app — "open YouTube" / "launch Spotify"
-        // Excludes timer/countdown phrases that start with "start" to prevent false matches
+        // Excludes timer/countdown/alarm phrases and phrases that contain "timer" anywhere
         // Also excludes "new conversation/chat" to prevent false matches on conversational phrases
         IntentPattern(
             intentName = "open_app",
             regex = Regex(
-                """^(?:open|launch|start)\s+(?:the\s+)?(?!(?:a\s+)?(?:count(?:down|ing)|timer|alarm|new\s+conversation|new\s+chat|conversation|chat)\b)(.+?)(?:\s+app)?$""",
+                """^(?:open|launch|start)\s+(?:the\s+)?(?!(?:a\s+)?(?:count(?:down|ing)|timer|alarm|new\s+conversation|new\s+chat|conversation|chat)\b)(?!.*\btimer\b)(.+?)(?:\s+app)?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("app_name" to match.groupValues[1].trim()) },
@@ -825,11 +929,11 @@ class QuickIntentRouter(
                 params
             },
         ),
-        // Playlist — matches before generic play
+        // Playlist — matches before generic play; also handles "put on"
         IntentPattern(
             intentName = "play_media_playlist",
             regex = Regex(
-                """play\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?playlist(?:\s+(.+))?""",
+                """(?:play|put\s+on)\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?playlist(?:\s+(.+))?""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -916,12 +1020,39 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
+        // "where's the nearest ATM" / "where is the nearest X"
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """where(?:'s|\s+is)\s+(?:the\s+)?nearest\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "is there a petrol station nearby" / "is there an ATM near me"
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """is\s+there\s+(?:a\s+|an\s+)?(.+?)\s+(?:near(?:by|\s+me)|close\s+by|around\s+here)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
 
         // ── Communication ──
         IntentPattern(
             intentName = "make_call",
             regex = Regex(
                 """^(?:call|ring|dial|phone)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("contact" to match.groupValues[1].trim()) },
+        ),
+        // "give Sarah a call" / "give mum a ring"
+        IntentPattern(
+            intentName = "make_call",
+            regex = Regex(
+                """^give\s+(.+?)\s+a\s+(?:call|ring|buzz)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("contact" to match.groupValues[1].trim()) },
@@ -957,6 +1088,20 @@ class QuickIntentRouter(
                     promptTemplate = "What would you like to say to {contact}?",
                 ),
             ),
+        ),
+        // "message mum that I'm on my way" / "message John saying..."
+        IntentPattern(
+            intentName = "send_sms",
+            regex = Regex(
+                """^message\s+(.+?)\s+(?:that|saying|to\s+say)\s+(.+)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "contact" to match.groupValues[1].trim(),
+                    "message" to match.groupValues[2].trim(),
+                )
+            },
         ),
         // "send an email to John about meeting" / "email John with body Please review"
         IntentPattern(
@@ -1023,6 +1168,19 @@ class QuickIntentRouter(
                     "item" to match.groupValues[1].trim(),
                     "list_name" to match.groupValues[2].trim(),
                 )
+            },
+        ),
+        // "chuck milk on the list" / "stick eggs on my shopping list" — NZ/AU/UK informal verbs
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?list""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val item = match.groupValues[1].trim()
+                val listName = match.groupValues[2].trim().ifEmpty { "shopping" }
+                mapOf("item" to item, "list_name" to listName)
             },
         ),
         // "create a groceries list" / "make a new shopping list" / "start a meal plan list"
@@ -1116,6 +1274,15 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> mapOf("direction" to "down") },
         ),
+        // "dim the screen" / "dim the display" — no "brightness" keyword
+        IntentPattern(
+            intentName = "set_brightness",
+            regex = Regex(
+                """dim\s+(?:the\s+)?(?:screen|display|lights?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("direction" to "down") },
+        ),
         IntentPattern(
             intentName = "set_brightness",
             regex = Regex(
@@ -1148,10 +1315,37 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
         ),
+        // Terse: "lights on" / "heater on" — object + on, no verb
+        IntentPattern(
+            intentName = "smart_home_on",
+            regex = Regex(
+                """^(?!(?:wifi|wi-fi|bluetooth|bt|hotspot|airplane|flight|dnd|torch|flashlight)\b)(?:the\s+)?(.+?)\s+on$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
+        ),
         IntentPattern(
             intentName = "smart_home_off",
             regex = Regex(
                 """(?:turn|switch)\s+off\s+(?!.*\b(?:tv|television|music|tunes|spotify|netflix|youtube|plex|alarm|alarms|timer)\b)(?:the\s+)?(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
+        ),
+        // Terse: "lights off" / "heater off" — object + off, no verb
+        IntentPattern(
+            intentName = "smart_home_off",
+            regex = Regex(
+                """^(?!(?:wifi|wi-fi|bluetooth|bt|hotspot|airplane|flight|dnd|torch|flashlight)\b)(?:the\s+)?(.+?)\s+off$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
+        ),
+        // Colloquial: "kill the lights" / "kill the heater"
+        IntentPattern(
+            intentName = "smart_home_off",
+            regex = Regex(
+                """kill\s+(?:the\s+)?(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },

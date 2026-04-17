@@ -167,6 +167,79 @@ TEST_CASES: list[TestCase] = [
     # Smart home
     TestCase("turn on the living room lights", "smart_home_on"),
     TestCase("switch off the bedroom lamp", "smart_home_off"),
+
+    # ── Extended NL spec cases (section 5 of nl-test-specification.md) ──
+    # Alarm
+    TestCase("alarm 7am", "set_alarm"),
+    TestCase("can you wake me at 7", "set_alarm"),
+    TestCase("I need an alarm for 6 in the morning", "set_alarm"),
+    # Cancel alarm
+    TestCase("delete my alarm", "cancel_alarm"),
+    TestCase("get rid of all alarms", "cancel_alarm"),
+    # Timer
+    TestCase("timer 5 min", "set_timer"),
+    TestCase("start a one hour timer", "set_timer"),
+    TestCase("countdown 10 minutes", "set_timer"),
+    # Cancel timer
+    TestCase("turn off the timer", "cancel_timer"),
+    TestCase("dismiss the timer", "cancel_timer"),
+    # Weather
+    TestCase("do I need an umbrella today", "get_weather"),
+    TestCase("what's it like outside", "get_weather"),
+    TestCase("is it gonna rain tomorrow", "get_weather"),
+    TestCase("temperature in Wellington", "get_weather"),
+    # Lists
+    TestCase("add bread and butter to my shopping list", "add_to_list"),
+    TestCase("chuck milk on the list", "add_to_list"),
+    TestCase("read me my grocery list", "get_list_items"),
+    TestCase("take milk off the shopping list", "remove_from_list"),
+    TestCase("make a new list called holiday packing", "create_list"),
+    # Calendar
+    TestCase("book a dentist appointment for next Thursday at 2pm", "create_calendar_event"),
+    TestCase("add a meeting to my calendar for Friday at 3pm", "create_calendar_event"),
+    # Battery / system
+    TestCase("battery", "get_battery"),
+    TestCase("am I running low on battery", "get_battery"),
+    TestCase("how much space is left on my phone", "get_system_info"),
+    # Memory
+    TestCase("note to self call the dentist Monday", "save_memory"),
+    TestCase("don't forget I parked on level 3", "save_memory"),
+    # Calls
+    TestCase("ring mum", "make_call"),
+    TestCase("give Sarah a call", "make_call"),
+    # SMS
+    TestCase("text John saying I'll be 10 minutes late", "send_sms"),
+    TestCase("message mum that I'm on my way", "send_sms"),
+    # Navigation
+    TestCase("take me to the airport", "navigate_to"),
+    TestCase("directions home", "navigate_to"),
+    # Nearby
+    TestCase("where's the nearest ATM", "find_nearby"),
+    TestCase("is there a petrol station nearby", "find_nearby"),
+    # Media
+    TestCase("play something chill", "play_media"),
+    TestCase("put on my Discover Weekly on Spotify", "play_spotify"),
+    TestCase("watch The Witcher on Netflix", "play_netflix"),
+    TestCase("play some jazz on Plexamp", "play_plexamp"),
+    TestCase("put on the road trip playlist", "play_media_playlist"),
+    TestCase("play Abbey Road by The Beatles", "play_media"),
+    # Volume
+    TestCase("louder", "set_volume"),
+    TestCase("mute", "set_volume"),
+    # Toggles
+    TestCase("wifi off", "toggle_wifi"),
+    TestCase("bluetooth on", "toggle_bluetooth"),
+    TestCase("dim the screen", "set_brightness"),
+    TestCase("torch", "toggle_flashlight_on"),
+    TestCase("torch off", "toggle_flashlight_off"),
+    TestCase("DND on", "toggle_dnd_on"),
+    TestCase("disable do not disturb", "toggle_dnd_off"),
+    TestCase("flight mode on", "toggle_airplane_mode"),
+    TestCase("hotspot on", "toggle_hotspot"),
+    # Smart home
+    TestCase("lights on", "smart_home_on"),
+    TestCase("kill the lights", "smart_home_off"),
+    TestCase("turn on the heater", "smart_home_on"),
 ]
 
 
