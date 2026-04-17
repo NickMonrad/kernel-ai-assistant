@@ -30,6 +30,9 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.slot.PendingSlotRequest
+import com.kernel.ai.core.skills.slot.SlotFillResult
+import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.google.ai.edge.litertlm.ToolProvider
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
@@ -72,6 +75,7 @@ class ChatViewModel @Inject constructor(
     private val skillRegistry: SkillRegistry,
     private val skillExecutor: SkillExecutor,
     private val quickIntentRouter: QuickIntentRouter,
+    private val slotFillerManager: SlotFillerManager,
     private val kernelAIToolSet: KernelAIToolSet,
     private val toolProvider: ToolProvider,
     private val embeddingEngine: EmbeddingEngine,
@@ -589,11 +593,60 @@ class ChatViewModel @Inject constructor(
             // On a match: execute the skill immediately, then inject [System: ...] context so
             // E4B generates a natural conversational wrapper around the action result.
             // On failure or UnknownSkill: fall through to E4B unchanged.
+
+            // Slot-fill shortcut: if the previous QIR match was paused awaiting a required
+            // param, route the user's reply here before touching QIR or the LLM.
+            if (slotFillerManager.hasPending) {
+                when (val fillResult = slotFillerManager.onUserReply(text)) {
+                    is SlotFillResult.Completed -> {
+                        val skill = skillRegistry.get("run_intent")
+                        if (skill != null) {
+                            val callParams = mapOf("intent_name" to fillResult.intentName) + fillResult.params
+                            val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                            when (skillResult) {
+                                is SkillResult.DirectReply -> {
+                                    appendAssistantMessageWithToolCall(
+                                        convId = convId,
+                                        content = skillResult.content,
+                                        skillName = fillResult.intentName,
+                                        requestJson = callParams.toString(),
+                                        isSuccess = true,
+                                    )
+                                }
+                                is SkillResult.Success -> appendAssistantMessage(convId, skillResult.content)
+                                is SkillResult.Failure -> appendAssistantMessage(convId, skillResult.error)
+                                else -> appendAssistantMessage(convId, "Something went wrong.")
+                            }
+                        }
+                        return@launch
+                    }
+                    is SlotFillResult.Cancelled -> {
+                        appendAssistantMessage(convId, "Okay, cancelled.")
+                        return@launch
+                    }
+                }
+            }
+
             val routeResult = quickIntentRouter.route(text)
             val matchedIntent = when (routeResult) {
                 is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent
                 is QuickIntentRouter.RouteResult.ClassifierMatch -> routeResult.intent
                 is QuickIntentRouter.RouteResult.FallThrough -> null
+                is QuickIntentRouter.RouteResult.NeedsSlot -> {
+                    // Intent matched but a required param is missing — ask the user for it.
+                    slotFillerManager.startSlotFill(
+                        PendingSlotRequest(
+                            intentName = routeResult.intent.intentName,
+                            existingParams = routeResult.intent.params,
+                            missingSlot = routeResult.missingSlot,
+                        ),
+                    )
+                    appendAssistantMessage(
+                        convId,
+                        slotFillerManager.pendingRequest?.promptMessage ?: "What would you like to say?",
+                    )
+                    return@launch
+                }
             }
             if (matchedIntent != null) {
                 // Calendar intent matched by classifier but params not extractable via regex —

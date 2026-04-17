@@ -43,6 +43,15 @@ class QuickIntentRouter(
             val bestGuess: MatchedIntent? = null,
             val bestConfidence: Float = 0f,
         ) : RouteResult()
+
+        /**
+         * Regex matched but a required parameter is absent — pause execution and ask the user
+         * to supply the missing slot before the intent can be dispatched.
+         */
+        data class NeedsSlot(
+            val intent: MatchedIntent,
+            val missingSlot: com.kernel.ai.core.skills.slot.SlotSpec,
+        ) : RouteResult()
     }
 
     data class MatchedIntent(
@@ -64,6 +73,12 @@ class QuickIntentRouter(
         val intentName: String,
         val regex: Regex,
         val paramExtractor: (MatchResult, String) -> Map<String, String>,
+        /**
+         * Required slots that must be present in the extracted params before the intent can be
+         * executed. If a key is absent or blank, [route] returns [RouteResult.NeedsSlot] so
+         * the caller can ask the user to supply the missing value before proceeding.
+         */
+        val requiredSlots: Map<String, com.kernel.ai.core.skills.slot.SlotSpec> = emptyMap(),
     )
 
     private val patterns: List<IntentPattern> = listOf(
@@ -882,6 +897,13 @@ class QuickIntentRouter(
                 if (msg.isNotBlank()) params["message"] = msg
                 params
             },
+            // Ask for the message body when the user only specified a recipient.
+            requiredSlots = mapOf(
+                "message" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "message",
+                    promptTemplate = "What would you like to say to {contact}?",
+                ),
+            ),
         ),
         // "send an email to John about meeting" / "email John with body Please review"
         IntentPattern(
@@ -1084,13 +1106,20 @@ class QuickIntentRouter(
             val match = pattern.regex.find(trimmed)
             if (match != null) {
                 val params = pattern.paramExtractor(match, trimmed)
-                return RouteResult.RegexMatch(
-                    MatchedIntent(
-                        intentName = pattern.intentName,
-                        params = params,
-                        source = "regex",
-                    ),
+                // Check required slots — if a mandatory param is missing, pause and ask.
+                val missingSlot = pattern.requiredSlots.entries
+                    .firstOrNull { (key, _) -> params[key].isNullOrBlank() }
+                    ?.value
+                val intent = MatchedIntent(
+                    intentName = pattern.intentName,
+                    params = params,
+                    source = "regex",
                 )
+                return if (missingSlot != null) {
+                    RouteResult.NeedsSlot(intent, missingSlot)
+                } else {
+                    RouteResult.RegexMatch(intent)
+                }
             }
         }
 
@@ -1269,6 +1298,8 @@ class QuickIntentRouter(
         fun matchQuickIntent(input: String): QuickIntent? {
             return when (val result = QuickIntentRouter().route(input)) {
                 is RouteResult.RegexMatch -> QuickIntent(result.intent.intentName, result.intent.params)
+                // NeedsSlot is still a successful regex match — intent is known, slot fill pending.
+                is RouteResult.NeedsSlot -> QuickIntent(result.intent.intentName, result.intent.params)
                 else -> null
             }
         }

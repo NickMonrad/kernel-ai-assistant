@@ -802,6 +802,18 @@ class QuickIntentRouterTest {
             val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals(expectedContact, intent.params["contact"], "contact for '$input'")
         }
+
+        @ParameterizedTest(name = "NeedsSlot: \"{0}\" → contact={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#sendSmsNeedsSlotPhrases")
+        fun `should return NeedsSlot for contact-only phrases`(input: String, expectedContact: String) {
+            val result = regexOnlyRouter.route(input)
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result,
+                "Expected NeedsSlot for '$input'")
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("send_sms", needsSlot.intent.intentName, "intent for '$input'")
+            assertEquals(expectedContact, needsSlot.intent.params["contact"], "contact for '$input'")
+            assertEquals("message", needsSlot.missingSlot.name, "missing slot name for '$input'")
+        }
     }
 
     @Nested
@@ -1094,6 +1106,7 @@ class QuickIntentRouterTest {
         addCases(makeCallRegexPhrases(), "make_call", "Make Call (regex)")
         addCases(makeCallClassifierPhrases(), "make_call", "Make Call (classifier)")
         addCases(sendSmsRegexPhrases(), "send_sms", "Send SMS (regex)")
+        addCases(sendSmsNeedsSlotPhrases(), "send_sms", "Send SMS (needs slot)")
         addCases(sendEmailRegexPhrases(), "send_email", "Send Email (regex)")
         addCases(addToListRegexPhrases(), "add_to_list", "Add to List (regex)")
         addCases(addToListClassifierPhrases(), "add_to_list", "Add to List (classifier)")
@@ -1132,14 +1145,17 @@ class QuickIntentRouterTest {
             val regexResult = regexOnlyRouter.route(tc.input)
             val hybridResult = hybridRouter.route(tc.input)
 
-            val regexMatched = regexResult is QuickIntentRouter.RouteResult.RegexMatch
+            val regexMatched = regexResult is QuickIntentRouter.RouteResult.RegexMatch ||
+                regexResult is QuickIntentRouter.RouteResult.NeedsSlot
             val hybridMatched = hybridResult is QuickIntentRouter.RouteResult.RegexMatch ||
-                hybridResult is QuickIntentRouter.RouteResult.ClassifierMatch
+                hybridResult is QuickIntentRouter.RouteResult.ClassifierMatch ||
+                hybridResult is QuickIntentRouter.RouteResult.NeedsSlot
 
             val routedIntent = when (hybridResult) {
                 is QuickIntentRouter.RouteResult.RegexMatch -> hybridResult.intent.intentName
                 is QuickIntentRouter.RouteResult.ClassifierMatch -> hybridResult.intent.intentName
                 is QuickIntentRouter.RouteResult.FallThrough -> null
+                is QuickIntentRouter.RouteResult.NeedsSlot -> hybridResult.intent.intentName
             }
 
             val tier = when {
@@ -1791,15 +1807,21 @@ class QuickIntentRouterTest {
 
         @JvmStatic
         fun sendSmsRegexPhrases(): Stream<Arguments> = Stream.of(
+            // Phrases that include a message body → full RegexMatch
             Arguments.of("text John saying hello", "John"),
             Arguments.of("send a text to Mum saying I'll be late", "Mum"),
             Arguments.of("sms Sarah saying meet at 5", "Sarah"),
-            Arguments.of("send message to Dad", "Dad"),
-            Arguments.of("send sms to the office", "the office"),
             Arguments.of("text Sarah that I'll be late", "Sarah"),
             Arguments.of("text Nick saying on my way", "Nick"),
-            Arguments.of("send a text to Emily", "Emily"),
             Arguments.of("sms Mike saying call me", "Mike"),
+        )
+
+        @JvmStatic
+        fun sendSmsNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
+            // Phrases with only a contact — message body missing → NeedsSlot
+            Arguments.of("send message to Dad", "Dad"),
+            Arguments.of("send sms to the office", "the office"),
+            Arguments.of("send a text to Emily", "Emily"),
             Arguments.of("text my boss", "my boss"),
         )
 
@@ -2095,6 +2117,10 @@ class QuickIntentRouterTest {
             is QuickIntentRouter.RouteResult.RegexMatch -> {
                 // Also acceptable if regex catches it
                 assertEquals(expectedIntent, result.intent.intentName, "Regex wrong intent for '$input'")
+            }
+            is QuickIntentRouter.RouteResult.NeedsSlot -> {
+                // Regex matched but needs a slot — still counts as routing to the correct intent
+                assertEquals(expectedIntent, result.intent.intentName, "NeedsSlot wrong intent for '$input'")
             }
         }
     }
