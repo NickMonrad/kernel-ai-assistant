@@ -58,6 +58,7 @@ class GetWeatherUnifiedSkill @Inject constructor(
         required = emptyList(),
     )
 
+    // DirectReply: delegates to GetWeatherSkill which returns DirectReply for all weather data
     override suspend fun execute(call: SkillCall): SkillResult =
         weatherSkill.execute(SkillCall(weatherSkill.name, call.arguments))
 }

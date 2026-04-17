@@ -63,6 +63,7 @@ class RunJsSkill @Inject constructor(
         "Weather tomorrow → runJs(skillName=\"get-weather-city\", query=\"London\", forecastDays=\"1\")",
     )
 
+    // Success: JS skill output requires LLM synthesis (e.g. Wikipedia summaries)
     override suspend fun execute(call: SkillCall): SkillResult {
         val skillName = call.arguments["skill_name"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure(name, "Missing required parameter: skill_name.")

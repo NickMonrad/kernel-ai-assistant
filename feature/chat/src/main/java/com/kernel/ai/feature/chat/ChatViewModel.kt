@@ -119,6 +119,9 @@ class ChatViewModel @Inject constructor(
      */
     private var titleIsPlaceholder = false
 
+    /** C2 (#487): per-turn flag — true once the hallucination retry has been attempted. */
+    private var hallucinationRetryAttempted = false
+
     /** True while Gemma-4 is being lazily initialised in response to a [sendMessage] call. */
     private val _isLoadingModel = MutableStateFlow(false)
 
@@ -762,7 +765,14 @@ class ChatViewModel @Inject constructor(
 
             try {
                 kernelAIToolSet.resetTurnState()
-            inferenceEngine.generate(prompt).collect { result ->
+                hallucinationRetryAttempted = false
+                var currentPrompt = prompt
+                var needsHallucinationRetry: Boolean
+
+            do {
+                needsHallucinationRetry = false
+
+            inferenceEngine.generate(currentPrompt).collect { result ->
                     when (result) {
                         is GenerationResult.Token -> {
                             accumulatedContent.append(result.text)
@@ -846,14 +856,39 @@ class ChatViewModel @Inject constructor(
                                 // native tool calls and forcing a replay drops prior turns from the
                                 // tight history budget, causing context amnesia (#446).
                             } else {
-                                // Normal text response — but first check for hallucinated tool
-                                // confirmations. If the model claims to have saved/added/created
-                                // something without actually calling a tool, replace its response
-                                // with an honest failure message rather than surfacing false data.
-                                val displayContent = if (looksLikeToolConfirmation(fullContent)) {
+                                val isHallucination = looksLikeToolConfirmation(fullContent)
+
+                                // C2 (#487): Single automatic retry before falling to C1 failure.
+                                // If the model hallucinated a tool confirmation and we haven't
+                                // retried yet, prepend a correction and re-run inference — unless
+                                // the context window is already >75% full.
+                                if (isHallucination && !hallucinationRetryAttempted) {
+                                    hallucinationRetryAttempted = true
+                                    val budgetOk = estimatedTokensUsed <= (activeContextWindowSize * 0.75).toInt()
+                                    if (budgetOk) {
+                                        Log.w("KernelAI", "hallucination_retry_attempted")
+                                        needsHallucinationRetry = true
+                                        currentPrompt = HALLUCINATION_RETRY_CORRECTION + "\n\n" + prompt
+                                        // Reset streaming state for the retry pass
+                                        accumulatedContent = StringBuilder()
+                                        accumulatedThinking = StringBuilder()
+                                        activeStreamingContent = accumulatedContent
+                                        activeStreamingThinking = accumulatedThinking
+                                        _messages.update { msgs ->
+                                            msgs.map { if (it.id == assistantMsgId) it.copy(content = "", isStreaming = true) else it }
+                                        }
+                                        return@collect
+                                    }
+                                    // Token budget >75% — skip retry, fall through to C1 failure
+                                }
+
+                                // Normal text or C1 hallucination failure
+                                val displayContent = if (isHallucination) {
+                                    if (currentPrompt !== prompt) Log.w("KernelAI", "hallucination_retry_failed")
                                     Log.w("KernelAI", "Hallucination guard triggered — model confirmed action without tool call")
                                     "I wasn't able to complete that action — please try again, or try phrasing it differently."
                                 } else {
+                                    if (currentPrompt !== prompt) Log.d("KernelAI", "hallucination_retry_succeeded")
                                     fullContent
                                 }
                                 _messages.update { msgs ->
@@ -901,6 +936,8 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                 }
+            } while (needsHallucinationRetry)
+
             } catch (e: Exception) {
                 _messages.update { msgs ->
                     msgs.map { msg ->
@@ -1174,6 +1211,12 @@ class ChatViewModel @Inject constructor(
     private fun looksLikeToolConfirmation(response: String): Boolean =
         com.kernel.ai.feature.chat.looksLikeToolConfirmation(response)
 }
+
+/** C2 correction prepended to the prompt when a hallucination retry is attempted (#487). */
+private const val HALLUCINATION_RETRY_CORRECTION =
+    "[System: Your previous response was blocked. It appeared to describe performing an action " +
+    "without actually calling the required tool function. You MUST call the appropriate tool — " +
+    "do not narrate results. If the tool is unavailable, say so honestly.]"
 
 private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)

@@ -72,6 +72,7 @@ class GetSystemInfoSkill @Inject constructor(
                 }
 
                 Log.d(TAG, "GetSystemInfoSkill executed successfully")
+                // DirectReply: structured data — hardware stats, RAM, battery percentage
                 SkillResult.DirectReply(info.trim())
             } catch (e: Exception) {
                 Log.e(TAG, "GetSystemInfoSkill failed", e)
