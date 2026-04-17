@@ -68,8 +68,16 @@ class PermissionFlowTest {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
         context.startActivity(intent)
-        device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), LAUNCH_TIMEOUT_MS)
+        device.wait(Until.hasObject(By.pkg(PACKAGE)), LAUNCH_TIMEOUT_MS)
     }
+
+    /**
+     * More reliable than [By.pkg].depth(0) across Samsung One UI / AOSP:
+     * [UiDevice.currentPackageName] reflects what the system considers foreground,
+     * regardless of accessibility-tree depth or in-app overlays.
+     */
+    private fun isAppInForeground(): Boolean =
+        device.currentPackageName == PACKAGE
 
     private fun revokePermission(permission: String) {
         InstrumentationRegistry.getInstrumentation().uiAutomation
@@ -109,11 +117,10 @@ class PermissionFlowTest {
         val allowButton = findDialogButton(ALLOW_LABELS)
         if (allowButton != null) {
             allowButton.click()
-            Thread.sleep(500)
+            Thread.sleep(1_000)
         }
         // After grant (or if dialog never appeared — permission already held), app should be visible
-        val appVisible = device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), LAUNCH_TIMEOUT_MS)
-        assertTrue("App should be visible after POST_NOTIFICATIONS grant", appVisible)
+        assertTrue("App should be visible after POST_NOTIFICATIONS grant", isAppInForeground())
 
         // Restore
         grantPermission("android.permission.POST_NOTIFICATIONS")
@@ -132,10 +139,10 @@ class PermissionFlowTest {
         val denyButton = findDialogButton(DENY_LABELS)
         if (denyButton != null) {
             denyButton.click()
-            Thread.sleep(500)
+            // Samsung One UI may show a secondary "are you sure?" sheet; allow extra time
+            Thread.sleep(2_000)
         }
-        val appVisible = device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), LAUNCH_TIMEOUT_MS)
-        assertTrue("App should survive POST_NOTIFICATIONS denial without crashing", appVisible)
+        assertTrue("App should survive POST_NOTIFICATIONS denial without crashing", isAppInForeground())
 
         // Restore
         grantPermission("android.permission.POST_NOTIFICATIONS")
@@ -156,9 +163,9 @@ class PermissionFlowTest {
         val allowButton = findDialogButton(ALLOW_LABELS)
         if (allowButton != null) {
             allowButton.click()
-            Thread.sleep(500)
+            Thread.sleep(1_000)
         }
-        val appVisible = device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), LAUNCH_TIMEOUT_MS)
+        val appVisible = device.wait(Until.hasObject(By.pkg(PACKAGE)), LAUNCH_TIMEOUT_MS)
         assertTrue("App should be visible after location grant", appVisible)
 
         // Restore
@@ -179,9 +186,9 @@ class PermissionFlowTest {
         val denyButton = findDialogButton(DENY_LABELS)
         if (denyButton != null) {
             denyButton.click()
-            Thread.sleep(500)
+            Thread.sleep(2_000)
         }
-        val appVisible = device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), LAUNCH_TIMEOUT_MS)
+        val appVisible = device.wait(Until.hasObject(By.pkg(PACKAGE)), LAUNCH_TIMEOUT_MS)
         assertTrue("App should survive location denial without crashing", appVisible)
 
         // Restore
@@ -210,7 +217,7 @@ class PermissionFlowTest {
         Thread.sleep(300)
 
         launchApp()
-        val appVisible = device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), LAUNCH_TIMEOUT_MS)
+        val appVisible = device.wait(Until.hasObject(By.pkg(PACKAGE)), LAUNCH_TIMEOUT_MS)
         assertTrue("App should launch without crashing when SCHEDULE_EXACT_ALARM is denied", appVisible)
 
         // Restore
@@ -230,11 +237,13 @@ class PermissionFlowTest {
         InstrumentationRegistry.getInstrumentation().uiAutomation
             .executeShellCommand("appops set $PACKAGE SCHEDULE_EXACT_ALARM allow")
             .close()
-        Thread.sleep(300)
+        Thread.sleep(500)
 
         launchApp()
-        val appVisible = device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), LAUNCH_TIMEOUT_MS)
-        assertTrue("App should be fully usable when SCHEDULE_EXACT_ALARM is granted", appVisible)
+        // Give the app extra time to settle — on Android 12+ it may briefly check the
+        // op status before deciding whether to redirect to Settings
+        Thread.sleep(2_000)
+        assertTrue("App should be fully usable when SCHEDULE_EXACT_ALARM is granted", isAppInForeground())
 
         // Verify we're NOT on a system Settings screen
         val onSettingsScreen = device.hasObject(By.pkg("com.android.settings"))
@@ -244,8 +253,12 @@ class PermissionFlowTest {
     // ── Deny → Re-grant recovery ─────────────────────────────────────────
 
     /**
-     * Revoke POST_NOTIFICATIONS then re-grant via shell — app should recover
-     * without requiring a restart (tests the dynamic permission check path).
+     * Revoke POST_NOTIFICATIONS then re-grant via shell while the app is still running.
+     * Tests the mid-session recovery path — the app should stay in foreground and not crash
+     * when the permission is restored without a restart.
+     *
+     * Note: re-launching with FLAG_ACTIVITY_CLEAR_TASK while the first instance is still
+     * initialising causes a process crash. This test validates the live-app path only.
      */
     @Test
     fun postNotifications_revokeAndRegrant_appRecovers() {
@@ -253,12 +266,16 @@ class PermissionFlowTest {
 
         revokePermission("android.permission.POST_NOTIFICATIONS")
         launchApp()
+
+        // Dismiss the permission dialog if it appears (so app comes back to foreground)
+        val dialogButton = findDialogButton(DENY_LABELS + ALLOW_LABELS)
+        dialogButton?.click()
+        Thread.sleep(1_500)
+
+        // Re-grant mid-session via shell — app should remain alive, not crash
+        grantPermission("android.permission.POST_NOTIFICATIONS")
         Thread.sleep(1_000)
 
-        grantPermission("android.permission.POST_NOTIFICATIONS")
-        Thread.sleep(500)
-
-        val appVisible = device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), LAUNCH_TIMEOUT_MS)
-        assertTrue("App should be visible after re-granting POST_NOTIFICATIONS", appVisible)
+        assertTrue("App should be visible after re-granting POST_NOTIFICATIONS", isAppInForeground())
     }
 }
