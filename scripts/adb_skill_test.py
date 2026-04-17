@@ -240,6 +240,65 @@ TEST_CASES: list[TestCase] = [
     TestCase("lights on", "smart_home_on"),
     TestCase("kill the lights", "smart_home_off"),
     TestCase("turn on the heater", "smart_home_on"),
+
+    # ── #521 Media Controls ──────────────────────────────────────────────
+    # pause_media (additional — "pause" already in section above via §1.39)
+    TestCase("pause the music", "pause_media"),
+    TestCase("pause playback", "pause_media"),
+    TestCase("hold on", "pause_media"),
+    # stop_media
+    TestCase("stop playing", "stop_media"),
+    TestCase("stop playback", "stop_media"),
+    TestCase("stop the audio", "stop_media"),
+    # next_track
+    TestCase("skip this song", "next_track"),
+    TestCase("next track", "next_track"),
+    TestCase("play the next one", "next_track"),
+    TestCase("next song", "next_track"),
+    TestCase("skip", "next_track"),
+    # previous_track
+    TestCase("previous song", "previous_track"),
+    TestCase("last song", "previous_track"),
+    TestCase("go back a song", "previous_track"),
+    TestCase("play the previous track", "previous_track"),
+
+    # ── #524 Podcast Patterns ────────────────────────────────────────────
+    # play_podcast
+    TestCase("play the Joe Rogan podcast", "play_podcast"),
+    TestCase("play the latest episode of Serial", "play_podcast"),
+    TestCase("put on the Daily podcast", "play_podcast"),
+    TestCase("play the news podcast", "play_podcast"),
+    # podcast_skip_forward
+    TestCase("skip forward 2 minutes", "podcast_skip_forward"),
+    TestCase("skip ahead 5 minutes", "podcast_skip_forward"),
+    TestCase("skip the intro", "podcast_skip_forward"),
+    TestCase("forward 30 seconds", "podcast_skip_forward"),
+    # podcast_skip_back
+    TestCase("go back 30 seconds", "podcast_skip_back"),
+    TestCase("rewind 10 seconds", "podcast_skip_back"),
+    TestCase("back 15 seconds", "podcast_skip_back"),
+    TestCase("I missed that, go back", "podcast_skip_back"),
+    # podcast_speed
+    TestCase("play at 1.5x speed", "podcast_speed"),
+    TestCase("set playback speed to 2x", "podcast_speed"),
+    TestCase("normal speed", "podcast_speed"),
+    TestCase("slow down the podcast", "podcast_speed"),
+
+    # ── #525 Timer Management ────────────────────────────────────────────
+    # list_timers
+    TestCase("what timers do I have", "list_timers"),
+    TestCase("show my timers", "list_timers"),
+    TestCase("how many timers are running", "list_timers"),
+    TestCase("list timers", "list_timers"),
+    # cancel_timer_named
+    TestCase("cancel the pasta timer", "cancel_timer_named"),
+    TestCase("cancel the 10 minute timer", "cancel_timer_named"),
+    TestCase("stop the egg timer", "cancel_timer_named"),
+    TestCase("dismiss the laundry timer", "cancel_timer_named"),
+    # get_timer_remaining
+    TestCase("how long left on my timer", "get_timer_remaining"),
+    TestCase("how much time is left on the pasta timer", "get_timer_remaining"),
+    TestCase("how long until the timer goes off", "get_timer_remaining"),
 ]
 
 

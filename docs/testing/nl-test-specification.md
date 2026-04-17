@@ -612,6 +612,175 @@ For each skill, these are phrases a real person would plausibly say to a voice/c
 
 ---
 
+### 1.40 stop_media
+
+> **Feature:** #521 — Media Controls
+> **Rationale:** Distinct from `pause_media` (which suspends playback for resumption). `stop_media` ends the media session entirely. Uses `MediaController.transportControls.stop()`.
+
+| # | Phrase | Style |
+|---|--------|-------|
+| 1 | "stop playing" | terse |
+| 2 | "stop playback" | terse formal |
+| 3 | "stop the audio" | alt noun |
+| 4 | "stop the music" | standard (note: existing harness maps to pause_media — see §1.39) |
+| 5 | "stop" | single word (ambiguous — lower priority than cancel_timer) |
+
+**Boundary:** "stop the timer" → `cancel_timer` (not stop_media). QIR must check timer patterns before generic stop.
+
+---
+
+### 1.41 next_track
+
+> **Feature:** #521 — Media Controls
+> **Rationale:** Skips to the next track via `MediaController.transportControls.skipToNext()` with `KEYCODE_MEDIA_NEXT` fallback.
+
+| # | Phrase | Style |
+|---|--------|-------|
+| 1 | "skip this song" | standard |
+| 2 | "next track" | terse |
+| 3 | "play the next one" | natural |
+| 4 | "next song" | terse |
+| 5 | "skip" | single word |
+| 6 | "next" | single word |
+
+**Boundary:** "skip" alone → `next_track`, NOT `podcast_skip_forward`. Podcast skip requires a qualifier (forward/ahead/intro/duration).
+
+---
+
+### 1.42 previous_track
+
+> **Feature:** #521 — Media Controls
+> **Rationale:** Returns to previous track via `MediaController.transportControls.skipToPrevious()` with `KEYCODE_MEDIA_PREVIOUS` fallback.
+
+| # | Phrase | Style |
+|---|--------|-------|
+| 1 | "previous song" | standard |
+| 2 | "last song" | alt noun |
+| 3 | "go back a song" | natural with qualifier |
+| 4 | "play the previous track" | verbose |
+| 5 | "play that again" | contextual (replay/previous) |
+| 6 | "back" | single word (ambiguous — low confidence) |
+
+**Boundary:** "go back 30 seconds" → `podcast_skip_back` (has duration). "go back a song" → `previous_track` (has "song" qualifier).
+
+---
+
+### 1.43 play_podcast
+
+> **Feature:** #524 — Podcast Patterns
+> **Rationale:** Routes podcast-specific playback. Must not collide with `play_spotify`, `play_plex`, `play_plexamp`, or `play_media`. Requires "podcast" or "episode of" keyword.
+
+| # | Phrase | Style |
+|---|--------|-------|
+| 1 | "play the Joe Rogan podcast" | named podcast |
+| 2 | "play the latest episode of Serial" | "episode of" pattern |
+| 3 | "put on the Daily podcast" | colloquial verb |
+| 4 | "play the news podcast" | generic topic + "podcast" |
+| 5 | "play the Hard Fork podcast" | named podcast |
+| 6 | "listen to the history podcast" | alt verb |
+
+**Boundary:** "play some jazz" → `play_media` (no "podcast"/"episode" keyword). "play Taylor Swift on Spotify" → `play_spotify` (platform-specific, not podcast).
+
+---
+
+### 1.44 podcast_skip_forward
+
+> **Feature:** #524 — Podcast Patterns
+> **Rationale:** Jumps forward in the current podcast episode. Requires "forward", "ahead", "intro", or a duration qualifier after "skip".
+
+| # | Phrase | Style |
+|---|--------|-------|
+| 1 | "skip forward 2 minutes" | standard |
+| 2 | "skip ahead 5 minutes" | alt preposition |
+| 3 | "skip the intro" | common podcast action |
+| 4 | "forward 30 seconds" | terse |
+| 5 | "jump forward 1 minute" | alt verb |
+
+**Boundary:** "skip" alone → `next_track` (no forward/ahead/intro qualifier). "skip this song" → `next_track`.
+
+---
+
+### 1.45 podcast_skip_back
+
+> **Feature:** #524 — Podcast Patterns
+> **Rationale:** Rewinds within the current episode. Requires a duration or "rewind" keyword.
+
+| # | Phrase | Style |
+|---|--------|-------|
+| 1 | "go back 30 seconds" | natural + duration |
+| 2 | "rewind 10 seconds" | standard |
+| 3 | "back 15 seconds" | terse + duration |
+| 4 | "I missed that, go back" | contextual — "missed" implies re-listen |
+| 5 | "rewind a bit" | vague duration |
+
+**Boundary:** "go back a song" → `previous_track` (has "song" qualifier, not a duration). "go back" alone with no duration/context → `previous_track` (music default).
+
+---
+
+### 1.46 podcast_speed
+
+> **Feature:** #524 — Podcast Patterns
+> **Rationale:** Adjusts playback speed. Triggered by speed multiplier patterns (Nx), "playback speed", or "slow down the podcast".
+
+| # | Phrase | Style |
+|---|--------|-------|
+| 1 | "play at 1.5x speed" | standard multiplier |
+| 2 | "set playback speed to 2x" | verbose |
+| 3 | "normal speed" | reset to 1x |
+| 4 | "slow down the podcast" | natural phrasing |
+| 5 | "speed up the podcast" | natural phrasing |
+| 6 | "double speed" | colloquial |
+
+---
+
+### 1.47 list_timers
+
+> **Feature:** #525 — Timer Management (internal Room registry)
+> **Rationale:** Queries the internal timer registry to list all active timers. Distinct from `set_timer` and `cancel_timer`.
+
+| # | Phrase | Style |
+|---|--------|-------|
+| 1 | "what timers do I have" | question |
+| 2 | "show my timers" | imperative |
+| 3 | "how many timers are running" | count query |
+| 4 | "list timers" | terse |
+| 5 | "do I have any timers" | yes/no question |
+| 6 | "active timers" | terse |
+
+---
+
+### 1.48 cancel_timer_named
+
+> **Feature:** #525 — Timer Management
+> **Rationale:** Cancels a specific timer by name or duration label. Distinct from `cancel_timer` which dismisses all timers. Requires a specific qualifier after "the" (e.g., "the pasta timer", "the 10 minute timer").
+
+| # | Phrase | Style |
+|---|--------|-------|
+| 1 | "cancel the pasta timer" | named timer |
+| 2 | "cancel the 10 minute timer" | duration-labeled timer |
+| 3 | "stop the egg timer" | alt verb + named |
+| 4 | "dismiss the laundry timer" | alt verb + named |
+| 5 | "get rid of the workout timer" | colloquial + named |
+
+**Boundary:** "cancel the timer" (no specific name) → `cancel_timer` (dismiss all). `cancel_timer_named` requires a qualifier between "the" and "timer" (name or duration).
+
+---
+
+### 1.49 get_timer_remaining
+
+> **Feature:** #525 — Timer Management
+> **Rationale:** Queries the remaining time on one or more active timers from the Room registry.
+
+| # | Phrase | Style |
+|---|--------|-------|
+| 1 | "how long left on my timer" | standard |
+| 2 | "how much time is left on the pasta timer" | named timer |
+| 3 | "how long until the timer goes off" | natural |
+| 4 | "time remaining on my timer" | terse |
+| 5 | "when does the timer end" | question form |
+
+---
+
 ## 2. False-Positive / Disambiguation Tests
 
 These are phrases that **must NOT** trigger the listed intent. Each includes the correct handling.
@@ -739,6 +908,40 @@ These are phrases that **must NOT** trigger the listed intent. Each includes the
 | 1 | "I got an email from John" | send_email | LLM conversation (past tense) |
 | 2 | "email is broken at work" | send_email | LLM conversation |
 | 3 | "what does email stand for" | send_email | LLM conversation |
+
+### 2.13 Should NOT trigger media control intents (#521)
+
+| # | Phrase | SHOULD NOT match | Expected handling |
+|---|--------|-------------------|-------------------|
+| 1 | "skip the pleasantries" | next_track | LLM conversation |
+| 2 | "let's skip ahead to the good part of the story" | podcast_skip_forward | LLM conversation |
+| 3 | "I need to pause and reflect" | pause_media | LLM conversation |
+| 4 | "stop what you're saying" | stop_media | LLM conversation |
+| 5 | "go back to what you were saying" | previous_track / podcast_skip_back | LLM conversation |
+| 6 | "what's the next step" | next_track | LLM conversation |
+| 7 | "the previous owner of the house" | previous_track | LLM conversation |
+
+### 2.14 Should NOT trigger podcast intents (#524)
+
+| # | Phrase | SHOULD NOT match | Expected handling |
+|---|--------|-------------------|-------------------|
+| 1 | "skip" | podcast_skip_forward | next_track (music context — no forward/ahead/intro qualifier) |
+| 2 | "play some jazz" | play_podcast | play_media (no "podcast"/"episode" keyword) |
+| 3 | "play Taylor Swift on Spotify" | play_podcast | play_spotify (platform-specific) |
+| 4 | "go back" (no duration) | podcast_skip_back | previous_track or LLM (no duration/rewind keyword) |
+| 5 | "I listen to a lot of podcasts" | play_podcast | LLM conversation (not an action) |
+| 6 | "what speed is the car going" | podcast_speed | LLM conversation |
+
+### 2.15 Should NOT trigger timer management intents (#525)
+
+| # | Phrase | SHOULD NOT match | Expected handling |
+|---|--------|-------------------|-------------------|
+| 1 | "cancel the timer" | cancel_timer_named | cancel_timer (dismiss all — no specific name) |
+| 2 | "stop the timer" | cancel_timer_named | cancel_timer (dismiss all — no specific name) |
+| 3 | "how long until Christmas" | get_timer_remaining | LLM conversation (no "timer" context) |
+| 4 | "I have a lot of time left" | get_timer_remaining | LLM conversation |
+| 5 | "my old timer watch broke" | list_timers | LLM conversation |
+| 6 | "dismiss the timer" | cancel_timer_named | cancel_timer (no specific name — "the timer" = all) |
 
 ---
 
@@ -1148,9 +1351,68 @@ TestCase("turn on the heater", "smart_home_on"),
 # --- Pause ---
 TestCase("pause", "pause_media"),
 TestCase("stop the music", "pause_media"),
+
+# ── #521 Media Controls ──────────────────────────────────────────────
+# pause_media (additional)
+TestCase("pause the music", "pause_media"),
+TestCase("pause playback", "pause_media"),
+TestCase("hold on", "pause_media"),
+# stop_media
+TestCase("stop playing", "stop_media"),
+TestCase("stop playback", "stop_media"),
+TestCase("stop the audio", "stop_media"),
+# next_track
+TestCase("skip this song", "next_track"),
+TestCase("next track", "next_track"),
+TestCase("play the next one", "next_track"),
+TestCase("next song", "next_track"),
+TestCase("skip", "next_track"),
+# previous_track
+TestCase("previous song", "previous_track"),
+TestCase("last song", "previous_track"),
+TestCase("go back a song", "previous_track"),
+TestCase("play the previous track", "previous_track"),
+
+# ── #524 Podcast Patterns ────────────────────────────────────────────
+# play_podcast
+TestCase("play the Joe Rogan podcast", "play_podcast"),
+TestCase("play the latest episode of Serial", "play_podcast"),
+TestCase("put on the Daily podcast", "play_podcast"),
+TestCase("play the news podcast", "play_podcast"),
+# podcast_skip_forward
+TestCase("skip forward 2 minutes", "podcast_skip_forward"),
+TestCase("skip ahead 5 minutes", "podcast_skip_forward"),
+TestCase("skip the intro", "podcast_skip_forward"),
+TestCase("forward 30 seconds", "podcast_skip_forward"),
+# podcast_skip_back
+TestCase("go back 30 seconds", "podcast_skip_back"),
+TestCase("rewind 10 seconds", "podcast_skip_back"),
+TestCase("back 15 seconds", "podcast_skip_back"),
+TestCase("I missed that, go back", "podcast_skip_back"),
+# podcast_speed
+TestCase("play at 1.5x speed", "podcast_speed"),
+TestCase("set playback speed to 2x", "podcast_speed"),
+TestCase("normal speed", "podcast_speed"),
+TestCase("slow down the podcast", "podcast_speed"),
+
+# ── #525 Timer Management ────────────────────────────────────────────
+# list_timers
+TestCase("what timers do I have", "list_timers"),
+TestCase("show my timers", "list_timers"),
+TestCase("how many timers are running", "list_timers"),
+TestCase("list timers", "list_timers"),
+# cancel_timer_named
+TestCase("cancel the pasta timer", "cancel_timer_named"),
+TestCase("cancel the 10 minute timer", "cancel_timer_named"),
+TestCase("stop the egg timer", "cancel_timer_named"),
+TestCase("dismiss the laundry timer", "cancel_timer_named"),
+# get_timer_remaining
+TestCase("how long left on my timer", "get_timer_remaining"),
+TestCase("how much time is left on the pasta timer", "get_timer_remaining"),
+TestCase("how long until the timer goes off", "get_timer_remaining"),
 ```
 
-> **Note:** These 55 cases intentionally over-deliver on the "30-40" request. Trim if needed,
+> **Note:** These 55+42 cases intentionally over-deliver on the "30-40" request. Trim if needed,
 > but broader coverage is better for a production assistant. Prioritise cases that test
 > terse single-word inputs, colloquial verbs, and NZ/AU phrasing — these are the most likely
 > to expose routing gaps.
