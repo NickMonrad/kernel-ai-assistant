@@ -244,24 +244,24 @@ TEST_CASES: list[TestCase] = [
 
     # ── #521 Media Controls ──────────────────────────────────────────────
     # pause_media (additional — "pause" already in section above via §1.39)
-    TestCase("pause the music", "pause_media", xfail=True),
-    TestCase("pause playback", "pause_media", xfail=True),
-    TestCase("hold on", "pause_media", xfail=True),
+    TestCase("pause the music", "pause_media"),
+    TestCase("pause playback", "pause_media"),
+    TestCase("hold on", "pause_media"),
     # stop_media
-    TestCase("stop playing", "stop_media", xfail=True),
-    TestCase("stop playback", "stop_media", xfail=True),
-    TestCase("stop the audio", "stop_media", xfail=True),
+    TestCase("stop playing", "stop_media"),
+    TestCase("stop playback", "stop_media"),
+    TestCase("stop the audio", "stop_media"),
     # next_track
-    TestCase("skip this song", "next_track", xfail=True),
-    TestCase("next track", "next_track", xfail=True),
-    TestCase("play the next one", "next_track", xfail=True),
-    TestCase("next song", "next_track", xfail=True),
-    TestCase("skip", "next_track", xfail=True),
+    TestCase("skip this song", "next_track"),
+    TestCase("next track", "next_track"),
+    TestCase("play the next one", "next_track"),
+    TestCase("next song", "next_track"),
+    TestCase("skip", "next_track"),
     # previous_track
-    TestCase("previous song", "previous_track", xfail=True),
-    TestCase("last song", "previous_track", xfail=True),
-    TestCase("go back a song", "previous_track", xfail=True),
-    TestCase("play the previous track", "previous_track", xfail=True),
+    TestCase("previous song", "previous_track"),
+    TestCase("last song", "previous_track"),
+    TestCase("go back a song", "previous_track"),
+    TestCase("play the previous track", "previous_track"),
 
     # ── #524 Podcast Patterns ────────────────────────────────────────────
     # play_podcast

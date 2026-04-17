@@ -965,6 +965,75 @@ class QuickIntentRouter(
             },
         ),
 
+        // ── Media Transport Controls ──
+        // pause_media — pause/hold on/wait [music/audio/etc]
+        IntentPattern(
+            intentName = "pause_media",
+            regex = Regex(
+                """(?i)\b(?:pause|hold on|hold it|wait)\b(?:\s+(?:the\s+)?(?:music|song|audio|playback|podcast|video))?$""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // stop_media — stop/end playing [music/audio/etc]
+        IntentPattern(
+            intentName = "stop_media",
+            regex = Regex(
+                """(?i)\b(?:stop|end)\s+(?:the\s+)?(?:music|song|audio|playback|podcast|video|playing)\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "stop_media",
+            regex = Regex(
+                """(?i)\bstop\s+playing\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // next_track — skip/next [song/track/one]
+        IntentPattern(
+            intentName = "next_track",
+            regex = Regex(
+                """(?i)\b(?:next|skip)\s+(?:(?:the\s+)?(?:song|track|one|video|episode))\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "next_track",
+            regex = Regex(
+                """(?i)\bskip\s+this\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "next_track",
+            regex = Regex(
+                """(?i)^(?:next\s+(?:song|track)|skip)$""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // previous_track — previous/last/back [song/track]
+        IntentPattern(
+            intentName = "previous_track",
+            regex = Regex(
+                """(?i)\b(?:previous|last|back)\s+(?:song|track|one)\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "previous_track",
+            regex = Regex(
+                """(?i)\bgo\s+back\s+(?:a\s+)?(?:song|track)\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "previous_track",
+            regex = Regex(
+                """(?i)\bplay\s+(?:the\s+)?previous\s+(?:song|track)\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
         // ── Navigation ──
         IntentPattern(
             intentName = "navigate_to",

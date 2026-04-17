@@ -19,6 +19,7 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.telephony.TelephonyManager
 import android.util.Log
+import android.view.KeyEvent
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
@@ -73,6 +74,10 @@ private const val TAG = "KernelAI"
  *   play_media              — INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH (params: query, artist?)
  *   play_media_album        — INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH album focus (params: album, artist?)
  *   play_media_playlist     — INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH playlist focus (params: playlist)
+ *   pause_media             — AudioManager KEYCODE_MEDIA_PAUSE
+ *   stop_media              — AudioManager KEYCODE_MEDIA_STOP
+ *   next_track              — AudioManager KEYCODE_MEDIA_NEXT
+ *   previous_track          — AudioManager KEYCODE_MEDIA_PREVIOUS
  *   play_plex               — Plex deep link (params: title)
  *   navigate_to             — Google Maps / geo: URI (params: destination)
  *   find_nearby             — geo: URI nearby search (params: query)
@@ -128,6 +133,10 @@ class NativeIntentHandler @Inject constructor(
                 "play_youtube_music" -> playYoutubeMusic(params)
                 "play_netflix" -> playNetflix(params)
                 "play_plex" -> playPlex(params)
+                "pause_media" -> dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PAUSE)
+                "stop_media" -> dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_STOP)
+                "next_track" -> dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_NEXT)
+                "previous_track" -> dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS)
                 "open_app" -> openApp(params)
                 "navigate_to" -> navigateTo(params)
                 "find_nearby" -> findNearby(params)
@@ -576,6 +585,24 @@ class NativeIntentHandler @Inject constructor(
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("play_media", "No music app found to handle this request")
         }
+    }
+
+    // ── Media Transport Controls ──────────────────────────────────────────
+
+    private fun dispatchMediaKey(keyCode: Int): SkillResult {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val down = KeyEvent(KeyEvent.ACTION_DOWN, keyCode)
+        val up   = KeyEvent(KeyEvent.ACTION_UP,   keyCode)
+        am.dispatchMediaKeyEvent(down)
+        am.dispatchMediaKeyEvent(up)
+        val label = when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PAUSE    -> "Paused"
+            KeyEvent.KEYCODE_MEDIA_STOP     -> "Stopped"
+            KeyEvent.KEYCODE_MEDIA_NEXT     -> "Skipped to next track"
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "Previous track"
+            else -> "Done"
+        }
+        return SkillResult.Success(label)
     }
 
     // ── Plex ──────────────────────────────────────────────────────────────────
