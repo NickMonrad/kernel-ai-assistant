@@ -219,7 +219,7 @@ def cleanup_side_effects() -> None:
         time.sleep(3)  # Brief pause — just enough for the intent to dispatch
 
 
-
+def extract_intent(logcat_output: str) -> str | None:
     """Extract the first intent= value from logcat output (logcat is cleared before each test)."""
     matches = INTENT_PATTERN.findall(logcat_output)
     return matches[0] if matches else None
