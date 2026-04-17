@@ -926,6 +926,17 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("contact" to match.groupValues[1].trim()) },
         ),
+        // Self-send: "text myself [message]" / "text me [message]" — contact resolved to own number
+        IntentPattern(
+            intentName = "send_sms",
+            regex = Regex(
+                """^(?:text|sms)\s+(?:myself|me)\s+(.+)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf("contact" to "myself", "message" to match.groupValues[1].trim())
+            },
+        ),
         // "send a text to John saying hello" / "text John hey" / "sms John meet at 5"
         IntentPattern(
             intentName = "send_sms",

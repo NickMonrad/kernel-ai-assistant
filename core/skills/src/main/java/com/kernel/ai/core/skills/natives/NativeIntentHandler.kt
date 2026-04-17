@@ -17,6 +17,7 @@ import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
+import android.telephony.TelephonyManager
 import android.util.Log
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
@@ -740,6 +741,21 @@ class NativeIntentHandler @Inject constructor(
     }
 
     private fun resolveContactNumber(name: String): String? {
+        // 0. Self-referential aliases — resolve to device's own phone number
+        val selfTerms = setOf("myself", "me", "my number", "my phone", "my cell")
+        val normalised0 = name.trim().lowercase()
+        if (normalised0 in selfTerms) {
+            val ownNumber = try {
+                val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+                tm?.line1Number?.takeIf { it.isNotBlank() }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not retrieve own phone number", e)
+                null
+            }
+            Log.d(TAG, "Self-referential contact '$name' → own number: $ownNumber")
+            return ownNumber  // null means SMS composer opens without pre-filled number
+        }
+
         // 1. Alias check — strip common prefixes, normalise, look up in DB
         val normalised = name.trim().lowercase()
             .removePrefix("my ").removePrefix("the ")
