@@ -111,6 +111,11 @@ class ChatViewModel @Inject constructor(
     /** Estimated tokens consumed in the current LiteRT conversation (system prompt not counted). */
     private var estimatedTokensUsed = 0
 
+    /** Complete (user, assistant) turn pairs accumulated since the last KV cache reset.
+     *  Triggers a proactive reset when it reaches the dynamic turn limit derived from
+     *  [activeContextWindowSize] to cap KV cache memory growth (#543). */
+    private var turnsSinceReset = 0
+
     /** The model currently loaded into the inference engine; used for the [Runtime] context block. */
     private var activeModel: KernelModel? = null
 
@@ -417,6 +422,7 @@ class ChatViewModel @Inject constructor(
                     toolProvider = toolProvider,
                 ))
                 estimatedTokensUsed = 0
+                turnsSinceReset = 0
                 inferenceEngine.updateSystemPrompt(buildSystemPrompt())
             } catch (e: Exception) {
                 _error.value = "Failed to load model: ${e.message}"
@@ -462,6 +468,7 @@ class ChatViewModel @Inject constructor(
                     toolProvider = toolProvider,
                 ))
                 estimatedTokensUsed = 0
+                turnsSinceReset = 0
                 // Rebuild system prompt now that activeBackend is resolved (backend field
                 // was null during initialize()).
                 inferenceEngine.updateSystemPrompt(buildSystemPrompt())
@@ -753,6 +760,10 @@ class ChatViewModel @Inject constructor(
             // the conversation and replay history to avoid LiteRT locking up.
             val tokenBudget = activeContextWindowSize
             val proactiveReset = estimatedTokensUsed > (tokenBudget * 0.75).toInt()
+            // Turn-count reset: cap KV cache growth to a dynamic limit derived from the active
+            // context window size, preventing OOM after rapid short-message inferences (#543).
+            val maxTurns = ContextWindowManager.maxTurnsForContext(activeContextWindowSize)
+            val turnCountReset = turnsSinceReset >= maxTurns
 
             // Context stripping for tool-routable queries (#438, #481).
             // When the router had a best-guess intent (FallThrough with non-null bestGuess)
@@ -781,12 +792,17 @@ class ChatViewModel @Inject constructor(
                 }.trimEnd()
             } else ""
 
-            if (needsHistoryReplay || proactiveReset) {
+            if (needsHistoryReplay || proactiveReset || turnCountReset) {
                 needsHistoryReplay = false
                 val allMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
-                val turns = contextWindowManager.extractTurns(
+                val rawTurns = contextWindowManager.extractTurns(
                     allMessages.map { it.content to (it.role == ChatMessage.Role.USER) }
                 )
+                // Apply turn-count cap before token-budget selection so both limits are enforced.
+                val turns = rawTurns.takeLast(maxTurns)
+                if (turns.size < rawTurns.size) {
+                    Log.d("KernelAI", "Context truncated (turn limit $maxTurns for ${activeContextWindowSize}t window): kept last ${turns.size} of ${rawTurns.size} turns")
+                }
                 val selected = contextWindowManager.selectHistory(turns, ContextWindowManager.historyBudget(activeContextWindowSize))
                 // Inject history into the system prompt so Gemma treats it as background context.
                 val systemPromptWithHistory = buildSystemPrompt(selected, isFirstReply = isFirstReply, identityTier = effectiveIdentityTier)
@@ -795,6 +811,7 @@ class ChatViewModel @Inject constructor(
                 estimatedTokensUsed = selected.sumOf {
                     contextWindowManager.estimateTokens(it.first) + contextWindowManager.estimateTokens(it.second)
                 } + effectiveRagTokenCost
+                turnsSinceReset = 0
             } else {
                 estimatedTokensUsed += effectiveRagTokenCost
             }
@@ -907,6 +924,7 @@ class ChatViewModel @Inject constructor(
                                 ragRepository.indexMessage(savedId, convId, resultContent)
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
                                     contextWindowManager.estimateTokens(resultContent)
+                                turnsSinceReset++
                                 // Do NOT set needsHistoryReplay here — KV cache remains valid after
                                 // native tool calls and forcing a replay drops prior turns from the
                                 // tight history budget, causing context amnesia (#446).
@@ -953,6 +971,7 @@ class ChatViewModel @Inject constructor(
                                 ragRepository.indexMessage(savedAssistantMsgId, convId, displayContent)
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
                                     contextWindowManager.estimateTokens(displayContent)
+                                turnsSinceReset++
                             }
 
                             // Clear streaming tracking now that the message is fully persisted.
@@ -1038,6 +1057,7 @@ class ChatViewModel @Inject constructor(
         // Mark needsHistoryReplay so the next message re-injects prior context.
         needsHistoryReplay = true
         estimatedTokensUsed = 0
+        turnsSinceReset = 0
         viewModelScope.launch {
             inferenceEngine.resetConversation()
         }
@@ -1060,6 +1080,7 @@ class ChatViewModel @Inject constructor(
             titleGenerationStarted = false
             titleIsPlaceholder = false
             estimatedTokensUsed = 0
+            turnsSinceReset = 0
             needsHistoryReplay = false
             inferenceEngine.resetConversation()
         }

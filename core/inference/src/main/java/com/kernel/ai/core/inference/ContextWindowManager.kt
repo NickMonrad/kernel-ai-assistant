@@ -21,12 +21,25 @@ class ContextWindowManager {
          *  Previously 2048 — over-reserved, leaving only ~1024 tokens for history on a 4096 window. */
         const val SYSTEM_OVERHEAD = 1400
 
+        /** Conservative average tokens per (user + assistant) turn pair. */
+        const val AVG_TOKENS_PER_TURN = 100
+
         /**
          * Tokens available for conversation history given [contextWindowSize].
          * Clamped to zero so callers never receive a negative budget.
          */
         fun historyBudget(contextWindowSize: Int): Int =
             (contextWindowSize - RESPONSE_RESERVE - SYSTEM_OVERHEAD).coerceAtLeast(0)
+
+        /**
+         * Maximum conversation turns to retain given [contextWindowSize].
+         * Derived from the history token budget assuming [avgTokensPerTurn] per turn.
+         * Acts as a hard ceiling that scales with the active model context window.
+         */
+        fun maxTurnsForContext(
+            contextWindowSize: Int,
+            avgTokensPerTurn: Int = AVG_TOKENS_PER_TURN,
+        ): Int = (historyBudget(contextWindowSize) / avgTokensPerTurn).coerceAtLeast(4)
 
         /**
          * Token budget for RAG context block, scaled to [contextWindowSize].
@@ -119,4 +132,5 @@ class ContextWindowManager {
         val used = turns.sumOf { estimateTokens(it.first) + estimateTokens(it.second) }
         return used.toFloat() / historyBudget(contextWindowSize)
     }
+
 }
