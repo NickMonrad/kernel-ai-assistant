@@ -259,6 +259,9 @@ fun KernelNavHost(
                                 popUpTo(ROUTE_LIST) { inclusive = true }
                             }
                         },
+                        onNavigateToSettings = {
+                            navController.navigate(ROUTE_SETTINGS)
+                        },
                     )
                 }
 
@@ -275,6 +278,9 @@ fun KernelNavHost(
                         },
                         onNavigateToList = {
                             navController.popBackStack()
+                        },
+                        onNavigateToSettings = {
+                            navController.navigate(ROUTE_SETTINGS)
                         },
                     )
                 }
