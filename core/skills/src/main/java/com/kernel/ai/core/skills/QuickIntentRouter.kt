@@ -67,6 +67,15 @@ class QuickIntentRouter(
         fun classify(input: String): Classification?
     }
 
+    // ── Intent prefix normalisation ───────────────────────────────────────────
+
+    /** Strips common conversational prefixes before pattern matching so that
+     *  "I want to turn on the torch" matches the same regex as "turn on the torch". */
+    private val INTENT_PREFIX_RE = Regex(
+        """^(?:(?:i\s+)?(?:want|need|would\s+like)\s+to|can\s+you|could\s+you|please|hey(?:\s+jandal)?)[,\s]+""",
+        RegexOption.IGNORE_CASE,
+    )
+
     // ── Regex patterns ────────────────────────────────────────────────────────
 
     private data class IntentPattern(
@@ -1911,7 +1920,7 @@ class QuickIntentRouter(
     // ── Main routing ──────────────────────────────────────────────────────────
 
     fun route(input: String): RouteResult {
-        val trimmed = input.trim()
+        val trimmed = INTENT_PREFIX_RE.replace(input.trim(), "")
 
         // Stage 1: Regex
         for (pattern in patterns) {

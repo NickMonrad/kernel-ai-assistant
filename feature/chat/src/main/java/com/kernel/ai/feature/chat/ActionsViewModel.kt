@@ -10,6 +10,8 @@ import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.slot.PendingSlotRequest
+import com.kernel.ai.core.skills.slot.SlotFillerManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +37,7 @@ class ActionsViewModel @Inject constructor(
     private val quickIntentRouter: QuickIntentRouter,
     private val skillRegistry: SkillRegistry,
     private val quickActionDao: QuickActionDao,
+    private val slotFillerManager: SlotFillerManager,
 ) : ViewModel() {
 
     // ── Action history ──────────────────────────────────────────────────────
@@ -102,10 +105,17 @@ class ActionsViewModel @Inject constructor(
                         return@launch
                     }
                     is QuickIntentRouter.RouteResult.NeedsSlot -> {
-                        // Multi-turn slot-filling isn't supported in the Actions tab —
-                        // navigate to Chat where the full conversation flow can handle it.
-                        Log.d(TAG, "ActionsViewModel: NeedsSlot for \"$query\" → navigating to chat")
-                        _events.emit(UiEvent.NavigateToChat(query))
+                        // Multi-turn slot-filling — prime the SlotFillerManager then navigate to
+                        // Chat so the slot prompt is shown instead of re-routing the original query.
+                        Log.d(TAG, "ActionsViewModel: NeedsSlot for \"$query\" → priming slot fill, navigating to chat")
+                        slotFillerManager.startSlotFill(
+                            PendingSlotRequest(
+                                intentName = routeResult.intent.intentName,
+                                existingParams = routeResult.intent.params,
+                                missingSlot = routeResult.missingSlot,
+                            ),
+                        )
+                        _events.emit(UiEvent.NavigateToChat(""))
                         _uiState.value = UiState.Idle
                         return@launch
                     }
