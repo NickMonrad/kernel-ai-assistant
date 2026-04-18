@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -83,6 +84,10 @@ class LiteRtInferenceEngine @Inject constructor(
     /** Ensures only one generation (chat or isolated) runs at a time. */
     private val generationMutex = Mutex()
 
+    /** Prevents concurrent [initialize] calls — a second call while GPU init is in progress
+     *  would queue a redundant 47s GPU load immediately after the first finishes. */
+    private val isInitializing = AtomicBoolean(false)
+
     // -------------------------------------------------------------------------
     // Lifecycle
     // -------------------------------------------------------------------------
@@ -106,6 +111,11 @@ class LiteRtInferenceEngine @Inject constructor(
     }
 
     override suspend fun initialize(config: ModelConfig) {
+        if (!isInitializing.compareAndSet(false, true)) {
+            Log.d(TAG, "Initialize already in progress — skipping duplicate call")
+            return
+        }
+        try {
         withContext(LlmDispatcher) {
             // GPU hardware is suspended when the screen is off; delay init until screen is on.
             waitForScreenInteractive()
@@ -150,6 +160,9 @@ class LiteRtInferenceEngine @Inject constructor(
             } finally {
                 InferenceLoadingService.stop(context)
             }
+        }
+        } finally {
+            isInitializing.set(false)
         }
     }
 

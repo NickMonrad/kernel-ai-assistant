@@ -252,11 +252,20 @@ class ChatViewModel @Inject constructor(
                 withContext(Dispatchers.Main) {
                     suspendCancellableCoroutine { cont ->
                         val lifecycle = ProcessLifecycleOwner.get().lifecycle
+                        // LifecycleEventObserver replays catch-up events when added (e.g. ON_START
+                        // if current state is STARTED). We must ignore that replay and only resume
+                        // after we've confirmed the app went to background (ON_STOP) and came back
+                        // (ON_START). Pre-seed seenStop=true if debounce has already fired.
+                        var seenStop = lifecycle.currentState < Lifecycle.State.STARTED
                         val observer = object : LifecycleEventObserver {
                             override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
-                                if (event == Lifecycle.Event.ON_START) {
-                                    lifecycle.removeObserver(this)
-                                    if (cont.isActive) cont.resume(Unit)
+                                when (event) {
+                                    Lifecycle.Event.ON_STOP -> seenStop = true
+                                    Lifecycle.Event.ON_START -> if (seenStop) {
+                                        lifecycle.removeObserver(this)
+                                        if (cont.isActive) cont.resume(Unit)
+                                    }
+                                    else -> {}
                                 }
                             }
                         }
