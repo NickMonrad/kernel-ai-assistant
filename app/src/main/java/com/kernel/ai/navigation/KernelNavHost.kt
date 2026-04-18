@@ -77,6 +77,7 @@ private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
 fun KernelNavHost(
     initialChatQuery: String? = null,
     initialQuickActionQuery: String? = null,
+    initialSlotReply: String? = null,
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -221,6 +222,7 @@ fun KernelNavHost(
                         ActionsScreen(
                             autoOpenSheet = openSheet,
                             initialQuery = initialQuickActionQuery,
+                            adbSlotReply = initialSlotReply,
                             onNavigateToChat = { query ->
                                 val encoded = Uri.encode(query)
                                 navController.navigate("$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded")

@@ -88,7 +88,9 @@ class TestCase:
     expect_reply_contains: str | None = None  # if set, verify DirectReply logcat contains this (best-effort)
     expect_params: dict[str, str] | None = None  # if set, assert these key=value pairs appear in extracted params
     # Slot-fill test fields: if set, `message` is sent via quick_action_input (triggers NeedsSlot),
-    # then `slot_reply` is sent via chat_input to complete the slot, and the intent is verified after.
+    # then `slot_reply` is sent via slot_reply_input to ActionsViewModel.onSlotReply(), and the
+    # intent is verified after. (Pre-#589: slot_reply was delivered via chat_input — now uses
+    # the dedicated slot_reply_input extra so it stays in the Actions tab.)
     slot_reply: str | None = None
 
 
@@ -511,7 +513,30 @@ def send_quick_action(text: str) -> None:
     )
 
 
-DB_PATH = f"/data/data/{PACKAGE}/databases/kernel_db"
+def send_slot_reply(text: str) -> None:
+    """Deliver slot_reply_input extra via onNewIntent → ActionsViewModel.onSlotReply().
+
+    Used for the second turn of a slot-fill test: after send_quick_action triggers NeedsSlot
+    and the ModalBottomSheet is shown, this delivers the user's answer directly to the
+    ActionsViewModel without navigating away from the Actions tab.
+    """
+    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    time.sleep(0.3)
+    run_adb(
+        "shell",
+        "am",
+        "start",
+        "--activity-clear-top",
+        "--activity-single-top",
+        "-n",
+        ACTIVITY,
+        "--es",
+        "slot_reply_input",
+        shlex.quote(text),
+    )
+
+
+
 ALIAS_TEST_NAME = "zippy"       # test alias → resolves to Voicemail contact
 ALIAS_DISPLAY_NAME = "Voicemail"  # must match a real contact on the device
 
@@ -971,13 +996,13 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
 
             if tc.slot_reply is not None:
                 # Slot-fill test: two-turn flow
-                # Turn 1: bare query via quick_action_input → NeedsSlot → Chat slot prompt
+                # Turn 1: bare query via quick_action_input → NeedsSlot → ModalBottomSheet
                 send_quick_action(tc.message)
                 time.sleep(WAIT_SECONDS)
-                # Turn 2: slot reply via chat_input → fills slot → intent fires
+                # Turn 2: slot reply via slot_reply_input → ActionsViewModel.onSlotReply() → intent fires
                 clear_logcat()
                 time.sleep(0.5)
-                send_text(tc.slot_reply)
+                send_slot_reply(tc.slot_reply)
             else:
                 send_text(tc.message)
 

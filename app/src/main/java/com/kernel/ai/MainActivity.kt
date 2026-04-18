@@ -36,6 +36,9 @@ class MainActivity : ComponentActivity() {
     /** Bridges ADB `--es quick_action_input` extras into ActionsViewModel.executeAction(). */
     private val adbQuickActionInput = mutableStateOf<String?>(null)
 
+    /** Bridges ADB `--es slot_reply_input` extras into ActionsViewModel.onSlotReply(). */
+    private val adbSlotReplyInput = mutableStateOf<String?>(null)
+
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
 
@@ -50,6 +53,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         adbChatInput.value = intent.getStringExtra("chat_input")
         adbQuickActionInput.value = intent.getStringExtra("quick_action_input")
+        adbSlotReplyInput.value = intent.getStringExtra("slot_reply_input")
         handleAdbProfileText(intent)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -67,6 +71,7 @@ class MainActivity : ComponentActivity() {
                 KernelNavHost(
                     initialChatQuery = adbChatInput.value,
                     initialQuickActionQuery = adbQuickActionInput.value,
+                    initialSlotReply = adbSlotReplyInput.value,
                 )
             }
         }
@@ -85,6 +90,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         intent.getStringExtra("chat_input")?.let { adbChatInput.value = it }
         intent.getStringExtra("quick_action_input")?.let { adbQuickActionInput.value = it }
+        intent.getStringExtra("slot_reply_input")?.let { adbSlotReplyInput.value = it }
         handleAdbProfileText(intent)
         if (AuthorizationResponse.fromIntent(intent) != null ||
             AuthorizationException.fromIntent(intent) != null) {
