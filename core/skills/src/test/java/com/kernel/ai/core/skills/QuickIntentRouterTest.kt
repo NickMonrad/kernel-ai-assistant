@@ -766,6 +766,70 @@ class QuickIntentRouterTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // TWO-PASS FALLBACK REGRESSION TESTS (#555)
+    // Verify that specific patterns always beat catch-all fallback patterns
+    // (play_media, terse smart_home_on/off), regardless of declaration order.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Two-Pass Fallback Regression (#555)")
+    inner class TwoPassFallbackRegression {
+
+        // Test #131: "play the next one" must route to next_track, not play_media.
+        @Test
+        fun `play the next one routes to next_track not play_media`() {
+            val result = regexOnlyRouter.route("play the next one")
+            assertRegexMatch(result, "next_track", "play the next one")
+        }
+
+        // Test #131 variant
+        @Test
+        fun `play next song routes to next_track not play_media`() {
+            val result = regexOnlyRouter.route("play next song")
+            assertRegexMatch(result, "next_track", "play next song")
+        }
+
+        // Test #137: "play the previous track" must route to previous_track, not play_media.
+        @Test
+        fun `play the previous track routes to previous_track not play_media`() {
+            val result = regexOnlyRouter.route("play the previous track")
+            assertRegexMatch(result, "previous_track", "play the previous track")
+        }
+
+        // Test #137 variant
+        @Test
+        fun `play previous song routes to previous_track not play_media`() {
+            val result = regexOnlyRouter.route("play previous song")
+            assertRegexMatch(result, "previous_track", "play previous song")
+        }
+
+        // Test #125: "hold on" must NOT route to smart_home_on.
+        // Expected: FallThrough or ClassifierMatch (never RegexMatch smart_home_on).
+        @Test
+        fun `hold on does not route to smart_home_on`() {
+            val result = regexOnlyRouter.route("hold on")
+            assertNotEquals(
+                "smart_home_on",
+                (result as? QuickIntentRouter.RouteResult.RegexMatch)?.intent?.intentName,
+                "\"hold on\" must not match smart_home_on",
+            )
+        }
+
+        // Smart home catch-all still fires for unambiguous device inputs.
+        @Test
+        fun `lights on still routes to smart_home_on via fallback`() {
+            val result = regexOnlyRouter.route("lights on")
+            assertRegexMatch(result, "smart_home_on", "lights on")
+        }
+
+        @Test
+        fun `heater off still routes to smart_home_off via fallback`() {
+            val result = regexOnlyRouter.route("heater off")
+            assertRegexMatch(result, "smart_home_off", "heater off")
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // NAVIGATION TESTS
     // ═══════════════════════════════════════════════════════════════════════════
 
