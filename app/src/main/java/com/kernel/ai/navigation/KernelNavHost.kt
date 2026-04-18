@@ -74,7 +74,10 @@ private const val ARG_INITIAL_QUERY = "initialQuery"
 private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
 
 @Composable
-fun KernelNavHost(initialChatQuery: String? = null) {
+fun KernelNavHost(
+    initialChatQuery: String? = null,
+    initialQuickActionQuery: String? = null,
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -88,6 +91,15 @@ fun KernelNavHost(initialChatQuery: String? = null) {
         if (!initialChatQuery.isNullOrBlank()) {
             val encoded = Uri.encode(initialChatQuery)
             navController.navigate("$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded") {
+                popUpTo(ROUTE_LIST)
+            }
+        }
+    }
+
+    // ADB test harness: navigate to Actions tab when quick_action_input extra is delivered
+    LaunchedEffect(initialQuickActionQuery) {
+        if (!initialQuickActionQuery.isNullOrBlank()) {
+            navController.navigate(ROUTE_ACTIONS) {
                 popUpTo(ROUTE_LIST)
             }
         }
@@ -208,6 +220,7 @@ fun KernelNavHost(initialChatQuery: String? = null) {
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ActionsScreen(
                             autoOpenSheet = openSheet,
+                            initialQuery = initialQuickActionQuery,
                             onNavigateToChat = { query ->
                                 val encoded = Uri.encode(query)
                                 navController.navigate("$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded")

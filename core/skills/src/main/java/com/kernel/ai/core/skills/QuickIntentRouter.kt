@@ -235,6 +235,21 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
         ),
+        // "set an alarm" / "create an alarm" (no time given) → ask for time
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """^(?:set|create|make)\s+(?:an?\s+)?alarm$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = mapOf(
+                "time" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "time",
+                    promptTemplate = "What time would you like the alarm set for?",
+                ),
+            ),
+        ),
 
         // ── Cancel Alarm ──
         IntentPattern(
@@ -412,6 +427,21 @@ class QuickIntentRouter(
                     emptyMap()
                 }
             },
+        ),
+        // "set a timer" / "start a timer" (no duration given) → ask how long
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """^(?:set|start|create)\s+(?:a\s+)?(?:timer|countdown)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = mapOf(
+                "duration_seconds" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "duration_seconds",
+                    promptTemplate = "How long would you like the timer for?",
+                ),
+            ),
         ),
 
 
@@ -1128,6 +1158,22 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
+        // Open app — "open an app" / "launch an app" (no specific app named) → ask which app
+        // Must come BEFORE the generic open_app pattern below to prevent "an" being captured as app_name
+        IntentPattern(
+            intentName = "open_app",
+            regex = Regex(
+                """^(?:open|launch|start)\s+an?\s+app$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = mapOf(
+                "app_name" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "app_name",
+                    promptTemplate = "Which app would you like to open?",
+                ),
+            ),
+        ),
         // Open app — "open YouTube" / "launch Spotify"
         // Excludes timer/countdown/alarm phrases and phrases that contain "timer" anywhere
         // Also excludes "new conversation/chat" to prevent false matches on conversational phrases
@@ -1509,6 +1555,21 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("destination" to match.groupValues[1].trim()) },
         ),
+        // "navigate" / "get directions" (no destination) → ask where
+        IntentPattern(
+            intentName = "navigate_to",
+            regex = Regex(
+                """^(?:navigate|directions?|get\s+directions?)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = mapOf(
+                "destination" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "destination",
+                    promptTemplate = "Where would you like to go?",
+                ),
+            ),
+        ),
         // ── Find Nearby (most specific first to avoid greedy mis-capture) ──
         // "find me nearby cafes" — verb + me + nearby + query
         IntentPattern(
@@ -1582,6 +1643,21 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
+        // "what's nearby" / "find nearby" (no query) → ask what they're looking for
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """^(?:what(?:'s|\s+is)\s+nearby|find\s+nearby|show\s+(?:me\s+)?what(?:'s|\s+is)\s+nearby)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = mapOf(
+                "query" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "query",
+                    promptTemplate = "What are you looking for?",
+                ),
+            ),
+        ),
 
         // ── Communication ──
         IntentPattern(
@@ -1611,6 +1687,22 @@ class QuickIntentRouter(
             paramExtractor = { match, _ ->
                 mapOf("contact" to "myself", "message" to match.groupValues[1].trim())
             },
+        ),
+        // "send a message" / "send a text" (no contact) → ask who to send to
+        // Must come BEFORE the generic send_sms pattern below (which would capture "a" as contact)
+        IntentPattern(
+            intentName = "send_sms",
+            regex = Regex(
+                """^(?:send\s+(?:a\s+)?(?:text|sms|message)|text\s+someone)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = mapOf(
+                "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "contact",
+                    promptTemplate = "Who do you want to send a message to?",
+                ),
+            ),
         ),
         // "send a text to John saying hello" / "text John hey" / "sms John meet at 5"
         IntentPattern(
@@ -1664,6 +1756,29 @@ class QuickIntentRouter(
                 if (body.isNotBlank()) params["body"] = body
                 params
             },
+            // Ask for subject when contact provided but no subject given.
+            requiredSlots = mapOf(
+                "subject" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "subject",
+                    promptTemplate = "What's the subject of your email to {contact}?",
+                ),
+            ),
+        ),
+        // "send an email" / "email someone" (no contact) → ask who
+        // Must come AFTER the contact-extraction pattern above
+        IntentPattern(
+            intentName = "send_email",
+            regex = Regex(
+                """^(?:send\s+(?:an?\s+)?email|email\s+someone)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = mapOf(
+                "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "contact",
+                    promptTemplate = "Who would you like to email?",
+                ),
+            ),
         ),
 
         // ── System Info ──
@@ -1726,6 +1841,24 @@ class QuickIntentRouter(
                 val listName = match.groupValues[2].trim().ifEmpty { "shopping" }
                 mapOf("item" to item, "list_name" to listName)
             },
+        ),
+        // "add to my list" / "add something to my list" / "add to the shopping list" (no item) → ask what
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """^(?:add|put)\s+(?:something\s+)?to\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?list$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val listName = match.groupValues[1].trim()
+                if (listName.isNotBlank()) mapOf("list_name" to listName) else emptyMap()
+            },
+            requiredSlots = mapOf(
+                "item" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "item",
+                    promptTemplate = "What would you like to add?",
+                ),
+            ),
         ),
         // "create a list called groceries" / "make a new list called holiday packing"
         // Must come BEFORE generic create_list to prevent lazy (.+?) capturing "a" or "new"

@@ -66,6 +66,7 @@ import java.util.Locale
 @Composable
 fun ActionsScreen(
     autoOpenSheet: Boolean = false,
+    initialQuery: String? = null,
     onNavigateToChat: (query: String) -> Unit = {},
     onNewConversation: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
@@ -83,6 +84,11 @@ fun ActionsScreen(
     // avoids re-opening the sheet on recomposition or after process death/restore.
     LaunchedEffect(Unit) {
         if (autoOpenSheet) showBottomSheet = true
+    }
+
+    // ADB harness: auto-execute query when quick_action_input extra is provided.
+    LaunchedEffect(initialQuery) {
+        if (!initialQuery.isNullOrBlank()) viewModel.executeAction(initialQuery)
     }
 
     // Collect one-shot navigation events from the ViewModel.

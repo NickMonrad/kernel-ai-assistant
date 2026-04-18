@@ -259,6 +259,17 @@ class QuickIntentRouterTest {
             assertFallThrough(regexResult, input)
             assertClassifierOrFallthrough(hybridResult, "set_alarm", input)
         }
+
+        @ParameterizedTest(name = "NeedsSlot: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#setAlarmNeedsSlotPhrases")
+        fun `should return NeedsSlot for bare alarm phrases missing time`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result,
+                "Expected NeedsSlot for '$input'")
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("set_alarm", needsSlot.intent.intentName, "intent for '$input'")
+            assertEquals("time", needsSlot.missingSlot.name, "missing slot for '$input'")
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -304,6 +315,17 @@ class QuickIntentRouterTest {
             val hybridResult = hybridRouter.route(input)
             assertFallThrough(regexResult, input)
             assertClassifierOrFallthrough(hybridResult, "set_timer", input)
+        }
+
+        @ParameterizedTest(name = "NeedsSlot: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#setTimerNeedsSlotPhrases")
+        fun `should return NeedsSlot for bare timer phrases missing duration`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result,
+                "Expected NeedsSlot for '$input'")
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("set_timer", needsSlot.intent.intentName, "intent for '$input'")
+            assertEquals("duration_seconds", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
     }
 
@@ -700,6 +722,17 @@ class QuickIntentRouterTest {
             val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals(expectedApp, intent.params["app_name"], "app_name for '$input'")
         }
+
+        @ParameterizedTest(name = "NeedsSlot: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#openAppNeedsSlotPhrases")
+        fun `should return NeedsSlot for bare open-app phrases missing app name`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result,
+                "Expected NeedsSlot for '$input'")
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("open_app", needsSlot.intent.intentName, "intent for '$input'")
+            assertEquals("app_name", needsSlot.missingSlot.name, "missing slot for '$input'")
+        }
     }
 
     @Nested
@@ -855,6 +888,17 @@ class QuickIntentRouterTest {
             val hybridResult = hybridRouter.route(input)
             assertClassifierOrFallthrough(hybridResult, "navigate_to", input)
         }
+
+        @ParameterizedTest(name = "NeedsSlot: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#navigateToNeedsSlotPhrases")
+        fun `should return NeedsSlot for bare navigate phrases missing destination`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result,
+                "Expected NeedsSlot for '$input'")
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("navigate_to", needsSlot.intent.intentName, "intent for '$input'")
+            assertEquals("destination", needsSlot.missingSlot.name, "missing slot for '$input'")
+        }
     }
 
     @Nested
@@ -875,6 +919,17 @@ class QuickIntentRouterTest {
         fun `should match via classifier`(input: String) {
             val hybridResult = hybridRouter.route(input)
             assertClassifierOrFallthrough(hybridResult, "find_nearby", input)
+        }
+
+        @ParameterizedTest(name = "NeedsSlot: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#findNearbyNeedsSlotPhrases")
+        fun `should return NeedsSlot for bare find-nearby phrases missing query`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result,
+                "Expected NeedsSlot for '$input'")
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("find_nearby", needsSlot.intent.intentName, "intent for '$input'")
+            assertEquals("query", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
     }
 
@@ -927,6 +982,17 @@ class QuickIntentRouterTest {
             assertEquals(expectedContact, needsSlot.intent.params["contact"], "contact for '$input'")
             assertEquals("message", needsSlot.missingSlot.name, "missing slot name for '$input'")
         }
+
+        @ParameterizedTest(name = "NeedsSlot no-contact: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#sendSmsNoContactNeedsSlotPhrases")
+        fun `should return NeedsSlot for bare send-message phrases missing contact`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result,
+                "Expected NeedsSlot for '$input'")
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("send_sms", needsSlot.intent.intentName, "intent for '$input'")
+            assertEquals("contact", needsSlot.missingSlot.name, "missing slot for '$input'")
+        }
     }
 
     @Nested
@@ -940,6 +1006,31 @@ class QuickIntentRouterTest {
             assertRegexMatch(result, "send_email", input)
             val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals(expectedContact, intent.params["contact"], "contact for '$input'")
+        }
+
+        @ParameterizedTest(name = "NeedsSlot no-contact: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#sendEmailNoContactNeedsSlotPhrases")
+        fun `should return NeedsSlot for bare send-email phrases missing contact`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result,
+                "Expected NeedsSlot for '$input'")
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("send_email", needsSlot.intent.intentName, "intent for '$input'")
+            assertEquals("contact", needsSlot.missingSlot.name, "missing slot for '$input'")
+        }
+
+        @ParameterizedTest(name = "NeedsSlot contact/no-subject: \"{0}\" → contact={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#sendEmailContactNoSubjectNeedsSlotPhrases")
+        fun `should return NeedsSlot for email phrases with contact but missing subject`(
+            input: String, expectedContact: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result,
+                "Expected NeedsSlot for '$input'")
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("send_email", needsSlot.intent.intentName, "intent for '$input'")
+            assertEquals(expectedContact, needsSlot.intent.params["contact"], "contact for '$input'")
+            assertEquals("subject", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
     }
 
@@ -970,6 +1061,17 @@ class QuickIntentRouterTest {
         fun `should match via classifier`(input: String) {
             val hybridResult = hybridRouter.route(input)
             assertClassifierOrFallthrough(hybridResult, "add_to_list", input)
+        }
+
+        @ParameterizedTest(name = "NeedsSlot: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#addToListNeedsSlotPhrases")
+        fun `should return NeedsSlot for bare add-to-list phrases missing item`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result,
+                "Expected NeedsSlot for '$input'")
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("add_to_list", needsSlot.intent.intentName, "intent for '$input'")
+            assertEquals("item", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
     }
 
@@ -1939,15 +2041,37 @@ class QuickIntentRouterTest {
         )
 
         @JvmStatic
+        fun sendSmsNoContactNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
+            // Bare send-message phrases — no contact, no body → NeedsSlot(contact)
+            Arguments.of("send a message"),
+            Arguments.of("send a text"),
+            Arguments.of("send a sms"),
+        )
+
+        @JvmStatic
+        fun sendEmailNoContactNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
+            // Bare send-email phrases — no contact → NeedsSlot(contact)
+            // Note: "email someone" captures "someone" as contact → NeedsSlot(subject) instead
+            Arguments.of("send an email"),
+        )
+
+        @JvmStatic
+        fun sendEmailContactNoSubjectNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
+            // Contact present but no subject → NeedsSlot(subject)
+            Arguments.of("send email to Dad", "Dad"),
+            Arguments.of("send an email to the team", "the team"),
+            Arguments.of("send email to HR", "HR"),
+            Arguments.of("email someone", "someone"),
+        )
+
+        @JvmStatic
         fun sendEmailRegexPhrases(): Stream<Arguments> = Stream.of(
+            // Cases with a subject keyword — no NeedsSlot triggered
             Arguments.of("email John about the meeting", "John"),
             Arguments.of("send an email to Sarah about project update", "Sarah"),
-            Arguments.of("send email to Dad", "Dad"),
             Arguments.of("send an email to my boss about the project", "my boss"),
             Arguments.of("email Nick about dinner plans", "Nick"),
-            Arguments.of("send an email to the team", "the team"),
             Arguments.of("email Sarah regarding the report", "Sarah"),
-            Arguments.of("send email to HR", "HR"),
         )
 
         // ── Lists ─────────────────────────────────────────────────────────────────
@@ -1967,6 +2091,42 @@ class QuickIntentRouterTest {
         fun addToListClassifierPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("add eggs to my groceries"),
             Arguments.of("put butter on the shopping list"),
+        )
+
+        @JvmStatic
+        fun setAlarmNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("set an alarm"),
+            Arguments.of("set alarm"),
+        )
+
+        @JvmStatic
+        fun setTimerNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("set a timer"),
+            Arguments.of("start a timer"),
+        )
+
+        @JvmStatic
+        fun openAppNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("open an app"),
+            Arguments.of("launch an app"),
+        )
+
+        @JvmStatic
+        fun navigateToNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("navigate"),
+            Arguments.of("get directions"),
+        )
+
+        @JvmStatic
+        fun findNearbyNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("what's nearby"),
+            Arguments.of("find nearby"),
+        )
+
+        @JvmStatic
+        fun addToListNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("add to my list"),
+            Arguments.of("put something to my list"),
         )
 
         @JvmStatic

@@ -87,6 +87,9 @@ class TestCase:
     xfail: bool = False  # True = intent not yet implemented; failure is expected
     expect_reply_contains: str | None = None  # if set, verify DirectReply logcat contains this (best-effort)
     expect_params: dict[str, str] | None = None  # if set, assert these key=value pairs appear in extracted params
+    # Slot-fill test fields: if set, `message` is sent via quick_action_input (triggers NeedsSlot),
+    # then `slot_reply` is sent via chat_input to complete the slot, and the intent is verified after.
+    slot_reply: str | None = None
 
 
 @dataclass
@@ -350,6 +353,64 @@ PHASES: list[tuple[str, list[TestCase]]] = [
         TestCase("normal speed", "podcast_speed"),
         TestCase("slow down the podcast", "podcast_speed"),
     ]),
+    ("slot_fill", [
+        # set_alarm — bare query (no time) → slot asks for time → user provides time
+        TestCase(
+            "set an alarm",
+            "set_alarm",
+            slot_reply="7am",
+            expect_params={"hours": "7", "minutes": "0"},
+        ),
+        # set_timer — bare query (no duration) → slot asks how long → user provides duration
+        TestCase(
+            "set a timer",
+            "set_timer",
+            slot_reply="5 minutes",
+            expect_params={"duration_seconds": "300"},
+        ),
+        # open_app — bare query (no app name) → slot asks which app → user provides name
+        TestCase(
+            "open an app",
+            "open_app",
+            slot_reply="Spotify",
+            expect_params={"app_name": "Spotify"},
+        ),
+        # navigate_to — bare query (no destination) → slot asks where → user provides destination
+        TestCase(
+            "navigate",
+            "navigate_to",
+            slot_reply="Auckland Airport",
+            expect_params={"destination": "Auckland Airport"},
+        ),
+        # find_nearby — bare query (no query) → slot asks what → user provides query
+        TestCase(
+            "find nearby",
+            "find_nearby",
+            slot_reply="coffee",
+            expect_params={"query": "coffee"},
+        ),
+        # send_sms — no contact → slot asks who → user provides contact
+        TestCase(
+            "send a message",
+            "send_sms",
+            slot_reply="Mum",
+            expect_params={"contact": "Mum"},
+        ),
+        # send_email — no contact → slot asks who → user provides contact
+        TestCase(
+            "send an email",
+            "send_email",
+            slot_reply="Nick",
+            expect_params={"contact": "Nick"},
+        ),
+        # add_to_list — no item → slot asks what → user provides item
+        TestCase(
+            "add to my list",
+            "add_to_list",
+            slot_reply="eggs",
+            expect_params={"item": "eggs"},
+        ),
+    ]),
 ]
 
 # Flat list built from phases — preserves backward compatibility with any code
@@ -424,6 +485,28 @@ def send_text(text: str) -> None:
         ACTIVITY,
         "--es",
         "chat_input",
+        shlex.quote(text),
+    )
+
+
+def send_quick_action(text: str) -> None:
+    """Deliver quick_action_input extra — navigates to Actions tab and calls executeAction().
+
+    Used to drive slot-fill tests: bare queries (e.g. "set an alarm") route through
+    ActionsViewModel → QIR → NeedsSlot → navigate to Chat with slot prompt.
+    """
+    run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    time.sleep(0.3)
+    run_adb(
+        "shell",
+        "am",
+        "start",
+        "--activity-clear-top",
+        "--activity-single-top",
+        "-n",
+        ACTIVITY,
+        "--es",
+        "quick_action_input",
         shlex.quote(text),
     )
 
@@ -885,7 +968,19 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
 
             clear_logcat()
             time.sleep(0.5)  # Brief pause to ensure logcat clear is flushed before sending
-            send_text(tc.message)
+
+            if tc.slot_reply is not None:
+                # Slot-fill test: two-turn flow
+                # Turn 1: bare query via quick_action_input → NeedsSlot → Chat slot prompt
+                send_quick_action(tc.message)
+                time.sleep(WAIT_SECONDS)
+                # Turn 2: slot reply via chat_input → fills slot → intent fires
+                clear_logcat()
+                time.sleep(0.5)
+                send_text(tc.slot_reply)
+            else:
+                send_text(tc.message)
+
             time.sleep(WAIT_SECONDS)
             logcat = read_logcat()
             actual_intent, actual_params = extract_intent(logcat)
