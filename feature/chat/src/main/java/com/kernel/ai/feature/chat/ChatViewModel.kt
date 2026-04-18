@@ -48,6 +48,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -136,6 +137,13 @@ class ChatViewModel @Inject constructor(
 
     /** True once [initializeConversation] has completed and [conversationId] is set. */
     private val _conversationInitialized = MutableStateFlow(false)
+
+    /**
+     * Exposed for [ChatScreen]'s initialQuery auto-submit: fires as soon as the conversation
+     * record exists, without waiting for the LLM to load. Slot-fill queries (NeedsSlot) never
+     * need the model; [sendMessage] handles model loading internally for LLM-routed queries.
+     */
+    val isConversationReady: StateFlow<Boolean> = _conversationInitialized.asStateFlow()
     private val _showThinkingProcess = MutableStateFlow(true)
 
     /** Ensures at most one concurrent Gemma-4 initialisation attempt. */
