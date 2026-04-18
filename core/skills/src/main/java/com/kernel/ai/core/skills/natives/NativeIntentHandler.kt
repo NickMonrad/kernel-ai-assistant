@@ -730,11 +730,16 @@ class NativeIntentHandler @Inject constructor(
     private fun playPlex(params: Map<String, String>): SkillResult {
         val title = params["title"] ?: return SkillResult.Failure("play_plex", "No title provided")
         return try {
-            val plexIntent = Intent(Intent.ACTION_VIEW, Uri.parse("plex://play?media=$title")).apply {
+            // plex:// deep links require a server-specific metadataKey we don't have at runtime.
+            // Use ACTION_SEARCH with the Plex package as the best available fallback until the
+            // full Plex API integration is implemented (see GitHub issue for native playback).
+            val intent = Intent(Intent.ACTION_SEARCH).apply {
+                `package` = "com.plexapp.android"
+                putExtra(SearchManager.QUERY, title)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
-            context.startActivity(plexIntent)
-            SkillResult.Success("Opening Plex for: $title")
+            context.startActivity(intent)
+            SkillResult.Success("Searching Plex for: $title")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("play_plex", "Plex app not installed")
         }
@@ -789,15 +794,15 @@ class NativeIntentHandler @Inject constructor(
 
     private fun playPlexamp(params: Map<String, String>): SkillResult {
         val query = params["query"] ?: return SkillResult.Failure("play_plexamp", "No search query provided")
-        return try {
-            val intent = Intent(Intent.ACTION_SEARCH).apply {
-                `package` = "tv.plex.labs.plexamp"
-                putExtra(SearchManager.QUERY, query)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            context.startActivity(intent)
-            SkillResult.Success("Searching Plexamp for: $query")
-        } catch (e: ActivityNotFoundException) {
+        // Plexamp doesn't register a searchable activity, so ACTION_SEARCH throws
+        // ActivityNotFoundException even when the app is installed. Fall back to launching
+        // the app directly via its launcher intent.
+        val launchIntent = context.packageManager.getLaunchIntentForPackage("tv.plex.labs.plexamp")
+        return if (launchIntent != null) {
+            launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            context.startActivity(launchIntent)
+            SkillResult.Success("Opening Plexamp — search for: $query")
+        } else {
             SkillResult.Failure("play_plexamp", "Plexamp app not installed")
         }
     }
@@ -807,9 +812,11 @@ class NativeIntentHandler @Inject constructor(
     private fun playYoutubeMusic(params: Map<String, String>): SkillResult {
         val query = params["query"] ?: return SkillResult.Failure("play_youtube_music", "No search query provided")
         return try {
-            val intent = Intent(Intent.ACTION_SEARCH).apply {
+            // ACTION_VIEW with a music.youtube.com URL navigates directly to search results
+            // in the app, which is a better UX than ACTION_SEARCH (which only opens the search bar).
+            val intent = Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://music.youtube.com/search?q=${Uri.encode(query)}")).apply {
                 `package` = "com.google.android.apps.youtube.music"
-                putExtra(SearchManager.QUERY, query)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
