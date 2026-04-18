@@ -24,6 +24,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,6 +70,9 @@ class LiteRtInferenceEngine @Inject constructor(
 
     private val _resolvedMaxTokens = MutableStateFlow(0)
     override val resolvedMaxTokens: StateFlow<Int> = _resolvedMaxTokens.asStateFlow()
+
+    private val _evictionEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    override val evictionEvents: Flow<Unit> = _evictionEvents
 
     private var engine: Engine? = null
     private var conversation: com.google.ai.edge.litertlm.Conversation? = null
@@ -181,6 +185,7 @@ class LiteRtInferenceEngine @Inject constructor(
         if (!_isReady.value) return // Already unloaded — nothing to do
         _isReady.value = false
         _isGenerating.value = false
+        _evictionEvents.tryEmit(Unit) // Notify observers before async teardown
         CoroutineScope(LlmDispatcher + SupervisorJob()).launch {
             safeCancel(conversation)
             safeClose(conversation, "conversation")

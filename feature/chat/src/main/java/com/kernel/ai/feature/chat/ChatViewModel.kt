@@ -233,6 +233,17 @@ class ChatViewModel @Inject constructor(
             // Once E4B is stable, FG loads in ~0.4s with no memory pressure.
             initEngineWhenReady()
         }
+        viewModelScope.launch {
+            // Re-initialize automatically when Android evicts the engine under memory pressure
+            // (#609). Without this, isReady drops to false and the loading screen sticks until
+            // the user sends a message (which triggers initGemma4). The eviction event fires
+            // synchronously inside releaseForMemoryPressure(), before the async teardown
+            // begins, so the LlmDispatcher work queue is: cleanup → initialize (serial).
+            inferenceEngine.evictionEvents.collect {
+                Log.i("ChatViewModel", "Engine evicted by memory pressure — scheduling re-init (#609)")
+                initEngineWhenReady()
+            }
+        }
     }
 
     private suspend fun seedKiwiTruthsIfNeeded() {
