@@ -1,9 +1,11 @@
 package com.kernel.ai.feature.chat
 
 import android.util.Log
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.withStarted
 import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
@@ -235,12 +237,13 @@ class ChatViewModel @Inject constructor(
         }
         viewModelScope.launch {
             // Re-initialize automatically when Android evicts the engine under memory pressure
-            // (#609). Without this, isReady drops to false and the loading screen sticks until
-            // the user sends a message (which triggers initGemma4). The eviction event fires
-            // synchronously inside releaseForMemoryPressure(), before the async teardown
-            // begins, so the LlmDispatcher work queue is: cleanup → initialize (serial).
+            // (#609). GPU init hangs when the screen is off (GPU hardware is suspended), so we
+            // defer the re-init until the app returns to foreground using withStarted {}.
+            // LlmDispatcher is single-threaded, so cleanup → initialize run serially.
             inferenceEngine.evictionEvents.collect {
-                Log.i("ChatViewModel", "Engine evicted by memory pressure — scheduling re-init (#609)")
+                Log.i("ChatViewModel", "Engine evicted — waiting for foreground before re-init (#609)")
+                ProcessLifecycleOwner.get().withStarted { }
+                Log.i("ChatViewModel", "App in foreground — re-initializing engine after memory pressure eviction")
                 initEngineWhenReady()
             }
         }
