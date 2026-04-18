@@ -67,6 +67,9 @@ class LiteRtInferenceEngine @Inject constructor(
     private val _activeBackend = MutableStateFlow<BackendType?>(null)
     override val activeBackend: StateFlow<BackendType?> = _activeBackend.asStateFlow()
 
+    private val _resolvedMaxTokens = MutableStateFlow(0)
+    override val resolvedMaxTokens: StateFlow<Int> = _resolvedMaxTokens.asStateFlow()
+
     private var engine: Engine? = null
     private var conversation: com.google.ai.edge.litertlm.Conversation? = null
     private var currentConfig: ModelConfig? = null
@@ -114,6 +117,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 resetConstrainedDecodingFlag()
                 currentConfig = resolvedConfig
                 _activeBackend.value = backendType
+                _resolvedMaxTokens.value = resolvedConfig.maxTokens
                 _isReady.value = true
 
                 Log.i(TAG, "Engine ready — backend: $backendType, maxTokens: ${resolvedConfig.maxTokens}")
@@ -161,6 +165,7 @@ class LiteRtInferenceEngine @Inject constructor(
             conversation = null
             engine = null
             _activeBackend.value = null
+            _resolvedMaxTokens.value = 0
             currentConfig = null
             Log.i(TAG, "Engine shut down")
         }

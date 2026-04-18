@@ -26,6 +26,16 @@ interface InferenceEngine {
     val activeBackend: StateFlow<BackendType?>
 
     /**
+     * The actual KV-cache capacity passed to LiteRT after [safeTokenCount] clamping and
+     * hardware-tier [coerceAtMost]. Zero before [initialize] completes.
+     *
+     * Use this instead of the raw [ModelConfig.maxTokens] value to drive proactive-reset
+     * thresholds — the two values diverge when the user sets a power-of-2 context window
+     * (e.g. 4096→4000, 8192→8000) or when the hardware profile caps the request.
+     */
+    val resolvedMaxTokens: StateFlow<Int>
+
+    /**
      * Load model weights and initialize the LiteRT-LM engine.
      * Blocks the [LlmDispatcher] thread; observe [isReady] for completion.
      *
