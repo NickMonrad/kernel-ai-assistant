@@ -2,6 +2,9 @@ package com.kernel.ai.core.inference
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.hardware.QuantizationVerifier
 import java.io.File
@@ -160,6 +163,28 @@ class LiteRtInferenceEngine @Inject constructor(
             _activeBackend.value = null
             currentConfig = null
             Log.i(TAG, "Engine shut down")
+        }
+    }
+
+    /**
+     * Fire-and-forget release triggered by Android memory pressure.
+     * Marks the engine as not-ready immediately (so callers stop sending work),
+     * then tears down the session and weights on [LlmDispatcher].
+     * The engine can be reloaded lazily via [initialize] on the next use.
+     */
+    override fun releaseForMemoryPressure() {
+        if (!_isReady.value) return // Already unloaded — nothing to do
+        _isReady.value = false
+        _isGenerating.value = false
+        CoroutineScope(LlmDispatcher + SupervisorJob()).launch {
+            safeCancel(conversation)
+            safeClose(conversation, "conversation")
+            safeClose(engine, "engine")
+            conversation = null
+            engine = null
+            _activeBackend.value = null
+            currentConfig = null
+            Log.i(TAG, "Engine released due to memory pressure")
         }
     }
 
