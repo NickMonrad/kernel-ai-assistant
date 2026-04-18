@@ -112,8 +112,8 @@ class ChatViewModel @Inject constructor(
     private var estimatedTokensUsed = 0
 
     /** Complete (user, assistant) turn pairs accumulated since the last KV cache reset.
-     *  Triggers a proactive reset when it reaches [ContextWindowManager.MAX_CONTEXT_TURNS]
-     *  to cap KV cache memory growth (#543). */
+     *  Triggers a proactive reset when it reaches the dynamic turn limit derived from
+     *  [activeContextWindowSize] to cap KV cache memory growth (#543). */
     private var turnsSinceReset = 0
 
     /** The model currently loaded into the inference engine; used for the [Runtime] context block. */
@@ -760,10 +760,10 @@ class ChatViewModel @Inject constructor(
             // the conversation and replay history to avoid LiteRT locking up.
             val tokenBudget = activeContextWindowSize
             val proactiveReset = estimatedTokensUsed > (tokenBudget * 0.75).toInt()
-            // Turn-count reset: cap KV cache growth to MAX_CONTEXT_TURNS regardless of
-            // token usage (#543). Prevents OOM after ~160 rapid short-message inferences
-            // where the 75% token threshold may never fire.
-            val turnCountReset = turnsSinceReset >= ContextWindowManager.MAX_CONTEXT_TURNS
+            // Turn-count reset: cap KV cache growth to a dynamic limit derived from the active
+            // context window size, preventing OOM after rapid short-message inferences (#543).
+            val maxTurns = ContextWindowManager.maxTurnsForContext(activeContextWindowSize)
+            val turnCountReset = turnsSinceReset >= maxTurns
 
             // Context stripping for tool-routable queries (#438, #481).
             // When the router had a best-guess intent (FallThrough with non-null bestGuess)
@@ -799,9 +799,9 @@ class ChatViewModel @Inject constructor(
                     allMessages.map { it.content to (it.role == ChatMessage.Role.USER) }
                 )
                 // Apply turn-count cap before token-budget selection so both limits are enforced.
-                val turns = contextWindowManager.truncateToWindow(rawTurns)
+                val turns = rawTurns.takeLast(maxTurns)
                 if (turns.size < rawTurns.size) {
-                    Log.d("KernelAI", "Context truncated: kept last ${ContextWindowManager.MAX_CONTEXT_TURNS} of ${rawTurns.size} turns")
+                    Log.d("KernelAI", "Context truncated (turn limit $maxTurns for ${activeContextWindowSize}t window): kept last ${turns.size} of ${rawTurns.size} turns")
                 }
                 val selected = contextWindowManager.selectHistory(turns, ContextWindowManager.historyBudget(activeContextWindowSize))
                 // Inject history into the system prompt so Gemma treats it as background context.
