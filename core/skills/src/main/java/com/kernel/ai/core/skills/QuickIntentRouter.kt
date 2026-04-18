@@ -79,6 +79,13 @@ class QuickIntentRouter(
          * the caller can ask the user to supply the missing value before proceeding.
          */
         val requiredSlots: Map<String, com.kernel.ai.core.skills.slot.SlotSpec> = emptyMap(),
+        /**
+         * When true, this pattern is a catch-all / last-resort match. It is only tried in
+         * Pass 2 of [route], after all non-fallback patterns have failed to match. This
+         * eliminates first-match-wins ordering fragility for broad patterns like generic
+         * `play_media` and the terse smart-home `(.+?)\s+on/off` catch-alls.
+         */
+        val isFallback: Boolean = false,
     )
 
     private val patterns: List<IntentPattern> = listOf(
@@ -1384,7 +1391,7 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Generic play — MUST come after plex/album/playlist/next/previous
+        // Generic play — catch-all fallback; only fires if no more-specific play_* pattern matched.
         IntentPattern(
             intentName = "play_media",
             regex = Regex(
@@ -1396,6 +1403,7 @@ class QuickIntentRouter(
                 if (match.groupValues[2].isNotBlank()) params["artist"] = match.groupValues[2].trim()
                 params
             },
+            isFallback = true,
         ),
 
         // ── Media Transport Controls ──
@@ -1870,8 +1878,9 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
         ),
-        // Terse: "lights on" / "heater on" — object + on, no verb
-        // Exclude question starters to prevent "what day does X fall on" → smart_home
+        // Terse: "lights on" / "heater on" — object + on, no verb.
+        // isFallback = true: only fires if no more-specific non-fallback pattern matched,
+        // preventing ambiguous inputs like "hold on" from landing here.
         IntentPattern(
             intentName = "smart_home_on",
             regex = Regex(
@@ -1879,6 +1888,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
+            isFallback = true,
         ),
         IntentPattern(
             intentName = "smart_home_off",
@@ -1888,7 +1898,8 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
         ),
-        // Terse: "lights off" / "heater off" — object + off, no verb
+        // Terse: "lights off" / "heater off" — object + off, no verb.
+        // isFallback = true: only fires if no more-specific non-fallback pattern matched.
         IntentPattern(
             intentName = "smart_home_off",
             regex = Regex(
@@ -1896,6 +1907,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
+            isFallback = true,
         ),
         // Colloquial: "kill the lights" / "kill the heater" — exclude flashlight/torch words (send to classifier)
         IntentPattern(
@@ -1910,30 +1922,45 @@ class QuickIntentRouter(
 
     // ── Main routing ──────────────────────────────────────────────────────────
 
+    /**
+     * Attempts to match [trimmed] against [candidates] in order.
+     * Returns the first [RouteResult.RegexMatch] or [RouteResult.NeedsSlot] found, or null if
+     * no pattern matches.
+     */
+    private fun tryMatchPatterns(trimmed: String, candidates: List<IntentPattern>): RouteResult? {
+        for (pattern in candidates) {
+            val match = pattern.regex.find(trimmed) ?: continue
+            val params = pattern.paramExtractor(match, trimmed)
+            val missingSlot = pattern.requiredSlots.entries
+                .firstOrNull { (key, _) -> params[key].isNullOrBlank() }
+                ?.value
+            val intent = MatchedIntent(
+                intentName = pattern.intentName,
+                params = params,
+                source = "regex",
+            )
+            return if (missingSlot != null) {
+                RouteResult.NeedsSlot(intent, missingSlot)
+            } else {
+                RouteResult.RegexMatch(intent)
+            }
+        }
+        return null
+    }
+
     fun route(input: String): RouteResult {
         val trimmed = input.trim()
 
-        // Stage 1: Regex
-        for (pattern in patterns) {
-            val match = pattern.regex.find(trimmed)
-            if (match != null) {
-                val params = pattern.paramExtractor(match, trimmed)
-                // Check required slots — if a mandatory param is missing, pause and ask.
-                val missingSlot = pattern.requiredSlots.entries
-                    .firstOrNull { (key, _) -> params[key].isNullOrBlank() }
-                    ?.value
-                val intent = MatchedIntent(
-                    intentName = pattern.intentName,
-                    params = params,
-                    source = "regex",
-                )
-                return if (missingSlot != null) {
-                    RouteResult.NeedsSlot(intent, missingSlot)
-                } else {
-                    RouteResult.RegexMatch(intent)
-                }
-            }
-        }
+        // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.
+        //   Pass 1: specific patterns (isFallback = false) — tried in declaration order.
+        //   Pass 2: fallback/catch-all patterns (isFallback = true) — only if Pass 1 misses.
+        // This eliminates first-match-wins fragility without requiring manual ordering of every
+        // pattern relative to every catch-all.
+        val specificPatterns = patterns.filter { !it.isFallback }
+        val fallbackPatterns = patterns.filter { it.isFallback }
+
+        tryMatchPatterns(trimmed, specificPatterns)?.let { return it }
+        tryMatchPatterns(trimmed, fallbackPatterns)?.let { return it }
 
         // Stage 2: BERT-tiny classifier (if available)
         classifier?.let { cls ->
