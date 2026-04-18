@@ -86,7 +86,6 @@ dependencies {
     implementation(project(":core:skills"))
     implementation(project(":feature:chat"))
     implementation(project(":feature:settings"))
-    implementation(project(":feature:onboarding"))
 
     // Compose
     implementation(platform(libs.compose.bom))

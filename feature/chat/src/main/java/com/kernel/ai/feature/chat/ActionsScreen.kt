@@ -70,6 +70,7 @@ import java.util.Locale
 fun ActionsScreen(
     autoOpenSheet: Boolean = false,
     initialQuery: String? = null,
+    adbSlotReply: String? = null,
     onNavigateToChat: (query: String) -> Unit = {},
     onNewConversation: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
@@ -93,6 +94,12 @@ fun ActionsScreen(
     // ADB harness: auto-execute query when quick_action_input extra is provided.
     LaunchedEffect(initialQuery) {
         if (!initialQuery.isNullOrBlank()) viewModel.executeAction(initialQuery)
+    }
+
+    // ADB harness: deliver slot reply when slot_reply_input extra is provided.
+    // onSlotReply guards internally — no-op if no slot is pending.
+    LaunchedEffect(adbSlotReply) {
+        if (!adbSlotReply.isNullOrBlank()) viewModel.onSlotReply(adbSlotReply)
     }
 
     // Collect one-shot navigation events from the ViewModel.
