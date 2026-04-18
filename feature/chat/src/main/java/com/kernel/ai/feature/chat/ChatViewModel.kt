@@ -392,10 +392,7 @@ class ChatViewModel @Inject constructor(
      */
     private suspend fun initEngineWhenReady() {
         downloadManager.downloadStates
-            .filter { states ->
-                KernelModel.entries.filter { it.isRequired }
-                    .all { states[it] is DownloadState.Downloaded }
-            }
+            .filter { states -> downloadManager.areRequiredModelsDownloaded() }
             .first()
 
         gemma4InitMutex.withLock {
