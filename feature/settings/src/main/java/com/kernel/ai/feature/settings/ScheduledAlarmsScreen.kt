@@ -84,6 +84,9 @@ fun ScheduledAlarmsScreen(
                         }
                     },
                     actions = {
+                        TextButton(onClick = { selectedIds = alarms.map { it.id }.toSet() }) {
+                            Text("Select All")
+                        }
                         IconButton(onClick = { pendingCancelIds = selectedIds }) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete selected")
                         }
