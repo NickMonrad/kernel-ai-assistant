@@ -79,7 +79,7 @@ enum class KernelModel(
         displayName = "EmbeddingGemma 300M",
         fileName = "embeddinggemma-300M_seq512_mixed-precision.tflite",
         downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq512_mixed-precision.tflite",
-        approxSizeBytes = 350_000_000L,
+        approxSizeBytes = 171_000_000L,
         // Required — powers the RAG memory pipeline on all non-flagship devices.
         isRequired = true,
         preferredForTier = null,

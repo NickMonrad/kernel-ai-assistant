@@ -124,6 +124,7 @@ fun ChatScreen(
     onBack: () -> Unit = {},
     onNewConversation: () -> Unit = {},
     onNavigateToList: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -153,6 +154,7 @@ fun ChatScreen(
             isDownloading = state.isDownloading,
             modelProgress = state.modelProgress,
             onRetry = viewModel::retryDownload,
+            onNavigateToSettings = onNavigateToSettings,
         )
         is ChatUiState.Ready -> ChatContent(
             state = state,
@@ -686,6 +688,7 @@ private fun OnboardingContent(
     isDownloading: Boolean,
     modelProgress: List<ModelDownloadProgress>,
     onRetry: (KernelModel) -> Unit,
+    onNavigateToSettings: () -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
@@ -718,7 +721,7 @@ private fun OnboardingContent(
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     modelProgress.forEach { item ->
-                        ModelProgressRow(item, onRetry = onRetry)
+                        ModelProgressRow(item, onRetry = onRetry, onNavigateToSettings = onNavigateToSettings)
                     }
                 }
             } else if (isDownloading) {
@@ -729,7 +732,11 @@ private fun OnboardingContent(
 }
 
 @Composable
-private fun ModelProgressRow(item: ModelDownloadProgress, onRetry: (KernelModel) -> Unit) {
+private fun ModelProgressRow(
+    item: ModelDownloadProgress,
+    onRetry: (KernelModel) -> Unit,
+    onNavigateToSettings: () -> Unit,
+) {
     val state = item.state
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -807,12 +814,32 @@ private fun ModelProgressRow(item: ModelDownloadProgress, onRetry: (KernelModel)
                 }
             }
             is DownloadState.NotDownloaded -> {
-                Text(
-                    text = "Queued",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
+                if (item.model.isGated) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "Sign in to HuggingFace to download",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Button(
+                            onClick = onNavigateToSettings,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        ) {
+                            Text("Sign in", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "Queued",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
             }
         }
     }
