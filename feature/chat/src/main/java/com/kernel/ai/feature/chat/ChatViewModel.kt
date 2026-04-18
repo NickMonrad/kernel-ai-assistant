@@ -421,6 +421,12 @@ class ChatViewModel @Inject constructor(
                     thinkingEnabled = settings.showThinkingProcess,
                     toolProvider = toolProvider,
                 ))
+                // Sync to actual clamped KV-cache size (safeTokenCount / hardware-tier cap).
+                // settings.contextWindowSize may be power-of-2 (e.g. 4096→4000) and the
+                // resolved value is what LiteRT actually allocated — use it for reset thresholds.
+                inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                    activeContextWindowSize = it
+                }
                 estimatedTokensUsed = 0
                 turnsSinceReset = 0
                 inferenceEngine.updateSystemPrompt(buildSystemPrompt())
@@ -467,6 +473,10 @@ class ChatViewModel @Inject constructor(
                     thinkingEnabled = settings.showThinkingProcess,
                     toolProvider = toolProvider,
                 ))
+                // Sync to actual clamped KV-cache size (safeTokenCount / hardware-tier cap).
+                inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                    activeContextWindowSize = it
+                }
                 estimatedTokensUsed = 0
                 turnsSinceReset = 0
                 // Rebuild system prompt now that activeBackend is resolved (backend field
@@ -764,6 +774,8 @@ class ChatViewModel @Inject constructor(
             // context window size, preventing OOM after rapid short-message inferences (#543).
             val maxTurns = ContextWindowManager.maxTurnsForContext(activeContextWindowSize)
             val turnCountReset = turnsSinceReset >= maxTurns
+            Log.d("KernelOOM", "tokens_in_use=$estimatedTokensUsed budget=$tokenBudget " +
+                "threshold=${(tokenBudget * 0.75).toInt()} proactive_reset=$proactiveReset")
 
             // Context stripping for tool-routable queries (#438, #481).
             // When the router had a best-guess intent (FallThrough with non-null bestGuess)
@@ -923,7 +935,8 @@ class ChatViewModel @Inject constructor(
                                 )
                                 ragRepository.indexMessage(savedId, convId, resultContent)
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
-                                    contextWindowManager.estimateTokens(resultContent)
+                                    contextWindowManager.estimateTokens(resultContent) +
+                                    contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
                                 // Do NOT set needsHistoryReplay here — KV cache remains valid after
                                 // native tool calls and forcing a replay drops prior turns from the
@@ -970,7 +983,8 @@ class ChatViewModel @Inject constructor(
                                 val savedAssistantMsgId = conversationRepository.addMessage(convId, "assistant", displayContent, thinking)
                                 ragRepository.indexMessage(savedAssistantMsgId, convId, displayContent)
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
-                                    contextWindowManager.estimateTokens(displayContent)
+                                    contextWindowManager.estimateTokens(displayContent) +
+                                    contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
                             }
 
