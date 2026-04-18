@@ -1901,7 +1901,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "smart_home_off",
             regex = Regex(
-                """kill\s+(?!(?:the\s+)?(?:light|lights|flashlight|torch)\b)(?:the\s+)?(.+)""",
+                """kill\s+(?!(?:the\s+)?(?:flashlight|torch)\b)(?:the\s+)?(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
