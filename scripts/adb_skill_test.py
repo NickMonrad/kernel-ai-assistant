@@ -684,7 +684,7 @@ def check_oom_sanity(results: list[TestResult]) -> None:
         print()
 
 
-def run_tests(dry_run: bool = False, post_pr: bool = False) -> int:
+def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | None = None) -> int:
     """Execute all test cases. Returns non-zero on failures."""
     if dry_run:
         print("=" * 70)
@@ -772,13 +772,45 @@ def run_tests(dry_run: bool = False, post_pr: bool = False) -> int:
     time.sleep(1)
     print()
 
+    # Resolve --start-phase: accept a phase name or 1-based number.
+    start_phase_idx = 0  # 0 = run all phases (0-based offset into PHASES)
+    if start_phase is not None:
+        phase_names = [name for name, _ in PHASES]
+        if start_phase.isdigit():
+            n = int(start_phase)
+            if not (1 <= n <= len(PHASES)):
+                print(
+                    f"ERROR: --start-phase {start_phase!r} out of range "
+                    f"(1–{len(PHASES)}; valid names: {', '.join(phase_names)})",
+                    file=sys.stderr,
+                )
+                return 1
+            start_phase_idx = n - 1
+        else:
+            if start_phase not in phase_names:
+                print(
+                    f"ERROR: --start-phase {start_phase!r} not found. "
+                    f"Valid phases: {', '.join(phase_names)}",
+                    file=sys.stderr,
+                )
+                return 1
+            start_phase_idx = phase_names.index(start_phase)
+        skipped = sum(len(cases) for _, cases in PHASES[:start_phase_idx])
+        print(f"  ── Resuming from phase {start_phase_idx + 1}/{len(PHASES)}"
+              f" ({PHASES[start_phase_idx][0]}) — skipping first {skipped} tests ──")
+        print()
+
     run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     suite_start = time.time()
     results: list[TestResult] = []
-    global_index = 1
+    # global_index starts at 1 for a full run, or after skipped tests for a partial resume.
+    global_index = sum(len(cases) for _, cases in PHASES[:start_phase_idx]) + 1
     total_tests = len(TEST_CASES)
 
     for phase_num, (phase_name, phase_cases) in enumerate(PHASES, 1):
+        if phase_num <= start_phase_idx:
+            continue  # skip phases before the requested start
+
         phase_start = time.time()
         phase_results: list[TestResult] = []
 
@@ -1229,11 +1261,21 @@ def main() -> None:
         action="store_true",
         help="Post a markdown test summary comment to the open PR for the current branch after the run.",
     )
+    parser.add_argument(
+        "--start-phase",
+        metavar="PHASE",
+        default=None,
+        help=(
+            "Skip all phases before PHASE and start testing from there. "
+            "Accepts a phase name (e.g. 'system') or 1-based number (e.g. '8'). "
+            f"Phases: {', '.join(f'{i+1}={n}' for i, (n, _) in enumerate(PHASES))}."
+        ),
+    )
     args = parser.parse_args()
     if args.profile:
         sys.exit(run_profile_tests(dry_run=args.dry_run))
     else:
-        sys.exit(run_tests(dry_run=args.dry_run, post_pr=args.post_pr))
+        sys.exit(run_tests(dry_run=args.dry_run, post_pr=args.post_pr, start_phase=args.start_phase))
 
 
 if __name__ == "__main__":
