@@ -554,11 +554,11 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // "am I running low on battery" / "running low on battery"
+        // "running low on battery" — bare form; conversational "am I running low?" → fallthrough to classifier
         IntentPattern(
             intentName = "get_battery",
             regex = Regex(
-                """(?:running|run)\s+low\s+on\s+(?:battery|charge|power)""",
+                """^(?:running|run)\s+low\s+on\s+(?:battery|charge|power)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -729,11 +729,12 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Precipitation: "will it rain", "is it raining", "do I need an umbrella"
+        // Precipitation: current state only — "will it rain", "is it raining", "do I need an umbrella"
+        // "is it going to rain tomorrow" → fallthrough (future forecast, needs E4B for context)
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:will\s+it\s+rain|is\s+it\s+(?:going\s+to|gonna)\s+rain|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain)""",
+                """(?:will\s+it\s+rain(?:\s+today|\s+tonight)?\s*$|is\s+it\s+(?:going\s+to|gonna)\s+rain(?:\s+today|\s+tonight)?\s*$|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain(?:\s+today|\s+tonight)?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -794,6 +795,21 @@ class QuickIntentRouter(
         ),
 
         // ── Volume ──
+        // Numeric-level forms must come BEFORE direction-only patterns to win the match
+        // "turn the volume up to 8" / "volume up to 5" / "volume down to 3"
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """(?:turn\s+)?(?:(?:the|my)\s+)?volume\s+(?:up|down)\s+to\s+(\d+)\s*(?:%|percent)?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input ->
+                mapOf(
+                    "value" to match.groupValues[1],
+                    "is_percent" to if (input.contains(Regex("""\d+\s*(?:%|percent)""", RegexOption.IGNORE_CASE))) "true" else "false",
+                )
+            },
+        ),
         // set_volume explicit splits (Android long-alternation workaround)
         IntentPattern(
             intentName = "set_volume",
@@ -1108,7 +1124,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "play_podcast",
             regex = Regex(
-                """(?i)\bplay\s+(?:the\s+)?(?:latest\s+)?(?:episode\s+of\s+|podcast\s+)?(.+?)\s+podcast\b""",
+                """\bplay\s+(?:the\s+)?(?:latest\s+)?(?:episode\s+of\s+|podcast\s+)?(.+?)\s+podcast\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val show = match.groupValues[1].trim()
@@ -1118,7 +1135,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "play_podcast",
             regex = Regex(
-                """(?i)\bplay\s+(?:the\s+)?latest\s+episode\s+of\s+(.+)""",
+                """\bplay\s+(?:the\s+)?latest\s+episode\s+of\s+(.+)""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val show = match.groupValues[1].trim()
@@ -1128,7 +1146,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "play_podcast",
             regex = Regex(
-                """(?i)\bput\s+on\s+(?:the\s+)?(.+?)\s+podcast\b""",
+                """\bput\s+on\s+(?:the\s+)?(.+?)\s+podcast\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val show = match.groupValues[1].trim()
@@ -1138,7 +1157,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "play_podcast",
             regex = Regex(
-                """(?i)\b(?:listen\s+to|subscribe\s+to)\s+(?:the\s+)?(.+?)\s+(?:podcast|episode)\b""",
+                """\b(?:listen\s+to|subscribe\s+to)\s+(?:the\s+)?(.+?)\s+(?:podcast|episode)\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val show = match.groupValues[1].trim()
@@ -1149,7 +1169,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_skip_forward",
             regex = Regex(
-                """(?i)\bskip\s+(?:forward|ahead)\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                """\bskip\s+(?:forward|ahead)\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val amount = match.groupValues[1].toIntOrNull() ?: 30
@@ -1161,7 +1182,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_skip_forward",
             regex = Regex(
-                """(?i)\bforward\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                """\bforward\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val amount = match.groupValues[1].toIntOrNull() ?: 30
@@ -1173,7 +1195,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_skip_forward",
             regex = Regex(
-                """(?i)\bskip\s+(?:the\s+)?intro\b""",
+                """\bskip\s+(?:the\s+)?intro\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ ->
                 mapOf("seconds" to "30")  // default for "skip the intro"
@@ -1182,7 +1205,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_skip_forward",
             regex = Regex(
-                """(?i)\bskip\s+ahead\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                """\bskip\s+ahead\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val amount = match.groupValues[1].toIntOrNull() ?: 30
@@ -1195,7 +1219,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_skip_back",
             regex = Regex(
-                """(?i)\b(?:go\s+)?back\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                """\b(?:go\s+)?back\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val amount = match.groupValues[1].toIntOrNull() ?: 15
@@ -1207,7 +1232,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_skip_back",
             regex = Regex(
-                """(?i)\brewind\s+(?:(\d+)\s*(second|sec|minute|min)s?)?\b""",
+                """\brewind\s+(?:(\d+)\s*(second|sec|minute|min)s?)?\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val amount = match.groupValues[1].toIntOrNull()
@@ -1223,7 +1249,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_skip_back",
             regex = Regex(
-                """(?i)\bback\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                """\bback\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val amount = match.groupValues[1].toIntOrNull() ?: 15
@@ -1236,7 +1263,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_speed",
             regex = Regex(
-                """(?i)\bplay\s+at\s+([\d.]+)x\s*(?:speed)?\b""",
+                """\bplay\s+at\s+([\d.]+)x\s*(?:speed)?\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val speed = match.groupValues[1].toFloatOrNull() ?: 1.0f
@@ -1246,7 +1274,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_speed",
             regex = Regex(
-                """(?i)\bset\s+(?:playback\s+)?speed\s+to\s+([\d.]+)x?\b""",
+                """\bset\s+(?:playback\s+)?speed\s+to\s+([\d.]+)x?\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val speed = match.groupValues[1].toFloatOrNull() ?: 1.0f
@@ -1256,7 +1285,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_speed",
             regex = Regex(
-                """(?i)\b(normal|regular)\s+speed\b""",
+                """\b(normal|regular)\s+speed\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ ->
                 mapOf("rate" to "1.0")
@@ -1265,7 +1295,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_speed",
             regex = Regex(
-                """(?i)\bslow\s+down\s+(?:the\s+)?(?:podcast|playback|audio)\b""",
+                """\bslow\s+down\s+(?:the\s+)?(?:podcast|playback|audio)\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ ->
                 mapOf("rate" to "0.75")
@@ -1274,7 +1305,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_speed",
             regex = Regex(
-                """(?i)\bspeed\s+up\s+(?:the\s+)?(?:podcast|playback|audio)\b""",
+                """\bspeed\s+up\s+(?:the\s+)?(?:podcast|playback|audio)\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ ->
                 mapOf("rate" to "1.5")
@@ -1283,7 +1315,8 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "podcast_speed",
             regex = Regex(
-                """(?i)\b(faster|slower)\s+(?:playback|speed|podcast)?\b""",
+                """\b(faster|slower)\s+(?:playback|speed|podcast)?\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val text = match.value.lowercase()
@@ -1331,7 +1364,23 @@ class QuickIntentRouter(
                 mapOf("playlist" to name)
             },
         ),
-        // Generic play — MUST come after plex/album/playlist
+        // "play the next one/song/track" — must be before generic play_media
+        IntentPattern(
+            intentName = "next_track",
+            regex = Regex(
+                """(?i)\bplay\s+(?:the\s+)?next\s+(?:one|song|track|video|episode)\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "play the previous one/track/song" — must be before generic play_media
+        IntentPattern(
+            intentName = "previous_track",
+            regex = Regex(
+                """(?i)\bplay\s+(?:the\s+)?(?:previous|last|prior)\s+(?:one|song|track|video|episode)\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Generic play — MUST come after plex/album/playlist/next/previous
         IntentPattern(
             intentName = "play_media",
             regex = Regex(
@@ -1346,12 +1395,19 @@ class QuickIntentRouter(
         ),
 
         // ── Media Transport Controls ──
-        // pause_media — pause [music/audio/etc]
+        // pause_media — pause [music/audio/etc] + colloquial "hold on"
         IntentPattern(
             intentName = "pause_media",
             regex = Regex(
                 """\b(?:pause)\b(?:\s+(?:the\s+)?(?:music|song|audio|playback|podcast|video))?""",
                 RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "pause_media",
+            regex = Regex(
+                """(?i)^hold\s+on$""",
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
@@ -1376,21 +1432,24 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "next_track",
             regex = Regex(
-                """(?i)\b(?:next|skip)\s+(?:(?:the\s+)?(?:song|track|one|video|episode))\b""",
+                """\b(?:next|skip)\s+(?:(?:the\s+)?(?:song|track|one|video|episode))\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
         IntentPattern(
             intentName = "next_track",
             regex = Regex(
-                """(?i)\bskip\s+this\b""",
+                """\bskip\s+this\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
         IntentPattern(
             intentName = "next_track",
             regex = Regex(
-                """(?i)^(?:next\s+(?:song|track)|skip)$""",
+                """^(?:next\s+(?:song|track)|skip)$""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
@@ -1398,21 +1457,24 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "previous_track",
             regex = Regex(
-                """(?i)\b(?:previous|last|back)\s+(?:song|track|one)\b""",
+                """\b(?:previous|last|back)\s+(?:song|track|one)\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
         IntentPattern(
             intentName = "previous_track",
             regex = Regex(
-                """(?i)\bgo\s+back\s+(?:a\s+)?(?:song|track)\b""",
+                """\bgo\s+back\s+(?:a\s+)?(?:song|track)\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
         IntentPattern(
             intentName = "previous_track",
             regex = Regex(
-                """(?i)\bplay\s+(?:the\s+)?previous\s+(?:song|track)\b""",
+                """\bplay\s+(?:the\s+)?previous\s+(?:song|track)\b""",
+                RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
@@ -1644,6 +1706,16 @@ class QuickIntentRouter(
                 mapOf("item" to item, "list_name" to listName)
             },
         ),
+        // "create a list called groceries" / "make a new list called holiday packing"
+        // Must come BEFORE generic create_list to prevent lazy (.+?) capturing "a" or "new"
+        IntentPattern(
+            intentName = "create_list",
+            regex = Regex(
+                """(?:create|make|start)\s+(?:a\s+|an\s+)?(?:new\s+)?list\s+called\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+        ),
         // "create a groceries list" / "make a new shopping list" / "start a meal plan list"
         IntentPattern(
             intentName = "create_list",
@@ -1786,10 +1858,11 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
         ),
         // Terse: "lights on" / "heater on" — object + on, no verb
+        // Exclude question starters to prevent "what day does X fall on" → smart_home
         IntentPattern(
             intentName = "smart_home_on",
             regex = Regex(
-                """^(?!(?:wifi|wi-fi|bluetooth|bt|hotspot|airplane|flight|dnd|torch|flashlight)\b)(?:the\s+)?(.+?)\s+on$""",
+                """^(?!(?:wifi|wi-fi|bluetooth|bt|hotspot|airplane|flight|dnd|torch|flashlight|hold|what|is|are|how|when|where|who|why|which|does|do|did|can|could|would|should|will|am|was|were)\b)(?:the\s+)?(.+?)\s+on$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
@@ -1811,11 +1884,11 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
         ),
-        // Colloquial: "kill the lights" / "kill the heater"
+        // Colloquial: "kill the lights" / "kill the heater" — exclude flashlight/torch words (send to classifier)
         IntentPattern(
             intentName = "smart_home_off",
             regex = Regex(
-                """kill\s+(?:the\s+)?(.+)""",
+                """kill\s+(?!(?:the\s+)?(?:light|lights|flashlight|torch)\b)(?:the\s+)?(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },

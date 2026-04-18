@@ -1,0 +1,1666 @@
+{
+  "suite": "skills",
+  "timestamp": "2026-04-17T23:20:00Z",
+  "note": "Reconstructed from terminal output \u2014 run aborted at test 173/181 due to OOM",
+  "summary": {
+    "total": 164,
+    "passed": 135,
+    "xfail": 5,
+    "failed": 23,
+    "incomplete": 1
+  },
+  "results": [
+    {
+      "index": 10,
+      "message": "what's the weather in Auckland",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 11,
+      "message": "will it rain today",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 12,
+      "message": "how hot is it outside",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 13,
+      "message": "add milk to my shopping list",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 14,
+      "message": "put eggs on the grocery list",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 15,
+      "message": "create a list called groceries",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": false,
+      "actual_intent": null,
+      "param_failures": [
+        {
+          "param": "list_name",
+          "expected": "groceries",
+          "actual": "a"
+        }
+      ]
+    },
+    {
+      "index": 16,
+      "message": "show my todo list",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 17,
+      "message": "what's on my shopping list",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 18,
+      "message": "remove milk from my shopping list",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 19,
+      "message": "delete eggs from the grocery list",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 20,
+      "message": "create a meeting for tomorrow at 2pm",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 21,
+      "message": "schedule a dentist appointment Friday at 10",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 22,
+      "message": "what time is it",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 23,
+      "message": "what's today's date",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 24,
+      "message": "what's my battery level",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 25,
+      "message": "how much battery do I have",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 26,
+      "message": "how much storage do I have left",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 27,
+      "message": "what's my RAM usage",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 28,
+      "message": "save that we're meeting Tuesday",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 29,
+      "message": "remember that I prefer dark mode",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 30,
+      "message": "call voicemail",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 31,
+      "message": "call my voicemail",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 32,
+      "message": "text myself a reminder to buy groceries",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 33,
+      "message": "send a message to myself saying call the plumber",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 34,
+      "message": "send an email to John about the project update",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 35,
+      "message": "email Sarah the meeting notes",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 36,
+      "message": "navigate to the airport",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 37,
+      "message": "give me directions to Westfield",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 38,
+      "message": "find a coffee shop near me",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 39,
+      "message": "what restaurants are nearby",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 40,
+      "message": "open Spotify",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 41,
+      "message": "launch Google Maps",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 42,
+      "message": "play some jazz music",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 43,
+      "message": "play a song by Fleetwood Mac",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 44,
+      "message": "play Stranger Things on Netflix",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 45,
+      "message": "play Inception on Plex",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 46,
+      "message": "play Taylor Swift on Spotify",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 47,
+      "message": "play Bohemian Rhapsody on Plexamp",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 48,
+      "message": "listen to Fleetwood Mac on Plexamp",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 49,
+      "message": "play Taylor Swift on YouTube Music",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 50,
+      "message": "listen to my liked songs on YouTube Music",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 51,
+      "message": "search YouTube for cat videos",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 52,
+      "message": "play my workout playlist",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 53,
+      "message": "play the album Dark Side of the Moon",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 54,
+      "message": "turn the volume up",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 55,
+      "message": "set volume to 50 percent",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 56,
+      "message": "turn off wifi",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 57,
+      "message": "enable bluetooth",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 58,
+      "message": "increase brightness",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 59,
+      "message": "turn on hotspot",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 60,
+      "message": "enable airplane mode",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 61,
+      "message": "enable do not disturb",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 62,
+      "message": "turn off do not disturb",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 63,
+      "message": "turn on the torch",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 64,
+      "message": "turn off the flashlight",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 65,
+      "message": "turn on the living room lights",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 66,
+      "message": "switch off the bedroom lamp",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 67,
+      "message": "alarm 7am",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 68,
+      "message": "can you wake me at 7",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 69,
+      "message": "I need an alarm for 6 in the morning",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 70,
+      "message": "delete my alarm",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 71,
+      "message": "get rid of all alarms",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 72,
+      "message": "timer 5 min",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 73,
+      "message": "start a one hour timer",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 74,
+      "message": "countdown 10 minutes",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 75,
+      "message": "turn off the timer",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 76,
+      "message": "dismiss the timer",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 77,
+      "message": "do I need an umbrella today",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 78,
+      "message": "what's it like outside",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 79,
+      "message": "is it gonna rain tomorrow",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 80,
+      "message": "temperature in Wellington",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 81,
+      "message": "add bread and butter to my shopping list",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 82,
+      "message": "chuck milk on the list",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 83,
+      "message": "read me my grocery list",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 84,
+      "message": "take milk off the shopping list",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 85,
+      "message": "make a new list called holiday packing",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": false,
+      "actual_intent": null,
+      "param_failures": [
+        {
+          "param": "list_name",
+          "expected": "holiday packing",
+          "actual": "new"
+        }
+      ]
+    },
+    {
+      "index": 86,
+      "message": "book a dentist appointment for next Thursday at 2pm",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 87,
+      "message": "add a meeting to my calendar for Friday at 3pm",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 88,
+      "message": "battery",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 89,
+      "message": "am I running low on battery",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 90,
+      "message": "how much space is left on my phone",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 91,
+      "message": "note to self call the dentist Monday",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 92,
+      "message": "don't forget I parked on level 3",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 93,
+      "message": "ring mum",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 94,
+      "message": "give Sarah a call",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 95,
+      "message": "call zippy",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 96,
+      "message": "ring zippy",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 97,
+      "message": "text John saying I'll be 10 minutes late",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 98,
+      "message": "message mum that I'm on my way",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 99,
+      "message": "take me to the airport",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 100,
+      "message": "directions home",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 101,
+      "message": "where's the nearest ATM",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 102,
+      "message": "is there a petrol station nearby",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 103,
+      "message": "play something chill",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 104,
+      "message": "put on my Discover Weekly on Spotify",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 105,
+      "message": "watch The Witcher on Netflix",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 106,
+      "message": "play some jazz on Plexamp",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 107,
+      "message": "put on the road trip playlist",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 108,
+      "message": "play Abbey Road by The Beatles",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 109,
+      "message": "louder",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 110,
+      "message": "mute",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 111,
+      "message": "wifi off",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 112,
+      "message": "bluetooth on",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 113,
+      "message": "dim the screen",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 114,
+      "message": "torch",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 115,
+      "message": "torch off",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 116,
+      "message": "DND on",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 117,
+      "message": "disable do not disturb",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 118,
+      "message": "flight mode on",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 119,
+      "message": "hotspot on",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 120,
+      "message": "lights on",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 121,
+      "message": "kill the lights",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 122,
+      "message": "turn on the heater",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 123,
+      "message": "pause the music",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 124,
+      "message": "pause playback",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 125,
+      "message": "hold on",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "smart_home_on",
+      "param_failures": []
+    },
+    {
+      "index": 126,
+      "message": "stop playing",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 127,
+      "message": "stop playback",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 128,
+      "message": "stop the audio",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 129,
+      "message": "skip this song",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 130,
+      "message": "next track",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 131,
+      "message": "play the next one",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "play_media",
+      "param_failures": []
+    },
+    {
+      "index": 132,
+      "message": "next song",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 133,
+      "message": "skip",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 134,
+      "message": "previous song",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 135,
+      "message": "last song",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 136,
+      "message": "go back a song",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 137,
+      "message": "play the previous track",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "play_media",
+      "param_failures": []
+    },
+    {
+      "index": 138,
+      "message": "play the Joe Rogan podcast",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 139,
+      "message": "play the latest episode of Serial",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 140,
+      "message": "put on the Daily podcast",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 141,
+      "message": "play the news podcast",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 142,
+      "message": "skip forward 2 minutes",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "play_podcast",
+      "param_failures": []
+    },
+    {
+      "index": 143,
+      "message": "skip ahead 5 minutes",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 144,
+      "message": "skip the intro",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 145,
+      "message": "forward 30 seconds",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 146,
+      "message": "go back 30 seconds",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 147,
+      "message": "rewind 10 seconds",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 148,
+      "message": "back 15 seconds",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 149,
+      "message": "I missed that, go back",
+      "status": "xfail",
+      "xfail": true,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 150,
+      "message": "play at 1.5x speed",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 151,
+      "message": "set playback speed to 2x",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 152,
+      "message": "normal speed",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 153,
+      "message": "slow down the podcast",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 154,
+      "message": "what timers do I have",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 155,
+      "message": "show my timers",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 156,
+      "message": "how many timers are running",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 157,
+      "message": "list timers",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 158,
+      "message": "cancel the pasta timer",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 159,
+      "message": "cancel the 10 minute timer",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 160,
+      "message": "stop the egg timer",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 161,
+      "message": "dismiss the laundry timer",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 162,
+      "message": "how long left on my timer",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 163,
+      "message": "how much time is left on the pasta timer",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 164,
+      "message": "how long until the timer goes off",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 165,
+      "message": "save all those ingredients to my shopping list",
+      "status": "xfail",
+      "xfail": true,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 166,
+      "message": "add eggs, milk, and bread to the shopping list",
+      "status": "xfail",
+      "xfail": true,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 167,
+      "message": "put tortilla chips, beef mince, and kidney beans on my grocery list",
+      "status": "xfail",
+      "xfail": true,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 168,
+      "message": "add these items to my list: apples, bananas, oranges",
+      "status": "xfail",
+      "xfail": true,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 169,
+      "message": "stick bananas on the shopping list",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 170,
+      "message": "add tomatoes to the grocery list",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 171,
+      "message": "pop coffee on my list",
+      "status": "pass",
+      "xfail": false,
+      "intent_passed": true,
+      "params_passed": true,
+      "actual_intent": null,
+      "param_failures": []
+    },
+    {
+      "index": 172,
+      "message": "put sunscreen on the holiday list",
+      "status": "fail",
+      "xfail": false,
+      "intent_passed": false,
+      "params_passed": true,
+      "actual_intent": "NO_MATCH",
+      "param_failures": []
+    },
+    {
+      "index": 173,
+      "message": "what's on my grocery list",
+      "status": "incomplete",
+      "xfail": false,
+      "intent_passed": null,
+      "params_passed": null,
+      "actual_intent": null,
+      "param_failures": []
+    }
+  ]
+}
