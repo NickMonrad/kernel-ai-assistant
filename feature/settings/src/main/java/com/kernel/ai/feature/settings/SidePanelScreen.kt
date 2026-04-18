@@ -87,7 +87,10 @@ fun SidePanelScreen(
         topBar = {
             if (isInSelectionMode) {
                 TopAppBar(
-                    title = { Text("${selectedIds.size} / ${allVisibleIds.size} selected") },
+                    title = {
+                        val n = selectedIds.size
+                        Text("$n / ${allVisibleIds.size} ${if (n == 1) "item" else "items"} selected")
+                    },
                     navigationIcon = {
                         IconButton(onClick = viewModel::clearSelection) {
                             Icon(Icons.Default.Close, contentDescription = "Cancel selection")

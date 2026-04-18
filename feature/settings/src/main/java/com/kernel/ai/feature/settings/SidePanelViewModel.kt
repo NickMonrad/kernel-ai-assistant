@@ -90,7 +90,7 @@ class SidePanelViewModel @Inject constructor(
 
     /** Delete all selected items, cancelling AlarmManager broadcasts for alarm-type entries. */
     fun deleteSelected() {
-        val ids = _selectedIds.value.toSet()
+        val ids = _selectedIds.value
         val toDelete = (alarms.value + timers.value).filter { it.id in ids }
         viewModelScope.launch {
             try {
