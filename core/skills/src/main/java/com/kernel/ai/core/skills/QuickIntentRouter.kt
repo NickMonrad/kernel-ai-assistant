@@ -1648,7 +1648,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|new)\s+(?:a\s+|an\s+|my\s+|new\s+)?(.+?)\s+list""",
+                """(?:create|make|start|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!list\b)(.+?)\s+list""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
