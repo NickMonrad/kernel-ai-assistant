@@ -25,6 +25,10 @@ android {
         // Skip the strict metadata version check to allow compilation.
         freeCompilerArgs += "-Xskip-metadata-version-check"
     }
+
+    testOptions {
+        unitTests.all { it.useJUnitPlatform() }
+    }
 }
 
 dependencies {

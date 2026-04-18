@@ -22,6 +22,14 @@ class ContextWindowManager {
         const val SYSTEM_OVERHEAD = 1400
 
         /**
+         * Hard turn-count cap on KV cache growth. Keeps the system message + last
+         * [MAX_CONTEXT_TURNS] (user, assistant) pairs before each context reset.
+         * Conservative enough to prevent OOM after ~160 rapid inferences (#543).
+         * Tune after profiling with #542.
+         */
+        const val MAX_CONTEXT_TURNS = 12
+
+        /**
          * Tokens available for conversation history given [contextWindowSize].
          * Clamped to zero so callers never receive a negative budget.
          */
@@ -119,4 +127,17 @@ class ContextWindowManager {
         val used = turns.sumOf { estimateTokens(it.first) + estimateTokens(it.second) }
         return used.toFloat() / historyBudget(contextWindowSize)
     }
+
+    /**
+     * Caps [turns] to the last [MAX_CONTEXT_TURNS] (user, assistant) pairs, preventing
+     * unbounded KV cache growth that causes OOM after prolonged conversations (#543).
+     *
+     * Called before [selectHistory] so both the count limit and the token budget limit
+     * are enforced; whichever is more restrictive wins.
+     *
+     * @return the truncated list; identical to [turns] if no truncation was needed.
+     *   The caller is responsible for logging when [turns].size > result.size.
+     */
+    fun truncateToWindow(turns: List<Pair<String, String>>): List<Pair<String, String>> =
+        turns.takeLast(MAX_CONTEXT_TURNS)
 }
