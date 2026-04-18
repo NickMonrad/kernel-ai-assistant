@@ -642,6 +642,48 @@ def analyse_results(results: list[TestResult]) -> None:
     print()
 
 
+# Minimum consecutive same-actual-intent results required to trigger the OOM warning.
+_OOM_RUN_THRESHOLD = 5
+
+
+def check_oom_sanity(results: list[TestResult]) -> None:
+    """Warn if a long consecutive run of tests all return the same actual intent while their
+    *expected* intents differ — a strong signal that the model has hung or OOM'd and is
+    returning a stuck response.
+
+    Deliberately does NOT warn when the expected intents within the run are all the same
+    (e.g. the weather phase where every test correctly maps to get_weather), because that
+    is valid behaviour, not a stuck model.  Closes #563.
+    """
+    i = 0
+    warned = False
+    while i < len(results):
+        run_actual = results[i].actual_intent
+        j = i
+        while j < len(results) and results[j].actual_intent == run_actual:
+            j += 1
+        run = results[i:j]
+        if len(run) >= _OOM_RUN_THRESHOLD:
+            expected_in_run = {r.expect_intent for r in run}
+            # Only suspicious when expected intents VARY but actual is stuck on one value.
+            if len(expected_in_run) > 1:
+                if not warned:
+                    print("\n  OOM / MODEL-HANG SANITY CHECK")
+                    print("  " + "-" * 68)
+                    warned = True
+                label = run_actual if run_actual else "NO_MATCH"
+                print(
+                    f"\n  ⚠️  Possible OOM/hang: tests {run[0].index}–{run[-1].index} "
+                    f"({len(run)} consecutive) all returned {label!r} "
+                    f"but expected {len(expected_in_run)} distinct intents "
+                    f"({', '.join(sorted(expected_in_run))})."
+                )
+                print("     Consider restarting the app and re-running this range.")
+        i = j
+    if warned:
+        print()
+
+
 def run_tests(dry_run: bool = False, post_pr: bool = False) -> int:
     """Execute all test cases. Returns non-zero on failures."""
     if dry_run:
@@ -675,15 +717,16 @@ def run_tests(dry_run: bool = False, post_pr: bool = False) -> int:
     run_adb("shell", "settings", "put", "system", "screen_off_timeout", "2147483647")
     start_keepalive()
 
-    # Warm up: send a dummy query to trigger model load, wait for NativeIntentHandler to fire
+    # Warm up: send a dummy query to trigger model load, wait for NativeIntentHandler to fire.
+    # Cold starts (or post-OOM reloads) can take 90-120s; poll for 120s before giving up.
     print("  [init] Warming up model (this takes ~30s on first run) ...", end=" ", flush=True)
     run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     run_adb("shell", "am", "start", "-n", ACTIVITY)
     time.sleep(3)
     clear_logcat()
     run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
-    # Poll logcat until NativeIntentHandler fires (model loaded + QIR dispatched) or 60s timeout
-    deadline = time.time() + 60
+    # Poll logcat until NativeIntentHandler fires (model loaded + QIR dispatched) or 120s timeout
+    deadline = time.time() + 120
     warmed = False
     while time.time() < deadline:
         time.sleep(2)
@@ -691,6 +734,19 @@ def run_tests(dry_run: bool = False, post_pr: bool = False) -> int:
         if "NativeIntentHandler.handle" in log:
             warmed = True
             break
+    if not warmed:
+        # Model may still be loading (e.g. post-OOM reload). Send a second probe and
+        # wait an additional 30s before giving up entirely.
+        print("no response yet — sending second warmup probe ...", end=" ", flush=True)
+        clear_logcat()
+        run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+        deadline2 = time.time() + 30
+        while time.time() < deadline2:
+            time.sleep(2)
+            log = read_logcat()
+            if "NativeIntentHandler.handle" in log:
+                warmed = True
+                break
     print("ready" if warmed else "timeout (proceeding anyway)")
     print()
 
@@ -846,6 +902,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False) -> int:
     print("=" * 70)
 
     analyse_results(results)
+    check_oom_sanity(results)
     report_path = save_report(
         results,
         suite="skills",
