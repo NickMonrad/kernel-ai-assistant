@@ -131,12 +131,14 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    // Auto-send the initial query from Actions tab FallThrough (runs once).
-    // Wait for ViewModel to be fully ready and not generating before sending.
+    // Auto-send the initial query from Actions tab (runs once per navigation).
+    // We only wait for conversation initialisation, NOT for the LLM to be ready.
+    // NeedsSlot queries never invoke the model, and sendMessage() triggers model
+    // loading internally for FallThrough/LLM queries — so this is safe either way.
     LaunchedEffect(initialQuery) {
         if (!initialQuery.isNullOrBlank()) {
             val ready = withTimeoutOrNull(30_000L) {
-                viewModel.uiState.first { it is ChatUiState.Ready && !it.isGenerating && !it.isLoadingModel }
+                viewModel.isConversationReady.first { it }
             }
             if (ready != null) {
                 viewModel.onInputChanged(initialQuery)
