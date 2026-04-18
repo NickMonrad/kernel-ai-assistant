@@ -1,6 +1,7 @@
 package com.kernel.ai.core.inference
 
 import android.content.Context
+import android.os.PowerManager
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +23,7 @@ import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.ToolProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -85,8 +87,28 @@ class LiteRtInferenceEngine @Inject constructor(
     // Lifecycle
     // -------------------------------------------------------------------------
 
+    /**
+     * Suspends until the screen is on and the device is interactive.
+     *
+     * GPU hardware is suspended when the screen is off — calling [createEngineWithFallback]
+     * while the screen is off hangs indefinitely. This guard is called at the top of
+     * [initialize] to prevent that. Polls [PowerManager.isInteractive] every 500ms so that
+     * [LlmDispatcher] remains free for other queued work while waiting.
+     */
+    private suspend fun waitForScreenInteractive() {
+        val pm = context.getSystemService(PowerManager::class.java)
+        if (pm.isInteractive) return
+        Log.i(TAG, "Screen is off — waiting before GPU init (#609)")
+        while (!pm.isInteractive) {
+            delay(500)
+        }
+        Log.i(TAG, "Screen is on — proceeding with GPU init")
+    }
+
     override suspend fun initialize(config: ModelConfig) {
         withContext(LlmDispatcher) {
+            // GPU hardware is suspended when the screen is off; delay init until screen is on.
+            waitForScreenInteractive()
             _isReady.value = false
 
             // Apply hardware-aware defaults when AUTO is specified.
