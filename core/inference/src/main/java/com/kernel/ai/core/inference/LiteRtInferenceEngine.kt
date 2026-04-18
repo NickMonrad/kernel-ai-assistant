@@ -1,6 +1,7 @@
 package com.kernel.ai.core.inference
 
 import android.content.Context
+import android.os.PowerManager
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -22,8 +23,10 @@ import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.ToolProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +36,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -70,6 +74,9 @@ class LiteRtInferenceEngine @Inject constructor(
     private val _resolvedMaxTokens = MutableStateFlow(0)
     override val resolvedMaxTokens: StateFlow<Int> = _resolvedMaxTokens.asStateFlow()
 
+    private val _evictionEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    override val evictionEvents: Flow<Unit> = _evictionEvents
+
     private var engine: Engine? = null
     private var conversation: com.google.ai.edge.litertlm.Conversation? = null
     private var currentConfig: ModelConfig? = null
@@ -77,12 +84,41 @@ class LiteRtInferenceEngine @Inject constructor(
     /** Ensures only one generation (chat or isolated) runs at a time. */
     private val generationMutex = Mutex()
 
+    /** Prevents concurrent [initialize] calls — a second call while GPU init is in progress
+     *  would queue a redundant 47s GPU load immediately after the first finishes. */
+    private val isInitializing = AtomicBoolean(false)
+
     // -------------------------------------------------------------------------
     // Lifecycle
     // -------------------------------------------------------------------------
 
+    /**
+     * Suspends until the screen is on and the device is interactive.
+     *
+     * GPU hardware is suspended when the screen is off — calling [createEngineWithFallback]
+     * while the screen is off hangs indefinitely. This guard is called at the top of
+     * [initialize] to prevent that. Polls [PowerManager.isInteractive] every 500ms so that
+     * [LlmDispatcher] remains free for other queued work while waiting.
+     */
+    private suspend fun waitForScreenInteractive() {
+        val pm = context.getSystemService(PowerManager::class.java)
+        if (pm.isInteractive) return
+        Log.i(TAG, "Screen is off — waiting before GPU init (#609)")
+        while (!pm.isInteractive) {
+            delay(500)
+        }
+        Log.i(TAG, "Screen is on — proceeding with GPU init")
+    }
+
     override suspend fun initialize(config: ModelConfig) {
+        if (!isInitializing.compareAndSet(false, true)) {
+            Log.d(TAG, "Initialize already in progress — skipping duplicate call")
+            return
+        }
+        try {
         withContext(LlmDispatcher) {
+            // GPU hardware is suspended when the screen is off; delay init until screen is on.
+            waitForScreenInteractive()
             _isReady.value = false
 
             // Apply hardware-aware defaults when AUTO is specified.
@@ -124,6 +160,9 @@ class LiteRtInferenceEngine @Inject constructor(
             } finally {
                 InferenceLoadingService.stop(context)
             }
+        }
+        } finally {
+            isInitializing.set(false)
         }
     }
 
@@ -181,6 +220,7 @@ class LiteRtInferenceEngine @Inject constructor(
         if (!_isReady.value) return // Already unloaded — nothing to do
         _isReady.value = false
         _isGenerating.value = false
+        _evictionEvents.tryEmit(Unit) // Notify observers before async teardown
         CoroutineScope(LlmDispatcher + SupervisorJob()).launch {
             safeCancel(conversation)
             safeClose(conversation, "conversation")

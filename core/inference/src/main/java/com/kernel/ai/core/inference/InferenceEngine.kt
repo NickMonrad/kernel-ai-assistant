@@ -2,6 +2,7 @@ package com.kernel.ai.core.inference
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * Core interface for on-device LLM inference backed by LiteRT-LM.
@@ -81,6 +82,16 @@ interface InferenceEngine {
 
     /** Release the engine and all native resources. Safe to call multiple times. */
     suspend fun shutdown()
+
+    /**
+     * Emits a single [Unit] each time [releaseForMemoryPressure] fires, before the async
+     * engine teardown begins. Observers can use this to schedule a re-initialisation so the
+     * user sees the loading screen resolve automatically after the eviction, rather than
+     * staying stuck until they next interact.
+     *
+     * Default implementation returns [emptyFlow] so test fakes don't need to override.
+     */
+    val evictionEvents: Flow<Unit> get() = emptyFlow()
 
     /**
      * Release the inference session in response to Android memory pressure

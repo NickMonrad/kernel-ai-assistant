@@ -1,6 +1,10 @@
 package com.kernel.ai.feature.chat
 
 import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -55,7 +59,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -232,6 +238,44 @@ class ChatViewModel @Inject constructor(
             // FG's 289MB on CPU is enough to tip OOM during GPU init.
             // Once E4B is stable, FG loads in ~0.4s with no memory pressure.
             initEngineWhenReady()
+        }
+        viewModelScope.launch {
+            // Re-initialize automatically when Android evicts the engine under memory pressure
+            // (#609). We wait for the NEXT ON_START lifecycle event (not current state) because:
+            // - TRIM_MEMORY_UI_HIDDEN fires while ProcessLifecycleOwner still reports STARTED
+            //   (700ms debounce before ON_STOP dispatches), so withStarted{} returns immediately
+            // - We need the user to have the app actually open, not just screen-on briefly
+            // - waitForScreenInteractive() in initialize() is a safety net if screen goes off
+            //   mid-init, but the real gate should be app-in-foreground
+            inferenceEngine.evictionEvents.collect {
+                Log.i("ChatViewModel", "Engine evicted — waiting for app to open before re-init (#609)")
+                withContext(Dispatchers.Main) {
+                    suspendCancellableCoroutine { cont ->
+                        val lifecycle = ProcessLifecycleOwner.get().lifecycle
+                        // LifecycleEventObserver replays catch-up events when added (e.g. ON_START
+                        // if current state is STARTED). We must ignore that replay and only resume
+                        // after we've confirmed the app went to background (ON_STOP) and came back
+                        // (ON_START). Pre-seed seenStop=true if debounce has already fired.
+                        var seenStop = lifecycle.currentState < Lifecycle.State.STARTED
+                        val observer = object : LifecycleEventObserver {
+                            override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+                                when (event) {
+                                    Lifecycle.Event.ON_STOP -> seenStop = true
+                                    Lifecycle.Event.ON_START -> if (seenStop) {
+                                        lifecycle.removeObserver(this)
+                                        if (cont.isActive) cont.resume(Unit)
+                                    }
+                                    else -> {}
+                                }
+                            }
+                        }
+                        lifecycle.addObserver(observer)
+                        cont.invokeOnCancellation { lifecycle.removeObserver(observer) }
+                    }
+                }
+                Log.i("ChatViewModel", "App opened by user — re-initializing engine after eviction")
+                initEngineWhenReady()
+            }
         }
     }
 
