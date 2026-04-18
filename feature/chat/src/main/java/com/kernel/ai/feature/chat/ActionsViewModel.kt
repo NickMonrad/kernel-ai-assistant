@@ -70,6 +70,7 @@ class ActionsViewModel @Inject constructor(
     data class PendingSlotState(
         val request: PendingSlotRequest,
         val originalQuery: String,
+        // TODO(#350/#588): use inputMode to adapt SlotFillBottomSheet for voice (mic button, no keyboard)
         val inputMode: InputMode,
     )
 
@@ -101,6 +102,12 @@ class ActionsViewModel @Inject constructor(
      */
     fun executeAction(query: String, inputMode: InputMode = InputMode.Text) {
         if (query.isBlank()) return
+        if (_pendingSlot.value != null) {
+            // A slot-fill is already in progress — ignore until the user replies or cancels.
+            // Voice (#350) may want to cancel-and-proceed here instead.
+            Log.w(TAG, "ActionsViewModel: executeAction called while slot-fill pending — ignoring \"$query\"")
+            return
+        }
         _error.value = null
 
         viewModelScope.launch {

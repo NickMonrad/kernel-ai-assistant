@@ -307,17 +307,21 @@ private fun SlotFillBottomSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     var inputText by rememberSaveable { mutableStateOf("") }
+    // Guards against submit() and onDismissRequest firing simultaneously (e.g. tap Send + swipe).
+    var isSubmitting by rememberSaveable { mutableStateOf(false) }
 
     fun submit() {
         val text = inputText.trim()
-        if (text.isNotBlank()) {
-            inputText = ""
-            scope.launch { sheetState.hide() }.invokeOnCompletion { onSubmit(text) }
+        if (text.isNotBlank() && !isSubmitting) {
+            isSubmitting = true
+            scope.launch { sheetState.hide() }.invokeOnCompletion { cause ->
+                if (cause == null) onSubmit(text)
+            }
         }
     }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isSubmitting) onDismiss() },
         sheetState = sheetState,
     ) {
         Column(
