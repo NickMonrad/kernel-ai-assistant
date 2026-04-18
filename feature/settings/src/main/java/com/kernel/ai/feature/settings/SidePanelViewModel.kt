@@ -69,7 +69,10 @@ class SidePanelViewModel @Inject constructor(
     }
 
     fun selectAll(allIds: List<String>) {
-        _selectedIds.value = allIds.toSet()
+        if (allIds.isNotEmpty()) {
+            _isInSelectionMode.value = true
+            _selectedIds.value = allIds.toSet()
+        }
     }
 
     fun clearSelection() {
