@@ -105,265 +105,255 @@ class TestResult:
     reply_warn: str | None
 
 
-TEST_CASES: list[TestCase] = [
-    # Alarm
-    TestCase("set an alarm for 11pm", "set_alarm"),
-    TestCase("wake me up at 11:30", "set_alarm"),
-    TestCase("remind me tomorrow at 9", "set_alarm"),
-    TestCase("cancel my 11pm alarm", "cancel_alarm"),
-    TestCase("turn off all my alarms", "cancel_alarm"),
-    # Timer
-    TestCase("set a timer for 2 hours", "set_timer"),
-    TestCase("start a 2 hour timer", "set_timer"),
-    TestCase("cancel the timer", "cancel_timer"),
-    TestCase("stop the timer", "cancel_timer"),
-    # Weather
-    TestCase("what's the weather in Auckland", "get_weather"),
-    TestCase("will it rain today", "get_weather"),
-    TestCase("how hot is it outside", "get_weather"),
-    # Lists
-    TestCase("add milk to my shopping list", "add_to_list",
-             expect_params={"item": "milk", "list_name": "shopping"}),
-    TestCase("put eggs on the grocery list", "add_to_list",
-             expect_params={"item": "eggs", "list_name": "grocery"}),
-    TestCase("create a list called groceries", "create_list",
-             expect_params={"list_name": "groceries"}),
-    TestCase("show my todo list", "get_list_items",
-             expect_params={"list_name": "todo"}),
-    TestCase("what's on my shopping list", "get_list_items",
-             expect_params={"list_name": "shopping"}),
-    TestCase("remove milk from my shopping list", "remove_from_list",
-             expect_params={"item": "milk", "list_name": "shopping"}),
-    TestCase("delete eggs from the grocery list", "remove_from_list",
-             expect_params={"item": "eggs", "list_name": "grocery"}),
-    # Calendar
-    TestCase("create a meeting for tomorrow at 2pm", "create_calendar_event"),
-    TestCase("schedule a dentist appointment Friday at 10", "create_calendar_event"),
-    # Time / date — DirectReply: verify numeric time/date in response
-    TestCase("what time is it", "get_time", expect_reply_contains=r"\d+:\d+"),
-    TestCase("what's today's date", "get_time", expect_reply_contains=r"202[4-9]|20[3-9]\d"),
-    # Battery — DirectReply: verify percentage symbol in response
-    TestCase("what's my battery level", "get_battery", expect_reply_contains=r"\d+%"),
-    TestCase("how much battery do I have", "get_battery"),
-    # System info
-    TestCase("how much storage do I have left", "get_system_info"),
-    TestCase("what's my RAM usage", "get_system_info"),
-    # Memory
-    TestCase("save that we're meeting Tuesday", "save_memory"),
-    TestCase("remember that I prefer dark mode", "save_memory"),
-    # Calls
-    TestCase("call voicemail", "make_call"),
-    TestCase("call my voicemail", "make_call"),
-    # SMS
-    TestCase("text myself a reminder to buy groceries", "send_sms"),
-    TestCase("send a message to myself saying call the plumber", "send_sms"),
-    # Email
-    TestCase("send an email to John about the project update", "send_email"),
-    TestCase("email Sarah the meeting notes", "send_email"),
-    # Navigation
-    TestCase("navigate to the airport", "navigate_to"),
-    TestCase("give me directions to Westfield", "navigate_to"),
-    # Nearby
-    TestCase("find a coffee shop near me", "find_nearby"),
-    TestCase("what restaurants are nearby", "find_nearby"),
-    # Apps
-    TestCase("open Spotify", "open_app"),
-    TestCase("launch Google Maps", "open_app"),
-    # Media — generic
-    TestCase("play some jazz music", "play_media"),
-    TestCase("play a song by Fleetwood Mac", "play_media"),
-    # Media — platform-specific
-    TestCase("play Stranger Things on Netflix", "play_netflix"),
-    TestCase("play Inception on Plex", "play_plex"),
-    TestCase("play Taylor Swift on Spotify", "play_spotify"),
-    TestCase("play Bohemian Rhapsody on Plexamp", "play_plexamp"),
-    TestCase("listen to Fleetwood Mac on Plexamp", "play_plexamp"),
-    TestCase("play Taylor Swift on YouTube Music", "play_youtube_music"),
-    TestCase("listen to my liked songs on YouTube Music", "play_youtube_music"),
-    TestCase("search YouTube for cat videos", "play_youtube"),
-    TestCase("play my workout playlist", "play_media_playlist"),
-    TestCase("play the album Dark Side of the Moon", "play_media_album"),
-    # Volume
-    TestCase("turn the volume up", "set_volume"),
-    TestCase("set volume to 50 percent", "set_volume"),
-    # Toggles — wifi / bt / brightness / hotspot / airplane / DND
-    TestCase("turn off wifi", "toggle_wifi"),
-    TestCase("enable bluetooth", "toggle_bluetooth"),
-    TestCase("increase brightness", "set_brightness"),
-    TestCase("turn on hotspot", "toggle_hotspot"),
-    TestCase("enable airplane mode", "toggle_airplane_mode"),
-    TestCase("enable do not disturb", "toggle_dnd_on"),
-    TestCase("turn off do not disturb", "toggle_dnd_off"),
-    # Flashlight
-    TestCase("turn on the torch", "toggle_flashlight_on"),
-    TestCase("turn off the flashlight", "toggle_flashlight_off"),
-    # Smart home
-    TestCase("turn on the living room lights", "smart_home_on"),
-    TestCase("switch off the bedroom lamp", "smart_home_off"),
-
-    # ── Extended NL spec cases (section 5 of nl-test-specification.md) ──
-    # Alarm
-    TestCase("alarm 11:30pm", "set_alarm"),
-    TestCase("can you wake me at 11:30", "set_alarm"),
-    TestCase("I need an alarm for 11 tonight", "set_alarm"),
-    # Cancel alarm
-    TestCase("delete my alarm", "cancel_alarm"),
-    TestCase("get rid of all alarms", "cancel_alarm"),
-    # Timer
-    TestCase("timer 2 hours", "set_timer"),
-    TestCase("start a 3 hour timer", "set_timer"),
-    TestCase("countdown 2 hours", "set_timer"),
-    # Cancel timer
-    TestCase("turn off the timer", "cancel_timer"),
-    TestCase("dismiss the timer", "cancel_timer"),
-    # Weather
-    TestCase("do I need an umbrella today", "get_weather"),
-    TestCase("what's it like outside", "get_weather"),
-    TestCase("is it gonna rain tomorrow", "get_weather"),
-    TestCase("temperature in Wellington", "get_weather"),
-    # Lists
-    TestCase("add bread and butter to my shopping list", "add_to_list"),
-    TestCase("chuck milk on the list", "add_to_list"),
-    TestCase("read me my grocery list", "get_list_items"),
-    TestCase("take milk off the shopping list", "remove_from_list"),
-    TestCase("make a new list called holiday packing", "create_list",
-             expect_params={"list_name": "holiday packing"}),
-    # Calendar
-    TestCase("book a dentist appointment for next Thursday at 2pm", "create_calendar_event"),
-    TestCase("add a meeting to my calendar for Friday at 3pm", "create_calendar_event"),
-    # Battery / system
-    TestCase("battery", "get_battery"),
-    TestCase("am I running low on battery", "get_battery"),
-    TestCase("how much space is left on my phone", "get_system_info"),
-    # Memory
-    TestCase("note to self call the dentist Monday", "save_memory"),
-    TestCase("don't forget I parked on level 3", "save_memory"),
-    # Calls
-    TestCase("ring mum", "make_call"),
-    TestCase("give Sarah a call", "make_call"),
-    # Contact alias resolution (fixture: 'zippy' → Voicemail / 121)
-    TestCase("call zippy", "make_call"),
-    TestCase("ring zippy", "make_call"),
-    # SMS
-    TestCase("text John saying I'll be 10 minutes late", "send_sms"),
-    TestCase("message mum that I'm on my way", "send_sms"),
-    # Navigation
-    TestCase("take me to the airport", "navigate_to"),
-    TestCase("directions home", "navigate_to"),
-    # Nearby
-    TestCase("where's the nearest ATM", "find_nearby"),
-    TestCase("is there a petrol station nearby", "find_nearby"),
-    # Media
-    TestCase("play something chill", "play_media"),
-    TestCase("put on my Discover Weekly on Spotify", "play_spotify"),
-    TestCase("watch The Witcher on Netflix", "play_netflix"),
-    TestCase("play some jazz on Plexamp", "play_plexamp"),
-    TestCase("put on the road trip playlist", "play_media_playlist"),
-    TestCase("play Abbey Road by The Beatles", "play_media"),
-    # Volume
-    TestCase("louder", "set_volume"),
-    TestCase("mute", "set_volume"),
-    # Toggles
-    TestCase("wifi off", "toggle_wifi"),
-    TestCase("bluetooth on", "toggle_bluetooth"),
-    TestCase("dim the screen", "set_brightness"),
-    TestCase("torch", "toggle_flashlight_on"),
-    TestCase("torch off", "toggle_flashlight_off"),
-    TestCase("DND on", "toggle_dnd_on"),
-    TestCase("disable do not disturb", "toggle_dnd_off"),
-    TestCase("flight mode on", "toggle_airplane_mode"),
-    TestCase("hotspot on", "toggle_hotspot"),
-    # Smart home
-    TestCase("lights on", "smart_home_on"),
-    TestCase("kill the lights", "smart_home_off"),
-    TestCase("turn on the heater", "smart_home_on"),
-
-    # ── #521 Media Controls ──────────────────────────────────────────────
-    # pause_media (additional — "pause" already in section above via §1.39)
-    TestCase("pause the music", "pause_media"),
-    TestCase("pause playback", "pause_media"),
-    TestCase("hold on", "pause_media"),
-    # stop_media
-    TestCase("stop playing", "stop_media"),
-    TestCase("stop playback", "stop_media"),
-    TestCase("stop the audio", "stop_media"),
-    # next_track
-    TestCase("skip this song", "next_track"),
-    TestCase("next track", "next_track"),
-    TestCase("play the next one", "next_track"),
-    TestCase("next song", "next_track"),
-    TestCase("skip", "next_track"),
-    # previous_track
-    TestCase("previous song", "previous_track"),
-    TestCase("last song", "previous_track"),
-    TestCase("go back a song", "previous_track"),
-    TestCase("play the previous track", "previous_track"),
-
-    # ── #524 Podcast Patterns ────────────────────────────────────────────
-    # play_podcast
-    TestCase("play the Joe Rogan podcast", "play_podcast"),
-    TestCase("play the latest episode of Serial", "play_podcast"),
-    TestCase("put on the Daily podcast", "play_podcast"),
-    TestCase("play the news podcast", "play_podcast"),
-    # podcast_skip_forward
-    TestCase("skip forward 2 minutes", "podcast_skip_forward"),
-    TestCase("skip ahead 5 minutes", "podcast_skip_forward"),
-    TestCase("skip the intro", "podcast_skip_forward"),
-    TestCase("forward 30 seconds", "podcast_skip_forward"),
-    # podcast_skip_back
-    TestCase("go back 30 seconds", "podcast_skip_back"),
-    TestCase("rewind 10 seconds", "podcast_skip_back"),
-    TestCase("back 15 seconds", "podcast_skip_back"),
-    TestCase("I missed that, go back", "podcast_skip_back", xfail=True),
-    # podcast_speed
-    TestCase("play at 1.5x speed", "podcast_speed"),
-    TestCase("set playback speed to 2x", "podcast_speed"),
-    TestCase("normal speed", "podcast_speed"),
-    TestCase("slow down the podcast", "podcast_speed"),
-
-    # ── #525 Timer Management ────────────────────────────────────────────
-    # list_timers
-    TestCase("what timers do I have", "list_timers", expect_reply_contains=r"."),
-    TestCase("show my timers", "list_timers"),
-    TestCase("how many timers are running", "list_timers"),
-    TestCase("list timers", "list_timers", expect_reply_contains=r"."),
-    # cancel_timer_named
-    TestCase("cancel the pasta timer", "cancel_timer_named"),
-    TestCase("cancel the 10 minute timer", "cancel_timer_named"),
-    TestCase("stop the egg timer", "cancel_timer_named"),
-    TestCase("dismiss the laundry timer", "cancel_timer_named"),
-    # get_timer_remaining
-    TestCase("how long left on my timer", "get_timer_remaining"),
-    TestCase("how much time is left on the pasta timer", "get_timer_remaining"),
-    TestCase("how long until the timer goes off", "get_timer_remaining"),
-
-    # ── #529 Bulk list add (LLM-routed — not QIR; xfail until #529 verified) ──
-    # These utterances should route to bulk_add_to_list via Gemma-4 @Tool selection,
-    # NOT to save_memory. Marked xfail pending on-device verification (#529).
-    TestCase("save all those ingredients to my shopping list", "bulk_add_to_list", xfail=True),
-    TestCase("add eggs, milk, and bread to the shopping list", "bulk_add_to_list", xfail=True),
-    TestCase("put tortilla chips, beef mince, and kidney beans on my grocery list", "bulk_add_to_list", xfail=True),
-    TestCase("add these items to my list: apples, bananas, oranges", "bulk_add_to_list", xfail=True),
-
-    # ── Sprint 4: Additional list operation NL variants ──────────────────
-    # add_to_list
-    TestCase("stick bananas on the shopping list", "add_to_list"),
-    TestCase("add tomatoes to the grocery list", "add_to_list"),
-    TestCase("pop coffee on my list", "add_to_list"),
-    TestCase("put sunscreen on the holiday list", "add_to_list"),
-    # get_list_items
-    TestCase("what's on my grocery list", "get_list_items"),
-    TestCase("show me the shopping list", "get_list_items"),
-    TestCase("read out my holiday list", "get_list_items"),
-    TestCase("what do I need to get", "get_list_items"),
-    # remove_from_list
-    TestCase("cross milk off the shopping list", "remove_from_list"),
-    TestCase("I've got bread, take it off the list", "remove_from_list"),
-    TestCase("strike eggs off my grocery list", "remove_from_list"),
-    # create_list
-    TestCase("make me a list for camping", "create_list"),
-    TestCase("create a new list called work tasks", "create_list"),
+PHASES: list[tuple[str, list[TestCase]]] = [
+    ("alarm_timer", [
+        # set_alarm
+        TestCase("set an alarm for 11pm", "set_alarm"),
+        TestCase("wake me up at 11:30", "set_alarm"),
+        TestCase("remind me tomorrow at 9", "set_alarm"),
+        TestCase("alarm 11:30pm", "set_alarm"),
+        TestCase("can you wake me at 11:30", "set_alarm"),
+        TestCase("I need an alarm for 11 tonight", "set_alarm"),
+        # cancel_alarm
+        TestCase("cancel my 11pm alarm", "cancel_alarm"),
+        TestCase("turn off all my alarms", "cancel_alarm"),
+        TestCase("delete my alarm", "cancel_alarm"),
+        TestCase("get rid of all alarms", "cancel_alarm"),
+        # set_timer
+        TestCase("set a timer for 2 hours", "set_timer"),
+        TestCase("start a 2 hour timer", "set_timer"),
+        TestCase("timer 2 hours", "set_timer"),
+        TestCase("start a 3 hour timer", "set_timer"),
+        TestCase("countdown 2 hours", "set_timer"),
+        # cancel_timer
+        TestCase("cancel the timer", "cancel_timer"),
+        TestCase("stop the timer", "cancel_timer"),
+        TestCase("turn off the timer", "cancel_timer"),
+        TestCase("dismiss the timer", "cancel_timer"),
+        # list_timers (#525)
+        TestCase("what timers do I have", "list_timers", expect_reply_contains=r"."),
+        TestCase("show my timers", "list_timers"),
+        TestCase("how many timers are running", "list_timers"),
+        TestCase("list timers", "list_timers", expect_reply_contains=r"."),
+        # cancel_timer_named (#525)
+        TestCase("cancel the pasta timer", "cancel_timer_named"),
+        TestCase("cancel the 10 minute timer", "cancel_timer_named"),
+        TestCase("stop the egg timer", "cancel_timer_named"),
+        TestCase("dismiss the laundry timer", "cancel_timer_named"),
+        # get_timer_remaining (#525)
+        TestCase("how long left on my timer", "get_timer_remaining"),
+        TestCase("how much time is left on the pasta timer", "get_timer_remaining"),
+        TestCase("how long until the timer goes off", "get_timer_remaining"),
+    ]),
+    ("weather", [
+        TestCase("what's the weather in Auckland", "get_weather"),
+        TestCase("will it rain today", "get_weather"),
+        TestCase("how hot is it outside", "get_weather"),
+        TestCase("do I need an umbrella today", "get_weather"),
+        TestCase("what's it like outside", "get_weather"),
+        TestCase("is it gonna rain tomorrow", "get_weather"),
+        TestCase("temperature in Wellington", "get_weather"),
+    ]),
+    ("media", [
+        # play_media — generic
+        TestCase("play some jazz music", "play_media"),
+        TestCase("play a song by Fleetwood Mac", "play_media"),
+        TestCase("play something chill", "play_media"),
+        TestCase("play Abbey Road by The Beatles", "play_media"),
+        # platform-specific
+        TestCase("play Stranger Things on Netflix", "play_netflix"),
+        TestCase("watch The Witcher on Netflix", "play_netflix"),
+        TestCase("play Inception on Plex", "play_plex"),
+        TestCase("play Taylor Swift on Spotify", "play_spotify"),
+        TestCase("put on my Discover Weekly on Spotify", "play_spotify"),
+        TestCase("play Bohemian Rhapsody on Plexamp", "play_plexamp"),
+        TestCase("listen to Fleetwood Mac on Plexamp", "play_plexamp"),
+        TestCase("play some jazz on Plexamp", "play_plexamp"),
+        TestCase("play Taylor Swift on YouTube Music", "play_youtube_music"),
+        TestCase("listen to my liked songs on YouTube Music", "play_youtube_music"),
+        TestCase("search YouTube for cat videos", "play_youtube"),
+        TestCase("play my workout playlist", "play_media_playlist"),
+        TestCase("put on the road trip playlist", "play_media_playlist"),
+        TestCase("play the album Dark Side of the Moon", "play_media_album"),
+        # volume
+        TestCase("turn the volume up", "set_volume"),
+        TestCase("set volume to 50 percent", "set_volume"),
+        TestCase("louder", "set_volume"),
+        TestCase("mute", "set_volume"),
+        # pause_media (#521)
+        TestCase("pause the music", "pause_media"),
+        TestCase("pause playback", "pause_media"),
+        TestCase("hold on", "pause_media"),
+        # stop_media (#521)
+        TestCase("stop playing", "stop_media"),
+        TestCase("stop playback", "stop_media"),
+        TestCase("stop the audio", "stop_media"),
+        # next_track (#521)
+        TestCase("skip this song", "next_track"),
+        TestCase("next track", "next_track"),
+        TestCase("play the next one", "next_track"),
+        TestCase("next song", "next_track"),
+        TestCase("skip", "next_track"),
+        # previous_track (#521)
+        TestCase("previous song", "previous_track"),
+        TestCase("last song", "previous_track"),
+        TestCase("go back a song", "previous_track"),
+        TestCase("play the previous track", "previous_track"),
+    ]),
+    ("lists", [
+        # add_to_list
+        TestCase("add milk to my shopping list", "add_to_list",
+                 expect_params={"item": "milk", "list_name": "shopping"}),
+        TestCase("put eggs on the grocery list", "add_to_list",
+                 expect_params={"item": "eggs", "list_name": "grocery"}),
+        TestCase("add bread and butter to my shopping list", "add_to_list"),
+        TestCase("chuck milk on the list", "add_to_list"),
+        TestCase("stick bananas on the shopping list", "add_to_list"),
+        TestCase("add tomatoes to the grocery list", "add_to_list"),
+        TestCase("pop coffee on my list", "add_to_list"),
+        TestCase("put sunscreen on the holiday list", "add_to_list"),
+        # get_list_items
+        TestCase("show my todo list", "get_list_items",
+                 expect_params={"list_name": "todo"}),
+        TestCase("what's on my shopping list", "get_list_items",
+                 expect_params={"list_name": "shopping"}),
+        TestCase("read me my grocery list", "get_list_items"),
+        TestCase("what's on my grocery list", "get_list_items"),
+        TestCase("show me the shopping list", "get_list_items"),
+        TestCase("read out my holiday list", "get_list_items"),
+        TestCase("what do I need to get", "get_list_items"),
+        # remove_from_list
+        TestCase("remove milk from my shopping list", "remove_from_list",
+                 expect_params={"item": "milk", "list_name": "shopping"}),
+        TestCase("delete eggs from the grocery list", "remove_from_list",
+                 expect_params={"item": "eggs", "list_name": "grocery"}),
+        TestCase("take milk off the shopping list", "remove_from_list"),
+        TestCase("cross milk off the shopping list", "remove_from_list"),
+        TestCase("I've got bread, take it off the list", "remove_from_list"),
+        TestCase("strike eggs off my grocery list", "remove_from_list"),
+        # create_list
+        TestCase("create a list called groceries", "create_list",
+                 expect_params={"list_name": "groceries"}),
+        TestCase("make a new list called holiday packing", "create_list",
+                 expect_params={"list_name": "holiday packing"}),
+        TestCase("make me a list for camping", "create_list"),
+        TestCase("create a new list called work tasks", "create_list"),
+        # bulk_add_to_list (#529 — LLM-routed, xfail until verified)
+        TestCase("save all those ingredients to my shopping list", "bulk_add_to_list", xfail=True),
+        TestCase("add eggs, milk, and bread to the shopping list", "bulk_add_to_list", xfail=True),
+        TestCase("put tortilla chips, beef mince, and kidney beans on my grocery list", "bulk_add_to_list", xfail=True),
+        TestCase("add these items to my list: apples, bananas, oranges", "bulk_add_to_list", xfail=True),
+    ]),
+    ("smart_home", [
+        TestCase("turn on the living room lights", "smart_home_on"),
+        TestCase("lights on", "smart_home_on"),
+        TestCase("turn on the heater", "smart_home_on"),
+        TestCase("switch off the bedroom lamp", "smart_home_off"),
+        TestCase("kill the lights", "smart_home_off"),
+    ]),
+    ("memory", [
+        TestCase("save that we're meeting Tuesday", "save_memory"),
+        TestCase("remember that I prefer dark mode", "save_memory"),
+        TestCase("note to self call the dentist Monday", "save_memory"),
+        TestCase("don't forget I parked on level 3", "save_memory"),
+    ]),
+    ("navigation", [
+        # navigate_to
+        TestCase("navigate to the airport", "navigate_to"),
+        TestCase("give me directions to Westfield", "navigate_to"),
+        TestCase("take me to the airport", "navigate_to"),
+        TestCase("directions home", "navigate_to"),
+        # open_app
+        TestCase("open Spotify", "open_app"),
+        TestCase("launch Google Maps", "open_app"),
+        # make_call
+        TestCase("call voicemail", "make_call"),
+        TestCase("call my voicemail", "make_call"),
+        TestCase("ring mum", "make_call"),
+        TestCase("give Sarah a call", "make_call"),
+        # Contact alias resolution (fixture: 'zippy' → Voicemail / 121)
+        TestCase("call zippy", "make_call"),
+        TestCase("ring zippy", "make_call"),
+        # send_sms
+        TestCase("text myself a reminder to buy groceries", "send_sms"),
+        TestCase("send a message to myself saying call the plumber", "send_sms"),
+        TestCase("text John saying I'll be 10 minutes late", "send_sms"),
+        TestCase("message mum that I'm on my way", "send_sms"),
+    ]),
+    ("system", [
+        # get_time — DirectReply assertions
+        TestCase("what time is it", "get_time", expect_reply_contains=r"\d+:\d+"),
+        TestCase("what's today's date", "get_time", expect_reply_contains=r"202[4-9]|20[3-9]\d"),
+        # get_battery — DirectReply assertion on first case
+        TestCase("what's my battery level", "get_battery", expect_reply_contains=r"\d+%"),
+        TestCase("how much battery do I have", "get_battery"),
+        TestCase("battery", "get_battery"),
+        TestCase("am I running low on battery", "get_battery"),
+        # get_system_info
+        TestCase("how much storage do I have left", "get_system_info"),
+        TestCase("what's my RAM usage", "get_system_info"),
+        TestCase("how much space is left on my phone", "get_system_info"),
+        # toggles — wifi / bluetooth / brightness / hotspot / airplane / DND
+        TestCase("turn off wifi", "toggle_wifi"),
+        TestCase("wifi off", "toggle_wifi"),
+        TestCase("enable bluetooth", "toggle_bluetooth"),
+        TestCase("bluetooth on", "toggle_bluetooth"),
+        TestCase("increase brightness", "set_brightness"),
+        TestCase("dim the screen", "set_brightness"),
+        TestCase("turn on hotspot", "toggle_hotspot"),
+        TestCase("hotspot on", "toggle_hotspot"),
+        TestCase("enable airplane mode", "toggle_airplane_mode"),
+        TestCase("flight mode on", "toggle_airplane_mode"),
+        TestCase("enable do not disturb", "toggle_dnd_on"),
+        TestCase("DND on", "toggle_dnd_on"),
+        TestCase("turn off do not disturb", "toggle_dnd_off"),
+        TestCase("disable do not disturb", "toggle_dnd_off"),
+        # flashlight
+        TestCase("turn on the torch", "toggle_flashlight_on"),
+        TestCase("torch", "toggle_flashlight_on"),
+        TestCase("turn off the flashlight", "toggle_flashlight_off"),
+        TestCase("torch off", "toggle_flashlight_off"),
+    ]),
+    ("misc", [
+        # calendar
+        TestCase("create a meeting for tomorrow at 2pm", "create_calendar_event"),
+        TestCase("schedule a dentist appointment Friday at 10", "create_calendar_event"),
+        TestCase("book a dentist appointment for next Thursday at 2pm", "create_calendar_event"),
+        TestCase("add a meeting to my calendar for Friday at 3pm", "create_calendar_event"),
+        # email
+        TestCase("send an email to John about the project update", "send_email"),
+        TestCase("email Sarah the meeting notes", "send_email"),
+        # nearby
+        TestCase("find a coffee shop near me", "find_nearby"),
+        TestCase("what restaurants are nearby", "find_nearby"),
+        TestCase("where's the nearest ATM", "find_nearby"),
+        TestCase("is there a petrol station nearby", "find_nearby"),
+        # play_podcast (#524)
+        TestCase("play the Joe Rogan podcast", "play_podcast"),
+        TestCase("play the latest episode of Serial", "play_podcast"),
+        TestCase("put on the Daily podcast", "play_podcast"),
+        TestCase("play the news podcast", "play_podcast"),
+        # podcast_skip_forward (#524)
+        TestCase("skip forward 2 minutes", "podcast_skip_forward"),
+        TestCase("skip ahead 5 minutes", "podcast_skip_forward"),
+        TestCase("skip the intro", "podcast_skip_forward"),
+        TestCase("forward 30 seconds", "podcast_skip_forward"),
+        # podcast_skip_back (#524)
+        TestCase("go back 30 seconds", "podcast_skip_back"),
+        TestCase("rewind 10 seconds", "podcast_skip_back"),
+        TestCase("back 15 seconds", "podcast_skip_back"),
+        TestCase("I missed that, go back", "podcast_skip_back", xfail=True),
+        # podcast_speed (#524)
+        TestCase("play at 1.5x speed", "podcast_speed"),
+        TestCase("set playback speed to 2x", "podcast_speed"),
+        TestCase("normal speed", "podcast_speed"),
+        TestCase("slow down the podcast", "podcast_speed"),
+    ]),
 ]
+
+# Flat list built from phases — preserves backward compatibility with any code
+# that iterates TEST_CASES directly (dry-run, summary table, etc.)
+TEST_CASES: list[TestCase] = [tc for _, tcs in PHASES for tc in tcs]
 
 
 def run_adb(*args: str) -> str:
@@ -523,11 +513,33 @@ def check_params(
     return len(failures) == 0, failures
 
 
-def save_report(results: list[TestResult], suite: str = "skills") -> Path:
-    """Serialise results to a timestamped JSON file in scripts/test-reports/ and return the path."""
+def save_report(
+    results: list[TestResult],
+    suite: str = "skills",
+    elapsed: float = 0.0,
+    partial: bool = False,
+    run_ts: str | None = None,
+) -> Path:
+    """Serialise results to a JSON file in scripts/test-reports/ and return the path.
+
+    When partial=True, writes/overwrites a fixed-name in-progress snapshot so that
+    results are never lost if the run is aborted mid-way.  When partial=False (the
+    final save), writes the completed timestamped report and deletes any partial file
+    that was written during the same run.
+    """
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
-    report_path = REPORTS_DIR / f"{ts}_{suite}.json"
+
+    if partial and run_ts:
+        report_path = REPORTS_DIR / f"{run_ts}_{suite}_partial.json"
+        status = "in_progress"
+    else:
+        report_path = REPORTS_DIR / f"{ts}_{suite}.json"
+        status = "complete"
+        # Remove the in-progress snapshot now that the full report is being written
+        if run_ts:
+            partial_file = REPORTS_DIR / f"{run_ts}_{suite}_partial.json"
+            partial_file.unlink(missing_ok=True)
 
     total = len(results)
     passed = sum(1 for r in results if r.intent_passed and r.params_passed and not r.xfail)
@@ -536,7 +548,9 @@ def save_report(results: list[TestResult], suite: str = "skills") -> Path:
 
     report = {
         "suite": suite,
+        "status": status,
         "timestamp": ts,
+        "elapsed_seconds": round(elapsed, 1),
         "summary": {
             "total": total,
             "passed": passed,
@@ -628,8 +642,6 @@ def analyse_results(results: list[TestResult]) -> None:
 
 def run_tests(dry_run: bool = False) -> int:
     """Execute all test cases. Returns non-zero on failures."""
-    results: list[TestResult] = []
-
     if dry_run:
         print("=" * 70)
         print("  ADB SKILL TEST — DRY RUN (no device interaction)")
@@ -702,54 +714,98 @@ def run_tests(dry_run: bool = False) -> int:
     time.sleep(1)
     print()
 
-    for i, tc in enumerate(TEST_CASES, 1):
-        print(f"  [{i:2d}/{len(TEST_CASES)}] \"{tc.message}\" ...", end=" ", flush=True)
+    run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    suite_start = time.time()
+    results: list[TestResult] = []
+    global_index = 1
+    total_tests = len(TEST_CASES)
 
-        clear_logcat()
-        time.sleep(0.5)  # Brief pause to ensure logcat clear is flushed before sending
-        send_text(tc.message)
-        time.sleep(WAIT_SECONDS)
-        logcat = read_logcat()
-        actual_intent, actual_params = extract_intent(logcat)
-        intent_passed = actual_intent == tc.expect_intent
-        params_ok, param_failures = check_params(tc.expect_params, actual_params)
-        overall_passed = intent_passed and params_ok
+    for phase_num, (phase_name, phase_cases) in enumerate(PHASES, 1):
+        phase_start = time.time()
+        phase_results: list[TestResult] = []
 
-        # DirectReply verification — best-effort, warn but don't fail the test
-        reply_warn: str | None = None
-        if intent_passed and tc.expect_reply_contains is not None:
-            reply_text = extract_reply(logcat)
-            if reply_text is None:
-                reply_warn = "no DirectReply logged"
-            elif not re.search(tc.expect_reply_contains, reply_text):
-                reply_warn = f"reply {reply_text!r} didn't match {tc.expect_reply_contains!r}"
+        print(f"  ── [phase {phase_num}/{len(PHASES)}] {phase_name} — {len(phase_cases)} tests ──")
 
-        results.append(TestResult(
-            index=i,
-            message=tc.message,
-            expect_intent=tc.expect_intent,
-            actual_intent=actual_intent,
-            expect_params=tc.expect_params,
-            actual_params=actual_params,
-            intent_passed=intent_passed,
-            params_passed=params_ok,
-            param_failures=param_failures,
-            xfail=tc.xfail,
-            reply_warn=reply_warn,
-        ))
-        if overall_passed:
-            print("✓" + (f" [reply warn: {reply_warn}]" if reply_warn else ""))
-        elif tc.xfail:
-            print("✗ (xfail — not yet implemented)")
-        elif not intent_passed:
-            print(f"✗ (got {actual_intent or 'NO_MATCH'})")
-        else:
-            print(f"✗ (params: {'; '.join(param_failures)})")
+        for tc in phase_cases:
+            print(f"  [{global_index:3d}/{total_tests}] \"{tc.message}\" ...", end=" ", flush=True)
 
-        # Hang up after call tests so they don't stay open
-        if tc.expect_intent == "make_call":
-            time.sleep(2)
-            run_adb("shell", "input", "keyevent", "KEYCODE_ENDCALL")
+            clear_logcat()
+            time.sleep(0.5)  # Brief pause to ensure logcat clear is flushed before sending
+            send_text(tc.message)
+            time.sleep(WAIT_SECONDS)
+            logcat = read_logcat()
+            actual_intent, actual_params = extract_intent(logcat)
+            intent_passed = actual_intent == tc.expect_intent
+            params_ok, param_failures = check_params(tc.expect_params, actual_params)
+            overall_passed = intent_passed and params_ok
+
+            # DirectReply verification — best-effort, warn but don't fail the test
+            reply_warn: str | None = None
+            if intent_passed and tc.expect_reply_contains is not None:
+                reply_text = extract_reply(logcat)
+                if reply_text is None:
+                    reply_warn = "no DirectReply logged"
+                elif not re.search(tc.expect_reply_contains, reply_text):
+                    reply_warn = f"reply {reply_text!r} didn't match {tc.expect_reply_contains!r}"
+
+            result = TestResult(
+                index=global_index,
+                message=tc.message,
+                expect_intent=tc.expect_intent,
+                actual_intent=actual_intent,
+                expect_params=tc.expect_params,
+                actual_params=actual_params,
+                intent_passed=intent_passed,
+                params_passed=params_ok,
+                param_failures=param_failures,
+                xfail=tc.xfail,
+                reply_warn=reply_warn,
+            )
+            phase_results.append(result)
+            results.append(result)
+            global_index += 1
+
+            if overall_passed:
+                print("✓" + (f" [reply warn: {reply_warn}]" if reply_warn else ""))
+            elif tc.xfail:
+                print("✗ (xfail — not yet implemented)")
+            elif not intent_passed:
+                print(f"✗ (got {actual_intent or 'NO_MATCH'})")
+            else:
+                print(f"✗ (params: {'; '.join(param_failures)})")
+
+            # Hang up after call tests so they don't stay open
+            if tc.expect_intent == "make_call":
+                time.sleep(2)
+                run_adb("shell", "input", "keyevent", "KEYCODE_ENDCALL")
+
+        # ── Phase summary ──────────────────────────────────────────────────
+        phase_elapsed = time.time() - phase_start
+        n_pass  = sum(1 for r in phase_results if r.intent_passed and r.params_passed and not r.xfail)
+        n_xfail = sum(1 for r in phase_results if r.xfail and not r.intent_passed)
+        n_fail  = sum(1 for r in phase_results if not r.xfail and (not r.intent_passed or not r.params_passed))
+        print(
+            f"  → {phase_name}: {n_pass} pass  {n_fail} fail  {n_xfail} xfail"
+            f"  ({phase_elapsed:.1f}s)"
+        )
+
+        # OOM / model-reset sanity check (#554): warn if every test returned the same intent
+        actual_intents = [r.actual_intent for r in phase_results if r.actual_intent]
+        if len(actual_intents) > 1 and len(set(actual_intents)) == 1:
+            print(
+                f"  ⚠ WARNING: all {len(actual_intents)} tests in {phase_name}"
+                f" returned '{actual_intents[0]}' — possible OOM/model reset"
+            )
+
+        # Incremental report save so results are never lost on abort
+        save_report(
+            results,
+            suite="skills",
+            elapsed=time.time() - suite_start,
+            partial=True,
+            run_ts=run_ts,
+        )
+        print()
 
     # Summary table
     print()
@@ -787,7 +843,13 @@ def run_tests(dry_run: bool = False) -> int:
     print("=" * 70)
 
     analyse_results(results)
-    report_path = save_report(results, suite="skills")
+    report_path = save_report(
+        results,
+        suite="skills",
+        elapsed=time.time() - suite_start,
+        partial=False,
+        run_ts=run_ts,
+    )
     print(f"  Report saved → {report_path}")
     print()
 
