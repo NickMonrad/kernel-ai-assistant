@@ -308,6 +308,55 @@ class QuickIntentRouterTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // CANCEL TIMER TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Cancel Timer")
+    inner class CancelTimer {
+
+        @Test
+        fun `cancel the 10 minute timer should route to cancel_timer_named not set_timer`() {
+            // Regression: "10 minute timer" substring matched set_timer before cancel_timer_named
+            // Fix: cancel patterns moved before set_timer in the pattern list
+            val result = regexOnlyRouter.route("cancel the 10 minute timer")
+            assertRegexMatch(result, "cancel_timer_named", "cancel the 10 minute timer")
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("10 minute", intent.params["name"], "name param should be '10 minute'")
+        }
+
+        @Test
+        fun `stop the pasta timer should route to cancel_timer_named`() {
+            val result = regexOnlyRouter.route("stop the pasta timer")
+            assertRegexMatch(result, "cancel_timer_named", "stop the pasta timer")
+        }
+
+        @Test
+        fun `cancel my egg timer should route to cancel_timer_named`() {
+            val result = regexOnlyRouter.route("cancel my egg timer")
+            assertRegexMatch(result, "cancel_timer_named", "cancel my egg timer")
+        }
+
+        @Test
+        fun `cancel the timer should route to cancel_timer not cancel_timer_named`() {
+            val result = regexOnlyRouter.route("cancel the timer")
+            assertRegexMatch(result, "cancel_timer", "cancel the timer")
+        }
+
+        @Test
+        fun `5 minute timer should still route to set_timer`() {
+            val result = regexOnlyRouter.route("5 minute timer")
+            assertRegexMatch(result, "set_timer", "5 minute timer")
+        }
+
+        @Test
+        fun `10 minute tea timer should still route to set_timer`() {
+            val result = regexOnlyRouter.route("10 minute tea timer")
+            assertRegexMatch(result, "set_timer", "10 minute tea timer")
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // DND TESTS
     // ═══════════════════════════════════════════════════════════════════════════
 

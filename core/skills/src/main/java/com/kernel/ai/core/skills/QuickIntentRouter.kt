@@ -230,82 +230,9 @@ class QuickIntentRouter(
             paramExtractor = { _, _ -> emptyMap() },
         ),
 
-        // ── Timer ──
-        IntentPattern(
-            intentName = "set_timer",
-            regex = Regex(
-                """(?:set|start|create)\s+(?:a\s+)?(?:timer|countdown)\s+(?:for\s+)?(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)(?:\s+(?:and\s+)?(\d+)\s*(minutes?|mins?|seconds?|secs?|m|s))?""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, input -> parseTimerDuration(match, input) },
-        ),
-        IntentPattern(
-            intentName = "set_timer",
-            regex = Regex(
-                """(?:timer|countdown)\s+(?:for\s+)?(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, input -> parseTimerDuration(match, input) },
-        ),
-        // "5 minute timer" / "5 minute egg timer" / "3 minute pasta timer"
-        IntentPattern(
-            intentName = "set_timer",
-            regex = Regex(
-                """(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)\s+.*?timer""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, input -> parseTimerDuration(match, input) },
-        ),
-        // "remind me in <N> <unit>" → set_timer
-        IntentPattern(
-            intentName = "set_timer",
-            regex = Regex(
-                """remind\s+me\s+in\s+(\d+)\s*(hours?|minutes?|mins?|seconds?|secs?|h|m|s)""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, input -> parseTimerDuration(match, input) },
-        ),
-        // "time me for <N> <unit>" → set_timer
-        IntentPattern(
-            intentName = "set_timer",
-            regex = Regex(
-                """time\s+me\s+(?:for\s+)?(\d+)\s*(hours?|minutes?|mins?|seconds?|secs?|h|m|s)""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, input -> parseTimerDuration(match, input) },
-        ),
-        // "start a one hour timer" / "set a half hour timer" — written-out durations before open_app
-        IntentPattern(
-            intentName = "set_timer",
-            regex = Regex(
-                """(?:set|start|create)\s+(?:a\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|an?\s+|half\s+an?\s+)\s*(?:and\s+a\s+half\s+)?(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\s+(?:\w+\s+)*timer""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { _, input ->
-                val wordMap = mapOf(
-                    "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5,
-                    "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10,
-                    "fifteen" to 15, "twenty" to 20, "thirty" to 30, "an" to 1, "a" to 1,
-                )
-                val lower = input.lowercase()
-                val numMatch = Regex("""(one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|an?)\s+(?:and\s+a\s+half\s+)?(hours?|hrs?|minutes?|mins?|seconds?|secs?)""").find(lower)
-                if (numMatch != null) {
-                    val qty = wordMap[numMatch.groupValues[1]] ?: 1
-                    val unit = numMatch.groupValues[2]
-                    val half = lower.contains("and a half") || lower.contains("and-a-half")
-                    val seconds = when {
-                        unit.startsWith("h") -> qty * 3600 + (if (half) 1800 else 0)
-                        unit.startsWith("m") -> qty * 60 + (if (half) 30 else 0)
-                        else -> qty + (if (half) 0 else 0)
-                    }
-                    mapOf("duration_seconds" to seconds.toString())
-                } else {
-                    emptyMap()
-                }
-            },
-        ),
-
         // ── Cancel Timer ──
+        // These must appear before set_timer — "cancel the 10 minute timer" substring-matches set_timer
+        // patterns unless cancel intents take priority in the list.
         // Explicit "turn off" pattern first — long alternation groups can misbehave on Android's regex engine
         IntentPattern(
             intentName = "cancel_timer",
@@ -395,6 +322,83 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+
+        // ── Timer (set) ──
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """(?:set|start|create)\s+(?:a\s+)?(?:timer|countdown)\s+(?:for\s+)?(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)(?:\s+(?:and\s+)?(\d+)\s*(minutes?|mins?|seconds?|secs?|m|s))?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """(?:timer|countdown)\s+(?:for\s+)?(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+        // "5 minute timer" / "5 minute egg timer" / "3 minute pasta timer"
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)\s+.*?timer""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+        // "remind me in <N> <unit>" → set_timer
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """remind\s+me\s+in\s+(\d+)\s*(hours?|minutes?|mins?|seconds?|secs?|h|m|s)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+        // "time me for <N> <unit>" → set_timer
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """time\s+me\s+(?:for\s+)?(\d+)\s*(hours?|minutes?|mins?|seconds?|secs?|h|m|s)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+        // "start a one hour timer" / "set a half hour timer" — written-out durations before open_app
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """(?:set|start|create)\s+(?:a\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|an?\s+|half\s+an?\s+)\s*(?:and\s+a\s+half\s+)?(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\s+(?:\w+\s+)*timer""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val wordMap = mapOf(
+                    "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5,
+                    "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10,
+                    "fifteen" to 15, "twenty" to 20, "thirty" to 30, "an" to 1, "a" to 1,
+                )
+                val lower = input.lowercase()
+                val numMatch = Regex("""(one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|an?)\s+(?:and\s+a\s+half\s+)?(hours?|hrs?|minutes?|mins?|seconds?|secs?)""").find(lower)
+                if (numMatch != null) {
+                    val qty = wordMap[numMatch.groupValues[1]] ?: 1
+                    val unit = numMatch.groupValues[2]
+                    val half = lower.contains("and a half") || lower.contains("and-a-half")
+                    val seconds = when {
+                        unit.startsWith("h") -> qty * 3600 + (if (half) 1800 else 0)
+                        unit.startsWith("m") -> qty * 60 + (if (half) 30 else 0)
+                        else -> qty + (if (half) 0 else 0)
+                    }
+                    mapOf("duration_seconds" to seconds.toString())
+                } else {
+                    emptyMap()
+                }
+            },
+        ),
+
+
 
         // ── Calendar ──
         // "add/create/schedule/set up a [dentist/gym/meeting/event] [for/on] [date] [at time]"
