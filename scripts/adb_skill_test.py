@@ -684,19 +684,45 @@ def check_oom_sanity(results: list[TestResult]) -> None:
         print()
 
 
-def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | None = None) -> int:
+def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | None = None, phases: list[str] | None = None) -> int:
     """Execute all test cases. Returns non-zero on failures."""
     if dry_run:
         print("=" * 70)
         print("  ADB SKILL TEST — DRY RUN (no device interaction)")
         print("=" * 70)
         print()
-        for i, tc in enumerate(TEST_CASES, 1):
+        # Resolve which test cases to show — respects --phases filter.
+        phase_names_dr = [name for name, _ in PHASES]
+        selected_dr: set[int] | None = None
+        if phases is not None:
+            selected_dr = set()
+            for token in phases:
+                token = token.strip()
+                if token.isdigit():
+                    n = int(token)
+                    if not (1 <= n <= len(PHASES)):
+                        print(f"ERROR: --phases {token!r} out of range (1–{len(PHASES)}).", file=sys.stderr)
+                        return 1
+                    selected_dr.add(n - 1)
+                else:
+                    if token not in phase_names_dr:
+                        print(f"ERROR: --phases {token!r} not recognised. Valid: {', '.join(phase_names_dr)}", file=sys.stderr)
+                        return 1
+                    selected_dr.add(phase_names_dr.index(token))
+            selected_names_dr = [phase_names_dr[i] for i in sorted(selected_dr)]
+            print(f"  ── Showing phases: {', '.join(selected_names_dr)} ──")
+            print()
+        dry_cases = [
+            tc for phase_idx, (_, phase_cases) in enumerate(PHASES)
+            for tc in phase_cases
+            if selected_dr is None or phase_idx in selected_dr
+        ]
+        for i, tc in enumerate(dry_cases, 1):
             print(f"  [{i:2d}] \"{tc.message}\"")
             suffix = f" | reply_contains={tc.expect_reply_contains!r}" if tc.expect_reply_contains else ""
             print(f"       expect → {tc.expect_intent}{suffix}")
         print()
-        print(f"  Total: {len(TEST_CASES)} test cases")
+        print(f"  Total: {len(dry_cases)} test cases")
         print("=" * 70)
         return 0
 
@@ -772,10 +798,41 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     time.sleep(1)
     print()
 
+    phase_names = [name for name, _ in PHASES]
+
+    # Resolve --phases: comma-separated list of phase names or 1-based numbers.
+    # Builds a set of 0-based indices to include.
+    selected_phase_indices: set[int] | None = None  # None = all phases
+    if phases is not None:
+        selected_phase_indices = set()
+        for token in phases:
+            token = token.strip()
+            if token.isdigit():
+                n = int(token)
+                if not (1 <= n <= len(PHASES)):
+                    print(
+                        f"ERROR: --phases {token!r} out of range "
+                        f"(1–{len(PHASES)}). Valid phases: {', '.join(f'{i+1}={n}' for i, (n, _) in enumerate(PHASES))}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                selected_phase_indices.add(n - 1)
+            else:
+                if token not in phase_names:
+                    print(
+                        f"ERROR: --phases {token!r} not recognised. "
+                        f"Valid phases: {', '.join(phase_names)}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                selected_phase_indices.add(phase_names.index(token))
+        selected_names = [phase_names[i] for i in sorted(selected_phase_indices)]
+        print(f"  ── Running selected phases: {', '.join(selected_names)} ──")
+        print()
+
     # Resolve --start-phase: accept a phase name or 1-based number.
     start_phase_idx = 0  # 0 = run all phases (0-based offset into PHASES)
     if start_phase is not None:
-        phase_names = [name for name, _ in PHASES]
         if start_phase.isdigit():
             n = int(start_phase)
             if not (1 <= n <= len(PHASES)):
@@ -803,13 +860,20 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     suite_start = time.time()
     results: list[TestResult] = []
-    # global_index starts at 1 for a full run, or after skipped tests for a partial resume.
+    # global_index counts only the tests that will actually run.
+    # For a full run it starts at 1; for --start-phase it starts after skipped tests.
     global_index = sum(len(cases) for _, cases in PHASES[:start_phase_idx]) + 1
-    total_tests = len(TEST_CASES)
+    total_tests = (
+        sum(len(cases) for i, (_, cases) in enumerate(PHASES) if i in selected_phase_indices)
+        if selected_phase_indices is not None
+        else len(TEST_CASES)
+    )
 
     for phase_num, (phase_name, phase_cases) in enumerate(PHASES, 1):
         if phase_num <= start_phase_idx:
             continue  # skip phases before the requested start
+        if selected_phase_indices is not None and (phase_num - 1) not in selected_phase_indices:
+            continue  # skip phases not in --phases selection
 
         phase_start = time.time()
         phase_results: list[TestResult] = []
@@ -1271,11 +1335,28 @@ def main() -> None:
             f"Phases: {', '.join(f'{i+1}={n}' for i, (n, _) in enumerate(PHASES))}."
         ),
     )
+    parser.add_argument(
+        "--phases",
+        metavar="PHASES",
+        default=None,
+        help=(
+            "Run only the specified phases (comma-separated names or 1-based numbers). "
+            "e.g. --phases weather  or  --phases 1,3,8  or  --phases alarm_timer,media. "
+            f"Mutually exclusive with --start-phase. "
+            f"Phases: {', '.join(f'{i+1}={n}' for i, (n, _) in enumerate(PHASES))}."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.start_phase and args.phases:
+        parser.error("--start-phase and --phases are mutually exclusive. Use one or the other.")
+
+    phases_list = [p.strip() for p in args.phases.split(",")] if args.phases else None
+
     if args.profile:
         sys.exit(run_profile_tests(dry_run=args.dry_run))
     else:
-        sys.exit(run_tests(dry_run=args.dry_run, post_pr=args.post_pr, start_phase=args.start_phase))
+        sys.exit(run_tests(dry_run=args.dry_run, post_pr=args.post_pr, start_phase=args.start_phase, phases=phases_list))
 
 
 if __name__ == "__main__":
