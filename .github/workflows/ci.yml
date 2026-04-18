@@ -95,18 +95,11 @@ jobs:
 
           APK_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/app-debug.apk"
 
-          # Build comment JSON (pass body via argv to avoid quoting/encoding issues)
-          COMMENT_BODY="<!-- pr-apk-comment -->
-## 📦 Debug APK ready
-
-**[⬇️ Download app-debug.apk](${APK_URL})**
-
-Commit: \`${SHORT_SHA}\` · Build #${BUILD_NUMBER}
-
-_Updated on each push to this branch. Removed when the PR is merged or closed._"
-
-          python3 -c "import json,sys; print(json.dumps({'body': sys.argv[1]}))" \
-            "$COMMENT_BODY" > /tmp/pr-comment.json
+          # Build comment JSON via printf+python — avoids YAML block-scalar indentation issues
+          printf '<!-- pr-apk-comment -->\n## Debug APK ready\n\n**[Download app-debug.apk](%s)**\n\nCommit: `%s` - Build #%s\n\n_Updated on each push. Removed when PR is merged or closed._\n' \
+            "$APK_URL" "$SHORT_SHA" "$BUILD_NUMBER" \
+            | python3 -c "import json,sys; print(json.dumps({'body':sys.stdin.read()}))" \
+            > /tmp/pr-comment.json
 
           # Post or update sticky comment (identified by marker in first line)
           EXISTING_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
