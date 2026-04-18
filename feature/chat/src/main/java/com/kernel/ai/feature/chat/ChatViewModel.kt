@@ -1,11 +1,13 @@
 package com.kernel.ai.feature.chat
 
 import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.withStarted
 import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
@@ -57,7 +59,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -237,13 +241,30 @@ class ChatViewModel @Inject constructor(
         }
         viewModelScope.launch {
             // Re-initialize automatically when Android evicts the engine under memory pressure
-            // (#609). GPU init hangs when the screen is off (GPU hardware is suspended), so we
-            // defer the re-init until the app returns to foreground using withStarted {}.
-            // LlmDispatcher is single-threaded, so cleanup → initialize run serially.
+            // (#609). We wait for the NEXT ON_START lifecycle event (not current state) because:
+            // - TRIM_MEMORY_UI_HIDDEN fires while ProcessLifecycleOwner still reports STARTED
+            //   (700ms debounce before ON_STOP dispatches), so withStarted{} returns immediately
+            // - We need the user to have the app actually open, not just screen-on briefly
+            // - waitForScreenInteractive() in initialize() is a safety net if screen goes off
+            //   mid-init, but the real gate should be app-in-foreground
             inferenceEngine.evictionEvents.collect {
-                Log.i("ChatViewModel", "Engine evicted — waiting for foreground before re-init (#609)")
-                ProcessLifecycleOwner.get().withStarted { }
-                Log.i("ChatViewModel", "App in foreground — re-initializing engine after memory pressure eviction")
+                Log.i("ChatViewModel", "Engine evicted — waiting for app to open before re-init (#609)")
+                withContext(Dispatchers.Main) {
+                    suspendCancellableCoroutine { cont ->
+                        val lifecycle = ProcessLifecycleOwner.get().lifecycle
+                        val observer = object : LifecycleEventObserver {
+                            override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+                                if (event == Lifecycle.Event.ON_START) {
+                                    lifecycle.removeObserver(this)
+                                    if (cont.isActive) cont.resume(Unit)
+                                }
+                            }
+                        }
+                        lifecycle.addObserver(observer)
+                        cont.invokeOnCancellation { lifecycle.removeObserver(observer) }
+                    }
+                }
+                Log.i("ChatViewModel", "App opened by user — re-initializing engine after eviction")
                 initEngineWhenReady()
             }
         }
