@@ -119,19 +119,7 @@ fun KernelNavHost(initialChatQuery: String? = null) {
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
                 NavigationDrawerItem(
-                    label = { Text("Scheduled Alarms") },
-                    icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
-                    selected = currentBaseRoute == ROUTE_SCHEDULED_ALARMS,
-                    onClick = {
-                        coroutineScope.launch { drawerState.close() }
-                        navController.navigate(ROUTE_SCHEDULED_ALARMS) {
-                            launchSingleTop = true
-                        }
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                )
-                NavigationDrawerItem(
-                    label = { Text("Active Timers & Alarms") },
+                    label = { Text("Timers & Alarms") },
                     icon = { Icon(Icons.Default.Timer, contentDescription = null) },
                     selected = currentBaseRoute == ROUTE_SIDE_PANEL,
                     onClick = {
@@ -344,7 +332,8 @@ fun KernelNavHost(initialChatQuery: String? = null) {
                 }
 
                 composable(ROUTE_SCHEDULED_ALARMS) {
-                    ScheduledAlarmsScreen(
+                    // Redirected to the unified Timers & Alarms screen (#574)
+                    SidePanelScreen(
                         onBack = { navController.popBackStack() },
                     )
                 }
