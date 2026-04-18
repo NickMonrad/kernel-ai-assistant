@@ -1721,10 +1721,19 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
         ),
         // "create a groceries list" / "make a new shopping list" / "start a meal plan list"
+        // "make a new list called holiday packing" / "create a list called groceries"
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|new)\s+(?:a\s+|an\s+|my\s+|new\s+)?(.+?)\s+list""",
+                """(?:create|make|start)\s+(?:a\s+|an\s+|my\s+)?(?:new\s+)?list\s+called\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+        ),
+        IntentPattern(
+            intentName = "create_list",
+            regex = Regex(
+                """(?:create|make|start|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!list\b)(.+?)\s+list""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
