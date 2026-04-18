@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +72,46 @@ jobs:
           name: apk-${{ github.sha }}
           path: app/build/outputs/apk/debug/
           retention-days: 14
+
+      - name: Publish PR preview APK
+        if: success() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          SHORT_SHA=${GITHUB_SHA::7}
+          TAG="pr-${PR_NUMBER}"
+
+          # Upsert the pr-N pre-release (delete first so we can re-attach the APK)
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          git tag -f "$TAG"
+          git push -f origin "$TAG"
+          gh release create "$TAG" "$APK" \
+            --title "PR #${PR_NUMBER} debug build — ${SHORT_SHA}" \
+            --notes "Debug APK for PR #${PR_NUMBER}. Commit: ${GITHUB_SHA}. Build #${BUILD_NUMBER}." \
+            --prerelease
+
+          APK_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/app-debug.apk"
+
+          # Build comment JSON via printf+python — avoids YAML block-scalar indentation issues
+          printf '<!-- pr-apk-comment -->\n## Debug APK ready\n\n**[Download app-debug.apk](%s)**\n\nCommit: `%s` - Build #%s\n\n_Updated on each push. Removed when PR is merged or closed._\n' \
+            "$APK_URL" "$SHORT_SHA" "$BUILD_NUMBER" \
+            | python3 -c "import json,sys; print(json.dumps({'body':sys.stdin.read()}))" \
+            > /tmp/pr-comment.json
+
+          # Post or update sticky comment (identified by marker in first line)
+          EXISTING_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.body | startswith("<!-- pr-apk-comment -->"))][0].id // empty')
+
+          if [ -n "$EXISTING_ID" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING_ID}" \
+              -X PATCH --input /tmp/pr-comment.json
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              -X POST --input /tmp/pr-comment.json
+          fi
 
       - name: Publish debug release
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
