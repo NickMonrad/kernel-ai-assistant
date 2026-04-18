@@ -71,4 +71,15 @@ interface InferenceEngine {
 
     /** Release the engine and all native resources. Safe to call multiple times. */
     suspend fun shutdown()
+
+    /**
+     * Release the inference session in response to Android memory pressure
+     * ([android.content.ComponentCallbacks2.onTrimMemory] level ≥
+     * [android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL]).
+     *
+     * Clears the KV cache and unloads model weights so the system can reclaim RAM.
+     * The engine will be re-initialised lazily on the next [initialize] call.
+     * This is a fire-and-forget, non-suspending call safe to invoke from the main thread.
+     */
+    fun releaseForMemoryPressure() { /* no-op default for test fakes */ }
 }

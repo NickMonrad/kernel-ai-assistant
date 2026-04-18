@@ -541,6 +541,12 @@ def save_report(results: list[TestResult], suite: str = "skills") -> Path:
         ],
     }
     report_path.write_text(json.dumps(report, indent=2))
+
+    # Auto-generate HTML report if generator script is present
+    gen_script = Path(__file__).parent / "generate_report.py"
+    if gen_script.exists():
+        subprocess.run([sys.executable, str(gen_script), str(report_path)], check=False)
+
     return report_path
 
 
