@@ -312,7 +312,7 @@ class GetWeatherSkill @Inject constructor(
                 "?latitude=$lat&longitude=$lon" +
                 "&current=temperature_2m,apparent_temperature,relative_humidity_2m," +
                 "weather_code,wind_speed_10m,precipitation_probability,precipitation,uv_index" +
-                "&daily=uv_index_max,sunrise,sunset" +
+                "&daily=uv_index_max,sunrise,sunset,temperature_2m_max,temperature_2m_min" +
                 "&forecast_days=1&timezone=auto&wind_speed_unit=ms"
             val weatherBody = httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                 if (!response.isSuccessful) {
@@ -344,6 +344,12 @@ class GetWeatherSkill @Inject constructor(
         val uvIndexMax = daily?.optJSONArray("uv_index_max")?.let {
             if (it.length() > 0 && !it.isNull(0)) it.getDouble(0) else null
         }
+        val tempMax = daily?.optJSONArray("temperature_2m_max")?.let {
+            if (it.length() > 0 && !it.isNull(0)) it.getDouble(0) else null
+        }
+        val tempMin = daily?.optJSONArray("temperature_2m_min")?.let {
+            if (it.length() > 0 && !it.isNull(0)) it.getDouble(0) else null
+        }
         val sunriseRaw = daily?.optJSONArray("sunrise")?.let {
             if (it.length() > 0 && !it.isNull(0)) it.getString(0) else null
         }
@@ -364,7 +370,14 @@ class GetWeatherSkill @Inject constructor(
             val feelsStr = if (!feelsLike.isNaN()) "%.0f°C".format(feelsLike) else "?"
             appendLine("$emoji $locationLabel — $tempStr (feels like $feelsStr) — $description")
 
-            // Line 2: humidity + wind
+            // Line 2: today's high / low
+            if (tempMax != null || tempMin != null) {
+                val highStr = tempMax?.let { "H:%.0f°C".format(it) }
+                val lowStr = tempMin?.let { "L:%.0f°C".format(it) }
+                appendLine("🌡 Today: " + listOfNotNull(highStr, lowStr).joinToString(" / "))
+            }
+
+            // Line 3: humidity + wind
             val humidStr = if (humidity >= 0) "$humidity%" else null
             val windStr = if (!windSpeed.isNaN()) "%.1f m/s".format(windSpeed) else null
             if (humidStr != null || windStr != null) {
@@ -375,7 +388,7 @@ class GetWeatherSkill @Inject constructor(
                 appendLine(parts.joinToString(" | "))
             }
 
-            // Line 3: precipitation
+            // Line 4: precipitation
             val precipLine = buildString {
                 if (!precipitation.isNaN() && precipitation > 0.0) append("🌧 Precipitation: %.1fmm".format(precipitation))
                 if (precipChance >= 0) {
@@ -385,7 +398,7 @@ class GetWeatherSkill @Inject constructor(
             }
             if (precipLine.isNotEmpty()) appendLine(precipLine)
 
-            // Line 4: UV index
+            // Line 5: UV index
             if (uvIndex != null || uvIndexMax != null) {
                 val uvLine = buildString {
                     if (uvIndex != null) append("☀️ UV Index: %.0f (%s)".format(uvIndex, uvIndexLabel(uvIndex)))
@@ -397,11 +410,11 @@ class GetWeatherSkill @Inject constructor(
                 appendLine(uvLine)
             }
 
-            // Line 5: air quality
+            // Line 6: air quality
             val aqi = airQuality?.usAqi
             if (aqi != null) appendLine("🌬 Air Quality: $aqi (${aqiLabel(aqi)})")
 
-            // Line 6: sunrise/sunset
+            // Line 7: sunrise/sunset
             if (sunriseTime != null || sunsetTime != null) {
                 val parts = listOfNotNull(
                     sunriseTime?.let { "🌅 Sunrise: $it" },
