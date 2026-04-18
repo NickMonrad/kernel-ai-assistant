@@ -6,10 +6,10 @@ import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.QuickIntentRouter
-import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,12 +23,20 @@ import javax.inject.Inject
 
 private const val TAG = "KernelAI"
 
+/** Input modality for an action. Carried through slot-fill state for voice-readiness (#350/#588). */
+enum class InputMode { Text, Voice }
+
 /**
  * Manages the Actions tab: fast intent routing via [QuickIntentRouter] (Tier 2),
- * skill execution, and action-history persistence.
+ * skill execution, action-history persistence, and local slot-fill state.
  *
  * Routing is synchronous (<30 ms) — no model loading required at app start.
  * Skill execution runs on the viewModelScope coroutine.
+ *
+ * Slot-fill state is managed locally here (not via SlotFillerManager, which is
+ * ChatViewModel's concern). When QIR returns NeedsSlot, [_pendingSlot] is primed
+ * and [ActionsScreen] shows a ModalBottomSheet. On reply, the merged params are
+ * executed directly. See #589.
  */
 @HiltViewModel
 class ActionsViewModel @Inject constructor(
@@ -55,11 +63,26 @@ class ActionsViewModel @Inject constructor(
         data class NavigateToChat(val query: String) : UiEvent
     }
 
+    /**
+     * Local slot-fill state. Holds the pending [PendingSlotRequest] plus the original
+     * user query (for history logging) and the [InputMode] (for voice-readiness).
+     */
+    data class PendingSlotState(
+        val request: PendingSlotRequest,
+        val originalQuery: String,
+        // TODO(#350/#588): use inputMode to adapt SlotFillBottomSheet for voice (mic button, no keyboard)
+        val inputMode: InputMode,
+    )
+
     private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
     val events = _events.asSharedFlow()
+
+    /** Non-null while waiting for the user to supply a missing slot value. */
+    private val _pendingSlot = MutableStateFlow<PendingSlotState?>(null)
+    val pendingSlot: StateFlow<PendingSlotState?> = _pendingSlot.asStateFlow()
 
     /** Last error message to show in the UI. Cleared on next action. */
     private val _error = MutableStateFlow<String?>(null)
@@ -72,10 +95,19 @@ class ActionsViewModel @Inject constructor(
      *
      * Routing is synchronous (<30 ms) — no model loading required. If the router matches
      * a known intent, the corresponding skill executes and the result is persisted to history.
-     * Unrecognised queries are recorded as not-handled so the user gets immediate feedback.
+     * If a required slot is missing, [pendingSlot] is primed and execution pauses until
+     * [onSlotReply] is called. Unrecognised queries fall through to Chat.
+     *
+     * @param inputMode Carried into [PendingSlotState] for voice-readiness; no-op until #350.
      */
-    fun executeAction(query: String) {
+    fun executeAction(query: String, inputMode: InputMode = InputMode.Text) {
         if (query.isBlank()) return
+        if (_pendingSlot.value != null) {
+            // A slot-fill is already in progress — ignore until the user replies or cancels.
+            // Voice (#350) may want to cancel-and-proceed here instead.
+            Log.w(TAG, "ActionsViewModel: executeAction called while slot-fill pending — ignoring \"$query\"")
+            return
+        }
         _error.value = null
 
         viewModelScope.launch {
@@ -83,11 +115,8 @@ class ActionsViewModel @Inject constructor(
                 _uiState.value = UiState.Executing
 
                 val routeResult = quickIntentRouter.route(query)
-                val intent = when (routeResult) {
-                    is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent
-                    is QuickIntentRouter.RouteResult.ClassifierMatch -> routeResult.intent
+                when (routeResult) {
                     is QuickIntentRouter.RouteResult.FallThrough -> {
-                        // No quick action match — hand off to the LLM via the chat screen.
                         Log.d(TAG, "ActionsViewModel: FallThrough for \"$query\" → navigating to chat")
                         quickActionDao.insert(
                             QuickActionEntity(
@@ -98,49 +127,26 @@ class ActionsViewModel @Inject constructor(
                             )
                         )
                         _events.emit(UiEvent.NavigateToChat(query))
-                        _uiState.value = UiState.Idle
-                        return@launch
                     }
                     is QuickIntentRouter.RouteResult.NeedsSlot -> {
-                        // Multi-turn slot-filling isn't handled in the Actions tab.
-                        // Navigate to Chat with the original query — ChatViewModel will re-route
-                        // it through QIR, detect NeedsSlot, start the slot-fill, and show the
-                        // prompt. Do NOT prime SlotFillerManager here: if we did, Chat's
-                        // initialQuery auto-submit would be consumed as the slot *value* instead
-                        // of being routed as a new intent.
-                        Log.d(TAG, "ActionsViewModel: NeedsSlot for \"$query\" → navigating to chat")
-                        _events.emit(UiEvent.NavigateToChat(query))
-                        _uiState.value = UiState.Idle
-                        return@launch
-                    }
-                }
-
-                val entity = run {
-                    // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
-                    // passed as the intent_name param to run_intent — they are not skill names.
-                    // Resolve: direct skill name match first, then fall back to run_intent.
-                    val directSkill = skillRegistry.get(intent.intentName)
-                    val (skill, callParams) = when {
-                        directSkill != null -> directSkill to intent.params
-                        else -> {
-                            val runIntent = skillRegistry.get("run_intent")
-                            runIntent to (mapOf("intent_name" to intent.intentName) + intent.params)
-                        }
-                    }
-                    if (skill != null) {
-                        val skillResult = skill.execute(SkillCall(skill.name, callParams))
-                        buildEntityFromSkillResult(query, intent.intentName, skillResult)
-                    } else {
-                        Log.w(TAG, "ActionsViewModel: intent '${intent.intentName}' has no registered skill")
-                        QuickActionEntity(
-                            userQuery = query,
-                            skillName = intent.intentName,
-                            resultText = "Action recognised but not yet implemented.",
-                            isSuccess = false,
+                        // Pause execution — show slot prompt in a ModalBottomSheet.
+                        // Do NOT use SlotFillerManager; state lives locally here.
+                        Log.d(TAG, "ActionsViewModel: NeedsSlot for \"$query\" → showing slot sheet")
+                        _pendingSlot.value = PendingSlotState(
+                            request = PendingSlotRequest(
+                                intentName = routeResult.intent.intentName,
+                                existingParams = routeResult.intent.params,
+                                missingSlot = routeResult.missingSlot,
+                            ),
+                            originalQuery = query,
+                            inputMode = inputMode,
                         )
                     }
+                    is QuickIntentRouter.RouteResult.RegexMatch ->
+                        quickActionDao.insert(executeIntent(query, routeResult.intent.intentName, routeResult.intent.params))
+                    is QuickIntentRouter.RouteResult.ClassifierMatch ->
+                        quickActionDao.insert(executeIntent(query, routeResult.intent.intentName, routeResult.intent.params))
                 }
-                quickActionDao.insert(entity)
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: executeAction failed — ${e.message}", e)
                 _error.value = e.message ?: "Unknown error"
@@ -155,6 +161,48 @@ class ActionsViewModel @Inject constructor(
                 _uiState.value = UiState.Idle
             }
         }
+    }
+
+    /**
+     * Called when the user submits a reply to a slot-fill prompt.
+     *
+     * Merges the reply into the existing params and executes the intent directly.
+     * For multi-slot intents (future), re-route through QIR after merging.
+     */
+    fun onSlotReply(text: String) {
+        val pending = _pendingSlot.value ?: return
+        if (text.isBlank()) {
+            cancelSlotFill()
+            return
+        }
+        _pendingSlot.value = null
+        val mergedParams = pending.request.existingParams +
+                mapOf(pending.request.missingSlot.name to text.trim())
+
+        viewModelScope.launch {
+            _uiState.value = UiState.Executing
+            try {
+                val entity = executeIntent(pending.originalQuery, pending.request.intentName, mergedParams)
+                quickActionDao.insert(entity)
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: onSlotReply failed — ${e.message}", e)
+                _error.value = e.message ?: "Unknown error"
+                quickActionDao.insert(
+                    QuickActionEntity(
+                        userQuery = pending.originalQuery,
+                        resultText = "Error: ${e.message ?: "Unknown"}",
+                        isSuccess = false,
+                    )
+                )
+            } finally {
+                _uiState.value = UiState.Idle
+            }
+        }
+    }
+
+    /** Silently dismiss the slot-fill sheet with no log entry. */
+    fun cancelSlotFill() {
+        _pendingSlot.value = null
     }
 
     fun deleteAction(id: String) {
@@ -176,7 +224,36 @@ class ActionsViewModel @Inject constructor(
 
     // ── Private helpers ─────────────────────────────────────────────────────
 
-    private suspend fun buildEntityFromSkillResult(
+    /**
+     * Resolves [intentName] to a skill and executes it with [params].
+     * Router intent names (e.g. "toggle_flashlight_on") are sub-intent values passed as the
+     * intent_name param to run_intent — they are not skill names themselves.
+     */
+    private suspend fun executeIntent(
+        query: String,
+        intentName: String,
+        params: Map<String, String>,
+    ): QuickActionEntity {
+        val directSkill = skillRegistry.get(intentName)
+        val (skill, callParams) = when {
+            directSkill != null -> directSkill to params
+            else -> skillRegistry.get("run_intent") to (mapOf("intent_name" to intentName) + params)
+        }
+        return if (skill != null) {
+            val skillResult = skill.execute(SkillCall(skill.name, callParams))
+            buildEntityFromSkillResult(query, intentName, skillResult)
+        } else {
+            Log.w(TAG, "ActionsViewModel: intent '$intentName' has no registered skill")
+            QuickActionEntity(
+                userQuery = query,
+                skillName = intentName,
+                resultText = "Action recognised but not yet implemented.",
+                isSuccess = false,
+            )
+        }
+    }
+
+    private fun buildEntityFromSkillResult(
         query: String,
         skillName: String,
         result: SkillResult,

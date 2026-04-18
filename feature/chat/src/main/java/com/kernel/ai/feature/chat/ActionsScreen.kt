@@ -56,6 +56,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -75,6 +78,7 @@ fun ActionsScreen(
     val actions by viewModel.actions.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val pendingSlot by viewModel.pendingSlot.collectAsStateWithLifecycle()
 
     var showBottomSheet by rememberSaveable { mutableStateOf(false) }
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
@@ -260,6 +264,17 @@ fun ActionsScreen(
         )
     }
 
+    // Slot-fill sheet — shown when QIR needs a missing parameter.
+    // Swipe-down or cancel = silent dismiss, no log entry.
+    pendingSlot?.let { slot ->
+        SlotFillBottomSheet(
+            promptMessage = slot.request.promptMessage,
+            uiState = uiState,
+            onDismiss = { viewModel.cancelSlotFill() },
+            onSubmit = { reply -> viewModel.onSlotReply(reply) },
+        )
+    }
+
     // Clear history confirmation
     if (showClearConfirmation) {
         AlertDialog(
@@ -278,6 +293,71 @@ fun ActionsScreen(
                 TextButton(onClick = { showClearConfirmation = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SlotFillBottomSheet(
+    promptMessage: String,
+    uiState: ActionsViewModel.UiState,
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    var inputText by rememberSaveable { mutableStateOf("") }
+    // Guards against submit() and onDismissRequest firing simultaneously (e.g. tap Send + swipe).
+    var isSubmitting by rememberSaveable { mutableStateOf(false) }
+
+    fun submit() {
+        val text = inputText.trim()
+        if (text.isNotBlank() && !isSubmitting) {
+            isSubmitting = true
+            scope.launch { sheetState.hide() }.invokeOnCompletion { cause ->
+                if (cause == null) onSubmit(text)
+            }
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = { if (!isSubmitting) onDismiss() },
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+        ) {
+            Text(
+                text = promptMessage,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = inputText,
+                onValueChange = { inputText = it },
+                placeholder = { Text("Your answer…") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submit() }),
+                trailingIcon = {
+                    if (uiState == ActionsViewModel.UiState.Executing) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    } else {
+                        IconButton(
+                            onClick = { submit() },
+                            enabled = inputText.isNotBlank(),
+                        ) {
+                            Icon(Icons.Default.Send, contentDescription = "Submit")
+                        }
+                    }
+                },
+            )
+        }
     }
 }
 

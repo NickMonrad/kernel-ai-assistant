@@ -1,0 +1,27 @@
+name: PR cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  delete-preview-release:
+    name: Delete PR preview release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Delete pr-N release and tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          TAG="pr-${PR_NUMBER}"
+          gh release delete "$TAG" --repo $GITHUB_REPOSITORY --yes 2>/dev/null || true
+          git push origin --delete "$TAG" 2>/dev/null || true
