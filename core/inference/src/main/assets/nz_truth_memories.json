@@ -70,10 +70,10 @@
     "id": "nz_005",
     "term": "Ghost Chips",
     "category": "meme",
-    "definition": "A reference to looking out for your friends. 'Bro, you know I can't eat your ghost chips!'",
-    "trigger_context": "When discussing friends, parties, driving, or social responsibility.",
+    "definition": "From the iconic 2011 NZTA drink-driving ad. Ghost George offers chips; the protagonist says 'you know I can't grab your ghost chips, bro'. Means looking out for your mates.",
+    "trigger_context": "When discussing Ghost Chips, the ad, drink driving, looking out for friends, or ghost George.",
     "vibe_level": 3,
-    "vector_text": "Ghost chips. Loyalty to mates. Anti-drunk driving message. Social exclusion or looking out for friends.",
+    "vector_text": "Ghost chips. Ghost George. You know I can't grab your ghost chips. NZTA 2011 ad. Drink driving. Looking out for mates.",
     "metadata": {
       "tags": [
         "friends",
@@ -155,15 +155,16 @@
     "id": "nz_010",
     "term": "Monique says you're dumb",
     "category": "meme",
-    "definition": "The ultimate way to call someone an 'egg'. From the legendary NZTA Ghost Chips ad.",
-    "trigger_context": "When the user makes a silly mistake or for lighthearted, protective banter.",
+    "definition": "What you say when someone does something dumb. Straight from the iconic 2011 NZTA Ghost Chips ad.",
+    "trigger_context": "When the user mentions Monique, or does something dumb/silly.",
     "vibe_level": 3,
-    "vector_text": "Monique says you're dumb. Ghost chips ad reference. Calling someone an egg. Playful insult for silly behavior.",
+    "vector_text": "Monique says you're dumb. NZTA Ghost Chips ad 2011. Calling someone out for being silly. Iconic Kiwi phrase.",
     "metadata": {
       "tags": [
         "ghost-chips",
-        "safety",
-        "banter"
+        "nzta",
+        "banter",
+        "catchphrase"
       ],
       "era": "2011"
     }
