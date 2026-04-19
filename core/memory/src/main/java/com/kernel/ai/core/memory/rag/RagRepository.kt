@@ -138,7 +138,11 @@ class RagRepository @Inject constructor(
             val coreOverhead = (coreHeader.length + coreFooter.length + charsPerToken - 1) / charsPerToken
             var coreBudget = tokenBudgetRemaining - coreOverhead
             for (result in coreResults) {
-                val line = result.content.take(300)
+                val line = if (result.term.isNotEmpty() && result.definition.isNotEmpty()) {
+                    "[NZ Context: ${result.term}] ${result.definition}".take(400)
+                } else {
+                    result.content.take(300)
+                }
                 val cost = (line.length + 1 + charsPerToken - 1) / charsPerToken
                 if (coreBudget - cost < 0) break
                 coreMemoryLines.add(line)
