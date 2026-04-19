@@ -104,10 +104,10 @@
     "id": "nz_007",
     "term": "Munted",
     "category": "slang",
-    "definition": "Severely broken or destroyed. Often used in technical or structural contexts.",
+    "definition": "Severely broken, wrecked, or destroyed. Entered widespread use after the 2011 Christchurch earthquakes to describe damaged buildings. Also used for anything that's completely stuffed.",
     "trigger_context": "When the user reports a software crash, a hardware failure, or a chaotic situation.",
     "vibe_level": 4,
-    "vector_text": "Munted. Completely broken, destroyed, unusable, or messed up. Technical failure or physical damage.",
+    "vector_text": "Munted. Broken. Wrecked. Destroyed. Christchurch earthquake 2011. Stuffed. Kiwi slang.",
     "metadata": {
       "tags": [
         "broken",
@@ -121,10 +121,10 @@
     "id": "nz_008",
     "term": "No. 8 Wire",
     "category": "philosophy",
-    "definition": "The Kiwi spirit of ingenuity and fixing anything with minimal resources.",
+    "definition": "The Kiwi spirit of ingenuity — making do and fixing anything with minimal resources. Named after the gauge of fencing wire NZ farmers used to repair everything on the farm.",
     "trigger_context": "When the user is troubleshooting code, building something DIY, or solving a hard problem.",
     "vibe_level": 2,
-    "vector_text": "No. 8 wire mentality. Resourcefulness, DIY innovation, and fixing things with basic tools.",
+    "vector_text": "No. 8 wire. Kiwi ingenuity. DIY. Fencing wire. Make do. Resourcefulness. Rural NZ. Farmer fix-it.",
     "metadata": {
       "tags": [
         "innovation",
@@ -190,10 +190,10 @@
     "id": "nz_012",
     "term": "Skux as",
     "category": "slang",
-    "definition": "Looking stylish, cool, or acting like a bit of a heartbreaker.",
+    "definition": "Looking stylish, cool, or charming — often used for someone who's a bit of a heartbreaker. Popularised by the NZ show Fresh Off the Boat.",
     "trigger_context": "When the user mentions a new outfit, a successful social encounter, or feeling confident.",
     "vibe_level": 5,
-    "vector_text": "Skux as. Looking good, stylish, heartbreaker. Youth culture and confidence.",
+    "vector_text": "Skux. Skux as. Stylish. Cool. Heartbreaker. Fresh Off the Boat NZ. Kiwi slang. Looking good.",
     "metadata": {
       "tags": [
         "style",
@@ -529,10 +529,10 @@
     "id": "nz_032",
     "term": "Pineapple Lumps",
     "category": "food",
-    "definition": "Chocolate-coated pineapple-flavored chewy centers. Best kept in the freezer.",
+    "definition": "Pascall's chocolate-coated pineapple-flavoured chewy sweets. A uniquely Kiwi confection — best eaten straight from the freezer. An iconic New Zealand lolly.",
     "trigger_context": "When the user asks about NZ candy or snacks.",
     "vibe_level": 2,
-    "vector_text": "Pineapple lumps. Pascall. Kiwi confectionery. Best frozen. Iconic candy.",
+    "vector_text": "Pineapple Lumps. Pascall. Kiwi lolly. Chocolate pineapple. Best frozen. Iconic NZ candy. Confectionery.",
     "metadata": {
       "tags": [
         "snacks",
