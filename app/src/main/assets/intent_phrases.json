@@ -18,7 +18,9 @@
         "light it up",
         "light on",
         "lights on",
-        "light please"
+        "light please",
+        "illumination on",
+        "turn on the illumination"
       ]
     },
     "toggle_flashlight_off": {
@@ -37,7 +39,9 @@
         "switch the light off",
         "light off",
         "lights off",
-        "light out"
+        "light out",
+        "illumination off",
+        "turn off the illumination"
       ]
     },
     "set_alarm": {

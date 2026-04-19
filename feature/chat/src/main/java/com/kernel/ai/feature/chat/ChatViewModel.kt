@@ -635,9 +635,13 @@ class ChatViewModel @Inject constructor(
             // Set by the Tier 2 intercept when a skill executes successfully; injected into
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
-            // Set true when QIR routes to a device action — suppresses RAG indexing for
-            // both the user message and the LLM wrapper response (#614).
+            // Set true when QIR routes to a device action, OR when the LLM calls a non-indexable
+            // tool (run_intent, get_weather, etc.) — suppresses RAG indexing for both the user
+            // message and the LLM response to prevent stale device state in future RAG (#614).
             var isDeviceActionExchange = false
+            // Hoisted so the Complete handler can index the user message after knowing whether
+            // any device-action tools were called during LLM inference.
+            var savedUserMsgId = ""
 
             try {
             val userMsgId = UUID.randomUUID().toString()
@@ -647,8 +651,9 @@ class ChatViewModel @Inject constructor(
                 content = text,
             )
             _messages.update { it + userMessage }
-            val savedUserMsgId = conversationRepository.addMessage(convId, "user", text)
-            // User message indexing is deferred — skipped for device-action exchanges (see below).
+            savedUserMsgId = conversationRepository.addMessage(convId, "user", text)
+            // User message indexing is deferred to the LLM Complete handler — skipped if any
+            // non-indexable tool (run_intent, weather, etc.) is called during inference.
 
             // After the very first user message, immediately set a placeholder title from the
             // first ~40 characters of the message so the conversation list never shows a blank
@@ -794,13 +799,6 @@ class ChatViewModel @Inject constructor(
                 }
             }
             // _isLoadingModel is always cleared by the outer finally block below.
-
-            // Only index the user message when the exchange goes to the LLM (knowledge queries,
-            // conversational turns). Device-action exchanges (QIR match → run_intent) are skipped
-            // to prevent stale device state from polluting future RAG retrievals.
-            if (!isDeviceActionExchange) {
-                ragRepository.indexMessage(savedUserMsgId, convId, text)
-            }
 
             // 2. Gemma-4 streaming inference path.
             // Capture isFirstReply before adding the streaming placeholder — once the placeholder
@@ -1001,6 +999,10 @@ class ChatViewModel @Inject constructor(
                                 // actions, weather, or system info which are ephemeral (#614).
                                 if (shouldIndexToolCallResult(toolCall.skillName)) {
                                     ragRepository.indexMessage(savedId, convId, resultContent)
+                                } else {
+                                    // LLM called a device/ephemeral tool — suppress indexing of
+                                    // the user message and final response too.
+                                    isDeviceActionExchange = true
                                 }
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
                                     contextWindowManager.estimateTokens(resultContent) +
@@ -1052,7 +1054,12 @@ class ChatViewModel @Inject constructor(
                                 // Don't index hallucination error messages — they're noise (#614).
                                 // Don't index LLM wrappers around device actions — stale device state
                                 // ("The light's on!") poisons future RAG retrievals (#614).
+                                // Also index the user message here (deferred from sendMessage entry)
+                                // so we can skip it too if a device tool was called during inference.
                                 if (!isHallucination && !isDeviceActionExchange) {
+                                    if (savedUserMsgId.isNotBlank()) {
+                                        ragRepository.indexMessage(savedUserMsgId, convId, text)
+                                    }
                                     ragRepository.indexMessage(savedAssistantMsgId, convId, displayContent)
                                 }
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
