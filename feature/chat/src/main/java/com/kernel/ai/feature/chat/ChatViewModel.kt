@@ -290,21 +290,23 @@ class ChatViewModel @Inject constructor(
                 Log.w("ChatViewModel", "truths_seeded flag was set but DB has 0 jandal_persona memories — re-seeding")
                 jandalPersona.resetTruthsSeeded()
             }
-            jandalPersona.nzTruths.forEach { truth ->
-                // Embed vector_text (dense keywords) — not definition — for richer semantic retrieval
-                val vector = embeddingEngine.embed(truth.vectorText).takeIf { it.isNotEmpty() }
-                    ?: return@forEach  // skip if engine not ready
-                memoryRepository.addCoreMemory(
-                    content = truth.vectorText,
-                    source = "jandal_persona",
-                    embeddingVector = vector,
-                    category = "agent_identity",
-                    term = truth.term,
-                    definition = truth.definition,
-                    triggerContext = truth.triggerContext,
-                    vibeLevel = truth.vibeLevel,
-                    metadataJson = truth.metadataJson,
-                )
+            withContext(Dispatchers.IO) {
+                jandalPersona.nzTruths.forEach { truth ->
+                    // Embed vector_text (dense keywords) — not definition — for richer semantic retrieval
+                    val vector = embeddingEngine.embed(truth.vectorText).takeIf { it.isNotEmpty() }
+                        ?: return@forEach  // skip if engine not ready
+                    memoryRepository.addCoreMemory(
+                        content = truth.vectorText,
+                        source = "jandal_persona",
+                        embeddingVector = vector,
+                        category = "agent_identity",
+                        term = truth.term,
+                        definition = truth.definition,
+                        triggerContext = truth.triggerContext,
+                        vibeLevel = truth.vibeLevel,
+                        metadataJson = truth.metadataJson,
+                    )
+                }
             }
             jandalPersona.markTruthsSeeded()
             Log.i("ChatViewModel", "Seeded ${jandalPersona.nzTruths.size} NZ truth memories into core memory")
