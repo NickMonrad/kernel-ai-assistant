@@ -1801,6 +1801,53 @@ class QuickIntentRouter(
             paramExtractor = { _, _ -> emptyMap() },
         ),
 
+        // ── Date Diff ──
+        // "how many days until Christmas" / "how long until my birthday on August 22"
+        IntentPattern(
+            intentName = "get_date_diff",
+            regex = Regex(
+                """(?:how\s+(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?(?:until|till|to|before))\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+        ),
+        // "how many days since March 1" / "how long since Easter"
+        IntentPattern(
+            intentName = "get_date_diff",
+            regex = Regex(
+                """(?:how\s+(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?since)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+        ),
+        // "days until Christmas" / "weeks until New Year"
+        IntentPattern(
+            intentName = "get_date_diff",
+            regex = Regex(
+                """(?:days?|weeks?)\s+(?:until|till|to)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+        ),
+        // "what day of the week is 22 August" / "what day is Christmas"  (not "what day is X this year")
+        IntentPattern(
+            intentName = "get_date_diff",
+            regex = Regex(
+                """what\s+day(?:\s+of\s+the\s+week)?\s+is\s+(?!.*\bthis\s+year\b)(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+        ),
+        // "when is ANZAC Day" / "when is Easter"  (not "when is X this year" — that falls to E4B)
+        IntentPattern(
+            intentName = "get_date_diff",
+            regex = Regex(
+                """when\s+is\s+(?!.*\bthis\s+year\b)(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+        ),
+
         // ── Lists ──
         IntentPattern(
             intentName = "add_to_list",

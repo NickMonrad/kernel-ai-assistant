@@ -1286,6 +1286,7 @@ class QuickIntentRouterTest {
         }
         addCases(batteryRegexPhrases(), "get_battery", "Battery (regex)")
         addCases(batteryClassifierPhrases(), "get_battery", "Battery (classifier)")
+        addCases(dateDiffRegexPhrases(), "get_date_diff", "Date Diff (regex)")
         addCases(timeRegexPhrases(), "get_time", "Time (regex)")
         addCases(timeClassifierPhrases(), "get_time", "Time (classifier)")
         addCases(volumeRegexPhrases(), "set_volume", "Volume (regex)")
@@ -1617,6 +1618,28 @@ class QuickIntentRouterTest {
         )
 
         // ── Time / Date ───────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun dateDiffRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("how many days until Christmas"),
+            Arguments.of("how long until Christmas"),
+            Arguments.of("how many weeks until New Year"),
+            Arguments.of("how many days since Easter"),
+            Arguments.of("how long since ANZAC Day"),
+            Arguments.of("days until anzac"),
+            Arguments.of("days until mothers day"),
+            Arguments.of("days until father's day"),
+            Arguments.of("days until Christmas"),
+            Arguments.of("weeks until New Year"),
+            Arguments.of("what day of the week is 22 August"),
+            Arguments.of("what day is Christmas"),
+            Arguments.of("when is ANZAC Day"),
+            Arguments.of("when is anzac"),
+            Arguments.of("when is mothers day"),
+            Arguments.of("when is Easter"),
+            Arguments.of("how many days until 2026-08-22"),
+            Arguments.of("how long until August 22 2026"),
+        )
 
         @JvmStatic
         fun timeRegexPhrases(): Stream<Arguments> = Stream.of(
