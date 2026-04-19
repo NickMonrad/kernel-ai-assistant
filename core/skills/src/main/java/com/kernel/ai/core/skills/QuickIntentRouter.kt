@@ -103,7 +103,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "toggle_flashlight_on",
             regex = Regex(
-                """(?:turn|switch|put)\s+on\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light)""",
+                """(?:turn|switch|put)\s+on\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light|illumination)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -112,25 +112,25 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "toggle_flashlight_on",
             regex = Regex(
-                """(?:turn|switch|put)\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light)\s+on""",
+                """(?:turn|switch|put)\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light|illumination)\s+on""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Pattern: "flashlight on" / "torch on" — object + on (no verb)
+        // Pattern: "flashlight on" / "torch on" / "light on" / "illumination on" — object + on
         IntentPattern(
             intentName = "toggle_flashlight_on",
             regex = Regex(
-                """^(?:torch|flashlight|flash\s*light)\s+on$""",
+                """^(?:torch|flashlight|flash\s*light|light|illumination)\s+on\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Pattern: bare "torch" / "flashlight" — single-word terse command
+        // Pattern: bare "torch" / "flashlight" / "illuminate" — terse ON command
         IntentPattern(
             intentName = "toggle_flashlight_on",
             regex = Regex(
-                """^(?:torch|flashlight|flash\s*light)$""",
+                """^(?:torch|flashlight|flash\s*light|illuminate)\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -139,7 +139,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "toggle_flashlight_off",
             regex = Regex(
-                """(?:turn|switch|put)\s+off\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light)""",
+                """(?:turn|switch|put)\s+off\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light|illumination)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -148,16 +148,16 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "toggle_flashlight_off",
             regex = Regex(
-                """(?:turn|switch|put)\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light)\s+off""",
+                """(?:turn|switch|put)\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light|illumination)\s+off""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Pattern: "flashlight off" / "torch off" — object + off (no verb)
+        // Pattern: "flashlight off" / "torch off" / "light off" / "illumination off" — object + off
         IntentPattern(
             intentName = "toggle_flashlight_off",
             regex = Regex(
-                """^(?:torch|flashlight|flash\s*light)\s+off$""",
+                """^(?:torch|flashlight|flash\s*light|light|illumination)\s+off\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
