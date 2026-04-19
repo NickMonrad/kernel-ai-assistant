@@ -1290,6 +1290,16 @@ class NativeIntentHandler @Inject constructor(
             val candidate = LocalDate.of(year, month, day)
             return if (!candidate.isBefore(today)) candidate else LocalDate.of(year + 1, month, day)
         }
+        // Nth weekday helper: e.g. nthWeekday(2, DayOfWeek.SUNDAY, Month.MAY, year) = 2nd Sunday in May
+        fun nthWeekday(n: Int, dow: java.time.DayOfWeek, month: java.time.Month, y: Int): LocalDate {
+            val first = LocalDate.of(y, month, 1)
+            val firstMatch = first.with(java.time.temporal.TemporalAdjusters.nextOrSame(dow))
+            return firstMatch.plusWeeks((n - 1).toLong())
+        }
+        fun nextFloating(month: java.time.Month, nthSunday: Int): LocalDate {
+            val candidate = nthWeekday(nthSunday, java.time.DayOfWeek.SUNDAY, month, year)
+            return if (!candidate.isBefore(today)) candidate else nthWeekday(nthSunday, java.time.DayOfWeek.SUNDAY, month, year + 1)
+        }
         when (s.lowercase().replace(Regex("[''`]"), "").trim()) {
             "christmas", "christmas day", "xmas" -> return nextOccurrence(12, 25)
             "new years day", "new years", "new year", "new year's day", "new year day" ->
@@ -1297,9 +1307,12 @@ class NativeIntentHandler @Inject constructor(
                     if (!LocalDate.of(year, 1, 1).isBefore(today)) LocalDate.of(year, 1, 1) else it
                 }
             "halloween" -> return nextOccurrence(10, 31)
-            "waitangi day" -> return nextOccurrence(2, 6)
-            "anzac day" -> return nextOccurrence(4, 25)
-            "valentines day", "valentine's day" -> return nextOccurrence(2, 14)
+            "waitangi day", "waitangi" -> return nextOccurrence(2, 6)
+            "anzac day", "anzac" -> return nextOccurrence(4, 25)
+            "valentines day", "valentine's day", "valentines" -> return nextOccurrence(2, 14)
+            // Floating holidays (NZ): Mother's Day = 2nd Sunday May, Father's Day = 1st Sunday September
+            "mothers day", "mother's day", "mothers" -> return nextFloating(java.time.Month.MAY, 2)
+            "fathers day", "father's day", "fathers" -> return nextFloating(java.time.Month.SEPTEMBER, 1)
             "easter" -> {
                 // Computus (anonymous Gregorian algorithm)
                 fun easterDate(y: Int): LocalDate {
