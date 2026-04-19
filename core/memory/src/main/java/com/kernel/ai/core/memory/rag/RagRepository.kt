@@ -139,6 +139,7 @@ class RagRepository @Inject constructor(
             var coreBudget = tokenBudgetRemaining - coreOverhead
             for (result in coreResults) {
                 val line = if (result.term.isNotEmpty() && result.definition.isNotEmpty()) {
+                    Log.d(TAG, "NZ truth injected: [${result.term}] vibe=${result.source} dist=~${String.format("%.3f", 1f - result.score)}")
                     "[NZ Context: ${result.term}] ${result.definition}".take(400)
                 } else {
                     result.content.take(300)
