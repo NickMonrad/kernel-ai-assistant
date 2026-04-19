@@ -26,6 +26,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -122,7 +123,7 @@ fun ConversationListScreen(
             if (!isInSelectionMode) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.End,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     SmallFloatingActionButton(
                         onClick = onNavigateToActions,
@@ -131,7 +132,7 @@ fun ConversationListScreen(
                     ) {
                         Icon(Icons.Default.Bolt, contentDescription = "Quick action")
                     }
-                    SmallFloatingActionButton(
+                    FloatingActionButton(
                         onClick = onNewConversation,
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
