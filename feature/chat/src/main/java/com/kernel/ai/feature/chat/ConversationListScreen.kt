@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -61,7 +60,6 @@ fun ConversationListScreen(
     onOpenConversation: (String) -> Unit,
     onNewConversation: () -> Unit,
     onNavigateToActions: () -> Unit = {},
-    onNavigateToSettings: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel(),
 ) {
@@ -115,10 +113,6 @@ fun ConversationListScreen(
                         }
                         TextButton(onClick = viewModel::clearSelection) {
                             Text("Cancel")
-                        }
-                    } else {
-                        IconButton(onClick = onNavigateToSettings) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings")
                         }
                     }
                 },

@@ -10,6 +10,8 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -143,6 +145,31 @@ fun KernelNavHost(
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
+                NavigationDrawerItem(
+                    label = { Text("People & Contacts") },
+                    icon = { Icon(Icons.Default.People, contentDescription = null) },
+                    selected = currentBaseRoute == ROUTE_CONTACT_ALIASES,
+                    onClick = {
+                        coroutineScope.launch { drawerState.close() }
+                        navController.navigate(ROUTE_CONTACT_ALIASES) {
+                            launchSingleTop = true
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                NavigationDrawerItem(
+                    label = { Text("Settings") },
+                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                    selected = currentBaseRoute == ROUTE_SETTINGS,
+                    onClick = {
+                        coroutineScope.launch { drawerState.close() }
+                        navController.navigate(ROUTE_SETTINGS) {
+                            launchSingleTop = true
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                )
             }
         },
     ) {
@@ -199,9 +226,6 @@ fun KernelNavHost(
                                     popUpTo(ROUTE_LIST) { saveState = true }
                                     launchSingleTop = true
                                 }
-                            },
-                            onNavigateToSettings = {
-                                navController.navigate(ROUTE_SETTINGS)
                             },
                             onOpenDrawer = {
                                 coroutineScope.launch { drawerState.open() }
@@ -304,9 +328,6 @@ fun KernelNavHost(
                         },
                         onNavigateToAbout = {
                             navController.navigate(ROUTE_ABOUT)
-                        },
-                        onNavigateToContactAliases = {
-                            navController.navigate(ROUTE_CONTACT_ALIASES)
                         },
                     )
                 }
