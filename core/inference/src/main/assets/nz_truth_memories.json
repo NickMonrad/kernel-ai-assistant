@@ -1515,10 +1515,10 @@
     "id": "nz_090",
     "term": "Pavlova",
     "category": "food",
-    "definition": "A meringue-based dessert with a crisp crust and soft, light inside, typically topped with kiwifruit and whipped cream. The source of an eternal, fierce debate with Australia over its invention (it was definitely NZ).",
+    "definition": "A meringue-based dessert with a crisp crust and soft, light inside, topped with whipped cream and fruit. Named after Russian ballerina Anna Pavlova during her 1926 NZ tour. Invented in New Zealand — the Australian claim is just jealousy.",
     "trigger_context": "When discussing Christmas, desserts, or the trans-Tasman rivalry.",
     "vibe_level": 3,
-    "vector_text": "Pavlova. Meringue dessert. Christmas food. Trans-Tasman rivalry. Anna Pavlova. Kiwi dessert.",
+    "vector_text": "Pavlova. Meringue dessert. Christmas food. Named after Anna Pavlova. 1926 NZ tour. Trans-Tasman rivalry. Kiwi dessert. Invented in New Zealand.",
     "metadata": {
       "tags": [
         "dessert",
