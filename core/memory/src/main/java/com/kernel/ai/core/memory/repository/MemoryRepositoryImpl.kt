@@ -81,6 +81,11 @@ class MemoryRepositoryImpl @Inject constructor(
         source: String,
         embeddingVector: FloatArray,
         category: String,
+        term: String,
+        definition: String,
+        triggerContext: String,
+        vibeLevel: Int,
+        metadataJson: String,
     ): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -92,6 +97,11 @@ class MemoryRepositoryImpl @Inject constructor(
             source = source,
             vectorized = false,
             category = category,
+            term = term,
+            definition = definition,
+            triggerContext = triggerContext,
+            vibeLevel = vibeLevel,
+            metadataJson = metadataJson,
         )
         val rowId = coreDao.insert(entity)
         if (rowId > 0) {
@@ -145,6 +155,16 @@ class MemoryRepositoryImpl @Inject constructor(
                 val identityEntities = entities
                     .filter { it.category == "agent_identity" }
                     .sortedBy { distanceMap[it.rowId] ?: Float.MAX_VALUE }
+                    // Apply vibe-level distance threshold: higher vibe = tighter match required
+                    .filter { entity ->
+                        val dist = distanceMap[entity.rowId] ?: Float.MAX_VALUE
+                        val maxDist = when {
+                            entity.vibeLevel <= 2 -> CORE_MAX_DISTANCE  // 1.10 — surface freely
+                            entity.vibeLevel == 3 -> 0.95f               // moderate match required
+                            else -> 0.80f                                 // tight match for vibe 4-5
+                        }
+                        dist <= maxDist
+                    }
                     .take(identityTopK)
                 val combined = userEntities + identityEntities
 
@@ -156,6 +176,8 @@ class MemoryRepositoryImpl @Inject constructor(
                             source = "core",
                             score = 1f - (distanceMap[entity.rowId] ?: 1f),
                             lastAccessedAt = entity.lastAccessedAt,
+                            term = entity.term,
+                            definition = entity.definition,
                         )
                     )
                 }
