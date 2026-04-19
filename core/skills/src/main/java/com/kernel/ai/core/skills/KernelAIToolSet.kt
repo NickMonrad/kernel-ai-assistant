@@ -95,9 +95,9 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Run a built-in JavaScript skill. Use 'query-wikipedia' for Wikipedia or encyclopedia lookups. DO NOT use for weather — use the getWeather tool instead.")
+    @Tool(description = "Run a built-in JavaScript skill. Use 'query-wikipedia' for Wikipedia or encyclopedia lookups. DO NOT use for weather — use the getWeather tool instead. NOTE: to use this tool, first call loadSkill('run_js') — do NOT call loadSkill('query-wikipedia').")
     fun runJs(
-        @ToolParam(description = "The JS skill to run: 'get-weather-city' or 'query-wikipedia'") skillName: String,
+        @ToolParam(description = "The JS skill to run: 'get-weather-city' or 'query-wikipedia'. IMPORTANT: load this tool with loadSkill('run_js'), not loadSkill('query-wikipedia').") skillName: String,
         @ToolParam(description = "The search query or input (city name for weather, topic for Wikipedia)") query: String,
         @ToolParam(description = "For get-weather-city only: number of forecast days 1-7. Omit for current weather, use 3 when user asks for forecast without specifying days") forecastDays: String,
     ): Map<String, String> {
