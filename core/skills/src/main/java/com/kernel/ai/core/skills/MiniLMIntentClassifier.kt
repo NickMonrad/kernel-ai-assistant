@@ -7,6 +7,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.tensorflow.lite.Interpreter
 import java.nio.channels.FileChannel
@@ -48,32 +50,60 @@ class MiniLMIntentClassifier @Inject constructor(
     // All mutable state is set exactly once from the init coroutine and then read-only.
     @Volatile private var vocab: Map<String, Int>? = null
     @Volatile private var interpreter: Interpreter? = null
-    @Volatile private var intentCentroids: Map<String, FloatArray>? = null
+    /** Per-intent list of individual phrase embeddings. Scoring uses max similarity (nearest
+     *  neighbour) across all stored vectors rather than a single averaged centroid, which avoids
+     *  the drift that occurs when diverse training phrases are averaged together. */
+    @Volatile private var intentPhraseVectors: Map<String, List<FloatArray>>? = null
+    @Volatile private var initFailed: Boolean = false
     private val interpreterLock = Any()
-
-    init {
-        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
-            try {
-                val v = loadVocab()
-                val interp = loadInterpreter() ?: return@launch
-                val phrasesJson = context.assets.open(PHRASES_ASSET).bufferedReader().readText()
-                val centroids = computeCentroids(phrasesJson, v, interp)
-                vocab = v
-                interpreter = interp
-                intentCentroids = centroids
-                Log.i(TAG, "Ready: ${centroids.size} intent centroids loaded")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to initialise — classify() will return null", e)
+    private val initJob = CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+        try {
+            val v = loadVocab()
+            val interp = loadInterpreter() ?: run {
+                initFailed = true
+                return@launch
             }
+            val phrasesJson = context.assets.open(PHRASES_ASSET).bufferedReader().readText()
+            val phraseVectors = buildPhraseVectors(phrasesJson, v, interp)
+            vocab = v
+            interpreter = interp
+            intentPhraseVectors = phraseVectors
+            val totalVectors = phraseVectors.values.sumOf { it.size }
+            Log.i(TAG, "Ready: ${phraseVectors.size} intents, $totalVectors phrase vectors loaded (nearest-neighbour)")
+        } catch (e: Exception) {
+            initFailed = true
+            Log.e(TAG, "Failed to initialise — classify() will return null", e)
         }
     }
 
     override fun classify(input: String): QuickIntentRouter.IntentClassifier.Classification? {
-        val v = vocab ?: return null
-        val interp = interpreter ?: return null
-        val centroids = intentCentroids ?: return null
         if (input.isBlank()) return null
 
+        // If init hasn't finished yet, wait up to 500ms before giving up — prevents the race
+        // condition where the first user message arrives before phrase vector pre-computation is done.
+        if (intentPhraseVectors == null && !initFailed) {
+            Log.i(TAG, "classify('$input') — init still in progress, waiting up to 500ms")
+            runBlocking { withTimeoutOrNull(500) { initJob.join() } }
+        }
+
+        val v = vocab ?: run {
+            Log.i(TAG, "classify('$input') — not ready (vocab null, initFailed=$initFailed), skipping")
+            return null
+        }
+        val interp = interpreter ?: run {
+            Log.i(TAG, "classify('$input') — not ready (interpreter null), skipping")
+            return null
+        }
+        val phraseVectors = intentPhraseVectors ?: run {
+            Log.i(TAG, "classify('$input') — not ready (phraseVectors null), skipping")
+            return null
+        }
+
+        Log.i(TAG, "classify('$input') — running against ${phraseVectors.size} intents")
+        if (phraseVectors.isEmpty()) {
+            Log.w(TAG, "classify('$input') — phrase vector map is empty (all embeds failed at init), skipping")
+            return null
+        }
         val queryEmbedding = synchronized(interpreterLock) {
             embed(input.lowercase().trim(), v, interp)
         } ?: return null
@@ -82,18 +112,27 @@ class MiniLMIntentClassifier @Inject constructor(
         var bestScore = -1f
         var secondScore = -1f
 
-        for ((name, centroid) in centroids) {
-            val score = dot(queryEmbedding, centroid)
+        // Nearest-neighbour: score each intent as the max similarity across all its phrase vectors.
+        // This avoids centroid drift where averaging 12+ diverse phrases pulls the centroid away
+        // from individual extremes (e.g. "it's dark in here" scoring 0.49 against its own centroid).
+        for ((name, vectors) in phraseVectors) {
+            val score = vectors.maxOf { dot(queryEmbedding, it) }
             when {
                 score > bestScore -> { secondScore = bestScore; bestScore = score; bestIntent = name }
                 score > secondScore -> secondScore = score
             }
         }
 
-        if (bestIntent == null || bestScore < CONFIDENCE_THRESHOLD) return null
-        if (bestScore - secondScore < AMBIGUITY_MARGIN) return null
+        if (bestIntent == null || bestScore < CONFIDENCE_THRESHOLD) {
+            Log.i(TAG, "classify('$input') — below threshold: best=$bestIntent score=${"%.3f".format(bestScore)} threshold=$CONFIDENCE_THRESHOLD")
+            return null
+        }
+        if (bestScore - secondScore < AMBIGUITY_MARGIN) {
+            Log.i(TAG, "classify('$input') — ambiguous: best=$bestIntent score=${"%.3f".format(bestScore)} second=${"%.3f".format(secondScore)}")
+            return null
+        }
 
-        Log.d(TAG, "classify('$input') -> $bestIntent (score=$bestScore)")
+        Log.i(TAG, "classify('$input') -> $bestIntent (score=${"%.3f".format(bestScore)}, margin=${"%.3f".format(bestScore - secondScore)})")
         return QuickIntentRouter.IntentClassifier.Classification(bestIntent, bestScore)
     }
 
@@ -197,7 +236,9 @@ class MiniLMIntentClassifier @Inject constructor(
 
             val inputIdsBatch = Array(1) { inputIds }
             val maskBatch = Array(1) { mask }
-            val tokenTypeIds = Array(1) { IntArray(MAX_SEQ_LEN) }  // all zeros
+            // Model has 2 inputs only: input_ids + attention_mask.
+            // token_type_ids is NOT a separate input on this model variant — passing it caused
+            // "Invalid input Tensor index: 2" and silently broke every embed call.
 
             // Check output tensor shape to handle both model variants:
             // [1, MAX_SEQ_LEN, EMBEDDING_DIM] — all token embeddings, we mean-pool
@@ -208,7 +249,7 @@ class MiniLMIntentClassifier @Inject constructor(
                 // Model already outputs a single pooled embedding
                 val output = Array(1) { FloatArray(EMBEDDING_DIM) }
                 interp.runForMultipleInputsOutputs(
-                    arrayOf(inputIdsBatch, maskBatch, tokenTypeIds),
+                    arrayOf(inputIdsBatch, maskBatch),
                     mapOf(0 to output)
                 )
                 output[0].l2Normalize()
@@ -216,7 +257,7 @@ class MiniLMIntentClassifier @Inject constructor(
                 // Output: [1, MAX_SEQ_LEN, EMBEDDING_DIM] — all token embeddings
                 val tokenEmbeddings = Array(1) { Array(MAX_SEQ_LEN) { FloatArray(EMBEDDING_DIM) } }
                 interp.runForMultipleInputsOutputs(
-                    arrayOf(inputIdsBatch, maskBatch, tokenTypeIds),
+                    arrayOf(inputIdsBatch, maskBatch),
                     mapOf(0 to tokenEmbeddings)
                 )
                 // Mean pooling over non-padding tokens, then L2-normalise
@@ -252,16 +293,16 @@ class MiniLMIntentClassifier @Inject constructor(
         return sum
     }
 
-    // ── Centroid pre-computation ─────────────────────────────────────────────
+    // ── Phrase vector pre-computation ────────────────────────────────────────
 
-    private fun computeCentroids(
+    private fun buildPhraseVectors(
         phrasesJson: String,
         vocab: Map<String, Int>,
         interp: Interpreter,
-    ): Map<String, FloatArray> {
+    ): Map<String, List<FloatArray>> {
         val root = JSONObject(phrasesJson)
         val intents = root.getJSONObject("intents")
-        val centroids = HashMap<String, FloatArray>()
+        val result = HashMap<String, List<FloatArray>>()
 
         for (intentName in intents.keys()) {
             val phrases = intents.getJSONObject(intentName).getJSONArray("phrases")
@@ -273,13 +314,9 @@ class MiniLMIntentClassifier @Inject constructor(
                 }?.let { vectors += it }
             }
             if (vectors.isEmpty()) continue
-
-            // Average the phrase embeddings into a single centroid, then re-normalise
-            val centroid = FloatArray(EMBEDDING_DIM)
-            for (v in vectors) for (j in v.indices) centroid[j] += v[j]
-            for (j in centroid.indices) centroid[j] /= vectors.size
-            centroids[intentName] = centroid.l2Normalize()
+            result[intentName] = vectors
+            Log.d(TAG, "  $intentName: ${vectors.size} phrase vectors")
         }
-        return centroids
+        return result
     }
 }

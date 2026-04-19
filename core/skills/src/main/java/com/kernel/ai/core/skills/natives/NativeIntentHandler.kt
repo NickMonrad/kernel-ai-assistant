@@ -110,9 +110,13 @@ class NativeIntentHandler @Inject constructor(
 ) {
 
     fun handle(intentName: String, params: Map<String, String>): SkillResult {
-        Log.d(TAG, "NativeIntentHandler.handle: intent=$intentName params=$params")
+        val normalizedName = normalizeIntentName(intentName)
+        if (normalizedName != intentName) {
+            Log.w(TAG, "NativeIntentHandler: normalized intent '$intentName' -> '$normalizedName'")
+        }
+        Log.d(TAG, "NativeIntentHandler.handle: intent=$normalizedName params=$params")
         return try {
-            when (intentName) {
+            when (normalizedName) {
                 "toggle_flashlight_on" -> setTorch(true)
                 "toggle_flashlight_off" -> setTorch(false)
                 "send_email" -> sendEmail(params)
@@ -167,12 +171,54 @@ class NativeIntentHandler @Inject constructor(
                 else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "NativeIntentHandler.handle($intentName) failed", e)
+            Log.e(TAG, "NativeIntentHandler.handle($normalizedName) failed", e)
             SkillResult.Failure("run_intent", e.message ?: "Unknown error")
         }
     }
 
-    // ── Torch ─────────────────────────────────────────────────────────────────
+    /**
+     * Normalizes LLM-generated intent names to their canonical form.
+     *
+     * Small models occasionally omit underscores (e.g. "toggle_flashlightoff" instead of
+     * "toggle_flashlight_off") or add spaces. This function:
+     *   1. Trims and lowercases the input
+     *   2. Returns immediately on exact match
+     *   3. Strips all underscores/spaces and compares against the same normalization of every
+     *      known intent name — handles any underscore insertion or omission
+     */
+    private fun normalizeIntentName(raw: String): String {
+        val trimmed = raw.trim().lowercase()
+        if (trimmed in KNOWN_INTENTS) return trimmed
+        // Strip all word separators and compare canonically
+        val stripped = trimmed.replace(Regex("[_\\s]+"), "")
+        return KNOWN_INTENTS.firstOrNull { it.replace("_", "") == stripped } ?: trimmed
+    }
+
+    companion object {
+        private val KNOWN_INTENTS = setOf(
+            "toggle_flashlight_on", "toggle_flashlight_off",
+            "send_email", "send_sms", "make_call",
+            "set_alarm", "cancel_alarm",
+            "set_timer", "cancel_timer", "cancel_timer_named", "list_timers", "get_timer_remaining",
+            "create_calendar_event",
+            "get_battery", "get_time", "get_date",
+            "toggle_dnd_on", "toggle_dnd_off",
+            "set_volume", "set_brightness",
+            "toggle_wifi", "toggle_bluetooth", "toggle_airplane_mode", "toggle_hotspot",
+            "play_media", "play_media_album", "play_media_playlist",
+            "play_youtube", "play_spotify", "play_plexamp", "play_youtube_music",
+            "play_netflix", "play_plex", "play_podcast",
+            "pause_media", "stop_media", "next_track", "previous_track",
+            "podcast_skip_forward", "podcast_skip_back", "podcast_speed",
+            "open_app", "navigate_to", "find_nearby",
+            "add_to_list", "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list",
+            "smart_home_on", "smart_home_off",
+            "get_weather", "get_system_info",
+            "save_memory",
+        )
+    }
+
+
 
     private fun setTorch(enabled: Boolean): SkillResult {
         val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager

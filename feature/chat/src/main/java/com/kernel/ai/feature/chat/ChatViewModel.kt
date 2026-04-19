@@ -540,8 +540,11 @@ class ChatViewModel @Inject constructor(
     /**
      * Immediately appends a completed assistant message to the UI and persists it to Room.
      * Used by the QuickIntentRouter skill-dispatch path where there is no streaming.
+     *
+     * [shouldIndex] — set false for device action responses, slot-fill prompts, and error
+     * messages that should not surface in future RAG retrievals.
      */
-    private suspend fun appendAssistantMessage(convId: String, content: String) {
+    private suspend fun appendAssistantMessage(convId: String, content: String, shouldIndex: Boolean = true) {
         val msgId = UUID.randomUUID().toString()
         val msg = ChatMessage(
             id = msgId,
@@ -550,7 +553,7 @@ class ChatViewModel @Inject constructor(
         )
         _messages.update { it + msg }
         val savedId = conversationRepository.addMessage(convId, "assistant", content)
-        ragRepository.indexMessage(savedId, convId, content)
+        if (shouldIndex) ragRepository.indexMessage(savedId, convId, content)
     }
 
     /** Like [appendAssistantMessage] but also attaches a [ToolCallInfo] chip so the UI shows
@@ -587,7 +590,7 @@ class ChatViewModel @Inject constructor(
             convId, "assistant", content,
             toolCallJson = toolCallJsonStr,
         )
-        ragRepository.indexMessage(savedId, convId, content)
+        if (shouldIndexToolCallResult(skillName)) ragRepository.indexMessage(savedId, convId, content)
     }
 
     fun retryDownload(model: KernelModel) {
@@ -632,6 +635,13 @@ class ChatViewModel @Inject constructor(
             // Set by the Tier 2 intercept when a skill executes successfully; injected into
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
+            // Set true when QIR routes to a device action, OR when the LLM calls a non-indexable
+            // tool (run_intent, get_weather, etc.) — suppresses RAG indexing for both the user
+            // message and the LLM response to prevent stale device state in future RAG (#614).
+            var isDeviceActionExchange = false
+            // Hoisted so the Complete handler can index the user message after knowing whether
+            // any device-action tools were called during LLM inference.
+            var savedUserMsgId = ""
 
             try {
             val userMsgId = UUID.randomUUID().toString()
@@ -641,8 +651,9 @@ class ChatViewModel @Inject constructor(
                 content = text,
             )
             _messages.update { it + userMessage }
-            val savedUserMsgId = conversationRepository.addMessage(convId, "user", text)
-            ragRepository.indexMessage(savedUserMsgId, convId, text)
+            savedUserMsgId = conversationRepository.addMessage(convId, "user", text)
+            // User message indexing is deferred to the LLM Complete handler — skipped if any
+            // non-indexable tool (run_intent, weather, etc.) is called during inference.
 
             // After the very first user message, immediately set a placeholder title from the
             // first ~40 characters of the message so the conversation list never shows a blank
@@ -679,15 +690,15 @@ class ChatViewModel @Inject constructor(
                                         isSuccess = true,
                                     )
                                 }
-                                is SkillResult.Success -> appendAssistantMessage(convId, skillResult.content)
-                                is SkillResult.Failure -> appendAssistantMessage(convId, skillResult.error)
-                                else -> appendAssistantMessage(convId, "Something went wrong.")
+                                is SkillResult.Success -> appendAssistantMessage(convId, skillResult.content, shouldIndex = false)
+                                is SkillResult.Failure -> appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
+                                else -> appendAssistantMessage(convId, "Something went wrong.", shouldIndex = false)
                             }
                         }
                         return@launch
                     }
                     is SlotFillResult.Cancelled -> {
-                        appendAssistantMessage(convId, "Okay, cancelled.")
+                        appendAssistantMessage(convId, "Okay, cancelled.", shouldIndex = false)
                         return@launch
                     }
                 }
@@ -710,6 +721,7 @@ class ChatViewModel @Inject constructor(
                     appendAssistantMessage(
                         convId,
                         slotFillerManager.pendingRequest?.promptMessage ?: "What would you like to say?",
+                        shouldIndex = false,
                     )
                     return@launch
                 }
@@ -733,6 +745,7 @@ class ChatViewModel @Inject constructor(
                 // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
                 // handled by the run_intent skill — they aren't top-level skill names.
                 // Resolve: direct skill match first, then fall back to run_intent.
+                isDeviceActionExchange = true
                 val directSkill = skillRegistry.get(matchedIntent.intentName)
                 val (skill, callParams) = when {
                     directSkill != null -> directSkill to matchedIntent.params
@@ -762,7 +775,7 @@ class ChatViewModel @Inject constructor(
                             systemContext = "[System: ${matchedIntent.intentName} — ${skillResult.content}]"
                             // E4B not loaded yet: show action result directly and skip the wrapper.
                             if (!inferenceEngine.isReady.value) {
-                                appendAssistantMessage(convId, skillResult.content)
+                                appendAssistantMessage(convId, skillResult.content, shouldIndex = false)
                                 return@launch
                             }
                         }
@@ -781,7 +794,7 @@ class ChatViewModel @Inject constructor(
                 initGemma4()
                 if (!inferenceEngine.isReady.value) {
                     // Model still not ready (e.g. file absent) — tell the user and bail.
-                    appendAssistantMessage(convId, "Still loading the AI model, please try again in a moment.")
+                    appendAssistantMessage(convId, "Still loading the AI model, please try again in a moment.", shouldIndex = false)
                     return@launch
                 }
             }
@@ -982,7 +995,15 @@ class ChatViewModel @Inject constructor(
                                     thinkingText = thinking,
                                     toolCallJson = toolCallJsonStr,
                                 )
-                                ragRepository.indexMessage(savedId, convId, resultContent)
+                                // Only index knowledge results (e.g. Wikipedia) — not device
+                                // actions, weather, or system info which are ephemeral (#614).
+                                if (shouldIndexToolCallResult(toolCall.skillName)) {
+                                    ragRepository.indexMessage(savedId, convId, resultContent)
+                                } else {
+                                    // LLM called a device/ephemeral tool — suppress indexing of
+                                    // the user message and final response too.
+                                    isDeviceActionExchange = true
+                                }
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
                                     contextWindowManager.estimateTokens(resultContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
@@ -1030,7 +1051,17 @@ class ChatViewModel @Inject constructor(
                                     msgs.map { if (it.id == assistantMsgId) it.copy(content = displayContent, isStreaming = false) else it }
                                 }
                                 val savedAssistantMsgId = conversationRepository.addMessage(convId, "assistant", displayContent, thinking)
-                                ragRepository.indexMessage(savedAssistantMsgId, convId, displayContent)
+                                // Don't index hallucination error messages — they're noise (#614).
+                                // Don't index LLM wrappers around device actions — stale device state
+                                // ("The light's on!") poisons future RAG retrievals (#614).
+                                // Also index the user message here (deferred from sendMessage entry)
+                                // so we can skip it too if a device tool was called during inference.
+                                if (!isHallucination && !isDeviceActionExchange) {
+                                    if (savedUserMsgId.isNotBlank()) {
+                                        ragRepository.indexMessage(savedUserMsgId, convId, text)
+                                    }
+                                    ragRepository.indexMessage(savedAssistantMsgId, convId, displayContent)
+                                }
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
                                     contextWindowManager.estimateTokens(displayContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
@@ -1356,6 +1387,24 @@ private const val HALLUCINATION_RETRY_CORRECTION =
     "[System: Your previous response was blocked. It appeared to describe performing an action " +
     "without actually calling the required tool function. You MUST call the appropriate tool — " +
     "do not narrate results. If the tool is unavailable, say so honestly.]"
+
+/**
+ * Returns true if a tool call result should be indexed in episodic RAG memory.
+ *
+ * Device actions, weather, and system info are ephemeral — indexing them causes the
+ * model to surface stale device state as facts in future turns (#614). Knowledge
+ * results (e.g. Wikipedia via run_js) are worth recalling.
+ */
+private fun shouldIndexToolCallResult(skillName: String): Boolean = when (skillName) {
+    "run_intent",       // device actions — transient state, not facts
+    "get_weather",      // ephemeral — must always call live
+    "get_system_info",  // ephemeral — time/date always stale
+    "load_skill",       // meta-tool — no content value
+    "save_memory",      // memory system handles indexing separately
+    "search_memory",    // read-only, no new content
+    -> false
+    else -> true        // run_js (wikipedia etc.) — knowledge worth recalling
+}
 
 private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
