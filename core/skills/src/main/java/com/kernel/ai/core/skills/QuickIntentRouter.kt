@@ -2151,10 +2151,12 @@ class QuickIntentRouter(
         tryMatchPatterns(trimmed, specificPatterns)?.let { return it }
         tryMatchPatterns(trimmed, fallbackPatterns)?.let { return it }
 
-        // Stage 2: BERT-tiny classifier (if available)
+       // Stage 2: BERT-tiny classifier (if available)
         classifier?.let { cls ->
             val result = cls.classify(trimmed)
             if (result != null && result.confidence >= similarityThreshold) {
+                val isFastPath = result.intentName in FAST_PATH_INTENTS
+                val fastPathOk = isFastPath && result.confidence >= FAST_PATH_THRESHOLD
                 return RouteResult.ClassifierMatch(
                     intent = MatchedIntent(
                         intentName = result.intentName,
@@ -2162,7 +2164,7 @@ class QuickIntentRouter(
                         source = "classifier",
                     ),
                     confidence = result.confidence,
-                    needsConfirmation = result.confidence < 0.90f,
+                    needsConfirmation = !fastPathOk && result.confidence < 0.90f,
                 )
             }
             // Below threshold — report as fallthrough with best guess
@@ -2182,6 +2184,52 @@ class QuickIntentRouter(
     // ── Parameter parsing helpers ─────────────────────────────────────────────
 
     companion object {
+        /**
+         * Intent names that carry no user-supplied parameters and are safe to execute
+         * without confirmation once the classifier confidence is above the minimum
+         * threshold.  These are the intents that RegexMatch handles directly with
+         * needsConfirmation = false — the classifier path should behave the same way.
+         *
+         * See issue #620 for the full rationale.
+         */
+        val FAST_PATH_INTENTS = setOf(
+            // Flashlight
+            "toggle_flashlight_on", "toggle_flashlight_off",
+            // Do Not Disturb
+            "toggle_dnd_on", "toggle_dnd_off",
+            // Connectivity
+            "toggle_wifi", "toggle_bluetooth", "toggle_airplane_mode", "toggle_hotspot",
+            // Battery / System
+            "get_battery", "get_system_info",
+            // Time / Date
+            "get_time", "get_date_diff",
+            // Weather
+            "get_weather",
+            // Media transport (no query param)
+            "pause_media", "stop_media", "next_track", "previous_track",
+            // Timer / Alarm queries (no params)
+            "list_timers", "get_timer_remaining",
+            // Cancel
+            "cancel_alarm", "cancel_timer", "cancel_timer_named",
+            // Brightness
+            "set_brightness",
+            // Volume
+            "set_volume",
+            // Podcast controls
+            "podcast_skip_forward", "podcast_skip_back", "podcast_speed",
+            // Lists (query-only)
+            "get_list_items",
+            // Smart home (on/off with no device param — terse forms)
+            "smart_home_on", "smart_home_off",
+        )
+
+        /**
+         * Minimum classifier confidence below which even fast-path intents require
+         * confirmation.  Fast-path intents with confidence in [FAST_PATH_THRESHOLD, 0.90)
+         * are executed directly; below this floor the system falls through to E4B.
+         */
+        const val FAST_PATH_THRESHOLD = 0.75f
+
         /**
          * Builds calendar intent params from a raw user query. Always includes `raw_query`.
          * Attempts to pre-extract a `extracted_title` hint from "for a/an X" phrasing so the
