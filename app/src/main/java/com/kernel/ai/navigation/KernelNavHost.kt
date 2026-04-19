@@ -128,7 +128,9 @@ fun KernelNavHost(
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
                         navController.navigate(ROUTE_LISTS) {
+                            popUpTo(ROUTE_LIST) { saveState = true }
                             launchSingleTop = true
+                            restoreState = true
                         }
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
@@ -140,7 +142,9 @@ fun KernelNavHost(
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
                         navController.navigate(ROUTE_SIDE_PANEL) {
+                            popUpTo(ROUTE_LIST) { saveState = true }
                             launchSingleTop = true
+                            restoreState = true
                         }
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
@@ -152,7 +156,9 @@ fun KernelNavHost(
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
                         navController.navigate(ROUTE_CONTACT_ALIASES) {
+                            popUpTo(ROUTE_LIST) { saveState = true }
                             launchSingleTop = true
+                            restoreState = true
                         }
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
@@ -165,7 +171,9 @@ fun KernelNavHost(
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
                         navController.navigate(ROUTE_SETTINGS) {
+                            popUpTo(ROUTE_LIST) { saveState = true }
                             launchSingleTop = true
+                            restoreState = true
                         }
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
