@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v3"  // bumped: corrected Ghost Chips + Monique entries
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v4"  // bumped: corrected Pavlova definition to prevent hallucinated inventor names  // bumped: corrected Ghost Chips + Monique entries
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val SESSION_VOCAB_COUNT = 2
 
