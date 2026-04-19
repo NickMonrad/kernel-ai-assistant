@@ -67,6 +67,24 @@ cd kernel-ai-assistant
 
 First build compiles the NDK SQLite + sqlite-vec shared library (`libkernelvec.so`) which takes a few minutes. Subsequent builds are incremental.
 
+### SDK path (`local.properties`)
+
+`local.properties` is gitignored and must exist locally pointing to your Android SDK. It is **not** committed to the repo, so if you clone into a new location (e.g. `/tmp`) you must recreate it:
+
+```bash
+echo "sdk.dir=/path/to/your/Android/Sdk" > local.properties
+```
+
+Common paths:
+
+| OS | Default path |
+|----|-------------|
+| Linux | `/home/<user>/Android/Sdk` |
+| macOS | `/Users/<user>/Library/Android/sdk` |
+| Windows | `C:\\Users\\<user>\\AppData\\Local\\Android\\Sdk` |
+
+**Headless / agent environments:** if the SDK is absent or `local.properties` is missing, all Gradle tasks including unit tests will fail with an SDK path error. Recreate the file before running any `./gradlew` commands.
+
 ### Tested Devices
 
 | Device | Chip | RAM | Backend |
