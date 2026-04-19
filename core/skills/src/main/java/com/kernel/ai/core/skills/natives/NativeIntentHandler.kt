@@ -36,11 +36,14 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.MonthDay
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.time.temporal.WeekFields
+import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -95,6 +98,7 @@ private const val TAG = "KernelAI"
  *   cancel_alarm            — AlarmClock.ACTION_DISMISS_ALARM (params: label?)
  *   get_weather             — Opens Google search for weather (params: location?)
  *   get_system_info         — Returns storage and RAM info — returns DirectReply
+ *   get_date_diff           — Native date arithmetic: days/weeks until or since a date (params: target_date, from_date?) — returns DirectReply
  *   save_memory             — Saves content to long-term core memory (params: content)
  *   set_brightness          — Sets screen brightness (params: value?, direction?, is_percent?)
  */
@@ -165,6 +169,7 @@ class NativeIntentHandler @Inject constructor(
                 "smart_home_on" -> handleSmartHome(params["device"] ?: "device", true)
                 "smart_home_off" -> handleSmartHome(params["device"] ?: "device", false)
                 "get_weather" -> getWeather(params)
+                "get_date_diff" -> getDateDiff(params)
                 "get_system_info" -> getSystemInfo()
                 "save_memory" -> saveMemory(params)
                 "set_brightness" -> setBrightness(params)
@@ -213,7 +218,7 @@ class NativeIntentHandler @Inject constructor(
             "open_app", "navigate_to", "find_nearby",
             "add_to_list", "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list",
             "smart_home_on", "smart_home_off",
-            "get_weather", "get_system_info",
+            "get_weather", "get_date_diff", "get_system_info",
             "save_memory",
         )
     }
@@ -1226,6 +1231,120 @@ class NativeIntentHandler @Inject constructor(
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("get_weather", "No browser available")
         }
+    }
+
+    // ── Date Diff ─────────────────────────────────────────────────────────────
+
+    private fun getDateDiff(params: Map<String, String>): SkillResult {
+        val targetStr = params["target_date"]?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("get_date_diff", "No target_date provided")
+        val today = LocalDate.now()
+        val fromDate = params["from_date"]?.takeIf { it.isNotBlank() }
+            ?.let { parseDateString(it) } ?: today
+        val targetDate = parseDateString(targetStr)
+            ?: return SkillResult.Failure("get_date_diff", "Could not parse date: \"$targetStr\"")
+
+        val days = ChronoUnit.DAYS.between(fromDate, targetDate)
+        val absDays = Math.abs(days)
+        val weeks = absDays / 7
+        val remainderDays = absDays % 7
+        val targetFormatted = targetDate.format(
+            DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.ENGLISH)
+        )
+
+        val reply = when {
+            days == 0L -> "That's today — $targetFormatted."
+            days > 0 -> buildString {
+                append("$absDays day${if (absDays != 1L) "s" else ""} from now")
+                if (weeks > 0) {
+                    append(" ($weeks week${if (weeks != 1L) "s" else ""}")
+                    if (remainderDays > 0) append(" and $remainderDays day${if (remainderDays != 1L) "s" else ""}")
+                    append(")")
+                }
+                append(" — $targetFormatted.")
+            }
+            else -> buildString {
+                append("$absDays day${if (absDays != 1L) "s" else ""} ago")
+                if (weeks > 0) {
+                    append(" ($weeks week${if (weeks != 1L) "s" else ""}")
+                    if (remainderDays > 0) append(" and $remainderDays day${if (remainderDays != 1L) "s" else ""}")
+                    append(")")
+                }
+                append(" — $targetFormatted.")
+            }
+        }
+        return SkillResult.DirectReply(reply)
+    }
+
+    /**
+     * Parses a date string in various natural formats, including named NZ/common holidays.
+     * For dates without a year, picks the next upcoming occurrence.
+     */
+    private fun parseDateString(input: String): LocalDate? {
+        val s = input.trim()
+        val today = LocalDate.now()
+        val year = today.year
+
+        // Named holidays — next upcoming occurrence
+        fun nextOccurrence(month: Int, day: Int): LocalDate {
+            val candidate = LocalDate.of(year, month, day)
+            return if (!candidate.isBefore(today)) candidate else LocalDate.of(year + 1, month, day)
+        }
+        when (s.lowercase().replace(Regex("[''`]"), "").trim()) {
+            "christmas", "christmas day", "xmas" -> return nextOccurrence(12, 25)
+            "new years day", "new years", "new year", "new year's day", "new year day" ->
+                return LocalDate.of(year + 1, 1, 1).let {
+                    if (!LocalDate.of(year, 1, 1).isBefore(today)) LocalDate.of(year, 1, 1) else it
+                }
+            "halloween" -> return nextOccurrence(10, 31)
+            "waitangi day" -> return nextOccurrence(2, 6)
+            "anzac day" -> return nextOccurrence(4, 25)
+            "valentines day", "valentine's day" -> return nextOccurrence(2, 14)
+            "easter" -> {
+                // Computus (anonymous Gregorian algorithm)
+                fun easterDate(y: Int): LocalDate {
+                    val a = y % 19; val b = y / 100; val c = y % 100
+                    val d = b / 4; val e = b % 4; val f = (b + 8) / 25
+                    val g = (b - f + 1) / 3; val h = (19 * a + b - d - g + 15) % 30
+                    val i = c / 4; val k = c % 4; val l = (32 + 2 * e + 2 * i - h - k) % 7
+                    val m = (a + 11 * h + 22 * l) / 451
+                    val month = (h + l - 7 * m + 114) / 31
+                    val day = ((h + l - 7 * m + 114) % 31) + 1
+                    return LocalDate.of(y, month, day)
+                }
+                val thisYearEaster = easterDate(year)
+                return if (!thisYearEaster.isBefore(today)) thisYearEaster else easterDate(year + 1)
+            }
+        }
+
+        // Explicit date formats (ordered most-to-least specific)
+        val formatters = listOf(
+            DateTimeFormatter.ISO_LOCAL_DATE,                              // 2026-08-22
+            DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH),   // 22 August 2026
+            DateTimeFormatter.ofPattern("MMMM d yyyy", Locale.ENGLISH),   // August 22 2026
+            DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.ENGLISH),  // August 22, 2026
+            DateTimeFormatter.ofPattern("d/MM/yyyy"),                      // 22/08/2026
+            DateTimeFormatter.ofPattern("MM/dd/yyyy"),                     // 08/22/2026
+            DateTimeFormatter.ofPattern("d-MM-yyyy"),                      // 22-08-2026
+        )
+        for (fmt in formatters) {
+            try { return LocalDate.parse(s, fmt) } catch (_: Exception) {}
+        }
+
+        // Partial dates without year — pick next upcoming occurrence
+        val partialFormatters = listOf(
+            DateTimeFormatter.ofPattern("d MMMM", Locale.ENGLISH),  // 22 August
+            DateTimeFormatter.ofPattern("MMMM d", Locale.ENGLISH),  // August 22
+            DateTimeFormatter.ofPattern("MMMM", Locale.ENGLISH),    // August (1st of that month)
+        )
+        for (fmt in partialFormatters) {
+            try {
+                val md = MonthDay.parse(s, fmt)
+                val candidate = md.atYear(year)
+                return if (!candidate.isBefore(today)) candidate else md.atYear(year + 1)
+            } catch (_: Exception) {}
+        }
+        return null
     }
 
     // ── Get System Info ───────────────────────────────────────────────────────
