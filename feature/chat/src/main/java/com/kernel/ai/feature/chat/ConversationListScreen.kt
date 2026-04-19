@@ -123,7 +123,7 @@ fun ConversationListScreen(
             if (!isInSelectionMode) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.End,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     SmallFloatingActionButton(
                         onClick = onNavigateToActions,
