@@ -56,7 +56,7 @@ fun SettingsScreen(
     onNavigateToUserProfile: () -> Unit = {},
     onNavigateToMemory: () -> Unit = {},
     onNavigateToModelSettings: () -> Unit = {},
-    onNavigateToModelManagement: () -> Unit = {},
+    onNavigateToModelManagement: (preferred: Boolean) -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -107,7 +107,7 @@ fun SettingsScreen(
                 ListItem(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onNavigateToModelManagement() },
+                        .clickable { onNavigateToModelManagement(true) },
                     headlineContent = { Text("Preferred model") },
                     supportingContent = {
                         val label = uiState.preferredModel?.displayName ?: "Auto"
@@ -126,7 +126,7 @@ fun SettingsScreen(
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onNavigateToModelManagement() },
+                    .clickable { onNavigateToModelManagement(false) },
                 headlineContent = { Text("Model management") },
                 supportingContent = { Text("Downloads, storage and model preferences") },
                 leadingContent = { Icon(Icons.Default.Download, contentDescription = null) },

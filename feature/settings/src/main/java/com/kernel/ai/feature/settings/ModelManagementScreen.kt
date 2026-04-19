@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
@@ -38,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,10 +59,22 @@ private const val EMBEDDING_GEMMA_LICENCE_URL = "https://huggingface.co/litert-c
 @Composable
 fun ModelManagementScreen(
     onBack: () -> Unit = {},
+    scrollToConversationModel: Boolean = false,
     viewModel: ModelManagementViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
+    val listState = rememberLazyListState()
+
+    // Scroll to "Conversation model" section when requested (e.g. from Settings "Preferred model" item).
+    // Wait until models are loaded so the item count is accurate.
+    val visibleModelCount = uiState.models.count { it.model != KernelModel.EMBEDDING_GEMMA_300M_SM8550 }
+    LaunchedEffect(scrollToConversationModel, visibleModelCount) {
+        if (scrollToConversationModel && visibleModelCount > 0) {
+            // Layout: 0=storage, 1=HF account, 2=Models header, 3..3+N-1=model rows, 3+N=Conversation model header
+            listState.animateScrollToItem(index = 3 + visibleModelCount)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -75,6 +89,7 @@ fun ModelManagementScreen(
         },
     ) { innerPadding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),

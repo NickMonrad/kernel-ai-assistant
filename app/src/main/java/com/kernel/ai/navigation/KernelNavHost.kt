@@ -61,7 +61,8 @@ private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_USER_PROFILE = "settings/user_profile"
 private const val ROUTE_MEMORY = "settings/memory"
 private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
-private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management"
+private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management?scrollTo={scrollTo}"
+private const val ARG_SCROLL_TO = "scrollTo"
 private const val ROUTE_ABOUT = "settings/about"
 private const val ROUTE_CONTACT_ALIASES = "settings/contact_aliases"
 private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
@@ -331,8 +332,9 @@ fun KernelNavHost(
                         onNavigateToModelSettings = {
                             navController.navigate(ROUTE_MODEL_SETTINGS)
                         },
-                        onNavigateToModelManagement = {
-                            navController.navigate(ROUTE_MODEL_MANAGEMENT)
+                        onNavigateToModelManagement = { preferred ->
+                            val route = "settings/model_management?scrollTo=$preferred"
+                            navController.navigate(route)
                         },
                         onNavigateToAbout = {
                             navController.navigate(ROUTE_ABOUT)
@@ -358,9 +360,17 @@ fun KernelNavHost(
                     )
                 }
 
-                composable(ROUTE_MODEL_MANAGEMENT) {
+                composable(
+                    ROUTE_MODEL_MANAGEMENT,
+                    arguments = listOf(navArgument(ARG_SCROLL_TO) {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    }),
+                ) { backStackEntry ->
+                    val scrollTo = backStackEntry.arguments?.getBoolean(ARG_SCROLL_TO) ?: false
                     ModelManagementScreen(
                         onBack = { navController.popBackStack() },
+                        scrollToConversationModel = scrollTo,
                     )
                 }
 
