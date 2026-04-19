@@ -26,6 +26,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LargeFloatingActionButton
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -131,7 +132,7 @@ fun ConversationListScreen(
                     ) {
                         Icon(Icons.Default.Bolt, contentDescription = "Quick action")
                     }
-                    SmallFloatingActionButton(
+                    LargeFloatingActionButton(
                         onClick = onNewConversation,
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
