@@ -50,7 +50,10 @@ class MiniLMIntentClassifier @Inject constructor(
     // All mutable state is set exactly once from the init coroutine and then read-only.
     @Volatile private var vocab: Map<String, Int>? = null
     @Volatile private var interpreter: Interpreter? = null
-    @Volatile private var intentCentroids: Map<String, FloatArray>? = null
+    /** Per-intent list of individual phrase embeddings. Scoring uses max similarity (nearest
+     *  neighbour) across all stored vectors rather than a single averaged centroid, which avoids
+     *  the drift that occurs when diverse training phrases are averaged together. */
+    @Volatile private var intentPhraseVectors: Map<String, List<FloatArray>>? = null
     @Volatile private var initFailed: Boolean = false
     private val interpreterLock = Any()
     private val initJob = CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
@@ -61,11 +64,12 @@ class MiniLMIntentClassifier @Inject constructor(
                 return@launch
             }
             val phrasesJson = context.assets.open(PHRASES_ASSET).bufferedReader().readText()
-            val centroids = computeCentroids(phrasesJson, v, interp)
+            val phraseVectors = buildPhraseVectors(phrasesJson, v, interp)
             vocab = v
             interpreter = interp
-            intentCentroids = centroids
-            Log.i(TAG, "Ready: ${centroids.size} intent centroids loaded")
+            intentPhraseVectors = phraseVectors
+            val totalVectors = phraseVectors.values.sumOf { it.size }
+            Log.i(TAG, "Ready: ${phraseVectors.size} intents, $totalVectors phrase vectors loaded (nearest-neighbour)")
         } catch (e: Exception) {
             initFailed = true
             Log.e(TAG, "Failed to initialise — classify() will return null", e)
@@ -76,8 +80,8 @@ class MiniLMIntentClassifier @Inject constructor(
         if (input.isBlank()) return null
 
         // If init hasn't finished yet, wait up to 500ms before giving up — prevents the race
-        // condition where the first user message arrives before centroid pre-computation is done.
-        if (intentCentroids == null && !initFailed) {
+        // condition where the first user message arrives before phrase vector pre-computation is done.
+        if (intentPhraseVectors == null && !initFailed) {
             Log.i(TAG, "classify('$input') — init still in progress, waiting up to 500ms")
             runBlocking { withTimeoutOrNull(500) { initJob.join() } }
         }
@@ -90,14 +94,14 @@ class MiniLMIntentClassifier @Inject constructor(
             Log.i(TAG, "classify('$input') — not ready (interpreter null), skipping")
             return null
         }
-        val centroids = intentCentroids ?: run {
-            Log.i(TAG, "classify('$input') — not ready (centroids null), skipping")
+        val phraseVectors = intentPhraseVectors ?: run {
+            Log.i(TAG, "classify('$input') — not ready (phraseVectors null), skipping")
             return null
         }
 
-        Log.i(TAG, "classify('$input') — running against ${centroids.size} centroids")
-        if (centroids.isEmpty()) {
-            Log.w(TAG, "classify('$input') — centroid map is empty (all phrase embeds failed at init), skipping")
+        Log.i(TAG, "classify('$input') — running against ${phraseVectors.size} intents")
+        if (phraseVectors.isEmpty()) {
+            Log.w(TAG, "classify('$input') — phrase vector map is empty (all embeds failed at init), skipping")
             return null
         }
         val queryEmbedding = synchronized(interpreterLock) {
@@ -108,8 +112,11 @@ class MiniLMIntentClassifier @Inject constructor(
         var bestScore = -1f
         var secondScore = -1f
 
-        for ((name, centroid) in centroids) {
-            val score = dot(queryEmbedding, centroid)
+        // Nearest-neighbour: score each intent as the max similarity across all its phrase vectors.
+        // This avoids centroid drift where averaging 12+ diverse phrases pulls the centroid away
+        // from individual extremes (e.g. "it's dark in here" scoring 0.49 against its own centroid).
+        for ((name, vectors) in phraseVectors) {
+            val score = vectors.maxOf { dot(queryEmbedding, it) }
             when {
                 score > bestScore -> { secondScore = bestScore; bestScore = score; bestIntent = name }
                 score > secondScore -> secondScore = score
@@ -286,16 +293,16 @@ class MiniLMIntentClassifier @Inject constructor(
         return sum
     }
 
-    // ── Centroid pre-computation ─────────────────────────────────────────────
+    // ── Phrase vector pre-computation ────────────────────────────────────────
 
-    private fun computeCentroids(
+    private fun buildPhraseVectors(
         phrasesJson: String,
         vocab: Map<String, Int>,
         interp: Interpreter,
-    ): Map<String, FloatArray> {
+    ): Map<String, List<FloatArray>> {
         val root = JSONObject(phrasesJson)
         val intents = root.getJSONObject("intents")
-        val centroids = HashMap<String, FloatArray>()
+        val result = HashMap<String, List<FloatArray>>()
 
         for (intentName in intents.keys()) {
             val phrases = intents.getJSONObject(intentName).getJSONArray("phrases")
@@ -307,13 +314,9 @@ class MiniLMIntentClassifier @Inject constructor(
                 }?.let { vectors += it }
             }
             if (vectors.isEmpty()) continue
-
-            // Average the phrase embeddings into a single centroid, then re-normalise
-            val centroid = FloatArray(EMBEDDING_DIM)
-            for (v in vectors) for (j in v.indices) centroid[j] += v[j]
-            for (j in centroid.indices) centroid[j] /= vectors.size
-            centroids[intentName] = centroid.l2Normalize()
+            result[intentName] = vectors
+            Log.d(TAG, "  $intentName: ${vectors.size} phrase vectors")
         }
-        return centroids
+        return result
     }
 }
