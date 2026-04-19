@@ -90,11 +90,11 @@ internal fun looksLikeToolConfirmation(response: String): Boolean {
         // Catch "I've turned X on/off" where object sits between "turned" and "on/off"
         "i've turned", "i have turned",
         // Kiwi/casual action verbs — "I've flicked the flashlight on", "flicked it on"
-        "flicked", "switched on", "switched off",
+        "i've flicked", "i have flicked", "flicked it on", "flicked it off",
+        "switched on", "switched off",
         // Torch/light state claims — "the light's on", "flashlight is on", etc.
         "the light's on", "the light's off", "lights are on", "lights are off",
         "torch is on", "torch is off", "flashlight is on", "flashlight is off",
-        "is now on", "is now off",
         "i've lit", "i have lit",
         "done!", "all done", "got it, i've", "sure thing",
     )
