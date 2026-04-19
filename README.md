@@ -59,15 +59,19 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 
 ### Coming Soon
 - 🗣️ **Voice + text input** — tap-to-talk with auto-stop *(Phase 3)*
+- 💬 **Multi-turn dialog** — slot filling, confirmation, and context-switching across intents *(Phase 3G, #522)*
+- 🌦️ **Smarter intent routing** — colloquial phrases ("is it gonna rain?") routed natively *(Phase 3C, #608)*
+- 📅 **Native date arithmetic** — `date_diff` tool for reliable date calculations *(Phase 3C, #619)*
 - 🗒️ **Lists — stretch goals** — cards, swipe-to-complete, rich content, attachments, sorting *(Phase 3, #472)*
 - ⏰ **Alarms CRUD UI** — create, edit, and toggle alarms directly from the Alarms screen *(Phase 3, #479)*
+- 📱 **Homescreen widget** — quick actions and voice from the launcher *(Phase 3F, #617)*
 - 🌙 **Dreaming Engine** — overnight WorkManager consolidation (Light Sleep → REM → Deep Sleep) *(Phase 4)*
 - ⚡ **Semantic cache** — instant responses for repeated knowledge queries *(Phase 4)*
 - 🪪 **Self-healing identity** — structured user profile, LLM-managed via Dreaming cycle *(Phase 4)*
 - 🧩 **Wasm skill store** — community-extensible plugins with sandboxed execution *(Phase 5)*
 - 🏠 **Home Assistant / Google Home** — smart home control *(Phase 5)*
 - 📱 **8GB device optimisation** — dynamic weight loading/unloading, E2B fallback *(Phase 6)*
-- 🎙️ **"Hey Jandal" wake word** — always-on local detection → instant action routing *(Phase 3)*
+- 🎙️ **"Hey Jandal" wake word** — always-on local detection → instant action routing *(Phase 3F)*
 
 ## Roadmap
 
@@ -75,7 +79,7 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM integration + GPU/NPU acceleration + Chat UI | ✅ |
 | 2 | sqlite-vec + EmbeddingGemma for local RAG + memory, UI polish, model selection | ✅ |
-| 3 | Native Skills (alarms, lists, weather, media, navigation) + episodic distillation + nav drawer + Brand refresh | 🔄 |
+| 3 | Native Skills (alarms, lists, weather, media, navigation) + multi-turn dialog + episodic distillation + nav drawer + Brand refresh | 🔄 |
 | 4 | Dreaming Engine (WorkManager overnight cycle) + Semantic Cache + Self-Healing Identity System | ⬜ |
 | 5 | Chicory Wasm runtime + GitHub Skill Store | ⬜ |
 | 6 | 8GB device optimization (dynamic weight loading) | ⬜ |
