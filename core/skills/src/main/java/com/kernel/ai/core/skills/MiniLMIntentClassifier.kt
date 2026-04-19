@@ -7,6 +7,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.tensorflow.lite.Interpreter
 import java.nio.channels.FileChannel
@@ -49,30 +51,51 @@ class MiniLMIntentClassifier @Inject constructor(
     @Volatile private var vocab: Map<String, Int>? = null
     @Volatile private var interpreter: Interpreter? = null
     @Volatile private var intentCentroids: Map<String, FloatArray>? = null
+    @Volatile private var initFailed: Boolean = false
     private val interpreterLock = Any()
-
-    init {
-        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
-            try {
-                val v = loadVocab()
-                val interp = loadInterpreter() ?: return@launch
-                val phrasesJson = context.assets.open(PHRASES_ASSET).bufferedReader().readText()
-                val centroids = computeCentroids(phrasesJson, v, interp)
-                vocab = v
-                interpreter = interp
-                intentCentroids = centroids
-                Log.i(TAG, "Ready: ${centroids.size} intent centroids loaded")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to initialise — classify() will return null", e)
+    private val initJob = CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+        try {
+            val v = loadVocab()
+            val interp = loadInterpreter() ?: run {
+                initFailed = true
+                return@launch
             }
+            val phrasesJson = context.assets.open(PHRASES_ASSET).bufferedReader().readText()
+            val centroids = computeCentroids(phrasesJson, v, interp)
+            vocab = v
+            interpreter = interp
+            intentCentroids = centroids
+            Log.i(TAG, "Ready: ${centroids.size} intent centroids loaded")
+        } catch (e: Exception) {
+            initFailed = true
+            Log.e(TAG, "Failed to initialise — classify() will return null", e)
         }
     }
 
     override fun classify(input: String): QuickIntentRouter.IntentClassifier.Classification? {
-        val v = vocab ?: return null
-        val interp = interpreter ?: return null
-        val centroids = intentCentroids ?: return null
         if (input.isBlank()) return null
+
+        // If init hasn't finished yet, wait up to 500ms before giving up — prevents the race
+        // condition where the first user message arrives before centroid pre-computation is done.
+        if (intentCentroids == null && !initFailed) {
+            Log.i(TAG, "classify('$input') — init still in progress, waiting up to 500ms")
+            runBlocking { withTimeoutOrNull(500) { initJob.join() } }
+        }
+
+        val v = vocab ?: run {
+            Log.i(TAG, "classify('$input') — not ready (vocab null, initFailed=$initFailed), skipping")
+            return null
+        }
+        val interp = interpreter ?: run {
+            Log.i(TAG, "classify('$input') — not ready (interpreter null), skipping")
+            return null
+        }
+        val centroids = intentCentroids ?: run {
+            Log.i(TAG, "classify('$input') — not ready (centroids null), skipping")
+            return null
+        }
+
+        Log.i(TAG, "classify('$input') — running against ${centroids.size} centroids")
 
         val queryEmbedding = synchronized(interpreterLock) {
             embed(input.lowercase().trim(), v, interp)
@@ -90,10 +113,16 @@ class MiniLMIntentClassifier @Inject constructor(
             }
         }
 
-        if (bestIntent == null || bestScore < CONFIDENCE_THRESHOLD) return null
-        if (bestScore - secondScore < AMBIGUITY_MARGIN) return null
+        if (bestIntent == null || bestScore < CONFIDENCE_THRESHOLD) {
+            Log.i(TAG, "classify('$input') — below threshold: best=$bestIntent score=${"%.3f".format(bestScore)} threshold=$CONFIDENCE_THRESHOLD")
+            return null
+        }
+        if (bestScore - secondScore < AMBIGUITY_MARGIN) {
+            Log.i(TAG, "classify('$input') — ambiguous: best=$bestIntent score=${"%.3f".format(bestScore)} second=${"%.3f".format(secondScore)}")
+            return null
+        }
 
-        Log.d(TAG, "classify('$input') -> $bestIntent (score=$bestScore)")
+        Log.i(TAG, "classify('$input') -> $bestIntent (score=${"%.3f".format(bestScore)}, margin=${"%.3f".format(bestScore - secondScore)})")
         return QuickIntentRouter.IntentClassifier.Classification(bestIntent, bestScore)
     }
 
