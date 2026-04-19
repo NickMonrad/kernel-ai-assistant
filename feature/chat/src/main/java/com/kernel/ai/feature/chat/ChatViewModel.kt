@@ -540,8 +540,11 @@ class ChatViewModel @Inject constructor(
     /**
      * Immediately appends a completed assistant message to the UI and persists it to Room.
      * Used by the QuickIntentRouter skill-dispatch path where there is no streaming.
+     *
+     * [shouldIndex] — set false for device action responses, slot-fill prompts, and error
+     * messages that should not surface in future RAG retrievals.
      */
-    private suspend fun appendAssistantMessage(convId: String, content: String) {
+    private suspend fun appendAssistantMessage(convId: String, content: String, shouldIndex: Boolean = true) {
         val msgId = UUID.randomUUID().toString()
         val msg = ChatMessage(
             id = msgId,
@@ -550,7 +553,7 @@ class ChatViewModel @Inject constructor(
         )
         _messages.update { it + msg }
         val savedId = conversationRepository.addMessage(convId, "assistant", content)
-        ragRepository.indexMessage(savedId, convId, content)
+        if (shouldIndex) ragRepository.indexMessage(savedId, convId, content)
     }
 
     /** Like [appendAssistantMessage] but also attaches a [ToolCallInfo] chip so the UI shows
@@ -587,7 +590,7 @@ class ChatViewModel @Inject constructor(
             convId, "assistant", content,
             toolCallJson = toolCallJsonStr,
         )
-        ragRepository.indexMessage(savedId, convId, content)
+        if (shouldIndexToolCallResult(skillName)) ragRepository.indexMessage(savedId, convId, content)
     }
 
     fun retryDownload(model: KernelModel) {
@@ -632,6 +635,9 @@ class ChatViewModel @Inject constructor(
             // Set by the Tier 2 intercept when a skill executes successfully; injected into
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
+            // Set true when QIR routes to a device action — suppresses RAG indexing for
+            // both the user message and the LLM wrapper response (#614).
+            var isDeviceActionExchange = false
 
             try {
             val userMsgId = UUID.randomUUID().toString()
@@ -642,7 +648,7 @@ class ChatViewModel @Inject constructor(
             )
             _messages.update { it + userMessage }
             val savedUserMsgId = conversationRepository.addMessage(convId, "user", text)
-            ragRepository.indexMessage(savedUserMsgId, convId, text)
+            // User message indexing is deferred — skipped for device-action exchanges (see below).
 
             // After the very first user message, immediately set a placeholder title from the
             // first ~40 characters of the message so the conversation list never shows a blank
@@ -679,15 +685,15 @@ class ChatViewModel @Inject constructor(
                                         isSuccess = true,
                                     )
                                 }
-                                is SkillResult.Success -> appendAssistantMessage(convId, skillResult.content)
-                                is SkillResult.Failure -> appendAssistantMessage(convId, skillResult.error)
-                                else -> appendAssistantMessage(convId, "Something went wrong.")
+                                is SkillResult.Success -> appendAssistantMessage(convId, skillResult.content, shouldIndex = false)
+                                is SkillResult.Failure -> appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
+                                else -> appendAssistantMessage(convId, "Something went wrong.", shouldIndex = false)
                             }
                         }
                         return@launch
                     }
                     is SlotFillResult.Cancelled -> {
-                        appendAssistantMessage(convId, "Okay, cancelled.")
+                        appendAssistantMessage(convId, "Okay, cancelled.", shouldIndex = false)
                         return@launch
                     }
                 }
@@ -710,6 +716,7 @@ class ChatViewModel @Inject constructor(
                     appendAssistantMessage(
                         convId,
                         slotFillerManager.pendingRequest?.promptMessage ?: "What would you like to say?",
+                        shouldIndex = false,
                     )
                     return@launch
                 }
@@ -733,6 +740,7 @@ class ChatViewModel @Inject constructor(
                 // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
                 // handled by the run_intent skill — they aren't top-level skill names.
                 // Resolve: direct skill match first, then fall back to run_intent.
+                isDeviceActionExchange = true
                 val directSkill = skillRegistry.get(matchedIntent.intentName)
                 val (skill, callParams) = when {
                     directSkill != null -> directSkill to matchedIntent.params
@@ -762,7 +770,7 @@ class ChatViewModel @Inject constructor(
                             systemContext = "[System: ${matchedIntent.intentName} — ${skillResult.content}]"
                             // E4B not loaded yet: show action result directly and skip the wrapper.
                             if (!inferenceEngine.isReady.value) {
-                                appendAssistantMessage(convId, skillResult.content)
+                                appendAssistantMessage(convId, skillResult.content, shouldIndex = false)
                                 return@launch
                             }
                         }
@@ -781,11 +789,18 @@ class ChatViewModel @Inject constructor(
                 initGemma4()
                 if (!inferenceEngine.isReady.value) {
                     // Model still not ready (e.g. file absent) — tell the user and bail.
-                    appendAssistantMessage(convId, "Still loading the AI model, please try again in a moment.")
+                    appendAssistantMessage(convId, "Still loading the AI model, please try again in a moment.", shouldIndex = false)
                     return@launch
                 }
             }
             // _isLoadingModel is always cleared by the outer finally block below.
+
+            // Only index the user message when the exchange goes to the LLM (knowledge queries,
+            // conversational turns). Device-action exchanges (QIR match → run_intent) are skipped
+            // to prevent stale device state from polluting future RAG retrievals.
+            if (!isDeviceActionExchange) {
+                ragRepository.indexMessage(savedUserMsgId, convId, text)
+            }
 
             // 2. Gemma-4 streaming inference path.
             // Capture isFirstReply before adding the streaming placeholder — once the placeholder
@@ -1035,7 +1050,9 @@ class ChatViewModel @Inject constructor(
                                 }
                                 val savedAssistantMsgId = conversationRepository.addMessage(convId, "assistant", displayContent, thinking)
                                 // Don't index hallucination error messages — they're noise (#614).
-                                if (!isHallucination) {
+                                // Don't index LLM wrappers around device actions — stale device state
+                                // ("The light's on!") poisons future RAG retrievals (#614).
+                                if (!isHallucination && !isDeviceActionExchange) {
                                     ragRepository.indexMessage(savedAssistantMsgId, convId, displayContent)
                                 }
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
