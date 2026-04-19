@@ -183,8 +183,6 @@ The architectural foundation that determines tool call accuracy and response qua
 | Sub-Issue | Title | Status | Priority |
 |-----------|-------|--------|----------|
 | [#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222) | Rich tool result UI — weather cards, confirmation chips, list cards | ⬜ Pending | 🔴 High |
-| [#619](https://github.com/NickMonrad/kernel-ai-assistant/issues/619) | `date_diff` tool — native date arithmetic (LLM is unreliable) | ⬜ Pending | 🔴 High |
-| [#608](https://github.com/NickMonrad/kernel-ai-assistant/issues/608) | Colloquial weather phrases fall through to LLM instead of weather skill | ⬜ Pending | 🔴 High |
 | [#261](https://github.com/NickMonrad/kernel-ai-assistant/issues/261) | Skill discoverability UI — settings screen with enable/disable | ⬜ Pending | 🟡 Medium |
 | [#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256) | SMS/email — pre-populate recipient from contacts | ⬜ Pending | 🟡 Medium |
 | [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Maps & location — navigate, open, nearby search | ⬜ Pending | 🟡 Medium |
@@ -262,12 +260,6 @@ Slot filling, disambiguation, confirmation, and context-switching — transforms
 | [#493](https://github.com/NickMonrad/kernel-ai-assistant/issues/493) | Multi-turn spike — slot fill loop for `send_sms` | ✅ Done (spike) | 🔴 High |
 | [#518](https://github.com/NickMonrad/kernel-ai-assistant/issues/518) | Research: dialog state machine patterns (Gemini brainstorm) | ✅ Done (research) | — |
 | [#522](https://github.com/NickMonrad/kernel-ai-assistant/issues/522) | Phase 2: full dialog management — 7 conversational paths, session stack, slot schemas for 9 intents | ⬜ Pending | 🔴 High |
-| [#621](https://github.com/NickMonrad/kernel-ai-assistant/issues/621) | Dispatch pending intent on user confirmation (multi-turn QIR) | ⬜ Pending | 🔴 High |
-| [#620](https://github.com/NickMonrad/kernel-ai-assistant/issues/620) | Bypass `needsConfirmation` for no-param MiniLM matches | ⬜ Pending | 🔴 High |
-| [#591](https://github.com/NickMonrad/kernel-ai-assistant/issues/591) | NeedsSlot for remaining bare-query intents (`make_call`, `create_calendar_event`, etc.) | ⬜ Pending | 🟡 Medium |
-| [#601](https://github.com/NickMonrad/kernel-ai-assistant/issues/601) | Multi-slot: re-check for missing slots after each slot reply | ⬜ Pending | 🟡 Medium |
-| [#600](https://github.com/NickMonrad/kernel-ai-assistant/issues/600) | Slot fill spec: document expected multi-step interactions per intent | ⬜ Pending | 🟡 Medium |
-| [#599](https://github.com/NickMonrad/kernel-ai-assistant/issues/599) | Unit tests for ActionsViewModel slot-fill state machine | ⬜ Pending | 🟡 Medium |
 
 **Key design decisions (from #518 research):**
 - State machine: `IDLE → QIR_MATCH → SLOT_FILLING ↔ AWAITING_SLOT → CONFIRMING → EXECUTING`
@@ -479,17 +471,6 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#525](https://github.com/NickMonrad/kernel-ai-assistant/issues/525) | Timer management — list, pause, cancel individual timers | Phase 3H | ✅ Done — PR #520 |
 | [#526](https://github.com/NickMonrad/kernel-ai-assistant/issues/526) | Side panel: active alarms and timers in nav drawer | Phase 3H | ✅ Done — PR #530 |
 | [#529](https://github.com/NickMonrad/kernel-ai-assistant/issues/529) | Improve LLM tool selection for bulk list operations | Phase 3H | 🔄 Open — on-device verification needed |
-| [#591](https://github.com/NickMonrad/kernel-ai-assistant/issues/591) | NeedsSlot for remaining bare-query intents (`make_call`, `create_calendar_event`, etc.) | Phase 3G | ⬜ Pending |
-| [#593](https://github.com/NickMonrad/kernel-ai-assistant/issues/593) | Minor UX: icon on model download screen | Phase 3B | ⬜ Pending |
-| [#599](https://github.com/NickMonrad/kernel-ai-assistant/issues/599) | Unit tests for ActionsViewModel slot-fill state machine | Phase 3G | ⬜ Pending |
-| [#600](https://github.com/NickMonrad/kernel-ai-assistant/issues/600) | Slot fill spec: document expected multi-step interactions per intent | Phase 3G | ⬜ Pending |
-| [#601](https://github.com/NickMonrad/kernel-ai-assistant/issues/601) | Multi-slot: re-check for missing slots after each slot reply | Phase 3G | ⬜ Pending |
-| [#608](https://github.com/NickMonrad/kernel-ai-assistant/issues/608) | Colloquial weather phrases fall through to LLM instead of weather skill | Phase 3C | ⬜ Pending |
-| [#617](https://github.com/NickMonrad/kernel-ai-assistant/issues/617) | Homescreen widget for quick actions / voice | Phase 3F | ⬜ Pending |
-| [#619](https://github.com/NickMonrad/kernel-ai-assistant/issues/619) | `date_diff` tool — native date arithmetic (LLM arithmetic unreliable) | Phase 3C | ⬜ Pending |
-| [#620](https://github.com/NickMonrad/kernel-ai-assistant/issues/620) | Bypass `needsConfirmation` for no-param MiniLM matches | Phase 3G | ⬜ Pending |
-| [#621](https://github.com/NickMonrad/kernel-ai-assistant/issues/621) | Multi-turn QIR: dispatch pending intent on user confirmation | Phase 3G | ⬜ Pending |
-| [#624](https://github.com/NickMonrad/kernel-ai-assistant/issues/624) | Add more NZ truth memories (Kiwi memes + cultural touchpoints) | Phase 3B | ⬜ Pending |
 
 ---
 
