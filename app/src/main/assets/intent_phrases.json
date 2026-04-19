@@ -15,7 +15,10 @@
         "chuck on the torch",
         "it's dark in here",
         "I need some light",
-        "light it up"
+        "light it up",
+        "light on",
+        "lights on",
+        "light please"
       ]
     },
     "toggle_flashlight_off": {
@@ -31,7 +34,10 @@
         "turn that torch off",
         "disable the flashlight",
         "I don't need the light anymore",
-        "switch the light off"
+        "switch the light off",
+        "light off",
+        "lights off",
+        "light out"
       ]
     },
     "set_alarm": {
