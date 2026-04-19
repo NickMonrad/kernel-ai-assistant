@@ -40,4 +40,6 @@ interface MemoryRepository {
     suspend fun updateCoreMemory(id: String, newContent: String, newVector: FloatArray? = null)
     /** Update the content of an existing episodic memory and re-embed it. */
     suspend fun updateEpisodicMemory(id: String, newContent: String, newVector: FloatArray)
+    /** Count core memories by source (e.g. "jandal_persona"). Used to detect stale seeded flag. */
+    suspend fun countCoreMemoriesBySource(source: String): Int
 }
