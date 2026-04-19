@@ -87,6 +87,8 @@ internal fun looksLikeToolConfirmation(response: String): Boolean {
         "created your", "i've created", "list created", "created a new",
         "set an alarm", "alarm set", "timer set", "i've set",
         "turned on", "turned off", "toggled",
+        // Catch "I've turned X on/off" where object sits between "turned" and "on/off"
+        "i've turned", "i have turned",
         "done!", "all done", "got it, i've", "sure thing",
     )
     return actionPhrases.any { lower.contains(it) }

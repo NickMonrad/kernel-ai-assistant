@@ -982,7 +982,11 @@ class ChatViewModel @Inject constructor(
                                     thinkingText = thinking,
                                     toolCallJson = toolCallJsonStr,
                                 )
-                                ragRepository.indexMessage(savedId, convId, resultContent)
+                                // Only index knowledge results (e.g. Wikipedia) — not device
+                                // actions, weather, or system info which are ephemeral (#614).
+                                if (shouldIndexToolCallResult(toolCall.skillName)) {
+                                    ragRepository.indexMessage(savedId, convId, resultContent)
+                                }
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
                                     contextWindowManager.estimateTokens(resultContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
@@ -1030,7 +1034,10 @@ class ChatViewModel @Inject constructor(
                                     msgs.map { if (it.id == assistantMsgId) it.copy(content = displayContent, isStreaming = false) else it }
                                 }
                                 val savedAssistantMsgId = conversationRepository.addMessage(convId, "assistant", displayContent, thinking)
-                                ragRepository.indexMessage(savedAssistantMsgId, convId, displayContent)
+                                // Don't index hallucination error messages — they're noise (#614).
+                                if (!isHallucination) {
+                                    ragRepository.indexMessage(savedAssistantMsgId, convId, displayContent)
+                                }
                                 estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
                                     contextWindowManager.estimateTokens(displayContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
@@ -1356,6 +1363,24 @@ private const val HALLUCINATION_RETRY_CORRECTION =
     "[System: Your previous response was blocked. It appeared to describe performing an action " +
     "without actually calling the required tool function. You MUST call the appropriate tool — " +
     "do not narrate results. If the tool is unavailable, say so honestly.]"
+
+/**
+ * Returns true if a tool call result should be indexed in episodic RAG memory.
+ *
+ * Device actions, weather, and system info are ephemeral — indexing them causes the
+ * model to surface stale device state as facts in future turns (#614). Knowledge
+ * results (e.g. Wikipedia via run_js) are worth recalling.
+ */
+private fun shouldIndexToolCallResult(skillName: String): Boolean = when (skillName) {
+    "run_intent",       // device actions — transient state, not facts
+    "get_weather",      // ephemeral — must always call live
+    "get_system_info",  // ephemeral — time/date always stale
+    "load_skill",       // meta-tool — no content value
+    "save_memory",      // memory system handles indexing separately
+    "search_memory",    // read-only, no new content
+    -> false
+    else -> true        // run_js (wikipedia etc.) — knowledge worth recalling
+}
 
 private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
