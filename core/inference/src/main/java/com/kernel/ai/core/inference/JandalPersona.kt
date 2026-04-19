@@ -47,6 +47,12 @@ class JandalPersona @Inject constructor(
         Log.i(TAG, "Kiwi truths marked as seeded")
     }
 
+    /** Reset the seeded flag — called when the DB is wiped so truths are re-seeded on next launch. */
+    fun resetTruthsSeeded() {
+        prefs.edit().putBoolean(KEY_TRUTHS_SEEDED, false).apply()
+        Log.i(TAG, "Kiwi truths seeded flag reset")
+    }
+
     /**
      * Returns an explicit time-aware greeting instruction tailored to whether this is the
      * first reply in the conversation or a follow-up.

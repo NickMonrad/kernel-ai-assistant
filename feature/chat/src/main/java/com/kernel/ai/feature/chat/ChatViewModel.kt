@@ -281,7 +281,15 @@ class ChatViewModel @Inject constructor(
 
     private suspend fun seedKiwiTruthsIfNeeded() {
         truthsSeedingMutex.withLock {
-            if (jandalPersona.isTruthsSeeded) return
+            if (jandalPersona.isTruthsSeeded) {
+                // Guard against stale flag: DB may have been wiped (e.g. migration) while
+                // the SharedPreferences flag remained true. Re-seed if no jandal_persona
+                // memories are actually present.
+                val seededCount = memoryRepository.countCoreMemoriesBySource("jandal_persona")
+                if (seededCount > 0) return
+                Log.w("ChatViewModel", "truths_seeded flag was set but DB has 0 jandal_persona memories — re-seeding")
+                jandalPersona.resetTruthsSeeded()
+            }
             jandalPersona.truths.forEach { truth ->
                 val vector = embeddingEngine.embed(truth).takeIf { it.isNotEmpty() }
                     ?: return@forEach  // skip if engine not ready
