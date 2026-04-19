@@ -103,7 +103,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "toggle_flashlight_on",
             regex = Regex(
-                """(?:turn|switch|put)\s+on\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light|illumination)""",
+                """(?:turn|switch|put)\s+on\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -112,25 +112,25 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "toggle_flashlight_on",
             regex = Regex(
-                """(?:turn|switch|put)\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light|illumination)\s+on""",
+                """(?:turn|switch|put)\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light)\s+on""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Pattern: "flashlight on" / "torch on" / "light on" / "illumination on" — object + on
+        // Pattern: "flashlight on" / "torch on" — object + on (no verb)
         IntentPattern(
             intentName = "toggle_flashlight_on",
             regex = Regex(
-                """^(?:torch|flashlight|flash\s*light|light|illumination)\s+on\b""",
+                """^(?:torch|flashlight|flash\s*light)\s+on$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Pattern: bare "torch" / "flashlight" / "illuminate" — terse ON command
+        // Pattern: bare "torch" / "flashlight" — single-word terse command
         IntentPattern(
             intentName = "toggle_flashlight_on",
             regex = Regex(
-                """^(?:torch|flashlight|flash\s*light|illuminate)\b""",
+                """^(?:torch|flashlight|flash\s*light)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -139,7 +139,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "toggle_flashlight_off",
             regex = Regex(
-                """(?:turn|switch|put)\s+off\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light|illumination)""",
+                """(?:turn|switch|put)\s+off\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -148,16 +148,16 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "toggle_flashlight_off",
             regex = Regex(
-                """(?:turn|switch|put)\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light|illumination)\s+off""",
+                """(?:turn|switch|put)\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light)\s+off""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Pattern: "flashlight off" / "torch off" / "light off" / "illumination off" — object + off
+        // Pattern: "flashlight off" / "torch off" — object + off (no verb)
         IntentPattern(
             intentName = "toggle_flashlight_off",
             regex = Regex(
-                """^(?:torch|flashlight|flash\s*light|light|illumination)\s+off\b""",
+                """^(?:torch|flashlight|flash\s*light)\s+off$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -771,10 +771,12 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> mapOf("location" to match.groupValues[1].trim()) },
         ),
         // GPS weather: current location queries with no city mentioned.
+        // Colloquial forms: "How's the weather looking?", "What's the weather like today?",
+        // "What's it like outside", "Is it going to rain", etc.
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:what(?:'s| is)\s+(?:the\s+)?weather(?:\s+(?:like|today|tonight|now|outside|currently))?|how(?:'s|\s+is)\s+(?:the\s+)?weather(?:\s+(?:today|tonight|now|outside))?|weather\s+(?:today|tonight|now|outside|forecast|this\s+week))\s*$""",
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather(?:\s+(?:like|today|tonight|now|outside|out\s+there|looking\s+like|looking))?|how(?:'s|\s+is)\s+(?:the\s+)?weather(?:\s+(?:today|tonight|now|outside|out\s+there|looking\s+like|looking|like))?|weather\s+(?:today|tonight|now|outside|forecast|this\s+week))\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },

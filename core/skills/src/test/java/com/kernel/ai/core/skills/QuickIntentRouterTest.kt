@@ -2168,6 +2168,14 @@ class QuickIntentRouterTest {
             Arguments.of("weather tonight"),
             Arguments.of("how's the weather outside"),
             Arguments.of("weather forecast"),
+            // Colloquial variants (#608)
+            Arguments.of("how's the weather looking"),
+            Arguments.of("what's the weather looking like"),
+            Arguments.of("how's the weather out there"),
+            Arguments.of("how is the weather looking"),
+            Arguments.of("what is the weather looking like"),
+            Arguments.of("what's the weather like"),
+            Arguments.of("how's the weather like"),
         )
 
         @JvmStatic
