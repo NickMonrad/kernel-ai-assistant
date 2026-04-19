@@ -17,7 +17,6 @@ import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
@@ -57,9 +56,8 @@ fun SettingsScreen(
     onNavigateToUserProfile: () -> Unit = {},
     onNavigateToMemory: () -> Unit = {},
     onNavigateToModelSettings: () -> Unit = {},
-    onNavigateToModelManagement: () -> Unit = {},
+    onNavigateToModelManagement: (preferred: Boolean) -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
-    onNavigateToContactAliases: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -97,12 +95,19 @@ fun SettingsScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState()),
         ) {
-            // ── Preferred Model Info ──────────────────────────────────────────
+            // ── Models ────────────────────────────────────────────────────────
+            Text(
+                text = "Models",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+
             if (uiState.activeModelLabel.isNotEmpty()) {
                 ListItem(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onNavigateToModelManagement() },
+                        .clickable { onNavigateToModelManagement(true) },
                     headlineContent = { Text("Preferred model") },
                     supportingContent = {
                         val label = uiState.preferredModel?.displayName ?: "Auto"
@@ -112,98 +117,35 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     },
-                    leadingContent = {
-                        Icon(Icons.Default.SmartToy, contentDescription = null)
-                    },
+                    leadingContent = { Icon(Icons.Default.SmartToy, contentDescription = null) },
                     trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
                 )
                 HorizontalDivider()
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // ── Model Management ──────────────────────────────────────────────
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onNavigateToModelManagement() },
+                    .clickable { onNavigateToModelManagement(false) },
                 headlineContent = { Text("Model management") },
                 supportingContent = { Text("Downloads, storage and model preferences") },
                 leadingContent = { Icon(Icons.Default.Download, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
-
-            HorizontalDivider()
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Auto option
-            // E2B option
-            // E4B option
-            // (Model selection moved to ModelManagementScreen)
-
-            // ── User Profile ──────────────────────────────────────────────────
-            ListItem(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onNavigateToUserProfile() },
-                headlineContent = { Text("User Profile") },
-                supportingContent = { Text("Tell Jandal about yourself") },
-                leadingContent = { Icon(Icons.Default.Person, contentDescription = null) },
-                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-            )
             HorizontalDivider()
 
-            // ── Memory ────────────────────────────────────────────────────
-            ListItem(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onNavigateToMemory() },
-                headlineContent = { Text("Memory") },
-                supportingContent = { Text("Manage stored memories") },
-                leadingContent = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
-                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-            )
-            HorizontalDivider()
-
-            // ── People & Contacts ─────────────────────────────────────────────
-            ListItem(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onNavigateToContactAliases() },
-                headlineContent = { Text("People & Contacts") },
-                supportingContent = { Text("Map nicknames to contacts for calling") },
-                leadingContent = { Icon(Icons.Default.People, contentDescription = null) },
-                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-            )
-            HorizontalDivider()
-
-            // ── Model Settings ────────────────────────────────────────────────────
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onNavigateToModelSettings() },
-                headlineContent = { Text("Model Settings") },
+                headlineContent = { Text("Model settings") },
                 supportingContent = { Text("Inference parameters for Gemma 4 models") },
                 leadingContent = { Icon(Icons.Default.Tune, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()
 
-            // ── About ─────────────────────────────────────────────────────────
-            ListItem(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onNavigateToAbout() },
-                headlineContent = { Text("About") },
-                supportingContent = { Text("Build info and debug tools") },
-                leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
-                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-            )
-            HorizontalDivider()
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // ── HuggingFace Account ───────────────────────────────────────────────
+            // HuggingFace account grouped with models — needed to unlock gated HF models
             Text(
                 text = "HuggingFace Account",
                 style = MaterialTheme.typography.labelMedium,
@@ -216,6 +158,57 @@ fun SettingsScreen(
                 onSignIn = { viewModel.startAuth() },
                 onSignOut = { viewModel.signOutHuggingFace() },
                 onViewLicence = { uriHandler.openUri("https://huggingface.co/litert-community/embeddinggemma-300m") },
+            )
+            HorizontalDivider()
+
+            // ── Personal ──────────────────────────────────────────────────────
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Personal",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToUserProfile() },
+                headlineContent = { Text("User Profile") },
+                supportingContent = { Text("Tell Jandal about yourself") },
+                leadingContent = { Icon(Icons.Default.Person, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToMemory() },
+                headlineContent = { Text("Memory") },
+                supportingContent = { Text("Manage stored memories") },
+                leadingContent = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
+
+            // ── App ───────────────────────────────────────────────────────────
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "App",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToAbout() },
+                headlineContent = { Text("About") },
+                supportingContent = { Text("Build info and debug tools") },
+                leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()
         }
