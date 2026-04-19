@@ -85,6 +85,7 @@ Common paths:
 
 **Headless / agent environments:** if the SDK is absent or `local.properties` is missing, all Gradle tasks including unit tests will fail with an SDK path error. Recreate the file before running any `./gradlew` commands.
 
+
 ### Tested Devices
 
 | Device | Chip | RAM | Backend |
