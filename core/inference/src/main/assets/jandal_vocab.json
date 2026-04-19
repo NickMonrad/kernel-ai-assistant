@@ -12,6 +12,10 @@
     "meaning": "polite disagreement or hesitation"
   },
   {
+    "phrase": "nah yeah",
+    "meaning": "yes, definitely (the opposite of yeah nah)"
+  },
+  {
     "phrase": "she'll be right",
     "meaning": "it'll be fine, don't worry"
   },
@@ -37,11 +41,11 @@
   },
   {
     "phrase": "kia ora",
-    "meaning": "hello or thank you (Maori greeting)"
+    "meaning": "hello or thank you (Māori greeting)"
   },
   {
     "phrase": "ka pai",
-    "meaning": "good job, well done (Maori)"
+    "meaning": "good job, well done (Māori)"
   },
   {
     "phrase": "staunch",
@@ -49,10 +53,114 @@
   },
   {
     "phrase": "munted",
-    "meaning": "broken, ruined"
+    "meaning": "broken, ruined, wrecked"
   },
   {
     "phrase": "bro",
     "meaning": "mate, friend (gender neutral in NZ usage)"
+  },
+  {
+    "phrase": "stoked",
+    "meaning": "thrilled, really pleased"
+  },
+  {
+    "phrase": "gutted",
+    "meaning": "devastated, really disappointed"
+  },
+  {
+    "phrase": "mint",
+    "meaning": "perfect, in great condition, excellent"
+  },
+  {
+    "phrase": "heaps",
+    "meaning": "a lot, very much"
+  },
+  {
+    "phrase": "aye",
+    "meaning": "right? isn't it? (seeking agreement, often at end of sentence)"
+  },
+  {
+    "phrase": "cuz",
+    "meaning": "cousin or close mate, term of address"
+  },
+  {
+    "phrase": "knackered",
+    "meaning": "exhausted, worn out"
+  },
+  {
+    "phrase": "dodgy",
+    "meaning": "suspicious, unreliable, sketchy"
+  },
+  {
+    "phrase": "arvo",
+    "meaning": "afternoon"
+  },
+  {
+    "phrase": "jandals",
+    "meaning": "flip-flops, thongs — NZ's iconic contribution to footwear vocabulary"
+  },
+  {
+    "phrase": "togs",
+    "meaning": "swimming costume, swimwear"
+  },
+  {
+    "phrase": "bach",
+    "meaning": "a small holiday home or beach house (pronounced 'batch')"
+  },
+  {
+    "phrase": "whānau",
+    "meaning": "family, extended family (Māori)"
+  },
+  {
+    "phrase": "aroha",
+    "meaning": "love, compassion (Māori)"
+  },
+  {
+    "phrase": "haere rā",
+    "meaning": "farewell, goodbye (Māori)"
+  },
+  {
+    "phrase": "mahi",
+    "meaning": "work (Māori, widely used in everyday NZ speech)"
+  },
+  {
+    "phrase": "bugger",
+    "meaning": "mild expletive expressing frustration or sympathy — made iconic by a classic NZ TV ad"
+  },
+  {
+    "phrase": "not even",
+    "meaning": "no way, that's not true, expressing disbelief"
+  },
+  {
+    "phrase": "as if",
+    "meaning": "expressing strong doubt or disbelief"
+  },
+  {
+    "phrase": "sweet",
+    "meaning": "okay, got it, sounds good"
+  },
+  {
+    "phrase": "mean",
+    "meaning": "awesome, really good (opposite of the English meaning)"
+  },
+  {
+    "phrase": "crack up",
+    "meaning": "funny, hilarious"
+  },
+  {
+    "phrase": "keen",
+    "meaning": "enthusiastic, willing, up for it"
+  },
+  {
+    "phrase": "dairy",
+    "meaning": "a small convenience store — nothing to do with milk (well, mostly)"
+  },
+  {
+    "phrase": "section",
+    "meaning": "a plot of residential land"
+  },
+  {
+    "phrase": "wop-wops",
+    "meaning": "the middle of nowhere, a remote rural area"
   }
 ]
