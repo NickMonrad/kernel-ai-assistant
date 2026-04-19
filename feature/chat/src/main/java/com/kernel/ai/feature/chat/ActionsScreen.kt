@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
@@ -47,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -83,6 +85,12 @@ fun ActionsScreen(
 
     var showBottomSheet by rememberSaveable { mutableStateOf(false) }
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+
+    // Auto-scroll to top when a new action result arrives (#607).
+    LaunchedEffect(actions.firstOrNull()?.id) {
+        if (actions.isNotEmpty()) listState.animateScrollToItem(0)
+    }
 
     // Auto-open the quick action sheet when navigated here via the FAB shortcut.
     // LaunchedEffect(Unit) ensures this runs once on initial composition only —
@@ -241,6 +249,7 @@ fun ActionsScreen(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -450,6 +459,9 @@ private fun ActionHistoryCard(
     action: QuickActionEntity,
     onDelete: () -> Unit,
 ) {
+    var expanded by remember { mutableStateOf(false) }
+    var isOverflowing by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -511,9 +523,21 @@ private fun ActionHistoryCard(
                 text = action.resultText,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
+                maxLines = if (expanded) Int.MAX_VALUE else 3,
+                overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
+                onTextLayout = { result -> if (result.hasVisualOverflow) isOverflowing = true },
             )
+            if (isOverflowing || expanded) {
+                TextButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text(
+                        text = if (expanded) "Show less" else "Show more",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
 
             // Timestamp
             Spacer(modifier = Modifier.height(4.dp))
