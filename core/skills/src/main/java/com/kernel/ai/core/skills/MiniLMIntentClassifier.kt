@@ -96,7 +96,10 @@ class MiniLMIntentClassifier @Inject constructor(
         }
 
         Log.i(TAG, "classify('$input') — running against ${centroids.size} centroids")
-
+        if (centroids.isEmpty()) {
+            Log.w(TAG, "classify('$input') — centroid map is empty (all phrase embeds failed at init), skipping")
+            return null
+        }
         val queryEmbedding = synchronized(interpreterLock) {
             embed(input.lowercase().trim(), v, interp)
         } ?: return null
@@ -226,7 +229,9 @@ class MiniLMIntentClassifier @Inject constructor(
 
             val inputIdsBatch = Array(1) { inputIds }
             val maskBatch = Array(1) { mask }
-            val tokenTypeIds = Array(1) { IntArray(MAX_SEQ_LEN) }  // all zeros
+            // Model has 2 inputs only: input_ids + attention_mask.
+            // token_type_ids is NOT a separate input on this model variant — passing it caused
+            // "Invalid input Tensor index: 2" and silently broke every embed call.
 
             // Check output tensor shape to handle both model variants:
             // [1, MAX_SEQ_LEN, EMBEDDING_DIM] — all token embeddings, we mean-pool
@@ -237,7 +242,7 @@ class MiniLMIntentClassifier @Inject constructor(
                 // Model already outputs a single pooled embedding
                 val output = Array(1) { FloatArray(EMBEDDING_DIM) }
                 interp.runForMultipleInputsOutputs(
-                    arrayOf(inputIdsBatch, maskBatch, tokenTypeIds),
+                    arrayOf(inputIdsBatch, maskBatch),
                     mapOf(0 to output)
                 )
                 output[0].l2Normalize()
@@ -245,7 +250,7 @@ class MiniLMIntentClassifier @Inject constructor(
                 // Output: [1, MAX_SEQ_LEN, EMBEDDING_DIM] — all token embeddings
                 val tokenEmbeddings = Array(1) { Array(MAX_SEQ_LEN) { FloatArray(EMBEDDING_DIM) } }
                 interp.runForMultipleInputsOutputs(
-                    arrayOf(inputIdsBatch, maskBatch, tokenTypeIds),
+                    arrayOf(inputIdsBatch, maskBatch),
                     mapOf(0 to tokenEmbeddings)
                 )
                 // Mean pooling over non-padding tokens, then L2-normalise
