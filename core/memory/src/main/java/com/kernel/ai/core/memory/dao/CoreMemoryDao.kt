@@ -30,6 +30,9 @@ interface CoreMemoryDao {
     @Query("DELETE FROM core_memories WHERE source = :source")
     suspend fun deleteBySource(source: String)
 
+    @Query("SELECT rowId FROM core_memories WHERE source = :source")
+    suspend fun getRowIdsBySource(source: String): List<Long>
+
     @Query("SELECT COUNT(*) FROM core_memories")
     suspend fun count(): Int
 

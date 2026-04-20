@@ -333,6 +333,10 @@ class MemoryRepositoryImpl @Inject constructor(
     override suspend fun countCoreMemoriesBySource(source: String): Int =
         coreDao.countBySource(source)
 
-    override suspend fun deleteAllCoreMemoriesBySource(source: String) =
+    override suspend fun deleteAllCoreMemoriesBySource(source: String) {
+        // Delete from the vec table first (needs rowIds), then from the Room table.
+        val rowIds = coreDao.getRowIdsBySource(source)
+        rowIds.forEach { vectorStore.delete(CORE_VEC_TABLE, it) }
         coreDao.deleteBySource(source)
+    }
 }
