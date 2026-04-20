@@ -255,7 +255,8 @@ class ChatViewModel @Inject constructor(
 
     init {
         // Observe verbose logging setting and propagate to RagRepository
-        viewModelScope.launch {
+        // Use IO dispatcher to avoid conflicts with logcat reads during Export Logs
+        viewModelScope.launch(Dispatchers.IO) {
             val keyVerboseLogging = booleanPreferencesKey("verbose_logging")
             context.settingsDataStore.data
                 .map { prefs -> prefs[keyVerboseLogging] ?: false }
