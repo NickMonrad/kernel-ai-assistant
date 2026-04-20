@@ -1638,7 +1638,7 @@
     "definition": "A small corner store or convenience store. Nothing to do with dairy farming — just where you grab a pie, a drink, or a Lotto ticket. An essential NZ institution. Australians say 'servo' or '7-Eleven'. Kiwis say dairy.",
     "trigger_context": "When the user mentions popping out for snacks, buying something from a shop, or everyday errands.",
     "vibe_level": 2,
-    "vector_text": "Dairy. Corner store. Convenience store. Pop to the dairy. Grab it from the dairy. Quick shop. Milk bar. Dairy down the road. Corner dairy.",
+    "vector_text": "Dairy. Corner store. Convenience store. Pop to the dairy. Grab it from the dairy. Quick shop. Milk bar. Dairy down the road. Corner dairy. Lotto. Grab a Lotto. Lotto ticket.",
     "metadata": {
       "tags": [
         "daily-life",
