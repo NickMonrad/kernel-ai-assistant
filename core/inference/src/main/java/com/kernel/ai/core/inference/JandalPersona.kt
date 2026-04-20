@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v27"  // bumped: nz_009 definition — explicit DO NOT ask, immediately narrate punchline
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v28"  // bumped: kiwi memories migrated to kiwi_memories table
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val SESSION_VOCAB_COUNT = 2
 
@@ -150,4 +150,9 @@ class JandalPersona @Inject constructor(
     )
 
     private data class VocabEntry(val phrase: String, val meaning: String)
+
+    companion object {
+        /** Source identifier used when writing NZ corpus entries to kiwi_memories. */
+        const val SOURCE = "jandal_persona"
+    }
 }

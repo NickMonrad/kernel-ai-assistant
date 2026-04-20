@@ -3,6 +3,7 @@ package com.kernel.ai.feature.chat
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.JandalPersona
+import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,42 +48,54 @@ class NzTruthSeedingService @Inject constructor(
         mutex.withLock {
             if (jandalPersona.isTruthsSeeded) {
                 // Guard against stale flag: DB may have been wiped (e.g. migration) while
-                // SharedPreferences flag remained true. Re-seed if no jandal_persona memories present.
-                val seededCount = memoryRepository.countCoreMemoriesBySource("jandal_persona")
+                // SharedPreferences flag remained true. Re-seed if no jandal_persona kiwi memories present.
+                val seededCount = memoryRepository.getAllKiwiMemories()
+                    .count { it.source == "jandal_persona" }
                 if (seededCount > 0) return
-                Log.w(TAG, "truths_seeded flag was set but DB has 0 jandal_persona memories — re-seeding")
+                Log.w(TAG, "truths_seeded flag was set but DB has 0 jandal_persona kiwi memories — re-seeding")
                 jandalPersona.resetTruthsSeeded()
             }
 
             // Wipe any stale entries from a previous seed-guard version before re-seeding.
-            val staleCount = memoryRepository.countCoreMemoriesBySource("jandal_persona")
+            val staleCount = memoryRepository.getAllKiwiMemories()
+                .count { it.source == "jandal_persona" }
             if (staleCount > 0) {
-                Log.i(TAG, "Clearing $staleCount stale jandal_persona entries before re-seeding")
+                Log.i(TAG, "Clearing $staleCount stale jandal_persona entries from kiwi table before re-seeding")
+                memoryRepository.deleteAllKiwiMemoriesBySource("jandal_persona")
+            }
+            // Clean up any legacy jandal_persona entries from core_memories (pre-#500 versions).
+            val legacyCoreCount = memoryRepository.countCoreMemoriesBySource("jandal_persona")
+            if (legacyCoreCount > 0) {
+                Log.i(TAG, "Cleaning up $legacyCoreCount legacy jandal_persona entries from core_memories")
                 memoryRepository.deleteAllCoreMemoriesBySource("jandal_persona")
             }
-            // Always reset the vec table to purge ghost entries from any previous seeding cycles.
-            memoryRepository.resetCoreVecTable()
+            // Always reset the kiwi vec table to purge ghost entries from any previous seeding cycles.
+            memoryRepository.resetKiwiVecTable()
 
             var seeded = 0
             jandalPersona.nzTruths.forEach { truth ->
                 val vector = embeddingEngine.embed(truth.vectorText).takeIf { it.isNotEmpty() }
                     ?: return@forEach // skip if engine not ready
-                memoryRepository.addCoreMemory(
+                val now = System.currentTimeMillis()
+                val entity = KiwiMemoryEntity(
+                    id = truth.id,
                     content = truth.vectorText,
-                    source = "jandal_persona",
-                    embeddingVector = vector,
+                    source = JandalPersona.SOURCE,
                     category = "agent_identity",
                     term = truth.term,
                     definition = truth.definition,
                     triggerContext = truth.triggerContext,
                     vibeLevel = truth.vibeLevel,
                     metadataJson = truth.metadataJson,
+                    createdAt = now,
+                    lastAccessedAt = now,
                 )
+                memoryRepository.upsertKiwiMemory(entity, vector)
                 seeded++
             }
 
             jandalPersona.markTruthsSeeded()
-            Log.i(TAG, "Seeded $seeded NZ truth memories into core memory")
+            Log.i(TAG, "Seeded $seeded NZ truth memories into kiwi_memories table")
         }
     }
 }
