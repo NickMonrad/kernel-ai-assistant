@@ -27,6 +27,9 @@ interface CoreMemoryDao {
     @Query("SELECT COUNT(*) FROM core_memories WHERE source = :source")
     suspend fun countBySource(source: String): Int
 
+    @Query("DELETE FROM core_memories WHERE source = :source")
+    suspend fun deleteBySource(source: String)
+
     @Query("SELECT COUNT(*) FROM core_memories")
     suspend fun count(): Int
 

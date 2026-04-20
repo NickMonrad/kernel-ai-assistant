@@ -52,4 +52,6 @@ interface MemoryRepository {
     suspend fun updateEpisodicMemory(id: String, newContent: String, newVector: FloatArray)
     /** Count core memories by source (e.g. "jandal_persona"). Used to detect stale seeded flag. */
     suspend fun countCoreMemoriesBySource(source: String): Int
+    /** Delete all core memories from a given source (e.g. "jandal_persona") for clean re-seeding. */
+    suspend fun deleteAllCoreMemoriesBySource(source: String)
 }

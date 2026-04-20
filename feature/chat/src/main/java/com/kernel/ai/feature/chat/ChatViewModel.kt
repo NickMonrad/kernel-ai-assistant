@@ -290,7 +290,15 @@ class ChatViewModel @Inject constructor(
                 Log.w("ChatViewModel", "truths_seeded flag was set but DB has 0 jandal_persona memories — re-seeding")
                 jandalPersona.resetTruthsSeeded()
             }
+            // Wipe any stale entries from a previous seed guard version before re-seeding.
+            // Without this, bumping the seed guard key adds new entries on top of old ones,
+            // producing duplicates that pollute RAG results.
             withContext(Dispatchers.IO) {
+                val staleCount = memoryRepository.countCoreMemoriesBySource("jandal_persona")
+                if (staleCount > 0) {
+                    Log.i("ChatViewModel", "Clearing $staleCount stale jandal_persona entries before re-seeding")
+                    memoryRepository.deleteAllCoreMemoriesBySource("jandal_persona")
+                }
                 jandalPersona.nzTruths.forEach { truth ->
                     // Embed vector_text (dense keywords) — not definition — for richer semantic retrieval
                     val vector = embeddingEngine.embed(truth.vectorText).takeIf { it.isNotEmpty() }

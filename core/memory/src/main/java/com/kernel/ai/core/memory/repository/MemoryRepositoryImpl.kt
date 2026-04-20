@@ -332,4 +332,7 @@ class MemoryRepositoryImpl @Inject constructor(
 
     override suspend fun countCoreMemoriesBySource(source: String): Int =
         coreDao.countBySource(source)
+
+    override suspend fun deleteAllCoreMemoriesBySource(source: String) =
+        coreDao.deleteBySource(source)
 }
