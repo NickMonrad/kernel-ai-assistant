@@ -2275,5 +2275,22 @@
       ],
       "era": "classic"
     }
+  },
+  {
+    "id": "nz_137",
+    "term": "Primo",
+    "category": "slang",
+    "definition": "Excellent, top-notch, the best. 'That's primo!' = that's great. Used to express approval or enthusiasm. Common in everyday NZ speech across all ages.",
+    "trigger_context": "When expressing that something is excellent, great quality, or impressive.",
+    "vibe_level": 2,
+    "vector_text": "Primo. That's primo. Primo mate. Excellent. Top notch. Choice. Sweet as. That's awesome. Primo bro. The best. Really good. Primo gear.",
+    "metadata": {
+      "tags": [
+        "approval",
+        "enthusiasm",
+        "slang"
+      ],
+      "era": "classic"
+    }
   }
 ]
