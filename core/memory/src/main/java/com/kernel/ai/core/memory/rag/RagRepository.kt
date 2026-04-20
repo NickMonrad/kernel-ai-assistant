@@ -146,14 +146,14 @@ class RagRepository @Inject constructor(
                     val snippet = if (r.term.isNotEmpty()) "[${r.term}] ${r.definition}" else r.content
                     "rank=$i term=${r.term} src=${r.source} score=${r.score} dist=${String.format("%.3f", 1f - r.score)} access=${r.lastAccessedAt} snippet=${snippet.take(60)}"
                 }.joinToString(" | ")
-                logVerbose("Core candidates ($coreResults.size): $coreLog")
+                logVerbose("Core candidates (${coreResults.size}): $coreLog")
             }
             if (distilledResults.isNotEmpty()) {
                 val distilledLog = distilledResults.mapIndexed { i, r ->
                     val convId = r.conversationId ?: "none"
                     "rank=$i conv=$convId src=${r.source} score=${r.score} dist=${String.format("%.3f", 1f - r.score)} snippet=${r.content.take(60)}"
                 }.joinToString(" | ")
-                logVerbose("Distilled candidates ($distilledResults.size): $distilledLog")
+                logVerbose("Distilled candidates (${distilledResults.size}): $distilledLog")
             }
 
             val coreHeader = "[Core Memories — permanent facts about the user]\n"
