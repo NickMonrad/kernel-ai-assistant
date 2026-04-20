@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-04-13 (revised post-PR #262/#263/#268/#269/#270)
+> **Last updated:** 2026-04-19 (revised post-PR #646, closes #637)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -123,7 +123,7 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 [User Profile]           ← structured YAML injection (name, role, environment, context, rules)
 [Core Memories]          ← permanent facts split by category:
                            user (coreTopK=10), agent_identity (identityTopK=5)
-                           CORE_MAX_DISTANCE=1.10; NZ truths further filtered by vibe level
+                           CORE_MAX_DISTANCE=1.25; NZ truths further filtered by vibe level
 [Episodic Memories]      ← distilled conversation summaries (EPISODIC_MAX_DISTANCE=1.10, episodicTopK=3)
 [Message History]        ← semantically relevant messages from current conversation (MAX_DISTANCE=0.90, topK=5)
 [Conversation Window]    ← selected recent turns (75% token budget)
@@ -143,7 +143,7 @@ All sections are conditionally included — omitted entirely if no results meet 
   - `core_memories_vec` — permanent facts about the user and NZ cultural truths (Settings → Core Memories)
   - `episodic_memories_vec` — distilled conversation summaries from `EpisodicDistillationUseCase` (Settings → Episodic Memories)
   - `message_embeddings` — per-message vectors for intra-conversation fuzzy recall (Settings → Message History (RAG))
-- **Retrieval:** L2 (Euclidean) distance search per query via sqlite-vec; results filtered by distance threshold; top results injected into prompt. Vectors are L2-normalised at embedding time (`LiteRtEmbeddingEngine`) so L2 distance ≈ `sqrt(2 * (1 - cos_sim))` — threshold 1.10 ≈ cos_sim ≥ 0.40.
+- **Retrieval:** L2 (Euclidean) distance search per query via sqlite-vec; results filtered by distance threshold; top results injected into prompt. Vectors are L2-normalised at embedding time (`LiteRtEmbeddingEngine`) so L2 distance ≈ `sqrt(2 * (1 - cos_sim))` — core threshold 1.25 ≈ cos_sim ≥ 0.22; episodic threshold 1.10 ≈ cos_sim ≥ 0.40.
 - **Separate databases:** Room (`kernel_db.db`) for relational data; native SQLite (`kernel_vectors.db`) for vectors (Room doesn't support vec0 virtual tables)
 - **TTL & pruning:** `prune()` runs on every write with two independent passes:
   1. **TTL pass** — deletes episodic memories where both `createdAt` and `lastAccessedAt` are older than 30 days. Accessing a memory resets `lastAccessedAt`, keeping it alive past the 30-day TTL.
@@ -212,9 +212,9 @@ NZ truth memories have a `vibe_level` (1–5) that controls how closely a query 
 
 | Vibe Level | Character | L2 Distance Threshold | Cos-sim Equivalent |
 |------------|-----------|----------------------|--------------------|
-| 1–2 | Subtle, informational, serious | ≤ 1.10 | ≥ 0.40 |
-| 3 | Moderate, general interest | ≤ 0.95 | ≥ 0.55 |
-| 4–5 | High-energy, niche, chaotic | ≤ 0.80 | ≥ 0.68 |
+| 1–2 | Subtle, informational, serious | ≤ 1.25 (`CORE_MAX_DISTANCE`) | ≥ 0.22 |
+| 3 | Moderate, general interest | ≤ 1.20 | ≥ 0.28 |
+| 4–5 | High-energy, niche, chaotic | ≤ 1.20 | ≥ 0.28 |
 
 **Examples by vibe level:**
 - **Vibe 1** — `"Kate Sheppard"` (women's suffrage leader, face of the $10 note) — surfaces for any NZ history or feminism query
@@ -231,6 +231,19 @@ On conversation close, `EpisodicDistillationUseCase` uses Gemma-4 to summarise t
 into 3–5 episodic memory sentences, stored in `episodic_memories_vec`. This runs fire-and-forget
 on `Dispatchers.IO` from `ChatViewModel.onCleared()`.
 
+**Tool-call turn filtering:** Before building the distillation transcript, assistant turns that have
+a non-null `toolCallJson` and whose `skillName` appears in `EPHEMERAL_SKILLS` are stripped. The
+ephemeral set covers device-state skills whose results would become stale and misleading in future
+RAG context (e.g. "The torch is on", "Smart home device turned off"). Only conversational content
+is passed to the summarisation model. If fewer than `MIN_TURNS = 4` non-ephemeral messages remain
+after filtering, distillation is skipped entirely (#614).
+
+**Ephemeral skills filtered out:**
+```
+run_intent, toggle_flashlight_on/off, get_weather, get_system_info, get_time, get_date,
+set_alarm, set_timer, set_volume, set_brightness, toggle_dnd, toggle_wifi, toggle_bluetooth
+```
+
 **Quality filter:** `MIN_SENTENCE_LENGTH = 20` characters is applied to distilled sentences
 before embedding. Sentences shorter than 20 chars (e.g. "Yes.", "OK.") are discarded at write
 time. A matching `MIN_EPISODIC_CONTENT_LENGTH = 20` filter in `MemoryRepositoryImpl.searchMemories()`
@@ -241,8 +254,8 @@ surfacing in `search_memory` responses (#323).
 
 #### What to verify on first launch after install
 
-1. **Seeding triggered:** Check logcat for `JandalPersona` tag — should log `"Seeding X NZ truth memories"`. Triggered by absence of `truths_seeded_v2` SharedPrefs key.
-2. **92 entries seeded:** Settings → Core Memories should show ~92 entries with category `agent_identity`.
+1. **Seeding triggered:** Check logcat for `JandalPersona` tag — should log `"Seeding X NZ truth memories"`. Triggered by absence of `truths_seeded_v27` SharedPrefs key.
+2. **138 entries seeded:** Settings → Core Memories should show ~138 entries with category `agent_identity`.
 3. **Correct vector text embedded:** Each entry's `content` is the `vector_text` from the JSON (dense keywords), not the definition.
 
 #### How to test RAG retrieval manually
@@ -280,8 +293,50 @@ NZ truths use `vector_text` (dense keywords for embedding), not `definition`:
 
 ### 4.1 Tier 2: QuickIntentRouter
 
-A pure-Kotlin regex/keyword matcher with zero ML overhead. Deterministically maps user input
-to one of ~8 supported device actions. Executes the matched action directly via Android OS APIs.
+A pure-Kotlin regex matcher with a MiniLM-L6-v2 neural fallback. Deterministically maps user
+input to supported device actions in two regex passes before falling through to the classifier.
+
+**Two-pass regex routing (`route()`):**
+
+| Pass | Patterns tried | Purpose |
+|------|---------------|---------|
+| Pass 1 | All patterns with `isFallback = false` | Specific patterns in declaration order |
+| Pass 2 | All patterns with `isFallback = true` | Catch-all / broad patterns (e.g. generic `play_media`, smart-home `<device> on/off`) |
+
+Pass 2 only runs if Pass 1 produces no match. This eliminates first-match-wins ordering
+fragility: catch-alls are declared `isFallback = true` and never steal matches from specific
+patterns regardless of their position in the list.
+
+**MiniLM nearest-neighbour fallback (Stage 2):**
+
+If both regex passes miss, `MiniLMIntentClassifier` (`all-MiniLM-L6-v2`, int8 TFLite, 384-dim)
+is invoked. It embeds the (lowercased) input, then computes cosine similarity against
+per-intent nearest-neighbour prototype vectors pre-built from `intent_phrases.json`. The
+best-matching intent wins if it clears both a confidence floor and an ambiguity margin:
+
+| Threshold | Value | Role |
+|-----------|-------|------|
+| `CONFIDENCE_THRESHOLD` | 0.75 | Minimum cosine similarity to return a match |
+| `AMBIGUITY_MARGIN` | 0.05 | Gap between top-1 and top-2 scores; below this → ambiguous → `null` |
+| `FAST_PATH_THRESHOLD` | 0.75 | Minimum confidence for no-param fast-path intents to execute without LLM confirmation |
+| `similarityThreshold` | 0.85 | `QuickIntentRouter` gate: `ClassifierMatch` only if `confidence ≥ 0.85` |
+
+If the classifier is absent or returns `null`, the input falls through to Stage 3 (Gemma-4 E4B).
+
+**QIR + Slot-filling state machine:**
+
+The combined QIR/slot-filling pipeline is a four-state machine managed by `SlotFillerManager`
+(`@Singleton`, survives configuration changes):
+
+| State | Condition | Next states |
+|-------|-----------|-------------|
+| `IDLE` | `SlotFillerManager.hasPending = false`; no intent in flight | → `RESOLVED` (regex/classifier match with all params) · → `COLLECTING` (match but missing slot) · → `FAILED` (FallThrough) |
+| `COLLECTING` | `RouteResult.NeedsSlot` returned; `hasPending = true`; assistant has asked user for missing slot | → `RESOLVED` (user supplies non-blank reply) · → `FAILED` (user sends blank reply) |
+| `RESOLVED` | `SlotFillResult.Completed` or direct `RegexMatch`/`ClassifierMatch` with all params present; intent dispatched | → `IDLE` (after dispatch) |
+| `FAILED` | `RouteResult.FallThrough` (no match) or `SlotFillResult.Cancelled` (blank user reply) | → `IDLE` (falls through to Gemma-4 for FallThrough; slot is abandoned for Cancelled) |
+
+> **Note:** State is not persisted across process death. An interrupted slot fill is a
+> recoverable UX edge case — the user simply re-asks.
 
 | Pattern | Action | OS API |
 |---------|--------|--------|
@@ -293,12 +348,14 @@ to one of ~8 supported device actions. Executes the matched action directly via 
 | "turn on/off wifi" | Wi-Fi | `WifiManager.setWifiEnabled()` |
 | "what time is it / what's the date" | Time/Date | `LocalDateTime.now()` |
 | "battery level / how much battery" | Battery | `BatteryManager.getIntProperty()` |
+| "how many days until X / how long since Y" | Date diff | `LocalDate` calculation |
 
-If no pattern matches → query falls through to Tier 3 (Gemma-4).
+If no regex or classifier match → query falls through to Tier 3 (Gemma-4).
 
 **Design constraints:**
-- No ML model loaded — available at ~0ms from app start
+- Regex pass has no ML model — available at ~0ms from app start
 - Deterministic: same input always produces same result
+- MiniLM loads lazily in background; `classify()` waits up to 500ms on first call if init is in progress
 - Testable: pure function, no Android dependencies in unit tests (via interface)
 
 ### 4.2 Tier 3: E4B Native Tool Calling
@@ -495,6 +552,26 @@ copies `[Tool: name]\nRequest: <json>\nResult: <result>` to the clipboard via
 `LocalClipboardManager` (Compose API — no system service boilerplate). Added in PR #325
 closing #229 and #260.
 
+### 6.1 Button Layout Standards (Material 3)
+
+All buttons follow Material 3 guidelines as implemented via `androidx.compose.material3`. No
+custom sizing tokens — default component sizes from the M3 library apply:
+
+| Component | Spec | Usage |
+|-----------|------|-------|
+| `Button` (filled) | min height 40dp, horizontal padding 24dp | Primary actions (confirm, send) |
+| `OutlinedButton` | min height 40dp, horizontal padding 24dp | Secondary actions (cancel, dismiss) |
+| `TextButton` | min height 40dp, horizontal padding 12dp | Tertiary/dialog actions |
+| `IconButton` | 48dp touch target (40dp icon area) | Toolbar actions (copy, back, new conversation) |
+| `FloatingActionButton` | 56dp standard / 40dp small | Primary screen action (⚡ new command) |
+
+**Alignment:** Action buttons within dialogs use `TextButton` for cancel and `TextButton`/`Button`
+for confirm, laid out by M3's `AlertDialog` composable (trailing-aligned by default).
+Toolbar `IconButton`s in `TopAppBar` follow M3's 48dp minimum touch target guideline.
+
+**Spacing tokens (ad-hoc, from codebase):** Vertical padding between chat bubbles: 6dp.
+Input bar top padding: 8dp. Spacers between inline UI elements: 4dp.
+
 ---
 
 ## 7. Jandal Persona & Cultural Identity
@@ -541,9 +618,9 @@ Session vocab hint injected into prompt:
 
 ### 7.2 NZ Truth Memory System
 
-`JandalPersona` seeds a structured corpus of 92 NZ cultural knowledge entries into the core memory store on first launch. These are loaded from `nz_truth_memories.json` in the `core/inference` assets.
+`JandalPersona` seeds a structured corpus of 138 NZ cultural knowledge entries into the core memory store on first launch. These are loaded from `nz_truth_memories.json` in the `core/inference` assets.
 
-**Seed guard:** The key `truths_seeded_v2` in SharedPreferences prevents repeated seeding. If this key is absent (new install or key was bumped), all 92 entries are seeded. Bumping the key version forces a reseed on existing installs when the corpus is updated.
+**Seed guard:** The key `truths_seeded_v27` in SharedPreferences (`jandal_persona` prefs file) prevents repeated seeding. If this key is absent (new install or key was bumped), all 138 entries are seeded. **Convention: bump the version suffix every time the corpus is reseeded** (e.g. `truths_seeded_v27` → `truths_seeded_v28`). This forces a full re-seed on all existing installs the next time the app launches, without requiring a DB wipe. The current key is `truths_seeded_v27`.
 
 **JSON entry structure:**
 ```json
@@ -566,20 +643,23 @@ Session vocab hint injected into prompt:
 - `vibe_level` — controls retrieval sensitivity (see §3.3.3)
 - `metadata` — stored as JSON string in `metadataJson`; not currently used in retrieval but available for future filtering (e.g. filter by tag or era)
 
-**Categories in the corpus:**
-| Category | Count (approx) | Examples |
-|----------|---------------|---------|
-| `sport` | 12 | All Blacks, Black Caps, Silver Ferns, America's Cup |
-| `food` | 10 | Pavlova, Lamington, Flat White, Feijoa, Kiwifruit, Marmite |
-| `fauna` | 10 | Kiwi bird, Kererū, Tūī, Pīwakawaka, Ruru |
-| `pop_culture` | 12 | Lucy Lawless, Karl Urban, Antony Starr, Lorde, Flight of the Conchords |
-| `history` | 8 | Kate Sheppard, Ernest Rutherford, Treaty of Waitangi |
-| `geography` | 6 | Fiordland, Rotorua, Northland, South Island vs North Island |
-| `language` | 8 | Te reo Māori basics, Kiwi slang definitions |
-| `identity` | 6 | Kiwi (person), No.8 wire mentality, bach, jandals |
-| `culture` | 8 | Māori culture, haka, Treaty, tangi |
-| `tv_film` | 6 | Outrageous Fortune, Boy, Hunt for the Wilderpeople |
-| `music` | 6 | Lorde, Crowded House, Flight of the Conchords |
+**Categories in the corpus (138 entries total):**
+| Category | Count | Examples |
+|----------|-------|---------|
+| `slang` | 35 | Sweet as, chur, yeah nah, hard out, munted, stoked, gutted |
+| `history` | 15 | Kate Sheppard, Treaty of Waitangi, Ernest Rutherford, Gallipoli |
+| `pop_culture` | 10 | Lucy Lawless, Karl Urban, Antony Starr, Lorde, Flight of the Conchords |
+| `sports` | 9 | All Blacks, Black Caps, Silver Ferns, America's Cup |
+| `meme` | 8 | Nek minnit, yeah nah, she'll be right, no. 8 wire, sweet as bro |
+| `music` | 5 | Lorde, Crowded House, Flight of the Conchords |
+| `maori` | 5 | Te reo basics, haka, tangi, whānau |
+| `te_ao_maori` | 4 | Māori cosmology, tikanga, whakapapa |
+| `food` | 6 | Pavlova, Flat White, Feijoa, Kiwifruit, Hokey Pokey, Marmite |
+| `fauna` | 6 | Kiwi bird, Kererū, Tūī, Pīwakawaka |
+| `daily_life` | 6 | Bach, dairy, section, togs, jandals, arvo |
+| `politics` | 6 | MMP, Jacinda Ardern, Winston Peters, Treaty settlements |
+| `culture` | 5 | No. 8 wire mentality, she'll be right, tall poppy syndrome |
+| `other` | 12 | science, philosophy, social_code, attitude, linguistics, clothing, drink, safety, 2026_culture, 2026_tech, sports_history, social_structure, identity, joke |
 
 ---
 
