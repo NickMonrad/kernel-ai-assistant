@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v26"  // bumped: nz_009 definition — explicit DO NOT ask, immediately narrate punchline
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v27"  // bumped: nz_009 definition — explicit DO NOT ask, immediately narrate punchline
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val SESSION_VOCAB_COUNT = 2
 
