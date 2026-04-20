@@ -87,6 +87,7 @@ class ChatViewModel @Inject constructor(
     private val toolProvider: ToolProvider,
     private val embeddingEngine: EmbeddingEngine,
     private val jandalPersona: JandalPersona,
+    private val nzTruthSeedingService: NzTruthSeedingService,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -99,10 +100,19 @@ class ChatViewModel @Inject constructor(
     private var conversationId: String? = null
     private val contextWindowManager = ContextWindowManager()
     private var activeContextWindowSize: Int = 4096
-    private val truthsSeedingMutex = Mutex()
 
     /** Tracks the timestamp of the last episodic distillation for the current conversation. */
     private var lastDistilledAt: Long? = null
+
+    /**
+     * Intent stored when the BERT-tiny classifier returns [QuickIntentRouter.RouteResult.ClassifierMatch]
+     * with [needsConfirmation=true]. The LLM is allowed to ask the user for confirmation; if the
+     * user's next reply is a simple affirmation the intent is dispatched directly without another
+     * LLM round-trip. Cleared on any non-affirmation input or on new conversation.
+     *
+     * See issue #621.
+     */
+    private var pendingConfirmationIntent: QuickIntentRouter.MatchedIntent? = null
 
     // Tracks the in-progress streaming response so it can be flushed to Room on cancel/clear.
     private var activeStreamingMsgId: String? = null
@@ -232,7 +242,7 @@ class ChatViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { initializeConversation() }
-        viewModelScope.launch { seedKiwiTruthsIfNeeded() }
+        nzTruthSeedingService.seedIfNeeded()
         viewModelScope.launch {
             // E4B first — GPU compilation needs every byte of headroom.
             // FG's 289MB on CPU is enough to tip OOM during GPU init.
@@ -276,48 +286,6 @@ class ChatViewModel @Inject constructor(
                 Log.i("ChatViewModel", "App opened by user — re-initializing engine after eviction")
                 initEngineWhenReady()
             }
-        }
-    }
-
-    private suspend fun seedKiwiTruthsIfNeeded() {
-        truthsSeedingMutex.withLock {
-            if (jandalPersona.isTruthsSeeded) {
-                // Guard against stale flag: DB may have been wiped (e.g. migration) while
-                // the SharedPreferences flag remained true. Re-seed if no jandal_persona
-                // memories are actually present.
-                val seededCount = memoryRepository.countCoreMemoriesBySource("jandal_persona")
-                if (seededCount > 0) return
-                Log.w("ChatViewModel", "truths_seeded flag was set but DB has 0 jandal_persona memories — re-seeding")
-                jandalPersona.resetTruthsSeeded()
-            }
-            // Wipe any stale entries from a previous seed guard version before re-seeding.
-            // Without this, bumping the seed guard key adds new entries on top of old ones,
-            // producing duplicates that pollute RAG results.
-            withContext(Dispatchers.IO) {
-                val staleCount = memoryRepository.countCoreMemoriesBySource("jandal_persona")
-                if (staleCount > 0) {
-                    Log.i("ChatViewModel", "Clearing $staleCount stale jandal_persona entries before re-seeding")
-                    memoryRepository.deleteAllCoreMemoriesBySource("jandal_persona")
-                }
-                jandalPersona.nzTruths.forEach { truth ->
-                    // Embed vector_text (dense keywords) — not definition — for richer semantic retrieval
-                    val vector = embeddingEngine.embed(truth.vectorText).takeIf { it.isNotEmpty() }
-                        ?: return@forEach  // skip if engine not ready
-                    memoryRepository.addCoreMemory(
-                        content = truth.vectorText,
-                        source = "jandal_persona",
-                        embeddingVector = vector,
-                        category = "agent_identity",
-                        term = truth.term,
-                        definition = truth.definition,
-                        triggerContext = truth.triggerContext,
-                        vibeLevel = truth.vibeLevel,
-                        metadataJson = truth.metadataJson,
-                    )
-                }
-            }
-            jandalPersona.markTruthsSeeded()
-            Log.i("ChatViewModel", "Seeded ${jandalPersona.nzTruths.size} NZ truth memories into core memory")
         }
     }
 
@@ -733,10 +701,63 @@ class ChatViewModel @Inject constructor(
                 }
             }
 
+            // Confirmation shortcut (#621): if the user is affirming a classifier match that
+            // needed confirmation, dispatch the pending intent directly — skip LLM entirely.
+            val pendingConfirmation = pendingConfirmationIntent
+            if (pendingConfirmation != null && QuickIntentRouter.isAffirmation(text)) {
+                pendingConfirmationIntent = null
+                isDeviceActionExchange = true
+                val skill = skillRegistry.get("run_intent")
+                if (skill != null) {
+                    val callParams = mapOf("intent_name" to pendingConfirmation.intentName) + pendingConfirmation.params
+                    Log.d("KernelAI", "ConfirmationFastPath: dispatching ${pendingConfirmation.intentName}")
+                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                    when (skillResult) {
+                        is SkillResult.DirectReply -> {
+                            appendAssistantMessageWithToolCall(
+                                convId = convId,
+                                content = skillResult.content,
+                                skillName = pendingConfirmation.intentName,
+                                requestJson = callParams.toString(),
+                                isSuccess = true,
+                            )
+                            return@launch
+                        }
+                        is SkillResult.Success -> {
+                            systemContext = "[System: ${pendingConfirmation.intentName} — ${skillResult.content}]"
+                            if (!inferenceEngine.isReady.value) {
+                                appendAssistantMessage(convId, skillResult.content, shouldIndex = false)
+                                return@launch
+                            }
+                        }
+                        is SkillResult.Failure -> {
+                            systemContext = "[System: ${pendingConfirmation.intentName} failed — ${skillResult.error}]"
+                        }
+                        else -> { /* fall through to E4B unchanged */ }
+                    }
+                }
+                // Fall through to E4B for a natural conversational wrapper
+            } else if (pendingConfirmation != null) {
+                // Non-affirmation — user moved on; clear the pending confirmation
+                pendingConfirmationIntent = null
+            }
+
             val routeResult = quickIntentRouter.route(text)
             val matchedIntent = when (routeResult) {
                 is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent
-                is QuickIntentRouter.RouteResult.ClassifierMatch -> routeResult.intent
+                is QuickIntentRouter.RouteResult.ClassifierMatch -> {
+                    if (routeResult.needsConfirmation) {
+                        // Store for fast-path dispatch if user affirms; let LLM ask the question.
+                        pendingConfirmationIntent = routeResult.intent
+                        Log.d("KernelAI", "ConfirmationFastPath: pending ${routeResult.intent.intentName} (conf=${routeResult.confidence})")
+                        systemContext = "[System: The user may want to run the intent '${routeResult.intent.intentName}'. " +
+                            "Offer to do it for them and wait for their confirmation.]"
+                        null
+                    } else {
+                        pendingConfirmationIntent = null
+                        routeResult.intent
+                    }
+                }
                 is QuickIntentRouter.RouteResult.FallThrough -> null
                 is QuickIntentRouter.RouteResult.NeedsSlot -> {
                     // Intent matched but a required param is missing — ask the user for it.
@@ -1205,6 +1226,7 @@ class ChatViewModel @Inject constructor(
             estimatedTokensUsed = 0
             turnsSinceReset = 0
             needsHistoryReplay = false
+            pendingConfirmationIntent = null
             inferenceEngine.resetConversation()
         }
     }
