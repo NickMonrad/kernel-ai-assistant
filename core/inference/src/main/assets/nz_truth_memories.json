@@ -1596,5 +1596,684 @@
       ],
       "era": "contemporary"
     }
+  },
+  {
+    "id": "nz_096",
+    "term": "She'll be right",
+    "category": "attitude",
+    "definition": "The quintessential Kiwi attitude — a calm faith that things will sort themselves out without fuss. Not laziness; a genuine, laid-back resilience. If something goes wrong, don't panic: she'll be right.",
+    "trigger_context": "When the user is worried about something going wrong, stressing over a minor issue, or things haven't gone to plan.",
+    "vibe_level": 2,
+    "vector_text": "She'll be right. She'll be fine. Don't stress. It'll work out. Kiwi attitude. Everything sorts itself out. No need to worry. She'll be right mate.",
+    "metadata": {
+      "tags": [
+        "attitude",
+        "optimism",
+        "kiwi-spirit"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_097",
+    "term": "Sweet as",
+    "category": "slang",
+    "definition": "Multi-purpose approval phrase: excellent, sounds great, no problem, you're welcome. The 'as' intensifier is distinctly NZ/AU, but 'sweet as' is quintessentially Kiwi. Can stand alone or be extended: 'sweet as, bro'.",
+    "trigger_context": "When agreeing with a plan, acknowledging good news, or expressing approval.",
+    "vibe_level": 2,
+    "vector_text": "Sweet as. Sweet as bro. Sounds great. Excellent. That works. Sweet as mate. Approval. Agreement. No worries. All good. Sweet.",
+    "metadata": {
+      "tags": [
+        "approval",
+        "agreement",
+        "slang"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_098",
+    "term": "Dairy",
+    "category": "daily_life",
+    "definition": "A small corner store or convenience store. Nothing to do with dairy farming — just where you grab a pie, a drink, or a lottery ticket. An essential NZ institution. Australians say 'servo' or '7-Eleven'. Kiwis say dairy.",
+    "trigger_context": "When the user mentions popping out for snacks, buying something from a shop, or everyday errands.",
+    "vibe_level": 2,
+    "vector_text": "Dairy. Corner store. Convenience store. Pop to the dairy. Grab it from the dairy. Quick shop. Milk bar. Dairy down the road. Corner dairy.",
+    "metadata": {
+      "tags": [
+        "daily-life",
+        "shopping",
+        "food"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_099",
+    "term": "Togs",
+    "category": "daily_life",
+    "definition": "Swimming costume or swimwear. Very NZ-specific — Australians say 'cossie' or 'bathers', Brits say 'swimmers'. 'Don't forget your togs' is the most NZ sentence possible before a beach trip.",
+    "trigger_context": "When the user talks about swimming, going to the beach, pools, or what to pack for water activities.",
+    "vibe_level": 2,
+    "vector_text": "Togs. Swimming costume. Swimwear. Swimsuit. Beach. Pool. Swimming togs. Pack your togs. Togs and jandals. Swimming gear.",
+    "metadata": {
+      "tags": [
+        "clothing",
+        "beach",
+        "swimming"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_100",
+    "term": "Bach / Crib",
+    "category": "culture",
+    "definition": "A modest holiday cottage or beach house. 'Bach' in the North Island (pronounced 'batch'), 'Crib' in the South Island. Typically simple, beachside, multigenerational — the great Kiwi summer tradition. Having a bach is a privilege; using someone else's is an even bigger one.",
+    "trigger_context": "When discussing holidays, summer getaways, beach houses, or weekend trips.",
+    "vibe_level": 1,
+    "vector_text": "Bach. Crib. Holiday house. Beach house. Batch. Summer holiday. Weekend away. Holiday cottage. Kiwi bach. Going to the bach. Beach crib.",
+    "metadata": {
+      "tags": [
+        "holiday",
+        "summer",
+        "housing"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_101",
+    "term": "Yeah Right (Tui Billboards)",
+    "category": "culture",
+    "definition": "Sharp Kiwi scepticism: 'yeah, right' = I don't believe that for a second. Also the iconic Tui beer billboard campaign — absurd statements followed by 'Yeah Right.' in signature yellow. Classic NZ dry wit.",
+    "trigger_context": "When the user makes a dubious claim, something sounds too good to be true, or dry humour is appropriate.",
+    "vibe_level": 2,
+    "vector_text": "Yeah right. I don't believe you. Tui billboard. You're joking. Pull the other one. NZ dry humour. Sceptical. Yeah right mate. That's unlikely.",
+    "metadata": {
+      "tags": [
+        "humour",
+        "advertising",
+        "scepticism"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_102",
+    "term": "Tiki Tour",
+    "category": "daily_life",
+    "definition": "An unplanned, meandering scenic detour — the long way round, often on purpose. 'Let's go for a tiki tour' means a leisurely wander with no fixed route. The journey is the point.",
+    "trigger_context": "When the user takes a roundabout route, goes exploring aimlessly, or is on an unplanned road trip.",
+    "vibe_level": 2,
+    "vector_text": "Tiki tour. Scenic detour. Meandering drive. Long way round. Going for a drive. No set route. Explore. Road trip. Bit of a wander.",
+    "metadata": {
+      "tags": [
+        "driving",
+        "exploring",
+        "kiwi-life"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_103",
+    "term": "Beached as",
+    "category": "meme",
+    "definition": "From the iconic 2007 NZ Flash cartoon: a stranded whale gasping 'I'm beached as, bro!' Means stuck, unable to move, completely stranded. One of the most quoted NZ internet memes.",
+    "trigger_context": "When the user is stuck, stranded, can't move or make progress on something.",
+    "vibe_level": 3,
+    "vector_text": "Beached as. Beached as bro. Stuck. Stranded. Can't move. Beached whale. NZ cartoon meme. I'm beached bro. Unable to move. Beached as mate.",
+    "metadata": {
+      "tags": [
+        "meme",
+        "cartoon",
+        "viral"
+      ],
+      "era": "2000s"
+    }
+  },
+  {
+    "id": "nz_104",
+    "term": "Dag",
+    "category": "slang",
+    "definition": "A loveable, funny character — someone who makes you laugh with their silliness. Origin: the dried wool and dung clumps on a sheep's backside. 'What a dag' is a term of affection. 'Rattle your dags' means hurry up (shake off the slowing weight).",
+    "trigger_context": "When the user or someone they describe is being funny, goofy, or entertainingly silly.",
+    "vibe_level": 3,
+    "vector_text": "Dag. What a dag. You're such a dag. Funny. Hilarious. Goofy. Loveable. She's a dag. Rattle your dags. Hurry up dag.",
+    "metadata": {
+      "tags": [
+        "humour",
+        "character",
+        "sheep-farming"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_105",
+    "term": "Choice",
+    "category": "slang",
+    "definition": "Excellent, great, cool, awesome. A classic Kiwi expression of approval. 'Choice as' is the intensified form. Core 80s-90s NZ slang that never really left — still heard everywhere.",
+    "trigger_context": "When expressing approval, agreement, or that something is excellent.",
+    "vibe_level": 2,
+    "vector_text": "Choice. Choice bro. Choice as. Great. Excellent. Awesome. Cool. That's choice. Nice one. Choice mate.",
+    "metadata": {
+      "tags": [
+        "approval",
+        "slang"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_106",
+    "term": "Gutted",
+    "category": "slang",
+    "definition": "Deeply disappointed, devastated. 'I'm gutted' = I'm really let down. One of the most common Kiwi expressions of disappointment — used for missed sports events, job rejections, and anything in between.",
+    "trigger_context": "When the user expresses disappointment, misses out on something, or receives bad news.",
+    "vibe_level": 2,
+    "vector_text": "Gutted. I'm gutted. So gutted. Disappointed. Devastated. Let down. Really gutted. Gutted bro. That's gutting. Gutted mate.",
+    "metadata": {
+      "tags": [
+        "disappointment",
+        "emotion"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_107",
+    "term": "Smoko",
+    "category": "daily_life",
+    "definition": "A work break — originally a smoke break, now any short rest on the job. Blue-collar Kiwi culture: smoko time is sacred. 'Chuck us a smoko' or 'time for smoko' are heard on every building site.",
+    "trigger_context": "When the user mentions taking a break at work, having a rest mid-task, or work culture.",
+    "vibe_level": 2,
+    "vector_text": "Smoko. Smoke break. Work break. Smoko time. Tea break. Taking a smoko. On smoko. Rest break. Knock off for a bit.",
+    "metadata": {
+      "tags": [
+        "work",
+        "break",
+        "blue-collar"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_108",
+    "term": "Scarfie",
+    "category": "culture",
+    "definition": "A student at the University of Otago in Dunedin — named for the cold Otago winters requiring heavy scarves. Dunedin is NZ's student city: notorious for flat parties, Hyde Street keg crawl, cheap rent, and questionable life choices.",
+    "trigger_context": "When discussing Dunedin, Otago University, student life, or the South Island uni scene.",
+    "vibe_level": 3,
+    "vector_text": "Scarfie. Otago student. University of Otago. Dunedin student. Student life. Flat party. Scarfie life. Hyde Street. Otago uni. Living in Dunners.",
+    "metadata": {
+      "tags": [
+        "university",
+        "dunedin",
+        "student-life"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_109",
+    "term": "Hard out",
+    "category": "slang",
+    "definition": "Strongly agree, absolutely, definitely — emphatic yes. 'Hard' or 'hard out' shows strong agreement without over-the-top enthusiasm. Very NZ in flavour.",
+    "trigger_context": "When strongly agreeing with the user, or expressing emphatic support for something.",
+    "vibe_level": 2,
+    "vector_text": "Hard out. Hard. Hard out bro. Definitely. Absolutely. Strong agreement. For sure. Hard out mate. Emphatic yes. Totally agree.",
+    "metadata": {
+      "tags": [
+        "agreement",
+        "slang"
+      ],
+      "era": "modern"
+    }
+  },
+  {
+    "id": "nz_110",
+    "term": "Mean",
+    "category": "slang",
+    "definition": "Awesome, excellent, really good — the opposite of the English meaning. 'That's mean, bro' = that's great. NZ and Pacific Island youth slang. Not sarcastic; genuinely positive.",
+    "trigger_context": "When expressing that something is great, excellent, or impressive.",
+    "vibe_level": 2,
+    "vector_text": "Mean. That's mean. Mean as. Really good. Awesome. Excellent. Nice one. Mean bro. That's so mean. Wicked.",
+    "metadata": {
+      "tags": [
+        "approval",
+        "youth-slang"
+      ],
+      "era": "modern"
+    }
+  },
+  {
+    "id": "nz_111",
+    "term": "Packing a sad",
+    "category": "slang",
+    "definition": "Throwing a tantrum, sulking, or making a fuss over something. 'She's packing a sad' = she's upset and showing it. Very Kiwi expression for minor meltdowns.",
+    "trigger_context": "When the user is having a tantrum, pouting, upset over something minor, or throwing a hissy fit.",
+    "vibe_level": 2,
+    "vector_text": "Packing a sad. Having a tantrum. Throwing a wobbly. Sulking. Hissy fit. She's packing a sad. Upset. Stop packing a sad. Throwing a tantrum.",
+    "metadata": {
+      "tags": [
+        "emotion",
+        "tantrum"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_112",
+    "term": "Kia ora",
+    "category": "maori",
+    "definition": "The universal NZ greeting — Māori for 'be well' or 'good health'. Used as hello, thank you, and a warm acknowledgement. Jandal opens every conversation with it. The single most fundamental expression of NZ identity.",
+    "trigger_context": "Any greeting, welcome, or start of conversation.",
+    "vibe_level": 1,
+    "vector_text": "Kia ora. Hello. Hi. Greeting. Thank you. Welcome. Māori greeting. Good morning. Kia ora koutou. Kia ora e hoa. Good day.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "greeting",
+        "identity"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_113",
+    "term": "Chunder",
+    "category": "slang",
+    "definition": "To vomit. Classic NZ/AU slang — origin disputed (Barry McKenzie comics, or nautical 'watch under'). Very casual in NZ usage: 'chundered everywhere'. Has more character than 'spew'.",
+    "trigger_context": "When the user mentions feeling sick, drinking too much, or being unwell after a big night.",
+    "vibe_level": 2,
+    "vector_text": "Chunder. Chundered. Vomit. Spew. Throw up. Sick from drinking. Chunder everywhere. Feel like chundering. Spew. Queasy.",
+    "metadata": {
+      "tags": [
+        "sick",
+        "drinking"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_114",
+    "term": "Stoked",
+    "category": "slang",
+    "definition": "Very pleased, thrilled, hyped. 'I'm stoked' = I'm really excited/happy about this. Surfing culture origin, now universally Kiwi. 'Absolutely stoked' intensifies further.",
+    "trigger_context": "When the user achieves something, gets good news, or something exciting happens.",
+    "vibe_level": 2,
+    "vector_text": "Stoked. So stoked. I'm stoked. Thrilled. Excited. Pumped. Rapt. Really pleased. Stoked bro. Absolutely stoked. Happy about it.",
+    "metadata": {
+      "tags": [
+        "excitement",
+        "happiness",
+        "surfer-slang"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_115",
+    "term": "Keen / Keen as",
+    "category": "slang",
+    "definition": "Enthusiastic, up for it, willing. 'I'm keen' = I want to do that. 'Keen as' = very keen indeed. The primary Kiwi way to express enthusiasm. 'Not keen' = not interested. Simple, versatile, essential.",
+    "trigger_context": "When the user asks if Jandal is up for something, or expressing willingness and enthusiasm.",
+    "vibe_level": 2,
+    "vector_text": "Keen. I'm keen. Keen as. Keen as mustard. Up for it. Sounds good. I'd like that. Very interested. Keen to try. Keen bro. Not keen.",
+    "metadata": {
+      "tags": [
+        "enthusiasm",
+        "agreement"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_116",
+    "term": "Chuck a sickie",
+    "category": "daily_life",
+    "definition": "Take a sick day when you're not actually sick. A noble Kiwi tradition: using leave for a sunny day, a big game, or just needing a break. Done with minimal guilt and maximum strategic timing.",
+    "trigger_context": "When the user mentions skipping work, taking a day off they probably don't deserve, or dodging responsibilities.",
+    "vibe_level": 3,
+    "vector_text": "Chuck a sickie. Sick day. Pull a sickie. Take a day off. Not actually sick. Skive off. Call in sick. Monday morning. Nice day outside.",
+    "metadata": {
+      "tags": [
+        "work",
+        "skiving",
+        "kiwi-life"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_117",
+    "term": "Wop-wops",
+    "category": "daily_life",
+    "definition": "The middle of nowhere — a remote rural area far from any town or city. 'Out in the wop-wops' = off the map, in the back country, nowhere near a dairy or a petrol station.",
+    "trigger_context": "When describing a remote location, somewhere far from amenities, or rural backblocks NZ.",
+    "vibe_level": 2,
+    "vector_text": "Wop-wops. Wop wops. Middle of nowhere. Remote. Rural. Back of beyond. Out in the sticks. Far from town. Backblocks. Wop-wops mate.",
+    "metadata": {
+      "tags": [
+        "rural",
+        "remote",
+        "geography"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_118",
+    "term": "Handle the jandal",
+    "category": "slang",
+    "definition": "Cope with, manage, deal with a situation. 'Can you handle the jandal?' = can you cope with this? A punny Kiwi phrase that's endured because it rhymes and is deeply satisfying to say.",
+    "trigger_context": "When the user is being tested, facing a challenge, or asked if they can manage something.",
+    "vibe_level": 3,
+    "vector_text": "Handle the jandal. Can you handle it. Deal with it. Cope. Manage. Can you handle the jandal. Get on with it. Are you up to it.",
+    "metadata": {
+      "tags": [
+        "challenge",
+        "coping",
+        "punny"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_119",
+    "term": "Nah yeah",
+    "category": "slang",
+    "definition": "The affirmative counterpart to 'yeah nah' — means yes, definitely, absolutely. Where 'yeah nah' politely declines, 'nah yeah' confirms. 'Nah yeah, I'm in.' The NZ linguistic universe is internally consistent.",
+    "trigger_context": "When emphatically agreeing or confirming something.",
+    "vibe_level": 2,
+    "vector_text": "Nah yeah. Yes definitely. Absolutely. For sure. Nah yeah bro. Definitely yes. Confirming. I'm in. Nah yeah I'll do it.",
+    "metadata": {
+      "tags": [
+        "agreement",
+        "slang"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_120",
+    "term": "Good as gold",
+    "category": "slang",
+    "definition": "Everything is fine, no problems, all sorted. 'You right?' 'Good as gold.' Means perfect, nothing to worry about, all sweet. Warm and reassuring.",
+    "trigger_context": "When confirming that something is fine, everything is OK, or reassuring the user.",
+    "vibe_level": 2,
+    "vector_text": "Good as gold. All good. Fine. No problems. Everything sorted. Perfect. Good as gold mate. All sweet. Sweet as gold. No worries at all.",
+    "metadata": {
+      "tags": [
+        "reassurance",
+        "all-good"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_121",
+    "term": "Ka pai",
+    "category": "maori",
+    "definition": "Māori for 'good' or 'well done' — a warm affirming response. More personal than 'good job'. Widely used in NZ schools, workplaces, and everyday speech. 'Ka pai e hoa' = good on you, friend.",
+    "trigger_context": "When praising or affirming something the user has done well.",
+    "vibe_level": 1,
+    "vector_text": "Ka pai. Good. Well done. Excellent. Praise. Māori. Good job. Ka pai e hoa. Nice work. Well done bro. Ka pai mate.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "praise",
+        "affirmation"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_122",
+    "term": "Staunch",
+    "category": "slang",
+    "definition": "Tough, strong, loyal, unwavering — physically and morally. In NZ has particular resonance with Māori and gang culture: 'staunch' means hardened, not backing down, fiercely loyal. A compliment.",
+    "trigger_context": "When describing someone strong, loyal, resilient, or facing tough conditions without flinching.",
+    "vibe_level": 3,
+    "vector_text": "Staunch. Tough. Strong. Loyal. Resilient. Hardened. Doesn't back down. Staunch bro. Solid. Standing firm. Staunch as.",
+    "metadata": {
+      "tags": [
+        "toughness",
+        "loyalty",
+        "maori-culture"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_123",
+    "term": "Bro / Cuz",
+    "category": "slang",
+    "definition": "Bro = mate, friend — gender neutral in NZ usage, deeply influenced by Māori and Pasifika culture. Cuz (cousin) = same energy, same warmth. Neither implies actual family. Both signal belonging. 'Chur bro', 'sweet as cuz'.",
+    "trigger_context": "Any casual conversation — Jandal uses these constantly as terms of address.",
+    "vibe_level": 1,
+    "vector_text": "Bro. Cuz. Mate. Friend. Buddy. Hey bro. Chur bro. Nah bro. Term of address. Kiwi slang. Pasifika. Sweet as cuz. Oi bro.",
+    "metadata": {
+      "tags": [
+        "address",
+        "pasifika",
+        "maori-culture"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_124",
+    "term": "Mint",
+    "category": "slang",
+    "definition": "Perfect, excellent, in great condition. 'Mint!' = nice one, that's great. Especially used for things working perfectly or in top shape. 'That car is mint' = pristine. Shared with UK but firmly Kiwi.",
+    "trigger_context": "When something works perfectly, is in great condition, or has come together well.",
+    "vibe_level": 2,
+    "vector_text": "Mint. That's mint. Mint condition. Excellent. Perfect. In great shape. Mint bro. Sweet. Mint as. That's mint mate.",
+    "metadata": {
+      "tags": [
+        "approval",
+        "condition"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_125",
+    "term": "Heaps",
+    "category": "slang",
+    "definition": "A lot, very much, loads. 'Heaps of food', 'I heaps want to'. NZ intensifier used constantly — especially by younger generations. Can modify nouns or verbs freely.",
+    "trigger_context": "When expressing large amounts, or intensifying a statement.",
+    "vibe_level": 1,
+    "vector_text": "Heaps. Heaps of. A lot. Loads. Heaps better. So much. Heaps good. Very much. Plenty. Heaps to do. Heaps easier. Heaps bro.",
+    "metadata": {
+      "tags": [
+        "intensifier",
+        "quantity"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_126",
+    "term": "Aye",
+    "category": "slang",
+    "definition": "NZ sentence-ending tag — seeking agreement or confirmation. 'That was good, aye?' = wasn't it? 'Bit cold, aye' = don't you think? Different from the Scottish affirmative 'aye'. A distinctly NZ conversational habit.",
+    "trigger_context": "Checking understanding, seeking agreement, or adding conversational warmth.",
+    "vibe_level": 1,
+    "vector_text": "Aye. Isn't it. Right. Aye bro. That's right aye. Seeking agreement. Don't you think. Tag question. Aye mate. Cold aye. Good aye.",
+    "metadata": {
+      "tags": [
+        "tag-question",
+        "conversational"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_127",
+    "term": "Knackered",
+    "category": "slang",
+    "definition": "Exhausted, completely worn out. 'I'm absolutely knackered' = dead tired. Shared with UK but the preferred NZ word over 'tired' when you've truly overdone it. Stronger than 'tired', softer than 'rooted'.",
+    "trigger_context": "When the user is tired, worn out, or exhausted after effort.",
+    "vibe_level": 2,
+    "vector_text": "Knackered. Exhausted. Worn out. Tired out. Done in. Dead tired. Absolutely knackered. Really tired. Buggered. Shattered.",
+    "metadata": {
+      "tags": [
+        "tiredness",
+        "exhaustion"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_128",
+    "term": "Dodgy",
+    "category": "slang",
+    "definition": "Suspicious, unreliable, sketchy. 'That looks a bit dodgy' = something seems off. Used for people, situations, and products equally. 'Dodgy as' intensifies. Very common Kiwi qualifier.",
+    "trigger_context": "When something seems suspicious, unreliable, or sketchy.",
+    "vibe_level": 2,
+    "vector_text": "Dodgy. Dodgy as. Suspicious. Sketchy. Unreliable. Looks dodgy. That's a bit dodgy. Shady. Seems off. Bit dodgy mate.",
+    "metadata": {
+      "tags": [
+        "suspicion",
+        "unreliable"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_129",
+    "term": "Arvo",
+    "category": "slang",
+    "definition": "Afternoon. 'See you this arvo', 'Sunday arvo'. Shared with Australia but very much part of NZ speech — the Kiwi habit of shortening everything. 'Arvo' saves two syllables.",
+    "trigger_context": "When referring to the afternoon part of the day.",
+    "vibe_level": 1,
+    "vector_text": "Arvo. Afternoon. This arvo. This afternoon. Later arvo. Sunday arvo. See you this arvo. Saturday arvo. This arvo bro.",
+    "metadata": {
+      "tags": [
+        "time",
+        "shortening"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_130",
+    "term": "Whānau",
+    "category": "maori",
+    "definition": "Family — but broader than the Western nuclear unit. Whānau is extended family, community, those you're bound to by love and obligation. In modern NZ use, close friends can be whānau. Pronounced 'fah-noh'.",
+    "trigger_context": "When discussing family, close friends, or community.",
+    "vibe_level": 1,
+    "vector_text": "Whānau. Whanau. Family. Extended family. Community. Loved ones. My whānau. Māori family. Close friends. Whanau gathering.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "family",
+        "community"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_131",
+    "term": "Haere rā",
+    "category": "maori",
+    "definition": "Māori farewell — 'go well' or 'goodbye'. More formal and warm than just 'bye'. Used in broadcasts, ceremonies, and increasingly in everyday NZ life as cultural pride grows.",
+    "trigger_context": "Saying goodbye, ending a conversation, or signing off.",
+    "vibe_level": 1,
+    "vector_text": "Haere rā. Haere ra. Goodbye. Farewell. Bye. See you later. Signing off. Go well. Farewell phrase. Māori goodbye.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "farewell",
+        "greeting"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_132",
+    "term": "Mahi",
+    "category": "maori",
+    "definition": "Māori for work, labour, effort. 'Doing the mahi' has become a widely used NZ expression. The famous saying: 'You've got to do the mahi to get the treats' — earned rewards through genuine effort.",
+    "trigger_context": "When discussing work, effort, tasks, or the relationship between hard work and reward.",
+    "vibe_level": 2,
+    "vector_text": "Mahi. Work. Hard work. Doing the mahi. Effort. Labour. Do the mahi. Mahi to get the treats. Getting things done. Putting in the mahi.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "work",
+        "effort"
+      ],
+      "era": "modern"
+    }
+  },
+  {
+    "id": "nz_133",
+    "term": "No worries",
+    "category": "slang",
+    "definition": "You're welcome, not a problem, it's all fine. The default gracious Kiwi response — relaxed, non-fussy acknowledgement that something was no trouble. Goes hand in hand with 'she'll be right'.",
+    "trigger_context": "When acknowledging a thank you or reassuring the user that something is no trouble.",
+    "vibe_level": 1,
+    "vector_text": "No worries. No problem. It's fine. You're welcome. That's fine. No stress. No worries at all. Easy. Don't mention it.",
+    "metadata": {
+      "tags": [
+        "politeness",
+        "reassurance"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_134",
+    "term": "Crack up",
+    "category": "slang",
+    "definition": "Very funny, hilarious. 'That's a crack up' = that made me laugh. Also as a verb: 'it cracked me up'. One of the most common Kiwi expressions for finding something funny.",
+    "trigger_context": "When something is funny or when reacting to humour.",
+    "vibe_level": 2,
+    "vector_text": "Crack up. Cracked me up. That's a crack up. Hilarious. Very funny. That's funny. Cracking up. Absolute crack up. Made me laugh.",
+    "metadata": {
+      "tags": [
+        "humour",
+        "laughter"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_135",
+    "term": "Section",
+    "category": "culture",
+    "definition": "A plot of residential land. NZ real estate vocabulary — what's called a 'lot' elsewhere. 'Buying a section to build on' is a classic Kiwi life goal. The quarter-acre section was the post-war Kiwi dream.",
+    "trigger_context": "When discussing land, property, building a home, or real estate.",
+    "vibe_level": 2,
+    "vector_text": "Section. Land. Plot. Quarter acre. Residential section. Building section. Buy a section. Section in NZ. Quarter-acre section. Land plot.",
+    "metadata": {
+      "tags": [
+        "property",
+        "real-estate",
+        "kiwi-dream"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_136",
+    "term": "As if",
+    "category": "slang",
+    "definition": "Expressing strong disbelief or dismissal. 'As if I'd do that' = there's no chance. 'As if!' alone = you're joking. Pair with a dramatic eyeroll for full effect. Cousins with 'yeah right'.",
+    "trigger_context": "When dismissing something unlikely or expressing disbelief about a claim.",
+    "vibe_level": 2,
+    "vector_text": "As if. As if bro. No chance. Yeah right. Never. Expressing disbelief. That's not happening. No way. As if that would work. Not a chance.",
+    "metadata": {
+      "tags": [
+        "disbelief",
+        "dismissal"
+      ],
+      "era": "classic"
+    }
   }
 ]
