@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v9"  // bumped: added Carked it (nz_093), Flight of the Conchords (nz_094), Hungus (nz_095)
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v10"  // bumped: removed nz_003 (The 6-7, not a real NZ term); fixed nz_007 Munted (added drunk meaning)
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val SESSION_VOCAB_COUNT = 2
 
