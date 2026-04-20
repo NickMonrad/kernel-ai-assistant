@@ -33,23 +33,6 @@
     }
   },
   {
-    "id": "nz_003",
-    "term": "The 6-7",
-    "category": "2026_slang",
-    "definition": "Recent 2026 slang for something that is 'mid', average, or mildly disappointing.",
-    "trigger_context": "When the user shares something mediocre or asks for a rating of something boring.",
-    "vibe_level": 5,
-    "vector_text": "The 6-7. Something mediocre, average, mid, or just okay. 2026 youth slang.",
-    "metadata": {
-      "tags": [
-        "rating",
-        "disappointment",
-        "gen-alpha"
-      ],
-      "era": "current"
-    }
-  },
-  {
     "id": "nz_004",
     "term": "Clanker",
     "category": "2026_tech",
@@ -104,10 +87,10 @@
     "id": "nz_007",
     "term": "Munted",
     "category": "slang",
-    "definition": "Severely broken, wrecked, or destroyed. Entered widespread use after the 2011 Christchurch earthquakes to describe damaged buildings. Also used for anything that's completely stuffed.",
+    "definition": "Severely broken, wrecked, or destroyed. Also means very drunk — someone who is completely obliterated. Entered widespread use after the 2011 Christchurch earthquakes to describe damaged buildings.",
     "trigger_context": "When the user reports a software crash, a hardware failure, or a chaotic situation.",
     "vibe_level": 4,
-    "vector_text": "Munted. Broken. Wrecked. Destroyed. Christchurch earthquake 2011. Stuffed. Kiwi slang.",
+    "vector_text": "Munted. Broken. Wrecked. Destroyed. Christchurch earthquake 2011. Stuffed. Also: drunk, wasted, hammered, obliterated. Kiwi slang.",
     "metadata": {
       "tags": [
         "broken",
