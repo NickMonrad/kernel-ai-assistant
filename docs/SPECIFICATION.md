@@ -705,7 +705,7 @@ viewModelScope.launch {
 
 ---
 
-## 8. Development Prerequisites
+## 10. Development Prerequisites
 
 | Requirement | Detail |
 |-------------|--------|
@@ -720,6 +720,26 @@ viewModelScope.launch {
 **Backend note:** `Build.SOC_MANUFACTURER` on S23 Ultra returns `"QTI"` (not `"Qualcomm"`),
 so `hasQualcommNpu = false` and the backend falls through to GPU (OpenCL / Adreno 740).
 The NPU path requires `"Qualcomm"` string match — this is a known device quirk.
+
+---
+
+## 8.1 Cross-Module Wiring Checklist
+
+When adding dependencies or features that span multiple modules (especially feature modules):
+
+1. **Add dependency to build.gradle.kts** of the consuming module
+   - Example: Adding DataStore to feature:chat for settings wiring requires `implementation(libs.datastore.preferences)`
+
+2. **Add all required imports** to the consuming Kotlin file
+   - If using flow operations (`.map()`, `.collect()`, etc.), explicitly import from `kotlinx.coroutines.flow`
+   - Do not rely on IDE auto-import — verify imports in source before pushing
+
+3. **Compile locally before pushing**
+   - Run `./gradlew :module:compileDebugKotlin` for the specific module
+   - Build full debug variant if modifying shared types: `./gradlew assembleDebug`
+   - Do NOT push without a successful local build — CI is for validation, not discovery
+
+**Rationale:** Cross-module wiring errors (missing deps, unresolved references) are 100% preventable with a local compile. Catching them in CI wastes ~2–3 min per attempt and blocks iteration. Always build locally first.
 
 ---
 
@@ -740,7 +760,7 @@ is behind an interface and mocked in all tests. Models (~3GB) are never download
 
 ---
 
-## 10. Roadmap Summary
+## 11. Roadmap Summary
 
 | Phase | Description | Status |
 |-------|-------------|--------|
