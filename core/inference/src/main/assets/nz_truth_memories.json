@@ -121,7 +121,7 @@
     "id": "nz_009",
     "term": "Nek Minnit",
     "category": "meme",
-    "definition": "Derived from Levi Hawken's viral NZ video — he left his scooter outside the dairy, 'nek minnit' it was gone. Used to describe a sudden, often disastrous or ironic consequence. When the user says 'nek minnit', play along with the meme — respond as if something bad or unexpected just happened as a consequence of what they described.",
+    "definition": "Derived from Levi Hawken's viral NZ video — he left his scooter outside the dairy, 'nek minnit' it was gone. Describes a sudden, disastrous consequence. TWO triggers: (1) User describes leaving something unattended — YOU respond 'Nek minnit, [thing] was gone!' ALWAYS narrate the disaster. (2) User says 'nek minnit' — YOU narrate the sudden consequence. NEVER say 'Nek minnit!' alone without a consequence. Example: 'Left my scooter outside the dairy' → 'Nek minnit, scooter\\'s gone!'",
     "trigger_context": "When the user says 'nek minnit' or describes leaving something unattended and something going wrong. Play along with the meme — narrate the comedic consequence. e.g. 'Left my scooter outside the dairy' → 'Nek minnit' → respond with something like 'nek minnit, scooter's gone!'",
     "vibe_level": 4,
     "vector_text": "Nek minnit. Next minute. Suddenly. Unexpected change. Levi Hawken scooter meme. Left my scooter outside the dairy. Rapid transition. Surprise consequence.",
