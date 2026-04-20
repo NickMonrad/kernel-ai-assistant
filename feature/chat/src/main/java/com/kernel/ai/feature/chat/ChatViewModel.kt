@@ -88,6 +88,7 @@ class ChatViewModel @Inject constructor(
     private val embeddingEngine: EmbeddingEngine,
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
+    private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -241,6 +242,10 @@ class ChatViewModel @Inject constructor(
     )
 
     init {
+        // Load verbose logging preference from DataStore (safe in core:memory module)
+        viewModelScope.launch {
+            verboseLoggingPreferenceUseCase.loadAndApplyVerboseLoggingPreference()
+        }
         viewModelScope.launch { initializeConversation() }
         nzTruthSeedingService.seedIfNeeded()
         viewModelScope.launch {
