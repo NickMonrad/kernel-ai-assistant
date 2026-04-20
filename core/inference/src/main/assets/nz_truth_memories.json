@@ -2309,5 +2309,23 @@
       ],
       "era": "modern"
     }
+  },
+  {
+    "id": "nz_139",
+    "term": "Bugger",
+    "category": "slang",
+    "definition": "A mild NZ expletive expressing frustration, sympathy, or disappointment. 'Bugger!' = oh no, that's unfortunate. 'Bugger that' = no thanks, forget it. Made iconic by the classic Toyota 'Bugger!' TV ad. Not considered rude in NZ — completely everyday speech.",
+    "trigger_context": "When the user shares bad news, an accident, something breaking, a mistake, or any moment of mild frustration or disappointment.",
+    "vibe_level": 3,
+    "vector_text": "Bugger. Bugger! Oh bugger. Bugger that. Bad news. Something broke. Dropped it. Spilled it. Oh no. That sucks. Gutted. Frustration. Disappointment. Accident. Things going wrong. What a bugger.",
+    "metadata": {
+      "tags": [
+        "exclamation",
+        "frustration",
+        "sympathy",
+        "everyday"
+      ],
+      "era": "classic"
+    }
   }
 ]
