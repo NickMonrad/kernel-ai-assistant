@@ -45,7 +45,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 20,
+    version = 21,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -227,6 +227,16 @@ abstract class KernelDatabase : RoomDatabase() {
                 // Keep only the earliest row for each duplicate list name
                 db.execSQL("DELETE FROM lists WHERE id NOT IN (SELECT MIN(id) FROM lists GROUP BY name)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_lists_name ON lists(name)")
+            }
+        }
+        /** Adds NZ truth structured fields to core_memories for vibe-aware RAG (#635). */
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE core_memories ADD COLUMN term TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE core_memories ADD COLUMN definition TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE core_memories ADD COLUMN triggerContext TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE core_memories ADD COLUMN vibeLevel INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE core_memories ADD COLUMN metadataJson TEXT NOT NULL DEFAULT '{}'")
             }
         }
     }

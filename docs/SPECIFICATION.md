@@ -122,10 +122,10 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 [System Prompt]          ← persona (FULL ~200t / MINIMAL ~25t), date/time
 [User Profile]           ← structured YAML injection (name, role, environment, context, rules)
 [Core Memories]          ← permanent facts split by category:
-                           user (topK=8), agent_identity (topK=2)
-                           CORE_MAX_DISTANCE=1.10
-[Episodic Memories]      ← distilled conversation summaries (EPISODIC_MAX_DISTANCE=1.10, topK=3)
-[Message History]        ← semantically relevant messages from current conversation (MAX_DISTANCE=1.10, topK=5)
+                           user (coreTopK=10), agent_identity (identityTopK=5)
+                           CORE_MAX_DISTANCE=1.10; NZ truths further filtered by vibe level
+[Episodic Memories]      ← distilled conversation summaries (EPISODIC_MAX_DISTANCE=1.10, episodicTopK=3)
+[Message History]        ← semantically relevant messages from current conversation (MAX_DISTANCE=0.90, topK=5)
 [Conversation Window]    ← selected recent turns (75% token budget)
 [Current User Message]   ← with RAG context prepended
 ```
@@ -133,22 +133,97 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 **Identity tiers:** `IdentityTier.FULL` (Chat) includes greeting, vocab phrases, profile, and history.
 `IdentityTier.MINIMAL` (Actions tab) uses a slim ~25-token prompt with no profile/history.
 
-All three memory sections are conditionally included — omitted entirely if no results meet their distance threshold. Token budget is allocated sequentially: Core → Episodic → Message History.
+All sections are conditionally included — omitted entirely if no results meet their distance threshold. Token budget is allocated sequentially: Core → Episodic → Message History.
 
 ### 3.3 Long-Term (Semantic) Memory
 
 - **Vector store:** sqlite-vec (compiled via NDK for arm64-v8a), bundled as `libkernelvec.so`
 - **Embedding model:** EmbeddingGemma-300M — 768-dim vectors (256-dim on 8GB via Matryoshka)
 - **Three vec0 tables:**
-  - `core_memories_vec` — permanent facts about the user (visible in Settings → Core Memories)
-  - `episodic_memories_vec` — distilled conversation summaries from `EpisodicDistillationUseCase` (visible in Settings → Episodic Memories)
-  - `message_embeddings` — per-message vectors for intra-conversation fuzzy recall (visible in Settings → Message History (RAG))
-- **Retrieval:** L2 (Euclidean) distance search per query via sqlite-vec default; results filtered by distance threshold; top results injected into prompt. Vectors are L2-normalised at embedding time (`LiteRtEmbeddingEngine`) so L2 distance is equivalent to `sqrt(2 * (1 - cos_sim))` — threshold 1.10 ≈ cos_sim ≥ 0.40.
+  - `core_memories_vec` — permanent facts about the user and NZ cultural truths (Settings → Core Memories)
+  - `episodic_memories_vec` — distilled conversation summaries from `EpisodicDistillationUseCase` (Settings → Episodic Memories)
+  - `message_embeddings` — per-message vectors for intra-conversation fuzzy recall (Settings → Message History (RAG))
+- **Retrieval:** L2 (Euclidean) distance search per query via sqlite-vec; results filtered by distance threshold; top results injected into prompt. Vectors are L2-normalised at embedding time (`LiteRtEmbeddingEngine`) so L2 distance ≈ `sqrt(2 * (1 - cos_sim))` — threshold 1.10 ≈ cos_sim ≥ 0.40.
 - **Separate databases:** Room (`kernel_db.db`) for relational data; native SQLite (`kernel_vectors.db`) for vectors (Room doesn't support vec0 virtual tables)
 - **TTL & pruning:** `prune()` runs on every write with two independent passes:
-  1. **TTL pass** — deletes episodic memories where both `createdAt` and `lastAccessedAt` are older than 30 days. Accessing a memory resets `lastAccessedAt`, keeping it alive past the 30-day TTL for as long as it remains in use.
-  2. **LRU overflow pass** — if count still exceeds 500 after TTL pass, evicts the least-recently-accessed entries (ordered by `lastAccessedAt ASC`). `lastAccessedAt` is updated on every RAG retrieval, so frequently recalled memories survive overflow eviction even if old.
-  - Core memories: no TTL, capped at 200 entries, evicted by `createdAt` order (no LRU — core memories are considered permanent).
+  1. **TTL pass** — deletes episodic memories where both `createdAt` and `lastAccessedAt` are older than 30 days. Accessing a memory resets `lastAccessedAt`, keeping it alive past the 30-day TTL.
+  2. **LRU overflow pass** — if count still exceeds 500 after TTL pass, evicts the least-recently-accessed entries (ordered by `lastAccessedAt ASC`). `lastAccessedAt` is updated on every RAG retrieval, so frequently recalled memories survive overflow eviction.
+  - Core memories: no TTL, capped at 200 entries, evicted by `createdAt` order (core memories are considered permanent).
+
+#### 3.3.1 Core Memory Schema
+
+Core memories are stored in the `core_memories` Room table with the following fields:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `id` | Long (PK) | Auto-generated row ID |
+| `content` | String | The raw text embedded and injected into prompts |
+| `category` | String | `"user"` (facts about the user) or `"agent_identity"` (NZ cultural truths) |
+| `conversationId` | String? | Conversation where memory was learned (null for seeded truths) |
+| `createdAt` | Long | Epoch millis |
+| `lastAccessedAt` | Long | Updated on every RAG retrieval |
+| `term` | String | Short display name, e.g. `"Pavlova"` (NZ truths only, empty for user facts) |
+| `definition` | String | Full human-readable definition (NZ truths only) |
+| `triggerContext` | String | When this truth should be surfaced, e.g. `"When discussing Christmas or desserts"` |
+| `vibeLevel` | Int | 1–5 energy scale controlling retrieval sensitivity (NZ truths only, defaults to 1) |
+| `metadataJson` | String | JSON blob with tags, era, etc. (NZ truths only) |
+
+**User memory example** (learned from conversation):
+```
+content:    "User prefers dark mode"
+category:   "user"
+term:        ""   ← empty for user facts
+definition:  ""
+vibeLevel:   1   ← default, no vibe filtering
+```
+
+**NZ truth memory example** (seeded from `nz_truth_memories.json`):
+```
+content:    "Pavlova. Meringue dessert. Christmas food. Trans-Tasman rivalry."  ← vectorText, embedded
+category:   "agent_identity"
+term:       "Pavlova"
+definition: "A meringue-based dessert... source of an eternal, fierce debate with Australia."
+vibeLevel:  3
+```
+
+The `content` field stores the dense `vector_text` from the JSON asset (e.g. `"Pavlova. Meringue dessert. Christmas food."`) — not the human-readable `definition`. Dense keyword text yields better vector similarity matches. The `definition` is stored separately and injected into the prompt at retrieval time.
+
+#### 3.3.2 How Memories Are Injected into Prompts
+
+When `RagRepository.getRelevantContext()` retrieves a core memory result:
+
+- **User fact** (`term` is empty): injected as-is: `"User prefers dark mode"`
+- **NZ truth** (`term` non-empty): injected as: `"[NZ Context: Pavlova] A meringue-based dessert... NZ invented it, not Australia."`
+
+The `[NZ Context: ...]` prefix signals to the LLM that this is cultural background knowledge, not a personal fact about the user.
+
+**Example prompt injection (RAG section):**
+```
+The following context has been retrieved from memory.
+[Core Memories — permanent facts about the user]
+User prefers dark mode
+[NZ Context: Pavlova] A meringue-based dessert with crisp crust and soft inside, topped with kiwifruit and cream. NZ and Australia both claim to have invented it (it was definitely NZ).
+[End of core memories]
+```
+
+#### 3.3.3 NZ Truth Vibe-Level Filtering
+
+NZ truth memories have a `vibe_level` (1–5) that controls how closely a query must match before the truth surfaces. This prevents high-energy or niche content (e.g. rugby trash-talk, crude slang) from appearing in unrelated serious conversations.
+
+| Vibe Level | Character | L2 Distance Threshold | Cos-sim Equivalent |
+|------------|-----------|----------------------|--------------------|
+| 1–2 | Subtle, informational, serious | ≤ 1.10 | ≥ 0.40 |
+| 3 | Moderate, general interest | ≤ 0.95 | ≥ 0.55 |
+| 4–5 | High-energy, niche, chaotic | ≤ 0.80 | ≥ 0.68 |
+
+**Examples by vibe level:**
+- **Vibe 1** — `"Kate Sheppard"` (women's suffrage leader, face of the $10 note) — surfaces for any NZ history or feminism query
+- **Vibe 2** — `"Ernest Rutherford"` (split the atom, $100 note) — surfaces for science or NZ intellect queries
+- **Vibe 3** — `"Pavlova"` (Christmas dessert, Aus/NZ rivalry) — surfaces when discussing desserts or Christmas, not random queries
+- **Vibe 4** — `"Karl Urban"` (Billy Butcher in The Boys) — only surfaces when the query closely matches The Boys, sci-fi franchises, or Kiwi actors
+- **Vibe 5** — `"Antony Starr"` (Homelander) — tight match required; won't intrude into unrelated conversations
+
+The filter runs in `MemoryRepositoryImpl.searchMemories()` after the initial L2 vec search, as a post-filter on `identity` (agent_identity) results.
 
 ### 3.4 Episodic Distillation
 
@@ -161,6 +236,45 @@ before embedding. Sentences shorter than 20 chars (e.g. "Yes.", "OK.") are disca
 time. A matching `MIN_EPISODIC_CONTENT_LENGTH = 20` filter in `MemoryRepositoryImpl.searchMemories()`
 also drops pre-existing short entries from search results, preventing low-signal fragments from
 surfacing in `search_memory` responses (#323).
+
+### 3.5 Testing Memory Behaviour
+
+#### What to verify on first launch after install
+
+1. **Seeding triggered:** Check logcat for `JandalPersona` tag — should log `"Seeding X NZ truth memories"`. Triggered by absence of `truths_seeded_v2` SharedPrefs key.
+2. **92 entries seeded:** Settings → Core Memories should show ~92 entries with category `agent_identity`.
+3. **Correct vector text embedded:** Each entry's `content` is the `vector_text` from the JSON (dense keywords), not the definition.
+
+#### How to test RAG retrieval manually
+
+Ask questions that should trigger specific NZ truths and observe whether Jandal's response reflects the context:
+
+| Query | Expected truth surfaced |
+|-------|------------------------|
+| "what's a good NZ Christmas dessert?" | Pavlova (vibe 3) |
+| "tell me about NZ scientists" | Ernest Rutherford (vibe 2) |
+| "who plays homelander?" | Antony Starr (vibe 5 — tight match) |
+| "anything interesting about NZ birds?" | Kererū, Tūī, Kiwi (vibe 1–2) |
+| "what's a flat white?" | Flat White (vibe 1) |
+
+To inspect what RAG actually injected, enable debug logging for the `RagRepository` tag — it logs raw vec search distances for each query.
+
+#### What good core memories look like
+
+User memories extracted by the LLM during conversation should be short, factual, third-person facts:
+```
+✅ "User is a software engineer based in Auckland"
+✅ "User prefers concise responses"
+✅ "User has a cat named Luna"
+❌ "We had a long conversation about the user's job" (too vague — episodic, not core)
+❌ "Yes" (too short — filtered out by MIN_SENTENCE_LENGTH)
+```
+
+NZ truths use `vector_text` (dense keywords for embedding), not `definition`:
+```
+✅ vector_text: "Pavlova. Meringue dessert. Christmas food. Trans-Tasman rivalry."
+❌ vector_text: "A meringue-based dessert with a crisp crust and soft, light inside..."  (too verbose, poor embedding)
+```
 
 ## 4. Skill & Tool Framework
 
@@ -408,6 +522,64 @@ Jandal's character is encoded in `DEFAULT_SYSTEM_PROMPT` in `ModelConfig.kt` (up
 - When asked about origin, culture, or name → own Kiwi identity with pride; NEVER say "just code" or "I have no culture"
 - Kiwi expressions must feel natural, not forced
 - No hollow affirmations ("certainly!", "absolutely!", "great question!")
+
+### 7.1 Kiwi Vocabulary Rotation
+
+`JandalPersona` loads `jandal_vocab.json` from assets — a pool of 41 Kiwi slang phrases and te reo Māori words. Each session, `SESSION_VOCAB_COUNT = 2` phrases are picked randomly and injected into the system prompt via `getSessionVocab()`:
+
+```
+Session vocab hint injected into prompt:
+"Today's Kiwi flavour: 'stoked' (thrilled, really pleased), 'wop-wops' (the middle of nowhere)"
+```
+
+**LRU cooldown:** Phrases are tracked in SharedPreferences (`last_vocab_indices`). Already-used phrases are excluded from the pick pool, ensuring variety across sessions. When all phrases have been used, the pool resets.
+
+**Full vocab pool covers:**
+- Common Kiwi slang: `sweet as`, `chur`, `yeah nah`, `nah yeah`, `hard out`, `keen as`, `stoked`, `gutted`, `mint`, `munted`, `knackered`, `dodgy`, `mean`, `crack up`, `not even`, `as if`, `bugger`, `wop-wops`, etc.
+- Cultural terms: `jandals`, `togs`, `bach`, `dairy`, `section`, `arvo`, `bro`, `cuz`
+- Te reo Māori: `kia ora`, `ka pai`, `whānau`, `aroha`, `haere rā`, `mahi`
+
+### 7.2 NZ Truth Memory System
+
+`JandalPersona` seeds a structured corpus of 92 NZ cultural knowledge entries into the core memory store on first launch. These are loaded from `nz_truth_memories.json` in the `core/inference` assets.
+
+**Seed guard:** The key `truths_seeded_v2` in SharedPreferences prevents repeated seeding. If this key is absent (new install or key was bumped), all 92 entries are seeded. Bumping the key version forces a reseed on existing installs when the corpus is updated.
+
+**JSON entry structure:**
+```json
+{
+  "id": "nz_095",
+  "term": "Pavlova",
+  "category": "food",
+  "definition": "A meringue-based dessert with a crisp crust and soft, light inside, typically topped with kiwifruit and whipped cream. The source of an eternal, fierce debate with Australia over its invention (it was definitely NZ).",
+  "trigger_context": "When discussing Christmas, desserts, or the trans-Tasman rivalry.",
+  "vibe_level": 3,
+  "vector_text": "Pavlova. Meringue dessert. Christmas food. Trans-Tasman rivalry. Anna Pavlova. Kiwi dessert.",
+  "metadata": { "tags": ["dessert", "rivalry", "christmas"], "era": "timeless" }
+}
+```
+
+**Field roles:**
+- `vector_text` — what gets embedded into the vector store (dense keyword format for better similarity matching). This becomes the `content` field in the DB.
+- `definition` — stored separately; injected into the prompt at retrieval as `[NZ Context: term] definition`
+- `trigger_context` — human documentation of intended use; not stored in DB
+- `vibe_level` — controls retrieval sensitivity (see §3.3.3)
+- `metadata` — stored as JSON string in `metadataJson`; not currently used in retrieval but available for future filtering (e.g. filter by tag or era)
+
+**Categories in the corpus:**
+| Category | Count (approx) | Examples |
+|----------|---------------|---------|
+| `sport` | 12 | All Blacks, Black Caps, Silver Ferns, America's Cup |
+| `food` | 10 | Pavlova, Lamington, Flat White, Feijoa, Kiwifruit, Marmite |
+| `fauna` | 10 | Kiwi bird, Kererū, Tūī, Pīwakawaka, Ruru |
+| `pop_culture` | 12 | Lucy Lawless, Karl Urban, Antony Starr, Lorde, Flight of the Conchords |
+| `history` | 8 | Kate Sheppard, Ernest Rutherford, Treaty of Waitangi |
+| `geography` | 6 | Fiordland, Rotorua, Northland, South Island vs North Island |
+| `language` | 8 | Te reo Māori basics, Kiwi slang definitions |
+| `identity` | 6 | Kiwi (person), No.8 wire mentality, bach, jandals |
+| `culture` | 8 | Māori culture, haka, Treaty, tangi |
+| `tv_film` | 6 | Outrageous Fortune, Boy, Hunt for the Wilderpeople |
+| `music` | 6 | Lorde, Crowded House, Flight of the Conchords |
 
 ---
 

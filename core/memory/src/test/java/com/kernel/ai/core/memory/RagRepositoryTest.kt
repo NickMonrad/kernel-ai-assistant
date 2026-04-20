@@ -75,7 +75,7 @@ class RagRepositoryTest {
         coEvery { embeddingEngine.embed(any()) } returns queryVector
 
         // Memory tier: one core result — episodic table NOT created so no [Episodic Memories]
-        coEvery { memoryRepository.searchMemories(any(), any(), any()) } returns listOf(
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any()) } returns listOf(
             MemorySearchResult(
                 id = "core-1",
                 content = "User prefers dark mode",
@@ -93,7 +93,7 @@ class RagRepositoryTest {
 
         // Verify the correct topK contract — core gets 10 slots, episodic is suppressed (0)
         coVerify(exactly = 1) {
-            memoryRepository.searchMemories(any(), coreTopK = 10, episodicTopK = 0)
+            memoryRepository.searchMemories(any(), coreTopK = 10, episodicTopK = 3)
         }
     }
 
@@ -108,7 +108,7 @@ class RagRepositoryTest {
         coEvery { embeddingEngine.embed(any()) } returns sharedVector
 
         // Memory tier: core only (episodic from searchMemories is NOT rendered)
-        coEvery { memoryRepository.searchMemories(any(), any(), any()) } returns listOf(
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any()) } returns listOf(
             MemorySearchResult(id = "core-1", content = "Core preference fact", source = "core", score = 0.9f),
         )
 
@@ -124,20 +124,20 @@ class RagRepositoryTest {
         )
         every { vectorStore.search(any(), any(), any()) } returns listOf(VectorSearchResult(rowId = 1L, distance = 0.1f))
         coEvery { embeddingDao.getByRowIdsForConversation(any(), any()) } returns listOf(embeddingEntity)
-        coEvery { messageDao.getByConversation(any()) } returns listOf(messageEntity)
+        coEvery { messageDao.getByIds(any()) } returns listOf(messageEntity)
 
         val result = ragRepository.getRelevantContext("tell me about preferences", conversationId = "conv-1")
 
         assertTrue(result.startsWith("The following context has been retrieved from memory."), "Output must start with framing instruction")
         assertTrue(result.contains("[Core Memories"), "Output must contain [Core Memories]")
-        assertTrue(result.contains("[Episodic Memories"), "Output must contain [Episodic Memories]")
-        assertTrue(result.contains("past conversation"), "Episodic header must clarify source as past conversation")
+        assertTrue(result.contains("[Message History"), "Output must contain [Message History]")
+        assertTrue(result.contains("conversation"), "Message history header must clarify source as conversation")
 
         val framingIndex = result.indexOf("The following context")
         val coreIndex = result.indexOf("[Core Memories")
-        val episodicIndex = result.indexOf("[Episodic Memories")
+        val historyIndex = result.indexOf("[Message History")
         assertTrue(framingIndex < coreIndex, "Framing must appear before [Core Memories]")
-        assertTrue(coreIndex < episodicIndex, "[Core Memories] must appear before [Episodic Memories]")
+        assertTrue(coreIndex < historyIndex, "[Core Memories] must appear before [Message History]")
     }
 
     @Test
@@ -146,7 +146,7 @@ class RagRepositoryTest {
         coEvery { embeddingEngine.embed(any()) } returns queryVector
 
         // No memory results from either tier
-        coEvery { memoryRepository.searchMemories(any(), any(), any()) } returns emptyList()
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any()) } returns emptyList()
 
         // Note: tableCreated is false so vectorStore.search is NOT called;
         // both sections are empty → result is ""
@@ -164,7 +164,7 @@ class RagRepositoryTest {
         primeEpisodicTable(sharedVector)
 
         coEvery { embeddingEngine.embed(any()) } returns sharedVector
-        coEvery { memoryRepository.searchMemories(any(), any(), any()) } returns emptyList()
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any()) } returns emptyList()
 
         // Vector search returns two candidates — one from each conversation
         every { vectorStore.search(any(), any(), any()) } returns listOf(
@@ -184,7 +184,7 @@ class RagRepositoryTest {
             thinkingText = null,
             timestamp = System.currentTimeMillis(),
         )
-        coEvery { messageDao.getByConversation("conv-1") } returns listOf(conv1Message)
+        coEvery { messageDao.getByIds(any()) } returns listOf(conv1Message)
 
         val result = ragRepository.getRelevantContext("some query", conversationId = "conv-1")
 
@@ -202,7 +202,7 @@ class RagRepositoryTest {
         coEvery { embeddingEngine.embed(any()) } returns sharedVector
 
         // Memory tier throws — should be caught, not propagated
-        coEvery { memoryRepository.searchMemories(any(), any(), any()) } throws RuntimeException("Memory DB failure")
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any()) } throws RuntimeException("Memory DB failure")
 
         // Message history is still available
         val embeddingEntity = MessageEmbeddingEntity(rowId = 2L, messageId = "msg-2", conversationId = "conv-2")
@@ -216,13 +216,13 @@ class RagRepositoryTest {
         )
         every { vectorStore.search(any(), any(), any()) } returns listOf(VectorSearchResult(rowId = 2L, distance = 0.15f))
         coEvery { embeddingDao.getByRowIdsForConversation(any(), any()) } returns listOf(embeddingEntity)
-        coEvery { messageDao.getByConversation(any()) } returns listOf(messageEntity)
+        coEvery { messageDao.getByIds(any()) } returns listOf(messageEntity)
 
         // Must not throw
         val result = ragRepository.getRelevantContext("what did the user say earlier", conversationId = "conv-2")
 
         assertTrue(!result.contains("[Core Memories"), "Failed core search must not produce a [Core Memories] section")
-        assertTrue(result.contains("[Episodic Memories"), "Episodic content must still appear despite core failure")
+        assertTrue(result.contains("[Message History"), "Message history must still appear despite core failure")
     }
 
     @Test
@@ -232,7 +232,7 @@ class RagRepositoryTest {
 
         // Two memories with identical score — stale predates recent by access time.
         // Budget is deliberately tight (≈30 tokens) so only one fits.
-        coEvery { memoryRepository.searchMemories(any(), any(), any()) } returns listOf(
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any()) } returns listOf(
             MemorySearchResult(id = "stale",  content = "Stale fact",  source = "core", score = 0.9f, lastAccessedAt = 1_000L),
             MemorySearchResult(id = "recent", content = "Recent fact", source = "core", score = 0.9f, lastAccessedAt = 9_000L),
         )
