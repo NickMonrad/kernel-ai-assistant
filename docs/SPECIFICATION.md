@@ -661,9 +661,51 @@ Session vocab hint injected into prompt:
 | `culture` | 5 | No. 8 wire mentality, she'll be right, tall poppy syndrome |
 | `other` | 12 | science, philosophy, social_code, attitude, linguistics, clothing, drink, safety, 2026_culture, 2026_tech, sports_history, social_structure, identity, joke |
 
+### 7.3 Verbose Logging Convention
+
+**Verbose logging** is enabled via the "Verbose Logging" toggle in the About screen (Settings → About). This is stored in the app's DataStore preferences (`verbose_logging` key in the "about" DataStore).
+
+**Design decision:** All verbose logging throughout the codebase must respect this centralized toggle rather than using Android's system-level `Log.isLoggable()` or `adb shell setprop log.tag.X V` approach. This ensures:
+1. Users can enable/disable verbose logs directly in the app without `adb`
+2. Verbose logs are included in "Export Logs" function (which captures logcat output)
+3. Consistent logging UX across all debug instrumentation
+
+**Pattern for adding verbose logging:**
+1. Inject the appropriate repository or service that needs verbose logging (e.g., `RagRepository`)
+2. Add a `setVerboseLogging(enabled: Boolean)` method to the component
+3. Store the boolean locally: `private var verboseLoggingEnabled = false`
+4. In the logging method, check the local flag: `if (verboseLoggingEnabled) { Log.v(TAG, msg) }`
+5. In `ChatViewModel` (or similar high-level VM that has datastore access), observe the `verbose_logging` preference and call `setVerboseLogging()` on init
+
+**Example (RagRepository):**
+```kotlin
+private var verboseLoggingEnabled = false
+
+fun setVerboseLogging(enabled: Boolean) {
+    verboseLoggingEnabled = enabled
+}
+
+private fun logVerbose(msg: String) {
+    if (verboseLoggingEnabled) {
+        Log.v(TAG, msg)
+    }
+}
+```
+
+Then in ChatViewModel init:
+```kotlin
+viewModelScope.launch {
+    dataStore.data
+        .map { prefs -> prefs[KEY_VERBOSE_LOGGING] ?: false }
+        .collect { enabled ->
+            ragRepository.setVerboseLogging(enabled)
+        }
+}
+```
+
 ---
 
-## 8. Development Prerequisites
+## 10. Development Prerequisites
 
 | Requirement | Detail |
 |-------------|--------|
@@ -678,6 +720,26 @@ Session vocab hint injected into prompt:
 **Backend note:** `Build.SOC_MANUFACTURER` on S23 Ultra returns `"QTI"` (not `"Qualcomm"`),
 so `hasQualcommNpu = false` and the backend falls through to GPU (OpenCL / Adreno 740).
 The NPU path requires `"Qualcomm"` string match — this is a known device quirk.
+
+---
+
+## 8.1 Cross-Module Wiring Checklist
+
+When adding dependencies or features that span multiple modules (especially feature modules):
+
+1. **Add dependency to build.gradle.kts** of the consuming module
+   - Example: Adding DataStore to feature:chat for settings wiring requires `implementation(libs.datastore.preferences)`
+
+2. **Add all required imports** to the consuming Kotlin file
+   - If using flow operations (`.map()`, `.collect()`, etc.), explicitly import from `kotlinx.coroutines.flow`
+   - Do not rely on IDE auto-import — verify imports in source before pushing
+
+3. **Compile locally before pushing**
+   - Run `./gradlew :module:compileDebugKotlin` for the specific module
+   - Build full debug variant if modifying shared types: `./gradlew assembleDebug`
+   - Do NOT push without a successful local build — CI is for validation, not discovery
+
+**Rationale:** Cross-module wiring errors (missing deps, unresolved references) are 100% preventable with a local compile. Catching them in CI wastes ~2–3 min per attempt and blocks iteration. Always build locally first.
 
 ---
 
@@ -698,7 +760,7 @@ is behind an interface and mocked in all tests. Models (~3GB) are never download
 
 ---
 
-## 10. Roadmap Summary
+## 11. Roadmap Summary
 
 | Phase | Description | Status |
 |-------|-------------|--------|
