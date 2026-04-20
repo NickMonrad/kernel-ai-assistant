@@ -39,7 +39,6 @@ class RagRepository @Inject constructor(
 ) {
     companion object {
         private const val TAG = "RagRepository"
-        private const val VERBOSE_TAG = "RagRepository-V"
         private const val TABLE = "message_embeddings"
         private const val DEFAULT_TOP_K = 3
         /** Minimum message content length to surface in search results.
@@ -60,10 +59,15 @@ class RagRepository @Inject constructor(
     }
 
     private var tableCreated = false
+    private var verboseLoggingEnabled = false
+
+    fun setVerboseLogging(enabled: Boolean) {
+        verboseLoggingEnabled = enabled
+    }
 
     private fun logVerbose(msg: String) {
-        if (Log.isLoggable(VERBOSE_TAG, Log.VERBOSE)) {
-            Log.v(VERBOSE_TAG, msg)
+        if (verboseLoggingEnabled) {
+            Log.v(TAG, msg)
         }
     }
 
