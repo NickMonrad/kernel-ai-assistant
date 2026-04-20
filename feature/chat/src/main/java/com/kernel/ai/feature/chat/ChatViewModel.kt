@@ -87,6 +87,7 @@ class ChatViewModel @Inject constructor(
     private val toolProvider: ToolProvider,
     private val embeddingEngine: EmbeddingEngine,
     private val jandalPersona: JandalPersona,
+    private val nzTruthSeedingService: NzTruthSeedingService,
 ) : ViewModel() {
 
     /** Passed via nav arg; null means "start a new conversation". */
@@ -99,7 +100,6 @@ class ChatViewModel @Inject constructor(
     private var conversationId: String? = null
     private val contextWindowManager = ContextWindowManager()
     private var activeContextWindowSize: Int = 4096
-    private val truthsSeedingMutex = Mutex()
 
     /** Tracks the timestamp of the last episodic distillation for the current conversation. */
     private var lastDistilledAt: Long? = null
@@ -242,7 +242,7 @@ class ChatViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { initializeConversation() }
-        viewModelScope.launch { seedKiwiTruthsIfNeeded() }
+        nzTruthSeedingService.seedIfNeeded()
         viewModelScope.launch {
             // E4B first — GPU compilation needs every byte of headroom.
             // FG's 289MB on CPU is enough to tip OOM during GPU init.
@@ -286,48 +286,6 @@ class ChatViewModel @Inject constructor(
                 Log.i("ChatViewModel", "App opened by user — re-initializing engine after eviction")
                 initEngineWhenReady()
             }
-        }
-    }
-
-    private suspend fun seedKiwiTruthsIfNeeded() {
-        truthsSeedingMutex.withLock {
-            if (jandalPersona.isTruthsSeeded) {
-                // Guard against stale flag: DB may have been wiped (e.g. migration) while
-                // the SharedPreferences flag remained true. Re-seed if no jandal_persona
-                // memories are actually present.
-                val seededCount = memoryRepository.countCoreMemoriesBySource("jandal_persona")
-                if (seededCount > 0) return
-                Log.w("ChatViewModel", "truths_seeded flag was set but DB has 0 jandal_persona memories — re-seeding")
-                jandalPersona.resetTruthsSeeded()
-            }
-            // Wipe any stale entries from a previous seed guard version before re-seeding.
-            // Without this, bumping the seed guard key adds new entries on top of old ones,
-            // producing duplicates that pollute RAG results.
-            withContext(Dispatchers.IO) {
-                val staleCount = memoryRepository.countCoreMemoriesBySource("jandal_persona")
-                if (staleCount > 0) {
-                    Log.i("ChatViewModel", "Clearing $staleCount stale jandal_persona entries before re-seeding")
-                    memoryRepository.deleteAllCoreMemoriesBySource("jandal_persona")
-                }
-                jandalPersona.nzTruths.forEach { truth ->
-                    // Embed vector_text (dense keywords) — not definition — for richer semantic retrieval
-                    val vector = embeddingEngine.embed(truth.vectorText).takeIf { it.isNotEmpty() }
-                        ?: return@forEach  // skip if engine not ready
-                    memoryRepository.addCoreMemory(
-                        content = truth.vectorText,
-                        source = "jandal_persona",
-                        embeddingVector = vector,
-                        category = "agent_identity",
-                        term = truth.term,
-                        definition = truth.definition,
-                        triggerContext = truth.triggerContext,
-                        vibeLevel = truth.vibeLevel,
-                        metadataJson = truth.metadataJson,
-                    )
-                }
-            }
-            jandalPersona.markTruthsSeeded()
-            Log.i("ChatViewModel", "Seeded ${jandalPersona.nzTruths.size} NZ truth memories into core memory")
         }
     }
 
