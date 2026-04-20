@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v16"  // bumped: nek minnit vector_text expanded (scooter/dairy scenario)
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v17"  // bumped: nek minnit definition + trigger_context improved for meme play-along
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val SESSION_VOCAB_COUNT = 2
 
