@@ -104,6 +104,16 @@ class ChatViewModel @Inject constructor(
     /** Tracks the timestamp of the last episodic distillation for the current conversation. */
     private var lastDistilledAt: Long? = null
 
+    /**
+     * Intent stored when the BERT-tiny classifier returns [QuickIntentRouter.RouteResult.ClassifierMatch]
+     * with [needsConfirmation=true]. The LLM is allowed to ask the user for confirmation; if the
+     * user's next reply is a simple affirmation the intent is dispatched directly without another
+     * LLM round-trip. Cleared on any non-affirmation input or on new conversation.
+     *
+     * See issue #621.
+     */
+    private var pendingConfirmationIntent: QuickIntentRouter.MatchedIntent? = null
+
     // Tracks the in-progress streaming response so it can be flushed to Room on cancel/clear.
     private var activeStreamingMsgId: String? = null
     private var activeStreamingContent = StringBuilder()
@@ -733,10 +743,63 @@ class ChatViewModel @Inject constructor(
                 }
             }
 
+            // Confirmation shortcut (#621): if the user is affirming a classifier match that
+            // needed confirmation, dispatch the pending intent directly — skip LLM entirely.
+            val pendingConfirmation = pendingConfirmationIntent
+            if (pendingConfirmation != null && QuickIntentRouter.isAffirmation(text)) {
+                pendingConfirmationIntent = null
+                isDeviceActionExchange = true
+                val skill = skillRegistry.get("run_intent")
+                if (skill != null) {
+                    val callParams = mapOf("intent_name" to pendingConfirmation.intentName) + pendingConfirmation.params
+                    Log.d("KernelAI", "ConfirmationFastPath: dispatching ${pendingConfirmation.intentName}")
+                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                    when (skillResult) {
+                        is SkillResult.DirectReply -> {
+                            appendAssistantMessageWithToolCall(
+                                convId = convId,
+                                content = skillResult.content,
+                                skillName = pendingConfirmation.intentName,
+                                requestJson = callParams.toString(),
+                                isSuccess = true,
+                            )
+                            return@launch
+                        }
+                        is SkillResult.Success -> {
+                            systemContext = "[System: ${pendingConfirmation.intentName} — ${skillResult.content}]"
+                            if (!inferenceEngine.isReady.value) {
+                                appendAssistantMessage(convId, skillResult.content, shouldIndex = false)
+                                return@launch
+                            }
+                        }
+                        is SkillResult.Failure -> {
+                            systemContext = "[System: ${pendingConfirmation.intentName} failed — ${skillResult.error}]"
+                        }
+                        else -> { /* fall through to E4B unchanged */ }
+                    }
+                }
+                // Fall through to E4B for a natural conversational wrapper
+            } else if (pendingConfirmation != null) {
+                // Non-affirmation — user moved on; clear the pending confirmation
+                pendingConfirmationIntent = null
+            }
+
             val routeResult = quickIntentRouter.route(text)
             val matchedIntent = when (routeResult) {
                 is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent
-                is QuickIntentRouter.RouteResult.ClassifierMatch -> routeResult.intent
+                is QuickIntentRouter.RouteResult.ClassifierMatch -> {
+                    if (routeResult.needsConfirmation) {
+                        // Store for fast-path dispatch if user affirms; let LLM ask the question.
+                        pendingConfirmationIntent = routeResult.intent
+                        Log.d("KernelAI", "ConfirmationFastPath: pending ${routeResult.intent.intentName} (conf=${routeResult.confidence})")
+                        systemContext = "[System: The user may want to run the intent '${routeResult.intent.intentName}'. " +
+                            "Offer to do it for them and wait for their confirmation.]"
+                        null
+                    } else {
+                        pendingConfirmationIntent = null
+                        routeResult.intent
+                    }
+                }
                 is QuickIntentRouter.RouteResult.FallThrough -> null
                 is QuickIntentRouter.RouteResult.NeedsSlot -> {
                     // Intent matched but a required param is missing — ask the user for it.
@@ -1205,6 +1268,7 @@ class ChatViewModel @Inject constructor(
             estimatedTokensUsed = 0
             turnsSinceReset = 0
             needsHistoryReplay = false
+            pendingConfirmationIntent = null
             inferenceEngine.resetConversation()
         }
     }
