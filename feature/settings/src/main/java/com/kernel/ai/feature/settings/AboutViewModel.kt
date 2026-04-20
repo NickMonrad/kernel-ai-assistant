@@ -80,7 +80,7 @@ class AboutViewModel @Inject constructor(
                     val logText = process.inputStream.bufferedReader().use { it.readText() }
                     process.errorStream.bufferedReader().use { it.readText() } // drain stderr to avoid deadlock
                     process.waitFor()
-                    val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
+                    val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"))
                     val versionName = try {
                         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
                     } catch (_: Exception) {
