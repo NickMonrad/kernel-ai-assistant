@@ -219,3 +219,4 @@ The `definition` is injected directly into Jandal's prompt as:
 | `truths_seeded_v6` | Pavlova vibe_level 3→2 — fix threshold miss on "who invented pavlova" queries (L2 0.986 > 0.95 cutoff) |
 | `truths_seeded_v7` | 5 entries vibe 3→2 for indirect triggers: Bugger, Haka, Tall Poppy, Flash as, Always blow on the pie; richer vector_text |
 | `truths_seeded_v8` | 7 trigger/vector_text mismatches fixed; Good Aftabull phonetic form added to vector_text |
+| `truths_seeded_v9` | Added Carked it (nz_093), Flight of the Conchords + Binary Solo (nz_094), Hungus (nz_095) |
