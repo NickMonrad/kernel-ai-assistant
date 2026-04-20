@@ -2,6 +2,7 @@ package com.kernel.ai.feature.settings
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import androidx.core.content.FileProvider
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -48,24 +49,33 @@ class AboutViewModel @Inject constructor(
         val KEY_VERBOSE_LOGGING = booleanPreferencesKey("verbose_logging")
     }
 
-    private val _uiState = MutableStateFlow(AboutUiState())
+    private val defaultVerboseLoggingEnabled: Boolean
+        get() = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+    private val _uiState = MutableStateFlow(AboutUiState(verboseLogging = defaultVerboseLoggingEnabled))
     val uiState: StateFlow<AboutUiState> = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
             try {
-                val enabled = dataStore.data.map { prefs -> prefs[KEY_VERBOSE_LOGGING] ?: false }.first()
+                val enabled = dataStore.data.map { prefs -> prefs[KEY_VERBOSE_LOGGING] ?: defaultVerboseLoggingEnabled }.first()
                 _uiState.update { it.copy(verboseLogging = enabled) }
             } catch (e: Exception) {
                 // Silently fail — verbose logging is optional
+                _uiState.update { it.copy(verboseLogging = defaultVerboseLoggingEnabled) }
             }
         }
     }
 
     fun setVerboseLogging(enabled: Boolean) {
+        _uiState.update { it.copy(verboseLogging = enabled) }
         viewModelScope.launch {
-            dataStore.edit { prefs ->
-                prefs[KEY_VERBOSE_LOGGING] = enabled
+            try {
+                dataStore.edit { prefs ->
+                    prefs[KEY_VERBOSE_LOGGING] = enabled
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(verboseLogging = !enabled) }
             }
         }
     }
