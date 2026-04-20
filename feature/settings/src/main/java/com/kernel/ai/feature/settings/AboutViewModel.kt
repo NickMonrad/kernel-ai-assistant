@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Named
 
@@ -78,7 +80,13 @@ class AboutViewModel @Inject constructor(
                     val logText = process.inputStream.bufferedReader().use { it.readText() }
                     process.errorStream.bufferedReader().use { it.readText() } // drain stderr to avoid deadlock
                     process.waitFor()
-                    val logFile = File(context.cacheDir, "kernel_debug_log.txt")
+                    val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
+                    val versionName = try {
+                        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+                    } catch (_: Exception) {
+                        "unknown"
+                    }
+                    val logFile = File(context.cacheDir, "kernel_debug_log_${versionName}_${timestamp}.txt")
                     logFile.writeText(logText)
                     val uri = FileProvider.getUriForFile(
                         context,
