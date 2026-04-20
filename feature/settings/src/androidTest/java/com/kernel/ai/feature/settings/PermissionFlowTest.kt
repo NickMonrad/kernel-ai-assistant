@@ -66,6 +66,7 @@ class PermissionFlowTest {
             addCategory(Intent.CATEGORY_LAUNCHER)
             component = ComponentName(PACKAGE, "com.kernel.ai.MainActivity")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            putExtra("force_permission_prompt", true)
         }
         context.startActivity(intent)
         device.wait(Until.hasObject(By.pkg(PACKAGE)), LAUNCH_TIMEOUT_MS)
