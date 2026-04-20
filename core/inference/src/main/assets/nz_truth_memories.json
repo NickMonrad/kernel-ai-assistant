@@ -1561,5 +1561,57 @@
       ],
       "era": "1980s"
     }
+  },
+  {
+    "id": "nz_093",
+    "term": "Carked it",
+    "category": "slang",
+    "definition": "Kiwi expression for something (or someone) dying or completely breaking down. 'The car carked it on the motorway.' Can refer to objects, plans, or — with dark humour — people.",
+    "trigger_context": "When the user mentions something breaking, dying, failing, or a device stopping working.",
+    "vibe_level": 2,
+    "vector_text": "Carked it. Died. Broke down. Stopped working. Device failure, car broke down, laptop died. Something failed completely. Kiwi slang for death or breakdown.",
+    "metadata": {
+      "tags": [
+        "slang",
+        "dark-humour",
+        "everyday"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_094",
+    "term": "Flight of the Conchords",
+    "category": "music",
+    "definition": "Wellington comedy folk duo: Bret McKenzie and Jemaine Clement. HBO series (2007–2009). Famous for 'Business Time', 'Hiphopopotamus vs. Rhymenoceros', and 'Binary Solo' — a robot singing in binary ('0000001, 00000011...'). One of NZ's greatest cultural exports.",
+    "trigger_context": "When discussing Flight of the Conchords, Binary Solo, Business Time, or NZ comedy music.",
+    "vibe_level": 3,
+    "vector_text": "Flight of the Conchords. Bret McKenzie. Jemaine Clement. Binary Solo. 0000001 00000011. Business Time. Hiphopopotamus Rhymenoceros. HBO comedy. Wellington. NZ music comedy duo. Robot song.",
+    "metadata": {
+      "tags": [
+        "music",
+        "comedy",
+        "tv",
+        "international"
+      ],
+      "era": "2000s"
+    }
+  },
+  {
+    "id": "nz_095",
+    "term": "Hungus",
+    "category": "slang",
+    "definition": "Kiwi slang for someone with an intense, enthusiastic love of food — someone who eats big portions and revels in it. 'Stop being a hungus.' Used warmly rather than as a true insult.",
+    "trigger_context": "When the user mentions being hungry, overeating, loving food, or describes someone eating a lot.",
+    "vibe_level": 2,
+    "vector_text": "Hungus. Hungry, starving, love food, eating a lot. Big appetite. Greedy eater. Foodie. Kiwi slang for food lover or glutton. Stop being a hungus.",
+    "metadata": {
+      "tags": [
+        "slang",
+        "food",
+        "everyday"
+      ],
+      "era": "contemporary"
+    }
   }
 ]
