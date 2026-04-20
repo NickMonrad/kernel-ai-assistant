@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v14"  // bumped: pie+V combo, mince and cheese additions
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v15"  // bumped: hungus dual-meaning fix + going the dairy vector_text
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val SESSION_VOCAB_COUNT = 2
 
