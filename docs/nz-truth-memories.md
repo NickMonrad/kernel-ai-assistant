@@ -10,7 +10,7 @@ Jandal's NZ cultural knowledge lives in a structured JSON corpus that is embedde
 ```
 core/inference/src/main/assets/nz_truth_memories.json
 ```
-Contains all 92 (and growing) NZ truth entries. Edit this to add, change, or remove entries.
+Contains all 135 (and growing) NZ truth entries. Edit this to add, change, or remove entries.
 
 ### 2. The seed guard key
 ```
@@ -94,15 +94,18 @@ The vibe level controls how loosely the RAG will match this entry. Lower = stric
 
 | Category | Examples |
 |----------|---------|
-| `meme` | Ghost Chips, Monique says you're dumb |
+| `meme` | Ghost Chips, Monique says you're dumb, Beached as |
 | `food` | Pavlova, Pineapple Lumps, Marmite, L&P |
-| `slang` | Chur, Sweet as, Munted |
+| `slang` | Chur, Munted, Dag, Choice, Gutted, Stoked, Bro/Cuz |
+| `attitude` | She'll be right, No worries, Good as gold |
+| `daily_life` | Dairy, Togs, Bach/Crib, Smoko, Tiki Tour, Arvo |
+| `maori` | Kia ora, Ka pai, Haere rā, Mahi, Whānau, Aroha |
 | `sport` | All Blacks, Black Caps, America's Cup |
-| `geography` | Northland, Fiordland, Rangitoto |
+| `geography` | Northland, Fiordland, Rangitoto, Wop-wops |
 | `history` | Treaty of Waitangi, Suffrage, Gallipoli |
-| `culture` | Haka, Pōwhiri, Matariki |
+| `culture` | Haka, Pōwhiri, Matariki, Scarfie, Bach/Crib |
 | `politics` | MMP, Beehive, Jacinda |
-| `music` | Six60, Crowded House, Lorde |
+| `music` | Six60, Crowded House, Lorde, Flight of the Conchords |
 | `nature` | Kiwi bird, Tuatara, Kauri |
 
 ---
@@ -112,10 +115,10 @@ The vibe level controls how loosely the RAG will match this entry. Lower = stric
 1. **Open the corpus:**
    `core/inference/src/main/assets/nz_truth_memories.json`
 
-2. **Add your entry** at the end of the array. Use the next available ID (`nz_093`, `nz_094`, etc.):
+2. **Add your entry** at the end of the array. Use the next available ID (`nz_137`, `nz_138`, etc.):
    ```json
    {
-     "id": "nz_093",
+     "id": "nz_137",
      "term": "Your term here",
      "category": "slang",
      "definition": "Confident one-liner Jandal will say.",
@@ -128,20 +131,22 @@ The vibe level controls how loosely the RAG will match this entry. Lower = stric
    }
    ```
 
-3. **Bump the seed guard** in `JandalPersona.kt`:
+3. **Check the vocab file** — if the new term is something Jandal should use in conversation, add it to `jandal_vocab.json` too. See [Keeping Vocab and Corpus in Sync](#keeping-vocab-and-corpus-in-sync).
+
+4. **Bump the seed guard** in `JandalPersona.kt`:
    ```kotlin
    // Before:
-   private const val KEY_TRUTHS_SEEDED = "truths_seeded_v3"
+   private const val KEY_TRUTHS_SEEDED = "truths_seeded_v11"
    // After:
-   private const val KEY_TRUTHS_SEEDED = "truths_seeded_v4"
+   private const val KEY_TRUTHS_SEEDED = "truths_seeded_v12"
    ```
    Add a comment explaining what changed.
 
-4. **Build and install** the app. On first launch after update, logcat will show:
+5. **Build and install** the app. On first launch after update, logcat will show:
    ```
-   JandalPersona: Loaded 93 NZ truth entries
+   JandalPersona: Loaded 136 NZ truth entries
    ChatViewModel: Seeding NZ truth memories...
-   ChatViewModel: Seeded 93 NZ truth memories
+   ChatViewModel: Seeded 136 NZ truth memories
    ```
 
 5. **Test** by asking Jandal something related to your new entry. Check logcat for:
@@ -157,6 +162,65 @@ The vibe level controls how loosely the RAG will match this entry. Lower = stric
 2. Edit the fields you want to change
 3. Bump the seed guard key (same as adding — any corpus change needs a bump)
 4. Rebuild and test
+
+---
+
+## Keeping Vocab and Corpus in Sync
+
+Jandal has two related but separate NZ lingo files:
+
+| File | Purpose |
+|------|---------|
+| `core/inference/src/main/assets/jandal_vocab.json` | Kiwi phrases **injected into the system prompt** each session — tells the LLM which expressions it should use in conversation |
+| `core/inference/src/main/assets/nz_truth_memories.json` | NZ truth corpus **embedded as RAG memories** — grounding knowledge for when those expressions come up in conversation |
+
+### The rule: if Jandal says it, RAG must know it
+
+If a phrase is in `jandal_vocab.json`, Jandal will use it in responses. If a user then asks "what does that mean?" or the phrase appears in a query, the RAG system needs a corpus entry to ground Jandal's answer — otherwise it will hallucinate.
+
+**Every term in `jandal_vocab.json` should have a matching entry in `nz_truth_memories.json`.**
+
+### Adding a new vocab term
+
+When adding a phrase to `jandal_vocab.json`:
+
+```json
+{
+  "phrase": "sweet as",
+  "meaning": "excellent, sounds great"
+}
+```
+
+Also add a corpus entry:
+
+```json
+{
+  "id": "nz_XXX",
+  "term": "Sweet as",
+  "category": "slang",
+  "definition": "Multi-purpose approval phrase — excellent, sounds great, no problem...",
+  "trigger_context": "When agreeing or expressing approval.",
+  "vibe_level": 2,
+  "vector_text": "Sweet as. Sweet as bro. Sounds great. Excellent. Approval. Agreement."
+}
+```
+
+### Auditing the sync
+
+To check which vocab terms lack a corpus entry, run:
+
+```bash
+python3 -c "
+import json
+with open('core/inference/src/main/assets/nz_truth_memories.json') as f:
+    corpus = {e['term'].lower() for e in json.load(f)}
+with open('core/inference/src/main/assets/jandal_vocab.json') as f:
+    vocab = json.load(f)
+missing = [v['phrase'] for v in vocab if v['phrase'].lower() not in corpus
+           and not any(v['phrase'].lower() in t for t in corpus)]
+print('Vocab terms missing from corpus:', missing or 'all good!')
+"
+```
 
 ---
 
@@ -220,3 +284,5 @@ The `definition` is injected directly into Jandal's prompt as:
 | `truths_seeded_v7` | 5 entries vibe 3→2 for indirect triggers: Bugger, Haka, Tall Poppy, Flash as, Always blow on the pie; richer vector_text |
 | `truths_seeded_v8` | 7 trigger/vector_text mismatches fixed; Good Aftabull phonetic form added to vector_text |
 | `truths_seeded_v9` | Added Carked it (nz_093), Flight of the Conchords + Binary Solo (nz_094), Hungus (nz_095) |
+| `truths_seeded_v10` | Removed nz_003 (The 6-7 — not a real named NZ term); fixed nz_007 Munted (added drunk/intoxicated meaning); corpus 95 → 94 |
+| `truths_seeded_v11` | 41 new entries (nz_096–nz_136) from three-source slang audit + jandal_vocab.json cross-check. Every term Jandal uses in conversation now has a RAG corpus entry. New categories: `attitude`, `daily_life`, `maori`. Corpus 94 → 135 |
