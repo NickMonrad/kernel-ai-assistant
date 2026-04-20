@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v7"  // bumped: 5 entries vibe 3→2 (Bugger, Haka, Tall Poppy, Flash as, Always blow on the pie) + richer vector_text for indirect triggers
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v8"  // bumped: 7 vector_text trigger mismatches fixed + Good Aftabull phonetic form added
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val SESSION_VOCAB_COUNT = 2
 

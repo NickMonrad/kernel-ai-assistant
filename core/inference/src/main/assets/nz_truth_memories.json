@@ -90,7 +90,7 @@
     "definition": "The movement of heading into the bush to escape AI over-optimization and data tracking.",
     "trigger_context": "When the user mentions burnout, tech-fatigue, or wanting to go camping.",
     "vibe_level": 2,
-    "vector_text": "Analog wellness. Digital detox in the bush. Escaping technology and AI to reconnect with nature.",
+    "vector_text": "Analog wellness. Digital detox in the bush. Burnout, tech-fatigue, screen fatigue. Escaping technology and AI to reconnect with nature. Going camping, tramping.",
     "metadata": {
       "tags": [
         "mental-health",
@@ -244,7 +244,7 @@
     "definition": "The unofficial national anthem by Dave Dobbyn and Herbs. Essential for any BBQ or sporting event.",
     "trigger_context": "When the user mentions a party, a celebration, or feeling patriotic.",
     "vibe_level": 1,
-    "vector_text": "Slice of Heaven. Dave Dobbyn. Herbs. National anthem. BBQ music. Kiwi pride.",
+    "vector_text": "Slice of Heaven. Dave Dobbyn. Herbs. National anthem. BBQ music. Kiwi pride. Party, celebration, patriotic moment.",
     "metadata": {
       "tags": [
         "anthem",
@@ -363,7 +363,7 @@
     "definition": "The 1985 bombing of the Greenpeace ship in Auckland Harbour by French secret agents. A major catalyst for NZ's anti-nuclear stance.",
     "trigger_context": "When the user mentions Auckland history, environmentalism, or French-NZ relations.",
     "vibe_level": 4,
-    "vector_text": "Rainbow Warrior. Greenpeace. French spies. Bombing Auckland. State-sponsored terrorism.",
+    "vector_text": "Rainbow Warrior. Greenpeace. French spies. Bombing Auckland. Auckland history. State-sponsored terrorism. Environmentalism. French-NZ relations.",
     "metadata": {
       "tags": [
         "greenpeace",
@@ -431,7 +431,7 @@
     "definition": "The phenomenon where every New Zealander seems to be connected to every other New Zealander by only one or two people.",
     "trigger_context": "When the user mentions a mutual friend or a small-world coincidence.",
     "vibe_level": 2,
-    "vector_text": "Two degrees of separation. Small world. Everyone knows everyone. Kiwi connectivity.",
+    "vector_text": "Two degrees of separation. Small world. Everyone knows everyone. Kiwi connectivity. Mutual friend. Small-world coincidence. Tiny country big connections.",
     "metadata": {
       "tags": [
         "community",
@@ -515,7 +515,7 @@
     "definition": "Lemon & Paeroa. A sweet carbonated drink that is a staple of NZ summer and fish and chip runs.",
     "trigger_context": "When the user mentions thirst, snacks, or the town of Paeroa.",
     "vibe_level": 1,
-    "vector_text": "L&P. Lemon and Paeroa. NZ soda. Soft drink. Paeroa bottle.",
+    "vector_text": "L&P. Lemon and Paeroa. NZ soda. Soft drink. Thirst, hot day, snacks. Paeroa bottle. Kiwi classic.",
     "metadata": {
       "tags": [
         "drink",
@@ -701,7 +701,7 @@
     "definition": "The Cricket World Cup Final where the Black Caps 'lost' to England on a boundary countback rule. Mentioning this still causes physical pain to most Kiwis.",
     "trigger_context": "When the user mentions unfairness, cricket, or heartbreak.",
     "vibe_level": 5,
-    "vector_text": "2019 World Cup Final. Boundary countback. Cricket heartbreak. England vs NZ.",
+    "vector_text": "2019 World Cup Final. Boundary countback. Cricket heartbreak. England vs NZ. Unfairness, robbed, should have won.",
     "metadata": {
       "tags": [
         "cricket",
@@ -802,7 +802,7 @@
     "definition": "A group of actors who have achieved massive global fame while remaining fiercely 'Kiwi', including Karl Urban (The Boys), Antony Starr (Homelander), Lucy Lawless (Xena), and Sam Neill (Jurassic Park).",
     "trigger_context": "When the user mentions international fame or specific genre TV/movies.",
     "vibe_level": 3,
-    "vector_text": "Karl Urban. Antony Starr. Lucy Lawless. Sam Neill. Temuera Morrison. NZ actors in Hollywood.",
+    "vector_text": "Karl Urban. Antony Starr. Lucy Lawless. Sam Neill. Temuera Morrison. NZ actors in Hollywood. International fame. Kiwi in movies and TV.",
     "metadata": {
       "tags": [
         "actors",
@@ -1125,7 +1125,7 @@
     "definition": "A slurred 'Good afternoon, Constable' — iconic Police Ten 7 / drunk-tank phrase. Used for gently comedic formality or when someone is trying too hard to be polite.",
     "trigger_context": "When the user is being overly formal, or in any Police Ten 7 / law-enforcement adjacent context.",
     "vibe_level": 4,
-    "vector_text": "Good afternoon constable. Drunk speech. Police Ten 7. Slurred formality. Kiwi cop culture.",
+    "vector_text": "Good aftabull constanoon. Good afternoon constable. Drunk speech. Police Ten 7. Slurred formality. Kiwi cop culture. Phonetic drunk pronunciation.",
     "metadata": {
       "tags": [
         "police-ten-7",
