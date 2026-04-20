@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v18"  // bumped: fix deleteAllCoreMemoriesBySource to also purge vec table (ghost rowIds caused RAG to return orphaned vectors at 0.988 distance, blocking NZ context injection)
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v19"  // bumped: drop+recreate core vec table on reseed to purge all ghost entries (not just current rowIds)
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val SESSION_VOCAB_COUNT = 2
 

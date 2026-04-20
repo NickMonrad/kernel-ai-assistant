@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -50,6 +51,7 @@ class MemoryRepositoryImpl @Inject constructor(
     private val episodicVecMutex = Mutex()
     private val coreVecTableCreated = AtomicBoolean(false)
     private val coreVecMutex = Mutex()
+    private val coreVecDimensions = AtomicInteger(0)
 
     override suspend fun addEpisodicMemory(
         conversationId: String,
@@ -324,6 +326,7 @@ class MemoryRepositoryImpl @Inject constructor(
         coreVecMutex.withLock {
             if (!coreVecTableCreated.get()) {
                 vectorStore.createTable(CORE_VEC_TABLE, dimensions)
+                coreVecDimensions.set(dimensions)
                 coreVecTableCreated.set(true)
                 Log.i(TAG, "Created core vec table dim=$dimensions")
             }
@@ -338,5 +341,23 @@ class MemoryRepositoryImpl @Inject constructor(
         val rowIds = coreDao.getRowIdsBySource(source)
         rowIds.forEach { vectorStore.delete(CORE_VEC_TABLE, it) }
         coreDao.deleteBySource(source)
+    }
+
+    override suspend fun resetCoreVecTable() {
+        coreVecMutex.withLock {
+            // Drop + recreate to purge all ghost entries (orphaned vec rows with no Room counterpart).
+            val dim = coreVecDimensions.get()
+            vectorStore.dropTable(CORE_VEC_TABLE)
+            if (dim > 0) {
+                vectorStore.createTable(CORE_VEC_TABLE, dim)
+                Log.i(TAG, "Reset core vec table dim=$dim — all ghost entries purged")
+            } else {
+                // Table will be recreated lazily on next addCoreMemory call.
+                Log.i(TAG, "Reset core vec table — will recreate lazily (dim not yet known)")
+            }
+            coreVecTableCreated.set(dim > 0)
+        }
+        // Mark all remaining Room rows as un-vectorized so the backfill worker re-embeds them.
+        coreDao.markAllUnvectorized()
     }
 }

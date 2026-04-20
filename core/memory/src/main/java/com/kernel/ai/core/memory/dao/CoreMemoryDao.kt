@@ -86,4 +86,7 @@ interface CoreMemoryDao {
 
     @Query("UPDATE core_memories SET vectorized = 1 WHERE rowId = :rowId")
     suspend fun markVectorized(rowId: Long)
+
+    @Query("UPDATE core_memories SET vectorized = 0")
+    suspend fun markAllUnvectorized()
 }

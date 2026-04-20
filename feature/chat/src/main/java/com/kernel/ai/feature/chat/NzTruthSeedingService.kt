@@ -60,6 +60,8 @@ class NzTruthSeedingService @Inject constructor(
                 Log.i(TAG, "Clearing $staleCount stale jandal_persona entries before re-seeding")
                 memoryRepository.deleteAllCoreMemoriesBySource("jandal_persona")
             }
+            // Always reset the vec table to purge ghost entries from any previous seeding cycles.
+            memoryRepository.resetCoreVecTable()
 
             var seeded = 0
             jandalPersona.nzTruths.forEach { truth ->
