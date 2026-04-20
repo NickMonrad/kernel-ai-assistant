@@ -218,6 +218,7 @@ class LiteRtInferenceEngine @Inject constructor(
      */
     override fun releaseForMemoryPressure() {
         if (!_isReady.value) return // Already unloaded — nothing to do
+        if (_isGenerating.value) return // Don't interrupt active generation
         _isReady.value = false
         _isGenerating.value = false
         _evictionEvents.tryEmit(Unit) // Notify observers before async teardown
@@ -247,6 +248,7 @@ class LiteRtInferenceEngine @Inject constructor(
         }
 
         _isGenerating.value = true
+        InferenceGenerationService.start(context)
         val start = System.currentTimeMillis()
         var firstTokenMs: Long = -1
         var thinkingCharCount = 0
@@ -280,12 +282,14 @@ class LiteRtInferenceEngine @Inject constructor(
                     }
                     Log.i(TAG, "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms [backend=${_activeBackend.value}]")
                     _isGenerating.value = false
+                    InferenceGenerationService.stop(context)
                     trySend(GenerationResult.Complete(durationMs = durationMs))
                     close()
                 }
 
                 override fun onError(throwable: Throwable) {
                     _isGenerating.value = false
+                    InferenceGenerationService.stop(context)
                     if (throwable is CancellationException) {
                         Log.i(TAG, "Generation cancelled by user")
                         close()
@@ -298,6 +302,7 @@ class LiteRtInferenceEngine @Inject constructor(
         )
         } catch (e: Exception) {
             _isGenerating.value = false
+            InferenceGenerationService.stop(context)
             generationMutex.unlock()
             close(InferenceException("sendMessageAsync failed: ${e.message}", e))
             return@callbackFlow
@@ -306,6 +311,7 @@ class LiteRtInferenceEngine @Inject constructor(
         // When the Flow collector cancels (e.g. user navigates away), stop inference.
         awaitClose {
             _isGenerating.value = false
+            InferenceGenerationService.stop(context)
             conv.cancelProcess()
             generationMutex.unlock()
         }
@@ -314,6 +320,7 @@ class LiteRtInferenceEngine @Inject constructor(
     override fun cancelGeneration() {
         conversation?.cancelProcess()
         _isGenerating.value = false
+        InferenceGenerationService.stop(context)
     }
 
     /**

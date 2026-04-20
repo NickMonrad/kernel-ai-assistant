@@ -106,6 +106,12 @@
             android:foregroundServiceType="specialUse"
             android:exported="false" />
 
+        <!-- Foreground service to keep process alive during response generation -->
+        <service
+            android:name="com.kernel.ai.core.inference.InferenceGenerationService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false" />
+
         <!-- Fires when a scheduled exact alarm triggers (#327) -->
         <receiver
             android:name=".alarm.AlarmBroadcastReceiver"
