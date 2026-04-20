@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v11"  // bumped: 41 new entries (nz_096-nz_136) — slang source audit + vocab cross-check; corpus 94 → 135
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v12"  // bumped: fix duplicate seeding — wipe stale entries before reseed
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val SESSION_VOCAB_COUNT = 2
 
