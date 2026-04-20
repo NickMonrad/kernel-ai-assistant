@@ -34,12 +34,12 @@ class MemoryRepositoryImpl @Inject constructor(
         // Thresholds calibrated from on-device measurements (EmbeddingGemma-300M):
         //   ancestor memory: best match dist=1.0996 (cos_sim ≈ 0.40) — must pass
         //   aubergine memory: best match dist=0.9398 (cos_sim ≈ 0.56) — must pass
-        // Core: 1.10 = sqrt(2 * 0.605) → cos_sim ≥ 0.395 — wide net for explicit memories
-        // Episodic: 1.10 — same as core; episodic summaries are less lexically similar to
-        //   queries than verbatim core memories, so they need a looser threshold too
-        /** Loose threshold for core memories — covers cos_sim ≥ 0.40 in L2 space. */
-        private const val CORE_MAX_DISTANCE = 1.10f
-        /** Threshold for episodic memories — cos_sim ≥ 0.40 equivalent in L2 space. */
+        //   NZ corpus (e.g. nek minnit ↔ "left my scooter outside the dairy"): observed ~1.177
+        // Core: 1.25 covers cos_sim ≥ 0.22 — wide net; NZ truths need ~1.18 to surface
+        // Episodic: 1.10 — keep tighter to avoid noisy distilled summaries flooding context
+        /** Loose threshold for core memories — raised to 1.25 to cover NZ corpus entries. */
+        private const val CORE_MAX_DISTANCE = 1.25f
+        /** Threshold for episodic memories — tighter than core to reduce noise. */
         private const val EPISODIC_MAX_DISTANCE = 1.10f
         /** Minimum content length for an episodic entry to appear in search results.
          *  Guards against short model hallucinations ("Nick", "You: Here") polluting results. */
@@ -161,9 +161,9 @@ class MemoryRepositoryImpl @Inject constructor(
                     .filter { entity ->
                         val dist = distanceMap[entity.rowId] ?: Float.MAX_VALUE
                         val maxDist = when {
-                            entity.vibeLevel <= 2 -> CORE_MAX_DISTANCE  // 1.10 — surface freely
-                            entity.vibeLevel == 3 -> 0.95f               // moderate match required
-                            else -> 0.80f                                 // tight match for vibe 4-5
+                            entity.vibeLevel <= 2 -> CORE_MAX_DISTANCE  // 1.25 — surface freely
+                            entity.vibeLevel == 3 -> 1.15f               // moderate match required
+                            else -> 1.20f                                 // tight match for vibe 4-5
                         }
                         dist <= maxDist
                     }
