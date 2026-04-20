@@ -661,6 +661,48 @@ Session vocab hint injected into prompt:
 | `culture` | 5 | No. 8 wire mentality, she'll be right, tall poppy syndrome |
 | `other` | 12 | science, philosophy, social_code, attitude, linguistics, clothing, drink, safety, 2026_culture, 2026_tech, sports_history, social_structure, identity, joke |
 
+### 7.3 Verbose Logging Convention
+
+**Verbose logging** is enabled via the "Verbose Logging" toggle in the About screen (Settings → About). This is stored in the app's DataStore preferences (`verbose_logging` key in the "about" DataStore).
+
+**Design decision:** All verbose logging throughout the codebase must respect this centralized toggle rather than using Android's system-level `Log.isLoggable()` or `adb shell setprop log.tag.X V` approach. This ensures:
+1. Users can enable/disable verbose logs directly in the app without `adb`
+2. Verbose logs are included in "Export Logs" function (which captures logcat output)
+3. Consistent logging UX across all debug instrumentation
+
+**Pattern for adding verbose logging:**
+1. Inject the appropriate repository or service that needs verbose logging (e.g., `RagRepository`)
+2. Add a `setVerboseLogging(enabled: Boolean)` method to the component
+3. Store the boolean locally: `private var verboseLoggingEnabled = false`
+4. In the logging method, check the local flag: `if (verboseLoggingEnabled) { Log.v(TAG, msg) }`
+5. In `ChatViewModel` (or similar high-level VM that has datastore access), observe the `verbose_logging` preference and call `setVerboseLogging()` on init
+
+**Example (RagRepository):**
+```kotlin
+private var verboseLoggingEnabled = false
+
+fun setVerboseLogging(enabled: Boolean) {
+    verboseLoggingEnabled = enabled
+}
+
+private fun logVerbose(msg: String) {
+    if (verboseLoggingEnabled) {
+        Log.v(TAG, msg)
+    }
+}
+```
+
+Then in ChatViewModel init:
+```kotlin
+viewModelScope.launch {
+    dataStore.data
+        .map { prefs -> prefs[KEY_VERBOSE_LOGGING] ?: false }
+        .collect { enabled ->
+            ragRepository.setVerboseLogging(enabled)
+        }
+}
+```
+
 ---
 
 ## 8. Development Prerequisites

@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.chat
 
 import android.util.Log
+import android.content.Context
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
@@ -8,6 +9,11 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
@@ -88,7 +94,12 @@ class ChatViewModel @Inject constructor(
     private val embeddingEngine: EmbeddingEngine,
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
+
+    private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
+        name = "about_prefs",
+    )
 
     /** Passed via nav arg; null means "start a new conversation". */
     private val navConversationId: String? = savedStateHandle["conversationId"]
@@ -241,6 +252,15 @@ class ChatViewModel @Inject constructor(
     )
 
     init {
+        // Observe verbose logging setting and propagate to RagRepository
+        viewModelScope.launch {
+            val keyVerboseLogging = booleanPreferencesKey("verbose_logging")
+            context.settingsDataStore.data
+                .map { prefs -> prefs[keyVerboseLogging] ?: false }
+                .collect { enabled ->
+                    ragRepository.setVerboseLogging(enabled)
+                }
+        }
         viewModelScope.launch { initializeConversation() }
         nzTruthSeedingService.seedIfNeeded()
         viewModelScope.launch {
