@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -52,11 +53,12 @@ class AboutViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            dataStore.data
-                .map { prefs -> prefs[KEY_VERBOSE_LOGGING] ?: false }
-                .collect { enabled ->
-                    _uiState.update { it.copy(verboseLogging = enabled) }
-                }
+            try {
+                val enabled = dataStore.data.map { prefs -> prefs[KEY_VERBOSE_LOGGING] ?: false }.first()
+                _uiState.update { it.copy(verboseLogging = enabled) }
+            } catch (e: Exception) {
+                // Silently fail — verbose logging is optional
+            }
         }
     }
 
