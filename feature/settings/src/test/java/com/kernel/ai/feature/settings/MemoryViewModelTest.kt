@@ -5,6 +5,7 @@ import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
+import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import io.mockk.Runs
@@ -46,6 +47,7 @@ class MemoryViewModelTest {
     private val coreMemoriesFlow = MutableStateFlow<List<CoreMemoryEntity>>(emptyList())
     private val episodicCountFlow = MutableStateFlow(0)
     private val episodicMemoriesFlow = MutableStateFlow<List<EpisodicMemoryEntity>>(emptyList())
+    private val kiwiMemoriesFlow = MutableStateFlow<List<KiwiMemoryEntity>>(emptyList())
     private val conversationsFlow = MutableStateFlow<List<ConversationEntity>>(emptyList())
 
     private lateinit var viewModel: MemoryViewModel
@@ -56,6 +58,7 @@ class MemoryViewModelTest {
         every { memoryRepository.observeCoreMemories() } returns coreMemoriesFlow
         every { memoryRepository.observeEpisodicCount() } returns episodicCountFlow
         every { memoryRepository.observeEpisodicMemories() } returns episodicMemoriesFlow
+        every { memoryRepository.observeAllKiwiMemories() } returns kiwiMemoriesFlow
         every { conversationRepository.observeConversations() } returns conversationsFlow
         viewModel = MemoryViewModel(memoryRepository, conversationRepository, embeddingDao, embeddingEngine)
     }
