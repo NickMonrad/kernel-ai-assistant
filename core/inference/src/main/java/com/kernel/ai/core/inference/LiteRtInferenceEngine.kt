@@ -320,6 +320,7 @@ class LiteRtInferenceEngine @Inject constructor(
     override fun cancelGeneration() {
         conversation?.cancelProcess()
         _isGenerating.value = false
+        InferenceGenerationService.stop(context)
     }
 
     /**
