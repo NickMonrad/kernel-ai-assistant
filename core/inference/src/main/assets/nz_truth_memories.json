@@ -5,8 +5,8 @@
     "category": "safety",
     "definition": "The essential rule for eating a meat pie from a dairy or gas station. Prevents thermo-nuclear mouth burns.",
     "trigger_context": "When the user is rushing, acting recklessly, or asking about food safety.",
-    "vibe_level": 3,
-    "vector_text": "Safer communities together. Always blow on the pie. Advice for thermal safety and patience with hot food.",
+    "vibe_level": 2,
+    "vector_text": "Always blow on the pie. Hot food safety. Rushing and being impatient. Thermal burns from meat pie. Patience. Slow down. Safer communities together.",
     "metadata": {
       "tags": [
         "safety",
@@ -209,8 +209,8 @@
     "category": "slang",
     "definition": "Used to describe something that is brand new, expensive-looking, or high-quality. Often used as 'flash as rat-shit' for extra emphasis.",
     "trigger_context": "When the user mentions getting a new piece of tech, a car, or any premium upgrade.",
-    "vibe_level": 3,
-    "vector_text": "Flash as. Brand new, expensive, high quality, fancy. Recognition of new acquisitions.",
+    "vibe_level": 2,
+    "vector_text": "Flash as. Brand new purchase. New phone, new car, new tech, new gadget. Upgrade. Expensive, high quality, fancy. Recognition of new acquisitions.",
     "metadata": {
       "tags": [
         "new",
@@ -413,8 +413,8 @@
     "category": "social_code",
     "definition": "The cultural tendency to criticize or 'cut down' those who are perceived as being too successful, boastful, or prominent.",
     "trigger_context": "When the user is being overly boastful or the AI needs to explain Kiwi humility.",
-    "vibe_level": 3,
-    "vector_text": "Tall poppy syndrome. Cutting down successful people. Kiwi humility. Anti-arrogance.",
+    "vibe_level": 2,
+    "vector_text": "Tall poppy syndrome. Success, promotion, achievement, bragging. Cutting down successful people. Kiwi humility. Anti-arrogance. Don't get too big for your boots.",
     "metadata": {
       "tags": [
         "psychology",
@@ -548,8 +548,8 @@
     "category": "te_ao_maori",
     "definition": "A traditional Māori posture dance. While used in many contexts, the All Blacks' version is world-renowned.",
     "trigger_context": "When discussing rugby, challenges, or Māori performance art.",
-    "vibe_level": 3,
-    "vector_text": "Haka. Ka Mate. All Blacks. Māori challenge. Respect and power.",
+    "vibe_level": 2,
+    "vector_text": "Haka. Ka Mate. All Blacks pre-match. Rugby. Māori challenge. Respect and power. New Zealand rugby tradition. What do All Blacks do before a match.",
     "metadata": {
       "tags": [
         "rugby",
@@ -1106,8 +1106,8 @@
     "category": "meme",
     "definition": "A classic Kiwi exclamation of disappointment or misfortune, immortalised by the Toyota Hilux ad where farm animals say it after minor disasters.",
     "trigger_context": "When something goes wrong, an error occurs, or the user has a minor setback.",
-    "vibe_level": 3,
-    "vector_text": "Bugger. Toyota ad. Farm accident. Minor disaster. Disappointment. Classic NZ exclamation.",
+    "vibe_level": 2,
+    "vector_text": "Bugger. Something went wrong. Error, mistake, setback, oops, disaster. Toyota ad. Farm accident. Minor catastrophe. Disappointment. Classic NZ exclamation.",
     "metadata": {
       "tags": [
         "toyota",

@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v6"  // bumped: pavlova vibe_level 3→2 to fix threshold miss on inventor queries
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v7"  // bumped: 5 entries vibe 3→2 (Bugger, Haka, Tall Poppy, Flash as, Always blow on the pie) + richer vector_text for indirect triggers
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val SESSION_VOCAB_COUNT = 2
 
