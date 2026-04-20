@@ -58,6 +58,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
+import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -327,6 +328,43 @@ fun MemoryScreen(
                         messageCount = uiState.embeddingStats.messageCount,
                         conversationCount = uiState.embeddingStats.conversationCount,
                     )
+                }
+            }
+
+            // ── Cultural Memories (kiwi corpus) ────────────────────────────
+            item {
+                Spacer(Modifier.height(8.dp))
+                CollapsibleSectionHeader(
+                    title = "Cultural Memories",
+                    count = uiState.kiwiMemories.size,
+                    isExpanded = MemorySection.KIWI in uiState.expandedSections,
+                    onToggle = { viewModel.toggleSection(MemorySection.KIWI) },
+                )
+            }
+
+            if (MemorySection.KIWI in uiState.expandedSections) {
+                item {
+                    Text(
+                        text = "NZ/Jandal corpus — read-only. Managed by seed guard, not editable.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                if (uiState.kiwiMemories.isEmpty()) {
+                    item {
+                        Text(
+                            text = "Corpus not yet seeded",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
+                } else {
+                    items(uiState.kiwiMemories, key = { it.id }) { memory ->
+                        KiwiMemoryItem(memory = memory)
+                        HorizontalDivider()
+                    }
                 }
             }
         }
@@ -871,6 +909,38 @@ private fun EpisodicMemoryItem(
             onClick = { if (isInEpisodicSelectionMode) onToggleSelect() else onTap() },
             onLongClick = { if (!isInEpisodicSelectionMode) onLongPress() },
         ),
+    )
+}
+
+/** Read-only list item for kiwi corpus entries. Shows term, truncated definition, vibe badge. */
+@Composable
+private fun KiwiMemoryItem(memory: KiwiMemoryEntity) {
+    ListItem(
+        headlineContent = {
+            Text(
+                text = memory.term.ifBlank { memory.id },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        supportingContent = {
+            Text(
+                text = memory.definition.ifBlank { memory.content },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        trailingContent = {
+            Badge(containerColor = MaterialTheme.colorScheme.tertiaryContainer) {
+                Text(
+                    text = "vibe ${memory.vibeLevel}",
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        },
     )
 }
 

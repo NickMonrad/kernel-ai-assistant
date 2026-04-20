@@ -8,6 +8,7 @@ import androidx.work.WorkerParameters
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
+import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -34,6 +35,7 @@ class MemoryEmbeddingWorker @AssistedInject constructor(
     private val embeddingEngine: EmbeddingEngine,
     private val coreMemoryDao: CoreMemoryDao,
     private val episodicMemoryDao: EpisodicMemoryDao,
+    private val kiwiMemoryDao: KiwiMemoryDao,
     private val memoryRepository: MemoryRepository,
 ) : CoroutineWorker(context, params) {
 
@@ -60,6 +62,17 @@ class MemoryEmbeddingWorker @AssistedInject constructor(
                     continue
                 }
                 memoryRepository.backfillEpisodicVector(entity.rowId, vector)
+                backfilled++
+            }
+
+            val unvectorizedKiwi = kiwiMemoryDao.getUnvectorized()
+            for (entity in unvectorizedKiwi) {
+                val vector = embeddingEngine.embed(entity.content)
+                if (vector.isEmpty()) {
+                    Log.w(TAG, "Embedding engine not ready — skipping kiwi memory rowId=${entity.rowId}")
+                    continue
+                }
+                memoryRepository.backfillKiwiVector(entity.rowId, vector)
                 backfilled++
             }
 
