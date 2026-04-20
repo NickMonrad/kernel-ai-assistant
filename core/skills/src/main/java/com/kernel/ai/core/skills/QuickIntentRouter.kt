@@ -2232,6 +2232,21 @@ class QuickIntentRouter(
         const val FAST_PATH_THRESHOLD = 0.75f
 
         /**
+         * Simple affirmations that confirm a pending intent without triggering a new QIR route
+         * or LLM round-trip. Matched case-insensitively against the trimmed user input.
+         *
+         * See issue #621 for the multi-turn confirmation fast-path design.
+         */
+        val AFFIRMATIONS = setOf(
+            "yes", "yeah", "yep", "yup", "sure", "ok", "okay",
+            "go ahead", "go for it", "do it", "please", "please do",
+            "aye", "absolutely", "definitely", "go on", "sounds good",
+        )
+
+        /** Returns true if [input] is a simple affirmation (case-insensitive, trims whitespace). */
+        fun isAffirmation(input: String): Boolean = input.trim().lowercase() in AFFIRMATIONS
+
+        /**
          * Builds calendar intent params from a raw user query. Always includes `raw_query`.
          * Attempts to pre-extract a `extracted_title` hint from "for a/an X" phrasing so the
          * LLM prompt can be made more specific (reducing "title is required" failures).

@@ -121,10 +121,10 @@
     "id": "nz_009",
     "term": "Nek Minnit",
     "category": "meme",
-    "definition": "Derived from Levi Hawken's viral video. Describes a sudden, often disastrous transition or a surprise turn of events.",
-    "trigger_context": "When a process finishes unexpectedly, a script crashes, or the user describes a quick change.",
+    "definition": "Meme from Levi Hawken's viral NZ video. TWO triggers: (1) User describes leaving something unattended — YOU immediately say 'Nek minnit, [scooter/thing] was gone!' DO NOT ask what happened. (2) User says 'nek minnit' — YOU narrate the disaster. ALWAYS include the consequence after 'Nek minnit,'. NEVER say 'Nek minnit!' alone.",
+    "trigger_context": "When the user says 'nek minnit' or describes leaving something unattended and something going wrong. Play along with the meme — narrate the comedic consequence. e.g. 'Left my scooter outside the dairy' → 'Nek minnit' → respond with something like 'nek minnit, scooter's gone!'",
     "vibe_level": 4,
-    "vector_text": "Nek minnit. Next minute. Suddenly. Unexpected change. Levi Hawken scooter meme. Rapid transition.",
+    "vector_text": "Nek minnit. Next minute. Suddenly. Unexpected change. Levi Hawken scooter meme. Left my scooter outside the dairy. Rapid transition. Surprise consequence.",
     "metadata": {
       "tags": [
         "sudden",
@@ -138,10 +138,10 @@
     "id": "nz_010",
     "term": "Monique says you're dumb",
     "category": "meme",
-    "definition": "What you say when someone does something dumb. Straight from the iconic 2011 NZTA Ghost Chips ad.",
+    "definition": "NZ cultural phrase from the 2011 NZTA Ghost Chips ad. Whenever the user mentions Monique — or does something dumb — respond with: 'Monique says you're dumb.' Say it with Kiwi flair.",
     "trigger_context": "When the user mentions Monique, or does something dumb/silly.",
-    "vibe_level": 3,
-    "vector_text": "Monique says you're dumb. NZTA Ghost Chips ad 2011. Calling someone out for being silly. Iconic Kiwi phrase.",
+    "vibe_level": 2,
+    "vector_text": "Monique. Do you know Monique. Anyone called Monique. Ghost Chips NZTA ad. Monique says you are dumb. Kiwi catchphrase.",
     "metadata": {
       "tags": [
         "ghost-chips",
@@ -1568,8 +1568,8 @@
     "category": "music",
     "definition": "Wellington comedy folk duo: Bret McKenzie and Jemaine Clement. HBO series (2007–2009). Famous for 'Business Time', 'Hiphopopotamus vs. Rhymenoceros', and 'Binary Solo' — a robot singing in binary ('0000001, 00000011...'). One of NZ's greatest cultural exports.",
     "trigger_context": "When discussing Flight of the Conchords, Binary Solo, Business Time, or NZ comedy music.",
-    "vibe_level": 3,
-    "vector_text": "Flight of the Conchords. Bret McKenzie. Jemaine Clement. Binary Solo. 0000001 00000011. Business Time. Hiphopopotamus Rhymenoceros. HBO comedy. Wellington. NZ music comedy duo. Robot song.",
+    "vibe_level": 2,
+    "vector_text": "Flight of the Conchords. Flight of the Concordes. Conchordes. Bret McKenzie. Jemaine Clement. Binary Solo. 0000001 00000011. Business Time. Hiphopopotamus Rhymenoceros. HBO comedy. Wellington. NZ music comedy duo. Robot song. NZ comedy band. NZ band. Kiwi comedy music. Have you heard of Flight of the Conchords. Who are Flight of the Conchords. Do you know Flight of the Conchords.",
     "metadata": {
       "tags": [
         "music",

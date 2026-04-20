@@ -14,9 +14,8 @@ import android.util.Log
  * Foreground service that keeps the process at high OOM priority during
  * on-device response generation.
  *
- * Without this, switching away from the app during generation triggers
- * onTrimMemory(TRIM_MEMORY_UI_HIDDEN=20), which fires releaseForMemoryPressure()
- * and cancels the active generation.
+ * Without this, switching away from the app during generation could trigger
+ * onTrimMemory at BACKGROUND+ levels and cancel the active generation.
  *
  * Start at the beginning of [LiteRtInferenceEngine.generate], stop when the
  * flow closes (completion, error, or user cancellation).

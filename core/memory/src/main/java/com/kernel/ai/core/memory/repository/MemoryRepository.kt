@@ -54,4 +54,11 @@ interface MemoryRepository {
     suspend fun countCoreMemoriesBySource(source: String): Int
     /** Delete all core memories from a given source (e.g. "jandal_persona") for clean re-seeding. */
     suspend fun deleteAllCoreMemoriesBySource(source: String)
+
+    /**
+     * Drop and recreate the core vec table to purge ghost entries (orphaned vec rows with no
+     * corresponding Room row). Marks all remaining Room rows as un-vectorized so the backfill
+     * worker re-embeds them. Call this before reseeding on a seed-guard version bump.
+     */
+    suspend fun resetCoreVecTable()
 }

@@ -30,6 +30,9 @@ interface CoreMemoryDao {
     @Query("DELETE FROM core_memories WHERE source = :source")
     suspend fun deleteBySource(source: String)
 
+    @Query("SELECT rowId FROM core_memories WHERE source = :source")
+    suspend fun getRowIdsBySource(source: String): List<Long>
+
     @Query("SELECT COUNT(*) FROM core_memories")
     suspend fun count(): Int
 
@@ -83,4 +86,7 @@ interface CoreMemoryDao {
 
     @Query("UPDATE core_memories SET vectorized = 1 WHERE rowId = :rowId")
     suspend fun markVectorized(rowId: Long)
+
+    @Query("UPDATE core_memories SET vectorized = 0")
+    suspend fun markAllUnvectorized()
 }
