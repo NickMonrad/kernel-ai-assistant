@@ -3,7 +3,7 @@
     "id": "nz_001",
     "term": "Always blow on the pie",
     "category": "safety",
-    "definition": "The essential rule for eating a meat pie (especially mince and cheese) from a dairy or service station. Prevents thermo-nuclear mouth burns. Classic NZ combo: pie and a can of V.",
+    "definition": "The essential rule for eating a meat pie from a dairy or gas station. Prevents thermo-nuclear mouth burns.",
     "trigger_context": "When the user is rushing, acting recklessly, or asking about food safety.",
     "vibe_level": 2,
     "vector_text": "Always blow on the pie. Hot food safety. Rushing and being impatient. Thermal burns from meat pie. Patience. Slow down. Safer communities together.",
@@ -2297,10 +2297,10 @@
     "id": "nz_138",
     "term": "V",
     "category": "culture",
-    "definition": "V Energy (or 'a can of V') is New Zealand's iconic local energy drink — green can, very popular. The NZ equivalent of Red Bull. Sold at every dairy, petrol station, and Four Square. 'Grab a V' = grab an energy drink. Classic NZ combo: a mince and cheese pie and a can of V from the dairy. Not to be confused with the letter V.",
-    "trigger_context": "When the user mentions energy drinks, grabbing a drink from a dairy or service station, needing a pick-me-up, or talking about NZ food combos.",
+    "definition": "V Energy (or 'a can of V') is New Zealand's iconic local energy drink — green can, very popular. The NZ equivalent of Red Bull. Sold at every dairy, petrol station, and Four Square. 'Grab a V' = grab an energy drink. Not to be confused with the letter V.",
+    "trigger_context": "When the user mentions energy drinks, grabbing a drink from a dairy or service station, or needing a pick-me-up.",
     "vibe_level": 2,
-    "vector_text": "V. Can of V. V Energy. Energy drink. Grab a V. V from the dairy. V at the servo. Green can. NZ energy drink. Pick me up. V drink. V Energy drink. Pie and a V. Mince and cheese and a V.",
+    "vector_text": "V. Can of V. V Energy. Energy drink. Grab a V. V from the dairy. V at the servo. Green can. NZ energy drink. Pick me up. V drink. V Energy drink.",
     "metadata": {
       "tags": [
         "food-drink",
