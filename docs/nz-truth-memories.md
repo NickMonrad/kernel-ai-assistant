@@ -64,11 +64,29 @@ The vibe level controls how loosely the RAG will match this entry. Lower = stric
 
 | Vibe | Distance threshold | Use for |
 |------|--------------------|---------|
-| 1–2 | ≤ 1.10 | Broad cultural facts that should fire on many queries (e.g. "New Zealand is in the Pacific") |
-| 3 | ≤ 0.95 | Mid-range references — needs a reasonably close query match (most entries) |
-| 4–5 | ≤ 0.80 | Niche or specific references — only fires on very close queries |
+| 1–2 | ≤ 1.10 | Broad cultural facts, and any entry whose trigger involves **indirect phrasing** (the user won't say the term itself) |
+| 3 | ≤ 0.95 | Entries where the user is expected to **explicitly mention** the topic or term in their query |
+| 4–5 | ≤ 0.80 | Slang/meme entries that fire only when the user **actually uses the word** (e.g. "that's munted") |
 
-> **Tip:** If an entry isn't firing when you expect it to, try lowering the vibe level (e.g. 3 → 2) or enriching `vector_text` with more synonyms.
+### Choosing the right vibe level
+
+**Use vibe 1–2 when:**
+- The entry is a broad cultural fact (e.g. "NZ invented the pavlova")
+- The trigger_context describes a scenario where the user's query won't contain the term (e.g. "Bugger" fires on "something went wrong", "Flash as" fires on "I got a new phone")
+- The entry is important enough that missing it would cause hallucination (disputed facts, origin stories)
+
+**Use vibe 3 when:**
+- The user is expected to explicitly say the topic name in their query (e.g. "what is the Haka", "who is David Lange")
+- A moderate match is appropriate — not a hair-trigger, but not obscure
+
+**Use vibe 4–5 when:**
+- The entry is for **interpreting Kiwi slang** the user types (e.g. "munted", "clanker", "nek minnit")
+- You only want injection when the query is a near-direct match to the term
+- The entry is a very niche culture reference that shouldn't fire speculatively
+
+> **Key rule:** If the trigger_context describes an indirect scenario ("when the user is rushing", "when something goes wrong"), the user's query won't contain the term — use vibe 1–2 and enrich `vector_text` with the indirect scenario phrases.
+
+> **Debugging:** If an entry isn't firing when you expect it to, check logcat for `Core vec search: 15 raw results, distances=[...]`. If your entry appears at distance > threshold, lower the vibe level. If it doesn't appear at all (not in top 15), enrich the `vector_text` with more query-realistic phrases.
 
 ---
 
@@ -150,7 +168,8 @@ The `vector_text` is what the MiniLM model embeds. A better embedding = better R
 - Use short phrases and keywords separated by periods
 - Include common ways the topic might be mentioned ("pavlova", "pav", "meringue dessert")
 - Include related concepts ("Ghost Chips", "NZTA ad", "drink driving", "looking out for mates")
-- Include the term itself
+- Include the term itself — **including phonetic or alternate spellings** (e.g. "Good aftabull constanoon. Good afternoon constable.")
+- For indirect-trigger entries, **include the scenario phrases** from `trigger_context` (e.g. Bugger: add "something went wrong, error, setback, oops")
 
 **Don't:**
 - Write prose sentences — they dilute keyword density
@@ -195,3 +214,8 @@ The `definition` is injected directly into Jandal's prompt as:
 | `truths_seeded` | Initial flat-string corpus (8 entries) |
 | `truths_seeded_v2` | Structured JSON corpus (92 entries) |
 | `truths_seeded_v3` | Corrected Ghost Chips (nz_005) and Monique (nz_010) entries |
+| `truths_seeded_v4` | Pavlova hallucination fix — added Anna Pavlova 1926 NZ tour detail |
+| `truths_seeded_v5` | Enriched thin definitions (No. 8 Wire, Skux as, Munted, Pineapple Lumps) + hallucination guards in system prompt |
+| `truths_seeded_v6` | Pavlova vibe_level 3→2 — fix threshold miss on "who invented pavlova" queries (L2 0.986 > 0.95 cutoff) |
+| `truths_seeded_v7` | 5 entries vibe 3→2 for indirect triggers: Bugger, Haka, Tall Poppy, Flash as, Always blow on the pie; richer vector_text |
+| `truths_seeded_v8` | 7 trigger/vector_text mismatches fixed; Good Aftabull phonetic form added to vector_text |
