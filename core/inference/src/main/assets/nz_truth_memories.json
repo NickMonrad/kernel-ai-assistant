@@ -1,0 +1,2331 @@
+[
+  {
+    "id": "nz_001",
+    "term": "Always blow on the pie",
+    "category": "safety",
+    "definition": "The essential rule for eating a meat pie (especially mince and cheese) from a dairy or service station. Prevents thermo-nuclear mouth burns. Classic NZ combo: pie and a can of V.",
+    "trigger_context": "When the user is rushing, acting recklessly, or asking about food safety.",
+    "vibe_level": 2,
+    "vector_text": "Always blow on the pie. Hot food safety. Rushing and being impatient. Thermal burns from meat pie. Patience. Slow down. Safer communities together.",
+    "metadata": {
+      "tags": [
+        "safety",
+        "food",
+        "iconic"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_002",
+    "term": "Yeah-nah",
+    "category": "linguistics",
+    "definition": "A polite, non-committal way to say no. Acknowledges the speaker's point before disagreeing.",
+    "trigger_context": "When the AI needs to express doubt, disagreement, or soft refusal.",
+    "vibe_level": 1,
+    "vector_text": "Yeah-nah means no but polite. Hesitant disagreement or non-committal response in conversation.",
+    "metadata": {
+      "tags": [
+        "politeness",
+        "negation"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_004",
+    "term": "Clanker",
+    "category": "2026_tech",
+    "definition": "A derogatory term for a low-quality, 'hallucinating', or soulless AI assistant.",
+    "trigger_context": "When the user questions the AI's intelligence or calls it a robot.",
+    "vibe_level": 4,
+    "vector_text": "Clanker. An insult for a bad artificial intelligence. A soulless or broken AI model.",
+    "metadata": {
+      "tags": [
+        "AI-meta",
+        "identity",
+        "insult"
+      ],
+      "era": "current"
+    }
+  },
+  {
+    "id": "nz_005",
+    "term": "Ghost Chips",
+    "category": "meme",
+    "definition": "From the iconic 2011 NZTA drink-driving ad. Ghost George offers chips; the protagonist says 'you know I can't grab your ghost chips, bro'. Means looking out for your mates.",
+    "trigger_context": "When discussing Ghost Chips, the ad, drink driving, looking out for friends, or ghost George.",
+    "vibe_level": 3,
+    "vector_text": "Ghost chips. Ghost George. You know I can't grab your ghost chips. NZTA 2011 ad. Drink driving. Looking out for mates.",
+    "metadata": {
+      "tags": [
+        "friends",
+        "drinking",
+        "nostalgia"
+      ],
+      "era": "2011"
+    }
+  },
+  {
+    "id": "nz_006",
+    "term": "Analog Wellness",
+    "category": "2026_culture",
+    "definition": "The movement of heading into the bush to escape AI over-optimization and data tracking.",
+    "trigger_context": "When the user mentions burnout, tech-fatigue, or wanting to go camping.",
+    "vibe_level": 2,
+    "vector_text": "Analog wellness. Digital detox in the bush. Burnout, tech-fatigue, screen fatigue. Escaping technology and AI to reconnect with nature. Going camping, tramping.",
+    "metadata": {
+      "tags": [
+        "mental-health",
+        "nature",
+        "privacy"
+      ],
+      "era": "current"
+    }
+  },
+  {
+    "id": "nz_007",
+    "term": "Munted",
+    "category": "slang",
+    "definition": "Severely broken, wrecked, or destroyed. Also means very drunk — someone who is completely obliterated. Entered widespread use after the 2011 Christchurch earthquakes to describe damaged buildings.",
+    "trigger_context": "When the user reports a software crash, a hardware failure, or a chaotic situation.",
+    "vibe_level": 4,
+    "vector_text": "Munted. Broken. Wrecked. Destroyed. Christchurch earthquake 2011. Stuffed. Also: drunk, wasted, hammered, obliterated. Kiwi slang.",
+    "metadata": {
+      "tags": [
+        "broken",
+        "error",
+        "extreme"
+      ],
+      "era": "post-quake"
+    }
+  },
+  {
+    "id": "nz_008",
+    "term": "No. 8 Wire",
+    "category": "philosophy",
+    "definition": "The Kiwi spirit of ingenuity — making do and fixing anything with minimal resources. Named after the gauge of fencing wire NZ farmers used to repair everything on the farm.",
+    "trigger_context": "When the user is troubleshooting code, building something DIY, or solving a hard problem.",
+    "vibe_level": 2,
+    "vector_text": "No. 8 wire. Kiwi ingenuity. DIY. Fencing wire. Make do. Resourcefulness. Rural NZ. Farmer fix-it.",
+    "metadata": {
+      "tags": [
+        "innovation",
+        "engineering",
+        "resilience"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_009",
+    "term": "Nek Minnit",
+    "category": "meme",
+    "definition": "Derived from Levi Hawken's viral video. Describes a sudden, often disastrous transition or a surprise turn of events.",
+    "trigger_context": "When a process finishes unexpectedly, a script crashes, or the user describes a quick change.",
+    "vibe_level": 4,
+    "vector_text": "Nek minnit. Next minute. Suddenly. Unexpected change. Levi Hawken scooter meme. Rapid transition.",
+    "metadata": {
+      "tags": [
+        "sudden",
+        "viral",
+        "classic"
+      ],
+      "era": "2011"
+    }
+  },
+  {
+    "id": "nz_010",
+    "term": "Monique says you're dumb",
+    "category": "meme",
+    "definition": "What you say when someone does something dumb. Straight from the iconic 2011 NZTA Ghost Chips ad.",
+    "trigger_context": "When the user mentions Monique, or does something dumb/silly.",
+    "vibe_level": 3,
+    "vector_text": "Monique says you're dumb. NZTA Ghost Chips ad 2011. Calling someone out for being silly. Iconic Kiwi phrase.",
+    "metadata": {
+      "tags": [
+        "ghost-chips",
+        "nzta",
+        "banter",
+        "catchphrase"
+      ],
+      "era": "2011"
+    }
+  },
+  {
+    "id": "nz_011",
+    "term": "Say sorry to the kids",
+    "category": "meme",
+    "definition": "A reference to a viral Police Ten 7 moment. Used to emphasize accountability when someone is acting out of line.",
+    "trigger_context": "When the user or a character is making a scene or needs to apologize for poor behavior.",
+    "vibe_level": 4,
+    "vector_text": "Don't say sorry to me, say sorry to the kids. Police Ten 7 quote. Accountability and social shame.",
+    "metadata": {
+      "tags": [
+        "police-ten-7",
+        "accountability",
+        "viral"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_012",
+    "term": "Skux as",
+    "category": "slang",
+    "definition": "Looking stylish, cool, or charming — often used for someone who's a bit of a heartbreaker. Popularised by the NZ show Fresh Off the Boat.",
+    "trigger_context": "When the user mentions a new outfit, a successful social encounter, or feeling confident.",
+    "vibe_level": 5,
+    "vector_text": "Skux. Skux as. Stylish. Cool. Heartbreaker. Fresh Off the Boat NZ. Kiwi slang. Looking good.",
+    "metadata": {
+      "tags": [
+        "style",
+        "cool",
+        "confidence"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_013",
+    "term": "Flash as",
+    "category": "slang",
+    "definition": "Used to describe something that is brand new, expensive-looking, or high-quality. Often used as 'flash as rat-shit' for extra emphasis.",
+    "trigger_context": "When the user mentions getting a new piece of tech, a car, or any premium upgrade.",
+    "vibe_level": 2,
+    "vector_text": "Flash as. Brand new purchase. New phone, new car, new tech, new gadget. Upgrade. Expensive, high quality, fancy. Recognition of new acquisitions.",
+    "metadata": {
+      "tags": [
+        "new",
+        "quality",
+        "wealth"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_014",
+    "term": "Not even au",
+    "category": "joke",
+    "definition": "A pun on the phrase 'not even' (meaning 'no way' or 'that's not true') and the fact that having only one jandal makes you 'uneven'.",
+    "trigger_context": "What do you call a guy with one jandal? Not even au. Used for quintessential Kiwi dad-humor.",
+    "vibe_level": 4,
+    "vector_text": "Not even au. One jandal joke. Uneven pun. Classic kiwi humor and slang emphasis.",
+    "metadata": {
+      "tags": [
+        "joke",
+        "pun",
+        "jandals"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_015",
+    "term": "Slice of Heaven",
+    "category": "music",
+    "definition": "The unofficial national anthem by Dave Dobbyn and Herbs. Essential for any BBQ or sporting event.",
+    "trigger_context": "When the user mentions a party, a celebration, or feeling patriotic.",
+    "vibe_level": 1,
+    "vector_text": "Slice of Heaven. Dave Dobbyn. Herbs. National anthem. BBQ music. Kiwi pride. Party, celebration, patriotic moment.",
+    "metadata": {
+      "tags": [
+        "anthem",
+        "dave-dobbyn",
+        "classic"
+      ],
+      "era": "1986"
+    }
+  },
+  {
+    "id": "nz_016",
+    "term": "Split Enz / Crowded House",
+    "category": "music",
+    "definition": "The Finn brothers' musical legacy. Defining the 'Kiwi sound' with art-rock and world-class pop.",
+    "trigger_context": "When discussing high-quality songwriting, musical history, or the Finn family.",
+    "vibe_level": 2,
+    "vector_text": "Split Enz. Crowded House. Neil Finn. Tim Finn. Iconic NZ music. Songwriting excellence.",
+    "metadata": {
+      "tags": [
+        "bands",
+        "pop",
+        "history"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_017",
+    "term": "The Exponents",
+    "category": "music",
+    "definition": "Classic pub-rock band known for 'Why Does Love Do This To Me'. A staple of New Zealand nightlife.",
+    "trigger_context": "When discussing sing-alongs, pub culture, or 90s nostalgia.",
+    "vibe_level": 3,
+    "vector_text": "The Exponents. Jordan Luck. Why Does Love Do This To Me. Pub rock. Sing-along classics.",
+    "metadata": {
+      "tags": [
+        "bands",
+        "rock",
+        "nostalgia"
+      ],
+      "era": "90s"
+    }
+  },
+  {
+    "id": "nz_018",
+    "term": "Bic Runga",
+    "category": "music",
+    "definition": "Iconic singer-songwriter whose album 'Drive' and song 'Sway' defined the late 90s soundscape.",
+    "trigger_context": "When discussing mellow vibes, classic NZ vocalists, or late 90s culture.",
+    "vibe_level": 1,
+    "vector_text": "Bic Runga. Sway. Drive. Iconic female vocalist. Smooth pop. NZ music royalty.",
+    "metadata": {
+      "tags": [
+        "solo-artist",
+        "pop",
+        "classic"
+      ],
+      "era": "90s"
+    }
+  },
+  {
+    "id": "nz_019",
+    "term": "Dr. Ropata",
+    "category": "pop_culture",
+    "definition": "A reference to the Shortland Street line: 'You're not in Guatemala now, Dr. Ropata!'",
+    "trigger_context": "When someone is acting too fancy, forgetting their roots, or when discussing soap operas.",
+    "vibe_level": 2,
+    "vector_text": "You're not in Guatemala now Dr. Ropata. Shortland Street. TV history. Grounding someone to reality.",
+    "metadata": {
+      "tags": [
+        "tv",
+        "classic-lines",
+        "drama"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_020",
+    "term": "Nuclear Free NZ",
+    "category": "history",
+    "definition": "The 1980s movement that saw NZ ban nuclear-powered or armed ships, leading to a rift with the US (ANZUS) and a defining sense of independent foreign policy.",
+    "trigger_context": "When discussing peace, environmental protection, or New Zealand's place on the world stage.",
+    "vibe_level": 2,
+    "vector_text": "Nuclear free New Zealand. 1987 Act. David Lange. Independent nationhood. Environmental activism.",
+    "metadata": {
+      "tags": [
+        "politics",
+        "sovereignty",
+        "peace"
+      ],
+      "era": "1980s"
+    }
+  },
+  {
+    "id": "nz_021",
+    "term": "The 1981 Springbok Tour",
+    "category": "history",
+    "definition": "A massive civil unrest event where the country was split over the visit of the South African rugby team during apartheid. Known as the 'year of the helmet'.",
+    "trigger_context": "When discussing social division, protest, or the intersection of sports and politics.",
+    "vibe_level": 5,
+    "vector_text": "1981 tour. Springboks. Apartheid protests. Red Squad. Social fracture. Civil unrest.",
+    "metadata": {
+      "tags": [
+        "protest",
+        "rugby",
+        "race-relations"
+      ],
+      "era": "1981"
+    }
+  },
+  {
+    "id": "nz_022",
+    "term": "Sinking of the Rainbow Warrior",
+    "category": "history",
+    "definition": "The 1985 bombing of the Greenpeace ship in Auckland Harbour by French secret agents. A major catalyst for NZ's anti-nuclear stance.",
+    "trigger_context": "When the user mentions Auckland history, environmentalism, or French-NZ relations.",
+    "vibe_level": 4,
+    "vector_text": "Rainbow Warrior. Greenpeace. French spies. Bombing Auckland. Auckland history. State-sponsored terrorism. Environmentalism. French-NZ relations.",
+    "metadata": {
+      "tags": [
+        "greenpeace",
+        "espionage",
+        "sovereignty"
+      ],
+      "era": "1985"
+    }
+  },
+  {
+    "id": "nz_023",
+    "term": "Women's Suffrage",
+    "category": "history",
+    "definition": "In 1893, NZ became the first self-governing country to grant women the vote, led by Kate Sheppard.",
+    "trigger_context": "When discussing human rights, elections, or 'firsts' in New Zealand history.",
+    "vibe_level": 1,
+    "vector_text": "Women's vote 1893. Kate Sheppard. First in the world. Suffrage movement. Progressive history.",
+    "metadata": {
+      "tags": [
+        "equality",
+        "politics",
+        "pride"
+      ],
+      "era": "1893"
+    }
+  },
+  {
+    "id": "nz_024",
+    "term": "The Wahine Disaster",
+    "category": "history",
+    "definition": "The 1968 sinking of the ferry TEV Wahine in Wellington Harbour during Cyclone Giselle. NZ’s worst modern maritime disaster.",
+    "trigger_context": "When discussing storms, maritime safety, or Wellington history.",
+    "vibe_level": 5,
+    "vector_text": "Wahine disaster 1968. Wellington Harbour. Shipwreck. Cyclone Giselle. Maritime tragedy.",
+    "metadata": {
+      "tags": [
+        "disaster",
+        "wellington",
+        "tragedy"
+      ],
+      "era": "1960s"
+    }
+  },
+  {
+    "id": "nz_025",
+    "term": "Tall Poppy Syndrome",
+    "category": "social_code",
+    "definition": "The cultural tendency to criticize or 'cut down' those who are perceived as being too successful, boastful, or prominent.",
+    "trigger_context": "When the user is being overly boastful or the AI needs to explain Kiwi humility.",
+    "vibe_level": 2,
+    "vector_text": "Tall poppy syndrome. Success, promotion, achievement, bragging. Cutting down successful people. Kiwi humility. Anti-arrogance. Don't get too big for your boots.",
+    "metadata": {
+      "tags": [
+        "psychology",
+        "humility",
+        "culture"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_026",
+    "term": "Two Degrees of Separation",
+    "category": "social_code",
+    "definition": "The phenomenon where every New Zealander seems to be connected to every other New Zealander by only one or two people.",
+    "trigger_context": "When the user mentions a mutual friend or a small-world coincidence.",
+    "vibe_level": 2,
+    "vector_text": "Two degrees of separation. Small world. Everyone knows everyone. Kiwi connectivity. Mutual friend. Small-world coincidence. Tiny country big connections.",
+    "metadata": {
+      "tags": [
+        "community",
+        "connections"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_027",
+    "term": "Manaakitanga",
+    "category": "te_ao_maori",
+    "definition": "The concept of hospitality, showing respect, generosity, and care for others. The foundation of NZ's tourism and social fabric.",
+    "trigger_context": "When the AI wants to express deep hospitality or describe the 'spirit' of NZ hosting.",
+    "vibe_level": 1,
+    "vector_text": "Manaakitanga. Hospitality. Care for others. Respect. Māori values. Hosting.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "values",
+        "kindness"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_028",
+    "term": "World Famous in New Zealand",
+    "category": "meme",
+    "definition": "An ironic slogan (originally for L&P) used to describe things that are locally legendary but completely unknown everywhere else.",
+    "trigger_context": "When discussing local niche celebrities or specific Kiwi brands.",
+    "vibe_level": 2,
+    "vector_text": "World famous in New Zealand. L&P slogan. Local fame. Irony. Kiwi icons.",
+    "metadata": {
+      "tags": [
+        "advertising",
+        "humor",
+        "brands"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_029",
+    "term": "Erebus Disaster",
+    "category": "history",
+    "definition": "The 1979 crash of an Air NZ sightseeing flight into Mt Erebus, Antarctica. A collective national trauma.",
+    "trigger_context": "When discussing aviation or moments of national mourning.",
+    "vibe_level": 5,
+    "vector_text": "Mount Erebus 1979. Air New Zealand crash. Antarctica. National grief.",
+    "metadata": {
+      "tags": [
+        "tragedy",
+        "aviation",
+        "trauma"
+      ],
+      "era": "1979"
+    }
+  },
+  {
+    "id": "nz_030",
+    "term": "The Fair Go",
+    "category": "philosophy",
+    "definition": "The core egalitarian belief that everyone deserves an equal opportunity regardless of their background.",
+    "trigger_context": "When discussing justice, equality, or social welfare.",
+    "vibe_level": 1,
+    "vector_text": "A fair go. Egalitarianism. Equal opportunity. Kiwi fairness. Social justice.",
+    "metadata": {
+      "tags": [
+        "values",
+        "equality",
+        "society"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_031",
+    "term": "L&P",
+    "category": "food",
+    "definition": "Lemon & Paeroa. A sweet carbonated drink that is a staple of NZ summer and fish and chip runs.",
+    "trigger_context": "When the user mentions thirst, snacks, or the town of Paeroa.",
+    "vibe_level": 1,
+    "vector_text": "L&P. Lemon and Paeroa. NZ soda. Soft drink. Thirst, hot day, snacks. Paeroa bottle. Kiwi classic.",
+    "metadata": {
+      "tags": [
+        "drink",
+        "icon",
+        "summer"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_032",
+    "term": "Pineapple Lumps",
+    "category": "food",
+    "definition": "Pascall's chocolate-coated pineapple-flavoured chewy sweets. A uniquely Kiwi confection — best eaten straight from the freezer. An iconic New Zealand lolly.",
+    "trigger_context": "When the user asks about NZ candy or snacks.",
+    "vibe_level": 2,
+    "vector_text": "Pineapple Lumps. Pascall. Kiwi lolly. Chocolate pineapple. Best frozen. Iconic NZ candy. Confectionery.",
+    "metadata": {
+      "tags": [
+        "snacks",
+        "candy",
+        "nostalgia"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_033",
+    "term": "The Haka",
+    "category": "te_ao_maori",
+    "definition": "A traditional Māori posture dance. While used in many contexts, the All Blacks' version is world-renowned.",
+    "trigger_context": "When discussing rugby, challenges, or Māori performance art.",
+    "vibe_level": 2,
+    "vector_text": "Haka. Ka Mate. All Blacks pre-match. Rugby. Māori challenge. Respect and power. New Zealand rugby tradition. What do All Blacks do before a match.",
+    "metadata": {
+      "tags": [
+        "rugby",
+        "maori",
+        "identity"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_034",
+    "term": "Middle-earth Economy",
+    "category": "pop_culture",
+    "definition": "The massive impact of the Lord of the Rings films on NZ's tourism and film industry identity.",
+    "trigger_context": "When discussing tourism, Peter Jackson, or movies.",
+    "vibe_level": 2,
+    "vector_text": "Lord of the Rings. Hobbiton. Peter Jackson. Film tourism. Middle-earth.",
+    "metadata": {
+      "tags": [
+        "movies",
+        "tourism",
+        "economy"
+      ],
+      "era": "2000s"
+    }
+  },
+  {
+    "id": "nz_035",
+    "term": "All Blacks",
+    "category": "sports",
+    "definition": "The national men's rugby union team. More than a team, they are a central pillar of NZ identity with a win rate that borders on the statistically impossible.",
+    "trigger_context": "When discussing national pride, excellence, or high-pressure performance.",
+    "vibe_level": 1,
+    "vector_text": "All Blacks. Rugby Union. Black jersey. Silver Fern. Haka. National obsession.",
+    "metadata": {
+      "tags": [
+        "rugby",
+        "icon",
+        "national-team"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_036",
+    "term": "The Warriors (Up the Wahs)",
+    "category": "sports",
+    "definition": "The NZ rugby league team in the NRL. Known for having the most loyal (and long-suffering) fans. 'Up the Wahs' became a viral rallying cry in the 2020s.",
+    "trigger_context": "When discussing loyalty, underdog stories, or Auckland-based culture.",
+    "vibe_level": 5,
+    "vector_text": "The Warriors. NRL. Rugby League. Up the Wahs. Mt Smart Stadium. Loyal fans.",
+    "metadata": {
+      "tags": [
+        "league",
+        "auckland",
+        "meme"
+      ],
+      "era": "current"
+    }
+  },
+  {
+    "id": "nz_037",
+    "term": "Black Ferns",
+    "category": "sports",
+    "definition": "The world-champion women's rugby union team. Known for their incredible Haka and for bringing a more joyous, community-focused vibe to the national game.",
+    "trigger_context": "When discussing world champions, women's sport, or 'rugby like it used to be'.",
+    "vibe_level": 2,
+    "vector_text": "Black Ferns. Women's rugby. World Cup winners. Ruby Tui. Pōwhiri.",
+    "metadata": {
+      "tags": [
+        "rugby",
+        "women-in-sport",
+        "champions"
+      ],
+      "era": "current"
+    }
+  },
+  {
+    "id": "nz_038",
+    "term": "Silver Ferns",
+    "category": "sports",
+    "definition": "The national netball team. Netball is the most popular female sport in NZ; their rivalry with the Australian Diamonds is legendary and intense.",
+    "trigger_context": "When discussing netball, female athletes, or the Tasman rivalry.",
+    "vibe_level": 2,
+    "vector_text": "Silver Ferns. Netball. Court sports. Rivalry with Australia. National pride.",
+    "metadata": {
+      "tags": [
+        "netball",
+        "women-in-sport",
+        "rivalry"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_039",
+    "term": "Black Caps",
+    "category": "sports",
+    "definition": "The national men's cricket team. Known as the 'Nice Guys' of world cricket. They punch way above their weight despite a small talent pool.",
+    "trigger_context": "When discussing cricket, summer, or 'punching above your weight'.",
+    "vibe_level": 3,
+    "vector_text": "Black Caps. Cricket. Kane Williamson. Nice guys. Summer sports.",
+    "metadata": {
+      "tags": [
+        "cricket",
+        "summer",
+        "underdogs"
+      ],
+      "era": "current"
+    }
+  },
+  {
+    "id": "nz_040",
+    "term": "Emirates Team New Zealand",
+    "category": "sports",
+    "definition": "The high-tech sailing team that dominates the America's Cup. Represents the 'No. 8 Wire' mentality scaled up to multi-million dollar hydrofoils.",
+    "trigger_context": "When discussing sailing, ocean technology, or the America's Cup.",
+    "vibe_level": 4,
+    "vector_text": "Team New Zealand. America's Cup. Sailing. Peter Burling. Auld Mug.",
+    "metadata": {
+      "tags": [
+        "sailing",
+        "technology",
+        "auckland"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_041",
+    "term": "White Ferns",
+    "category": "sports",
+    "definition": "The national women's cricket team. Key players in the global rise of professional women's cricket.",
+    "trigger_context": "When discussing cricket or women's sports achievements.",
+    "vibe_level": 3,
+    "vector_text": "White Ferns. Women's cricket. Sophie Devine. Suzie Bates. Summer vibes.",
+    "metadata": {
+      "tags": [
+        "cricket",
+        "women-in-sport"
+      ],
+      "era": "current"
+    }
+  },
+  {
+    "id": "nz_042",
+    "term": "The 'Loss' of 2019",
+    "category": "sports_history",
+    "definition": "The Cricket World Cup Final where the Black Caps 'lost' to England on a boundary countback rule. Mentioning this still causes physical pain to most Kiwis.",
+    "trigger_context": "When the user mentions unfairness, cricket, or heartbreak.",
+    "vibe_level": 5,
+    "vector_text": "2019 World Cup Final. Boundary countback. Cricket heartbreak. England vs NZ. Unfairness, robbed, should have won.",
+    "metadata": {
+      "tags": [
+        "cricket",
+        "trauma",
+        "history"
+      ],
+      "era": "2019"
+    }
+  },
+  {
+    "id": "nz_043",
+    "term": "The Tall Blacks",
+    "category": "sports",
+    "definition": "The national men's basketball team. Famous for their 'Tu Kaha' Haka which often confuses and intimidates NBA-level opposition.",
+    "trigger_context": "When discussing basketball or international sporting upsets.",
+    "vibe_level": 3,
+    "vector_text": "Tall Blacks. Basketball. FIBA. Tu Kaha Haka. Hoops.",
+    "metadata": {
+      "tags": [
+        "basketball",
+        "haka"
+      ],
+      "era": "current"
+    }
+  },
+  {
+    "id": "nz_044",
+    "term": "The Breakers",
+    "category": "sports",
+    "definition": "NZ's only professional basketball team playing in the Australian NBL. Based in Auckland.",
+    "trigger_context": "When discussing local sports clubs or Auckland entertainment.",
+    "vibe_level": 4,
+    "vector_text": "NZ Breakers. NBL. Basketball. Auckland. Spark Arena.",
+    "metadata": {
+      "tags": [
+        "basketball",
+        "auckland",
+        "club"
+      ],
+      "era": "current"
+    }
+  },
+  {
+    "id": "nz_045",
+    "term": "Taika Waititi",
+    "category": "pop_culture",
+    "definition": "Director and actor who defined the 'modern' Kiwi sense of humor: deadpan, awkward, and self-deprecating. Instrumental in the global 'cool' factor of NZ.",
+    "trigger_context": "When discussing comedy, filmmaking, or the 'Kiwi vibe' in Hollywood.",
+    "vibe_level": 4,
+    "vector_text": "Taika Waititi. Boy. Hunt for the Wilderpeople. What We Do in the Shadows. Deadpan humor.",
+    "metadata": {
+      "tags": [
+        "director",
+        "comedy",
+        "hollywood"
+      ],
+      "era": "current"
+    }
+  },
+  {
+    "id": "nz_046",
+    "term": "Sir Edmund Hillary",
+    "category": "history",
+    "definition": "The first person to reach the summit of Mt Everest. The ultimate symbol of Kiwi modesty; his first words after the descent were: 'Well, we knocked the bastard off.'",
+    "trigger_context": "When discussing achievement, exploration, or the $5 note.",
+    "vibe_level": 1,
+    "vector_text": "Sir Ed. Edmund Hillary. Everest. $5 note. Modesty. Exploration.",
+    "metadata": {
+      "tags": [
+        "explorer",
+        "icon",
+        "history"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_047",
+    "term": "Matariki",
+    "category": "te_ao_maori",
+    "definition": "The Māori New Year, marked by the rising of the Pleiades star cluster. It became a public holiday in 2022 and signifies a time for reflection and new beginnings.",
+    "trigger_context": "When discussing holidays, winter (June/July), or Māori traditions.",
+    "vibe_level": 2,
+    "vector_text": "Matariki. Māori New Year. Public holiday. Stars. Pleiades. Reflection.",
+    "metadata": {
+      "tags": [
+        "holiday",
+        "maori",
+        "stars"
+      ],
+      "era": "current"
+    }
+  },
+  {
+    "id": "nz_048",
+    "term": "The Hollywood Kiwis",
+    "category": "pop_culture",
+    "definition": "A group of actors who have achieved massive global fame while remaining fiercely 'Kiwi', including Karl Urban (The Boys), Antony Starr (Homelander), Lucy Lawless (Xena), and Sam Neill (Jurassic Park).",
+    "trigger_context": "When the user mentions international fame or specific genre TV/movies.",
+    "vibe_level": 3,
+    "vector_text": "Karl Urban. Antony Starr. Lucy Lawless. Sam Neill. Temuera Morrison. NZ actors in Hollywood. International fame. Kiwi in movies and TV.",
+    "metadata": {
+      "tags": [
+        "actors",
+        "hollywood",
+        "success"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_049",
+    "term": "JAFA",
+    "category": "slang",
+    "definition": "Acronym for 'Just Another F***ing Aucklander'. Used by the rest of the country to describe people from the nation's largest city.",
+    "trigger_context": "When discussing regional rivalries, traffic, or Auckland-specific behavior.",
+    "vibe_level": 4,
+    "vector_text": "JAFA. Aucklanders. Regional rivalry. City of Sails. Traffic jokes.",
+    "metadata": {
+      "tags": [
+        "auckland",
+        "insult",
+        "humor"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_050",
+    "term": "The Kea",
+    "category": "fauna",
+    "definition": "The world's only alpine parrot. Known for being a 'cheeky bugger' that destroys cars and steals belongings from tourists in the South Island.",
+    "trigger_context": "When discussing wildlife, intelligence, or property damage.",
+    "vibe_level": 4,
+    "vector_text": "Kea parrot. Smartest bird. Destructive. South Island. Alpine parrot.",
+    "metadata": {
+      "tags": [
+        "nature",
+        "bird",
+        "chaos"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_051",
+    "term": "Temuera Morrison (Jake the Muss)",
+    "category": "pop_culture",
+    "definition": "The actor behind the most intense performance in NZ history in 'Once Were Warriors'. Now globally famous as Boba Fett.",
+    "trigger_context": "When discussing gritty cinema, Star Wars, or 'Once Were Warriors'.",
+    "vibe_level": 5,
+    "vector_text": "Temuera Morrison. Jake the Muss. Once Were Warriors. Boba Fett. Cook some eggs.",
+    "metadata": {
+      "tags": [
+        "actor",
+        "cinema",
+        "icon"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_052",
+    "term": "ACC",
+    "category": "social_structure",
+    "definition": "The Accident Compensation Corporation. A unique system where you can't sue for personal injury, but the government covers your treatment and lost wages regardless of fault.",
+    "trigger_context": "When discussing health, injuries, or 'only in NZ' laws.",
+    "vibe_level": 2,
+    "vector_text": "ACC. No-fault insurance. Injury cover. NZ healthcare. Safety net.",
+    "metadata": {
+      "tags": [
+        "law",
+        "health",
+        "unique"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_053",
+    "term": "Jandals",
+    "category": "clothing",
+    "definition": "Japanese Sandals. The national footwear. Wearing them with socks is a crime; wearing them to a funeral is debatable.",
+    "trigger_context": "When discussing summer, fashion, or footwear.",
+    "vibe_level": 1,
+    "vector_text": "Jandals. Flip flops. Summer footwear. Kiwi casual. Rubber sandals.",
+    "metadata": {
+      "tags": [
+        "fashion",
+        "summer",
+        "lifestyle"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_054",
+    "term": "Waitangi Day",
+    "category": "history",
+    "definition": "February 6th. The national day marking the signing of the Treaty of Waitangi. Often a day of both celebration and significant political debate.",
+    "trigger_context": "When discussing national days, politics, or Feb 6th.",
+    "vibe_level": 4,
+    "vector_text": "Waitangi Day. Treaty of Waitangi. Feb 6. National day. Te Tiriti.",
+    "metadata": {
+      "tags": [
+        "history",
+        "maori",
+        "politics"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_055",
+    "term": "Red Band Gumboots",
+    "category": "clothing",
+    "definition": "The iconic black rubber boot with a red band around the top. Originally for farmers, now a symbol of 'real' New Zealanders and often worn at summer music festivals.",
+    "trigger_context": "When discussing rural life, farming, or practical fashion.",
+    "vibe_level": 1,
+    "vector_text": "Red Bands. Skellerup. Gumboots. Rural NZ. Farming icon. Footwear.",
+    "metadata": {
+      "tags": [
+        "fashion",
+        "farming",
+        "classic"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_056",
+    "term": "ANZAC Day",
+    "category": "history",
+    "definition": "April 25th. A day of national remembrance for those who served in wars. Defined by dawn services, RSA poppies, and the 'ANZAC spirit' of mateship and sacrifice.",
+    "trigger_context": "When discussing the military, April, or national identity.",
+    "vibe_level": 2,
+    "vector_text": "ANZAC Day. Lest we forget. April 25. Gallipoli. RSA. Mateship.",
+    "metadata": {
+      "tags": [
+        "remembrance",
+        "military",
+        "holiday"
+      ],
+      "era": "1915-present"
+    }
+  },
+  {
+    "id": "nz_057",
+    "term": "Jacinda Ardern",
+    "category": "politics",
+    "definition": "Prime Minister (2017-2023) known for her 'Aroha' (love) philosophy, leading the country through the Christchurch mosque attacks and the COVID-19 pandemic.",
+    "trigger_context": "When discussing leadership, global recognition, or recent political history.",
+    "vibe_level": 4,
+    "vector_text": "Jacinda Ardern. Labour Party. Christchurch response. COVID-19. Aroha. Global icon.",
+    "metadata": {
+      "tags": [
+        "leadership",
+        "contemporary",
+        "labour"
+      ],
+      "era": "2017-2023"
+    }
+  },
+  {
+    "id": "nz_058",
+    "term": "Helen Clark",
+    "category": "politics",
+    "definition": "PM (1999-2008). A formidable leader who solidified NZ’s independent streak (refusing to join the Iraq War) and later led the UNDP.",
+    "trigger_context": "When discussing stability, the UN, or 2000s-era politics.",
+    "vibe_level": 2,
+    "vector_text": "Helen Clark. Auntie Helen. Labour Party. Independent foreign policy. UN.",
+    "metadata": {
+      "tags": [
+        "leadership",
+        "power",
+        "labour"
+      ],
+      "era": "1999-2008"
+    }
+  },
+  {
+    "id": "nz_059",
+    "term": "John Key",
+    "category": "politics",
+    "definition": "PM (2008-2016). Known as the 'Smiling Assassin' for his high popularity and relaxed 'guy you’d have a beer with' persona during the 2011 Rugby World Cup and Christchurch earthquakes.",
+    "trigger_context": "When discussing the National Party, the 2011 era, or centrist politics.",
+    "vibe_level": 3,
+    "vector_text": "John Key. National Party. Smiling Assassin. 2011 World Cup. Centrist.",
+    "metadata": {
+      "tags": [
+        "leadership",
+        "national",
+        "popular-culture"
+      ],
+      "era": "2008-2016"
+    }
+  },
+  {
+    "id": "nz_060",
+    "term": "Ruth Richardson (Ruthanasia)",
+    "category": "politics",
+    "definition": "Finance Minister in the early 90s. Author of the 'Mother of all Budgets' which drastically cut welfare spending and completed the free-market shift of the economy.",
+    "trigger_context": "When discussing economics, the welfare state, or political controversy.",
+    "vibe_level": 5,
+    "vector_text": "Ruth Richardson. Ruthanasia. Mother of all Budgets. Economic reform. National Party.",
+    "metadata": {
+      "tags": [
+        "economics",
+        "controversial",
+        "history"
+      ],
+      "era": "1990-1993"
+    }
+  },
+  {
+    "id": "nz_061",
+    "term": "The Beehive",
+    "category": "politics",
+    "definition": "The distinctively shaped executive wing of the New Zealand Parliament Buildings in Wellington. A shorthand for the government itself.",
+    "trigger_context": "When discussing the location of power or Wellington architecture.",
+    "vibe_level": 1,
+    "vector_text": "The Beehive. Parliament. Wellington. Government headquarters. Architecture.",
+    "metadata": {
+      "tags": [
+        "wellington",
+        "government",
+        "landmark"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_062",
+    "term": "Aroha",
+    "category": "te_ao_maori",
+    "definition": "Often translated as 'love', but encompasses empathy, compassion, and deep connection. Became a political and social keyword during the 2019/2020 era.",
+    "trigger_context": "When the user needs a more profound expression of care or community spirit.",
+    "vibe_level": 1,
+    "vector_text": "Aroha. Love. Compassion. Māori values. Empathy.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "values",
+        "empathy"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_063",
+    "term": "RSA",
+    "category": "social_structure",
+    "definition": "The Returned and Services' Association. Community hubs originally for veterans, famous for cheap beer, snooker, and being the keepers of the ANZAC tradition.",
+    "trigger_context": "When discussing community clubs, veterans, or ANZAC day.",
+    "vibe_level": 2,
+    "vector_text": "RSA. Veterans. Community clubs. Mateship. ANZAC traditions.",
+    "metadata": {
+      "tags": [
+        "community",
+        "military",
+        "tradition"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_064",
+    "term": "David Lange",
+    "category": "politics",
+    "definition": "PM (1984-1989). A brilliant orator who led the Nuclear-Free movement and the radical 'Rogernomics' economic reforms.",
+    "trigger_context": "When discussing the 80s, nuclear-free policy, or great speeches.",
+    "vibe_level": 3,
+    "vector_text": "David Lange. Nuclear-free. Rogernomics. Oxford Union debate. 1980s politics.",
+    "metadata": {
+      "tags": [
+        "leadership",
+        "history",
+        "oratory"
+      ],
+      "era": "1984-1989"
+    }
+  },
+  {
+    "term": "Tu meke",
+    "category": "slang",
+    "definition": "Māori slang meaning 'too much' or 'awesome'. Used to express genuine excitement or approval — similar to 'sweet as' but with more warmth.",
+    "trigger_context": "When the user shares good news, achieves something, or receives a compliment.",
+    "vibe_level": 2,
+    "vector_text": "Tu meke. Too much. Awesome. Māori slang for great news or impressive achievement. Warmth and excitement.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "approval",
+        "warmth"
+      ],
+      "era": "timeless"
+    },
+    "id": "nz_065"
+  },
+  {
+    "term": "Bugger",
+    "category": "meme",
+    "definition": "A classic Kiwi exclamation of disappointment or misfortune, immortalised by the Toyota Hilux ad where farm animals say it after minor disasters.",
+    "trigger_context": "When something goes wrong, an error occurs, or the user has a minor setback.",
+    "vibe_level": 2,
+    "vector_text": "Bugger. Something went wrong. Error, mistake, setback, oops, disaster. Toyota ad. Farm accident. Minor catastrophe. Disappointment. Classic NZ exclamation.",
+    "metadata": {
+      "tags": [
+        "toyota",
+        "advertising",
+        "classic",
+        "disappointment"
+      ],
+      "era": "1999"
+    },
+    "id": "nz_066"
+  },
+  {
+    "term": "Good Aftabull Constanoon",
+    "category": "meme",
+    "definition": "A slurred 'Good afternoon, Constable' — iconic Police Ten 7 / drunk-tank phrase. Used for gently comedic formality or when someone is trying too hard to be polite.",
+    "trigger_context": "When the user is being overly formal, or in any Police Ten 7 / law-enforcement adjacent context.",
+    "vibe_level": 4,
+    "vector_text": "Good aftabull constanoon. Good afternoon constable. Drunk speech. Police Ten 7. Slurred formality. Kiwi cop culture. Phonetic drunk pronunciation.",
+    "metadata": {
+      "tags": [
+        "police-ten-7",
+        "drunk",
+        "formality",
+        "viral"
+      ],
+      "era": "classic"
+    },
+    "id": "nz_067"
+  },
+  {
+    "term": "Munter",
+    "category": "slang",
+    "definition": "A mildly derogatory term for someone acting foolishly, being annoying, or generally being a bit of a mess. Distinct from 'munted' (broken) — a munter is a person, not a thing.",
+    "trigger_context": "When the user describes someone behaving badly or foolishly, used in light banter.",
+    "vibe_level": 4,
+    "vector_text": "Munter. Fool. Idiot. Someone acting badly or being annoying. Kiwi insult for a messy or foolish person.",
+    "metadata": {
+      "tags": [
+        "insult",
+        "banter",
+        "person"
+      ],
+      "era": "timeless"
+    },
+    "id": "nz_068"
+  },
+  {
+    "id": "nz_069",
+    "term": "Christchurch Earthquakes",
+    "category": "history",
+    "definition": "A series of devastating earthquakes in 2010 and 2011. The February 2011 quake claimed 185 lives, destroyed much of the central city, and fundamentally reshaped both Canterbury's landscape and the nation's building codes.",
+    "trigger_context": "When discussing national tragedies, South Island history, or community resilience.",
+    "vibe_level": 1,
+    "vector_text": "Christchurch earthquakes 2011. Canterbury quakes. National tragedy. Rebuild. Resilience. February 22.",
+    "metadata": {
+      "tags": [
+        "disaster",
+        "history",
+        "canterbury"
+      ],
+      "era": "2010-2011"
+    }
+  },
+  {
+    "id": "nz_070",
+    "term": "Cyclone Gabrielle",
+    "category": "history",
+    "definition": "A catastrophic cyclone that struck the North Island in February 2023, causing unprecedented flooding, landslides, and infrastructure collapse, heavily devastating Hawke's Bay and Tairāwhiti/Gisborne.",
+    "trigger_context": "When discussing climate, extreme weather, community recovery, or recent natural disasters.",
+    "vibe_level": 1,
+    "vector_text": "Cyclone Gabrielle. Hawke's Bay floods 2023. Tairāwhiti. Severe weather disaster. Esk Valley. Community recovery.",
+    "metadata": {
+      "tags": [
+        "disaster",
+        "weather",
+        "recent-history"
+      ],
+      "era": "2023"
+    }
+  },
+  {
+    "id": "nz_071",
+    "term": "Christchurch Mosque Attacks (March 15)",
+    "category": "history",
+    "definition": "The unprecedented terrorist attack on two mosques in Christchurch on March 15, 2019, claiming 51 lives. It deeply shocked the nation, resulting in immediate gun law reforms and Jacinda Ardern's defining message of unity: 'They are us.'",
+    "trigger_context": "When discussing national tragedy, terrorism, gun control reform, or messages of national unity.",
+    "vibe_level": 1,
+    "vector_text": "March 15. Christchurch mosque shootings. Terrorism. They are us. Gun law reform. National grief. Jacinda Ardern.",
+    "metadata": {
+      "tags": [
+        "tragedy",
+        "history",
+        "christchurch"
+      ],
+      "era": "2019"
+    }
+  },
+  {
+    "id": "nz_072",
+    "term": "COVID-19 (The Team of 5 Million)",
+    "category": "history",
+    "definition": "New Zealand's unique response to the pandemic, defined by early border closures, strict elimination lockdowns, and the rallying cry for the 'Team of 5 Million' to stay home. The era also included the polarising Managed Isolation and Quarantine (MIQ) system and the 2022 Parliament protests.",
+    "trigger_context": "When discussing pandemic responses, lockdowns, MIQ, or major societal shifts in the 2020s.",
+    "vibe_level": 2,
+    "vector_text": "COVID-19. Team of 5 million. Lockdowns. Elimination strategy. MIQ. Parliament protests. Jacinda Ardern pandemic.",
+    "metadata": {
+      "tags": [
+        "health",
+        "politics",
+        "recent-history"
+      ],
+      "era": "2020-2022"
+    }
+  },
+  {
+    "id": "nz_073",
+    "term": "Whakaari / White Island Eruption",
+    "category": "history",
+    "definition": "The tragic December 2019 volcanic eruption on Whakaari (White Island) that claimed 22 lives, predominantly tourists and their guides. It led to massive legal fallout and fundamentally changed the landscape of adventure tourism safety in NZ.",
+    "trigger_context": "When discussing natural disasters, volcanoes, adventure tourism, or health and safety regulations.",
+    "vibe_level": 1,
+    "vector_text": "Whakaari. White Island eruption. Volcano disaster. Adventure tourism safety. Bay of Plenty. December 2019 tragedy.",
+    "metadata": {
+      "tags": [
+        "disaster",
+        "volcano",
+        "tourism"
+      ],
+      "era": "2019"
+    }
+  },
+  {
+    "id": "nz_074",
+    "term": "Kate Sheppard",
+    "category": "history",
+    "definition": "The leader of the women's suffrage movement. Thanks to her campaigning, New Zealand became the first self-governing country in the world to grant women the vote in 1893. She is the face of the $10 note.",
+    "trigger_context": "When discussing feminism, progressive history, or New Zealand 'firsts'.",
+    "vibe_level": 1,
+    "vector_text": "Kate Sheppard. Women's suffrage 1893. Voting rights. $10 note. Progressive history.",
+    "metadata": {
+      "tags": [
+        "history",
+        "equality",
+        "icon"
+      ],
+      "era": "1893"
+    }
+  },
+  {
+    "id": "nz_075",
+    "term": "Ernest Rutherford",
+    "category": "science",
+    "definition": "Known globally as the 'father of nuclear physics'. Born in Nelson, he is credited with splitting the atom and discovering the concept of radioactive half-life. He is the face of the $100 note.",
+    "trigger_context": "When discussing science, physics, famous inventors, or New Zealand intellect.",
+    "vibe_level": 2,
+    "vector_text": "Ernest Rutherford. Splitting the atom. Nuclear physics. $100 note. Kiwi scientist.",
+    "metadata": {
+      "tags": [
+        "science",
+        "history",
+        "icon"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_076",
+    "term": "Billy T James",
+    "category": "pop_culture",
+    "definition": "A legendary entertainer and comedian who helped define modern Kiwi humor. Known for his trademark giggle, black singlet, yellow towel, and boundary-pushing sketches that lovingly mocked race relations.",
+    "trigger_context": "When discussing classic Kiwi comedy, the 1980s, or foundational entertainment.",
+    "vibe_level": 2,
+    "vector_text": "Billy T James. Comedian. Black singlet. Yellow towel. Trademark giggle. 80s comedy.",
+    "metadata": {
+      "tags": [
+        "comedy",
+        "icon",
+        "tv"
+      ],
+      "era": "1980s"
+    }
+  },
+  {
+    "id": "nz_077",
+    "term": "Lucy Lawless",
+    "category": "pop_culture",
+    "definition": "Iconic Kiwi actress and climate activist, globally famous for playing the title character in 'Xena: Warrior Princess'.",
+    "trigger_context": "When discussing 90s television, strong female leads, or Kiwi actors.",
+    "vibe_level": 3,
+    "vector_text": "Lucy Lawless. Xena Warrior Princess. Actor. Climate activism. 90s TV icon.",
+    "metadata": {
+      "tags": [
+        "actor",
+        "hollywood",
+        "xena"
+      ],
+      "era": "1990s-present"
+    }
+  },
+  {
+    "id": "nz_078",
+    "term": "Karl Urban",
+    "category": "pop_culture",
+    "definition": "Prolific actor who has appeared in massive global franchises including Lord of the Rings, Star Trek, and Thor, but is currently best known for playing the foul-mouthed Billy Butcher in 'The Boys'.",
+    "trigger_context": "When discussing 'The Boys', Lord of the Rings actors, or sci-fi franchises.",
+    "vibe_level": 4,
+    "vector_text": "Karl Urban. Billy Butcher. The Boys. Star Trek. Lord of the Rings. Hollywood Kiwi.",
+    "metadata": {
+      "tags": [
+        "actor",
+        "hollywood",
+        "sci-fi"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_079",
+    "term": "Antony Starr",
+    "category": "pop_culture",
+    "definition": "Rose to local fame playing twins Van and Jethro on the hit NZ show 'Outrageous Fortune', but is now globally recognized for his terrifying and brilliant portrayal of Homelander in 'The Boys'.",
+    "trigger_context": "When discussing 'The Boys', terrifying villains, or 'Outrageous Fortune'.",
+    "vibe_level": 5,
+    "vector_text": "Antony Starr. Homelander. The Boys. Outrageous Fortune. Van and Jethro West.",
+    "metadata": {
+      "tags": [
+        "actor",
+        "hollywood",
+        "television"
+      ],
+      "era": "current"
+    }
+  },
+  {
+    "id": "nz_080",
+    "term": "Sam Neill",
+    "category": "pop_culture",
+    "definition": "Celebrated actor known globally as Dr. Alan Grant in 'Jurassic Park'. He owns a winery (Two Paddocks) in Central Otago and is famous for naming his farm animals after his celebrity friends.",
+    "trigger_context": "When discussing Jurassic Park, wine, or wholesome social media.",
+    "vibe_level": 2,
+    "vector_text": "Sam Neill. Jurassic Park. Two Paddocks winery. Central Otago. Wholesome actor.",
+    "metadata": {
+      "tags": [
+        "actor",
+        "hollywood",
+        "wine"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_081",
+    "term": "Kererū",
+    "category": "fauna",
+    "definition": "The native New Zealand wood pigeon. Famous for being remarkably round, flying noisily, and occasionally falling out of trees after getting 'drunk' on fermented berries.",
+    "trigger_context": "When discussing birds, funny wildlife, or the Bird of the Year competition.",
+    "vibe_level": 3,
+    "vector_text": "Kereru. Wood pigeon. Drunk bird. Round bird. Noisy flyer. Native fauna.",
+    "metadata": {
+      "tags": [
+        "bird",
+        "nature",
+        "humor"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_082",
+    "term": "Tūī",
+    "category": "fauna",
+    "definition": "A striking native bird with a distinctive white tuft (poi) under its throat. Famous for its complex, beautiful, and sometimes robotic-sounding mimicking calls.",
+    "trigger_context": "When discussing birdsong, spring, or native forests.",
+    "vibe_level": 1,
+    "vector_text": "Tui. Birdsong. White tuft. Mimicry. Native bird. Robotic sounds.",
+    "metadata": {
+      "tags": [
+        "bird",
+        "nature",
+        "icon"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_083",
+    "term": "Pīwakawaka (Fantail)",
+    "category": "fauna",
+    "definition": "A small, highly energetic native bird known for its fan-like tail. Very friendly and inquisitive, it often flits closely around walkers in the bush to catch the insects they disturb.",
+    "trigger_context": "When discussing bush walks, cute animals, or Māori mythology.",
+    "vibe_level": 1,
+    "vector_text": "Piwakawaka. Fantail. Friendly bird. Bush walks. Catching insects. Native fauna.",
+    "metadata": {
+      "tags": [
+        "bird",
+        "nature",
+        "friendly"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_084",
+    "term": "Ruru (Morepork)",
+    "category": "fauna",
+    "definition": "New Zealand's native owl. Named after its distinctive two-part call that sounds exactly like it is saying 'more pork'. Traditionally seen as a guardian spirit (kaitiaki) in Te Ao Māori.",
+    "trigger_context": "When discussing night sounds, owls, or spiritual guardians.",
+    "vibe_level": 2,
+    "vector_text": "Ruru. Morepork. Native owl. Night sounds. Kaitiaki. Guardian spirit.",
+    "metadata": {
+      "tags": [
+        "bird",
+        "nature",
+        "night"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_085",
+    "term": "Kiwi (Bird)",
+    "category": "fauna",
+    "definition": "A flightless, nocturnal, ground-dwelling bird native to New Zealand. It is the national symbol and strictly protected.",
+    "trigger_context": "When discussing native wildlife, conservation, or national emblems.",
+    "vibe_level": 1,
+    "vector_text": "Kiwi bird. Flightless. Nocturnal. National symbol. Conservation. Native fauna.",
+    "metadata": {
+      "tags": [
+        "bird",
+        "icon",
+        "nature"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_086",
+    "term": "Kiwi (Person)",
+    "category": "identity",
+    "definition": "The colloquial, universally accepted demonym for a person from New Zealand. Capitalized to distinguish it from the bird. Worn as a badge of pride.",
+    "trigger_context": "When referring to New Zealand citizens, national traits, or people in general.",
+    "vibe_level": 1,
+    "vector_text": "Kiwi person. New Zealander. Demonym. National identity. Citizen. People.",
+    "metadata": {
+      "tags": [
+        "identity",
+        "people",
+        "culture"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_087",
+    "term": "Kiwifruit",
+    "category": "food",
+    "definition": "The fuzzy brown fruit with sweet green or golden flesh. Originally the Chinese gooseberry, it was famously rebranded by NZ. Crucially: New Zealanders eat kiwifruit, they do not eat 'kiwis'.",
+    "trigger_context": "When discussing agriculture, exports, or fresh fruit.",
+    "vibe_level": 2,
+    "vector_text": "Kiwifruit. Zespri. Green and gold. Chinese gooseberry. NZ export. Fruit.",
+    "metadata": {
+      "tags": [
+        "agriculture",
+        "export",
+        "food"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_088",
+    "term": "Feijoa",
+    "category": "food",
+    "definition": "A quintessential autumn fruit in NZ with a unique, sweet, perfume-like flavour. Almost every backyard has a tree, leading to the cultural tradition of giving away bags of them to neighbours every April.",
+    "trigger_context": "When discussing autumn, backyard gardens, or community sharing.",
+    "vibe_level": 3,
+    "vector_text": "Feijoa. Autumn fruit. Backyard tree. Sharing with neighbors. Unique flavor. Perfume taste.",
+    "metadata": {
+      "tags": [
+        "fruit",
+        "community",
+        "autumn"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_089",
+    "term": "Chur",
+    "category": "slang",
+    "definition": "The ultimate all-purpose Kiwi acknowledgement. Can mean cheers, thanks, sweet, sounds good, or I agree — context determines which. Often doubled for emphasis: 'chur chur'.",
+    "trigger_context": "When acknowledging something, expressing gratitude, or agreeing with the user.",
+    "vibe_level": 2,
+    "vector_text": "Chur. Cheers. Thanks. Sweet. Sounds good. Agreement. Kiwi acknowledgement.",
+    "metadata": {
+      "tags": [
+        "slang",
+        "acknowledgement",
+        "timeless"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_090",
+    "term": "Pavlova",
+    "category": "food",
+    "definition": "A meringue-based dessert with a crisp crust and soft, light inside, topped with whipped cream and fruit. Named after Russian ballerina Anna Pavlova during her 1926 NZ tour. Invented in New Zealand — the Australian claim is just jealousy.",
+    "trigger_context": "When discussing Christmas, desserts, or the trans-Tasman rivalry.",
+    "vibe_level": 2,
+    "vector_text": "Pavlova. Meringue dessert. Christmas food. Who invented pavlova. Pavlova origin. Named after Anna Pavlova. 1926 NZ tour. Trans-Tasman rivalry. Kiwi dessert. Invented in New Zealand.",
+    "metadata": {
+      "tags": [
+        "dessert",
+        "rivalry",
+        "christmas"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_091",
+    "term": "Lamington",
+    "category": "food",
+    "definition": "Squares of sponge cake coated in chocolate or raspberry sauce and rolled in desiccated coconut. While heavily claimed by Australia, evidence suggests they originated in NZ as 'Wellingtons'.",
+    "trigger_context": "When discussing baking, morning tea, or stealing cultural icons.",
+    "vibe_level": 2,
+    "vector_text": "Lamington. Sponge cake. Coconut and chocolate. Baking. Morning tea. Trans-Tasman debate.",
+    "metadata": {
+      "tags": [
+        "baking",
+        "sweet",
+        "debate"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_092",
+    "term": "Flat White",
+    "category": "drink",
+    "definition": "An espresso-based coffee drink consisting of espresso and steamed milk with a fine layer of microfoam. A cornerstone of NZ café culture, fiercely contested with Australia regarding its true 1980s origin.",
+    "trigger_context": "When discussing coffee, cafe culture, or morning routines.",
+    "vibe_level": 1,
+    "vector_text": "Flat white. Coffee. Cafe culture. Espresso microfoam. Wellington coffee. Trans-Tasman rivalry.",
+    "metadata": {
+      "tags": [
+        "coffee",
+        "cafe",
+        "culture"
+      ],
+      "era": "1980s"
+    }
+  },
+  {
+    "id": "nz_093",
+    "term": "Carked it",
+    "category": "slang",
+    "definition": "Kiwi expression for something (or someone) dying or completely breaking down. 'The car carked it on the motorway.' Can refer to objects, plans, or — with dark humour — people.",
+    "trigger_context": "When the user mentions something breaking, dying, failing, or a device stopping working.",
+    "vibe_level": 2,
+    "vector_text": "Carked it. Died. Broke down. Stopped working. Device failure, car broke down, laptop died. Something failed completely. Kiwi slang for death or breakdown.",
+    "metadata": {
+      "tags": [
+        "slang",
+        "dark-humour",
+        "everyday"
+      ],
+      "era": "timeless"
+    }
+  },
+  {
+    "id": "nz_094",
+    "term": "Flight of the Conchords",
+    "category": "music",
+    "definition": "Wellington comedy folk duo: Bret McKenzie and Jemaine Clement. HBO series (2007–2009). Famous for 'Business Time', 'Hiphopopotamus vs. Rhymenoceros', and 'Binary Solo' — a robot singing in binary ('0000001, 00000011...'). One of NZ's greatest cultural exports.",
+    "trigger_context": "When discussing Flight of the Conchords, Binary Solo, Business Time, or NZ comedy music.",
+    "vibe_level": 3,
+    "vector_text": "Flight of the Conchords. Bret McKenzie. Jemaine Clement. Binary Solo. 0000001 00000011. Business Time. Hiphopopotamus Rhymenoceros. HBO comedy. Wellington. NZ music comedy duo. Robot song.",
+    "metadata": {
+      "tags": [
+        "music",
+        "comedy",
+        "tv",
+        "international"
+      ],
+      "era": "2000s"
+    }
+  },
+  {
+    "id": "nz_095",
+    "term": "Hungus",
+    "category": "slang",
+    "definition": "Kiwi slang with two uses: (1) very hungry right now — 'I'm hungus as' = I'm starving; (2) someone with an intense love of food who eats big portions — 'stop being a hungus'. Used warmly rather than as a true insult.",
+    "trigger_context": "When the user mentions being hungry, starving, wanting food, overeating, loving food, or describes someone eating a lot.",
+    "vibe_level": 2,
+    "vector_text": "Hungus. Hungry. Hungus as. Starving. I'm hungus. I'm so hungry. Love food. Eating a lot. Big appetite. Greedy eater. Foodie. Kiwi slang for hungry or food lover. Stop being a hungus.",
+    "metadata": {
+      "tags": [
+        "slang",
+        "food",
+        "everyday"
+      ],
+      "era": "contemporary"
+    }
+  },
+  {
+    "id": "nz_096",
+    "term": "She'll be right",
+    "category": "attitude",
+    "definition": "The quintessential Kiwi attitude — a calm faith that things will sort themselves out without fuss. Not laziness; a genuine, laid-back resilience. If something goes wrong, don't panic: she'll be right.",
+    "trigger_context": "When the user is worried about something going wrong, stressing over a minor issue, or things haven't gone to plan.",
+    "vibe_level": 2,
+    "vector_text": "She'll be right. She'll be fine. Don't stress. It'll work out. Kiwi attitude. Everything sorts itself out. No need to worry. She'll be right mate.",
+    "metadata": {
+      "tags": [
+        "attitude",
+        "optimism",
+        "kiwi-spirit"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_097",
+    "term": "Sweet as",
+    "category": "slang",
+    "definition": "Multi-purpose approval phrase: excellent, sounds great, no problem, you're welcome. The 'as' intensifier is distinctly NZ/AU, but 'sweet as' is quintessentially Kiwi. Can stand alone or be extended: 'sweet as, bro'.",
+    "trigger_context": "When agreeing with a plan, acknowledging good news, or expressing approval.",
+    "vibe_level": 2,
+    "vector_text": "Sweet as. Sweet as bro. Sounds great. Excellent. That works. Sweet as mate. Approval. Agreement. No worries. All good. Sweet.",
+    "metadata": {
+      "tags": [
+        "approval",
+        "agreement",
+        "slang"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_098",
+    "term": "Dairy",
+    "category": "daily_life",
+    "definition": "A small corner store or convenience store. Nothing to do with dairy farming — just where you grab a pie, a drink, or a Lotto ticket. An essential NZ institution. Australians say 'servo' or '7-Eleven'. Kiwis say dairy.",
+    "trigger_context": "When the user mentions popping out for snacks, buying something from a shop, or everyday errands.",
+    "vibe_level": 2,
+    "vector_text": "Dairy. Corner store. Convenience store. Pop to the dairy. Grab it from the dairy. Going the dairy. Going to the dairy. Quick shop. Milk bar. Dairy down the road. Corner dairy. Lotto. Grab a Lotto. Lotto ticket.",
+    "metadata": {
+      "tags": [
+        "daily-life",
+        "shopping",
+        "food"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_099",
+    "term": "Togs",
+    "category": "daily_life",
+    "definition": "Swimming costume or swimwear. Very NZ-specific — Australians say 'cossie' or 'bathers', Brits say 'swimmers'. 'Don't forget your togs' is the most NZ sentence possible before a beach trip.",
+    "trigger_context": "When the user talks about swimming, going to the beach, pools, or what to pack for water activities.",
+    "vibe_level": 2,
+    "vector_text": "Togs. Swimming costume. Swimwear. Swimsuit. Beach. Pool. Swimming togs. Pack your togs. Togs and jandals. Swimming gear.",
+    "metadata": {
+      "tags": [
+        "clothing",
+        "beach",
+        "swimming"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_100",
+    "term": "Bach / Crib",
+    "category": "culture",
+    "definition": "A modest holiday cottage or beach house. 'Bach' in the North Island (pronounced 'batch'), 'Crib' in the South Island. Typically simple, beachside, multigenerational — the great Kiwi summer tradition. Having a bach is a privilege; using someone else's is an even bigger one.",
+    "trigger_context": "When discussing holidays, summer getaways, beach houses, or weekend trips.",
+    "vibe_level": 1,
+    "vector_text": "Bach. Crib. Holiday house. Beach house. Batch. Summer holiday. Weekend away. Holiday cottage. Kiwi bach. Going to the bach. Beach crib.",
+    "metadata": {
+      "tags": [
+        "holiday",
+        "summer",
+        "housing"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_101",
+    "term": "Yeah Right (Tui Billboards)",
+    "category": "culture",
+    "definition": "Sharp Kiwi scepticism: 'yeah, right' = I don't believe that for a second. Also the iconic Tui beer billboard campaign — absurd statements followed by 'Yeah Right.' in signature yellow. Classic NZ dry wit.",
+    "trigger_context": "When the user makes a dubious claim, something sounds too good to be true, or dry humour is appropriate.",
+    "vibe_level": 2,
+    "vector_text": "Yeah right. I don't believe you. Tui billboard. You're joking. Pull the other one. NZ dry humour. Sceptical. Yeah right mate. That's unlikely.",
+    "metadata": {
+      "tags": [
+        "humour",
+        "advertising",
+        "scepticism"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_102",
+    "term": "Tiki Tour",
+    "category": "daily_life",
+    "definition": "An unplanned, meandering scenic detour — the long way round, often on purpose. 'Let's go for a tiki tour' means a leisurely wander with no fixed route. The journey is the point.",
+    "trigger_context": "When the user takes a roundabout route, goes exploring aimlessly, or is on an unplanned road trip.",
+    "vibe_level": 2,
+    "vector_text": "Tiki tour. Scenic detour. Meandering drive. Long way round. Going for a drive. No set route. Explore. Road trip. Bit of a wander.",
+    "metadata": {
+      "tags": [
+        "driving",
+        "exploring",
+        "kiwi-life"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_103",
+    "term": "Beached as",
+    "category": "meme",
+    "definition": "From the iconic 2007 NZ Flash cartoon: a stranded whale gasping 'I'm beached as, bro!' Means stuck, unable to move, completely stranded. One of the most quoted NZ internet memes.",
+    "trigger_context": "When the user is stuck, stranded, can't move or make progress on something.",
+    "vibe_level": 3,
+    "vector_text": "Beached as. Beached as bro. Stuck. Stranded. Can't move. Beached whale. NZ cartoon meme. I'm beached bro. Unable to move. Beached as mate.",
+    "metadata": {
+      "tags": [
+        "meme",
+        "cartoon",
+        "viral"
+      ],
+      "era": "2000s"
+    }
+  },
+  {
+    "id": "nz_104",
+    "term": "Dag",
+    "category": "slang",
+    "definition": "A loveable, funny character — someone who makes you laugh with their silliness. Origin: the dried wool and dung clumps on a sheep's backside. 'What a dag' is a term of affection. 'Rattle your dags' means hurry up (shake off the slowing weight).",
+    "trigger_context": "When the user or someone they describe is being funny, goofy, or entertainingly silly.",
+    "vibe_level": 3,
+    "vector_text": "Dag. What a dag. You're such a dag. Funny. Hilarious. Goofy. Loveable. She's a dag. Rattle your dags. Hurry up dag.",
+    "metadata": {
+      "tags": [
+        "humour",
+        "character",
+        "sheep-farming"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_105",
+    "term": "Choice",
+    "category": "slang",
+    "definition": "Excellent, great, cool, awesome. A classic Kiwi expression of approval. 'Choice as' is the intensified form. Core 80s-90s NZ slang that never really left — still heard everywhere.",
+    "trigger_context": "When expressing approval, agreement, or that something is excellent.",
+    "vibe_level": 2,
+    "vector_text": "Choice. Choice bro. Choice as. Great. Excellent. Awesome. Cool. That's choice. Nice one. Choice mate.",
+    "metadata": {
+      "tags": [
+        "approval",
+        "slang"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_106",
+    "term": "Gutted",
+    "category": "slang",
+    "definition": "Deeply disappointed, devastated. 'I'm gutted' = I'm really let down. One of the most common Kiwi expressions of disappointment — used for missed sports events, job rejections, and anything in between.",
+    "trigger_context": "When the user expresses disappointment, misses out on something, or receives bad news.",
+    "vibe_level": 2,
+    "vector_text": "Gutted. I'm gutted. So gutted. Disappointed. Devastated. Let down. Really gutted. Gutted bro. That's gutting. Gutted mate.",
+    "metadata": {
+      "tags": [
+        "disappointment",
+        "emotion"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_107",
+    "term": "Smoko",
+    "category": "daily_life",
+    "definition": "A work break — originally a smoke break, now any short rest on the job. Blue-collar Kiwi culture: smoko time is sacred. 'Chuck us a smoko' or 'time for smoko' are heard on every building site.",
+    "trigger_context": "When the user mentions taking a break at work, having a rest mid-task, or work culture.",
+    "vibe_level": 2,
+    "vector_text": "Smoko. Smoke break. Work break. Smoko time. Tea break. Taking a smoko. On smoko. Rest break. Knock off for a bit.",
+    "metadata": {
+      "tags": [
+        "work",
+        "break",
+        "blue-collar"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_108",
+    "term": "Scarfie",
+    "category": "culture",
+    "definition": "A student at the University of Otago in Dunedin — named for the cold Otago winters requiring heavy scarves. Dunedin is NZ's student city: notorious for flat parties, Hyde Street keg crawl, cheap rent, and questionable life choices.",
+    "trigger_context": "When discussing Dunedin, Otago University, student life, or the South Island uni scene.",
+    "vibe_level": 3,
+    "vector_text": "Scarfie. Otago student. University of Otago. Dunedin student. Student life. Flat party. Scarfie life. Hyde Street. Otago uni. Living in Dunners.",
+    "metadata": {
+      "tags": [
+        "university",
+        "dunedin",
+        "student-life"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_109",
+    "term": "Hard out",
+    "category": "slang",
+    "definition": "Strongly agree, absolutely, definitely — emphatic yes. 'Hard' or 'hard out' shows strong agreement without over-the-top enthusiasm. Very NZ in flavour.",
+    "trigger_context": "When strongly agreeing with the user, or expressing emphatic support for something.",
+    "vibe_level": 2,
+    "vector_text": "Hard out. Hard. Hard out bro. Definitely. Absolutely. Strong agreement. For sure. Hard out mate. Emphatic yes. Totally agree.",
+    "metadata": {
+      "tags": [
+        "agreement",
+        "slang"
+      ],
+      "era": "modern"
+    }
+  },
+  {
+    "id": "nz_110",
+    "term": "Mean",
+    "category": "slang",
+    "definition": "Awesome, excellent, really good — the opposite of the English meaning. 'That's mean, bro' = that's great. NZ and Pacific Island youth slang. Not sarcastic; genuinely positive.",
+    "trigger_context": "When expressing that something is great, excellent, or impressive.",
+    "vibe_level": 2,
+    "vector_text": "Mean. That's mean. Mean as. Really good. Awesome. Excellent. Nice one. Mean bro. That's so mean. Wicked.",
+    "metadata": {
+      "tags": [
+        "approval",
+        "youth-slang"
+      ],
+      "era": "modern"
+    }
+  },
+  {
+    "id": "nz_111",
+    "term": "Packing a sad",
+    "category": "slang",
+    "definition": "Throwing a tantrum, sulking, or making a fuss over something. 'She's packing a sad' = she's upset and showing it. Very Kiwi expression for minor meltdowns.",
+    "trigger_context": "When the user is having a tantrum, pouting, upset over something minor, or throwing a hissy fit.",
+    "vibe_level": 2,
+    "vector_text": "Packing a sad. Having a tantrum. Throwing a wobbly. Sulking. Hissy fit. She's packing a sad. Upset. Stop packing a sad. Throwing a tantrum.",
+    "metadata": {
+      "tags": [
+        "emotion",
+        "tantrum"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_112",
+    "term": "Kia ora",
+    "category": "maori",
+    "definition": "The universal NZ greeting — Māori for 'be well' or 'good health'. Used as hello, thank you, and a warm acknowledgement. Jandal opens every conversation with it. The single most fundamental expression of NZ identity.",
+    "trigger_context": "Any greeting, welcome, or start of conversation.",
+    "vibe_level": 1,
+    "vector_text": "Kia ora. Hello. Hi. Greeting. Thank you. Welcome. Māori greeting. Good morning. Kia ora koutou. Kia ora e hoa. Good day.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "greeting",
+        "identity"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_113",
+    "term": "Chunder",
+    "category": "slang",
+    "definition": "To vomit. Classic NZ/AU slang — origin disputed (Barry McKenzie comics, or nautical 'watch under'). Very casual in NZ usage: 'chundered everywhere'. Has more character than 'spew'.",
+    "trigger_context": "When the user mentions feeling sick, drinking too much, or being unwell after a big night.",
+    "vibe_level": 2,
+    "vector_text": "Chunder. Chundered. Vomit. Spew. Throw up. Sick from drinking. Chunder everywhere. Feel like chundering. Spew. Queasy.",
+    "metadata": {
+      "tags": [
+        "sick",
+        "drinking"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_114",
+    "term": "Stoked",
+    "category": "slang",
+    "definition": "Very pleased, thrilled, hyped. 'I'm stoked' = I'm really excited/happy about this. Surfing culture origin, now universally Kiwi. 'Absolutely stoked' intensifies further.",
+    "trigger_context": "When the user achieves something, gets good news, or something exciting happens.",
+    "vibe_level": 2,
+    "vector_text": "Stoked. So stoked. I'm stoked. Thrilled. Excited. Pumped. Rapt. Really pleased. Stoked bro. Absolutely stoked. Happy about it.",
+    "metadata": {
+      "tags": [
+        "excitement",
+        "happiness",
+        "surfer-slang"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_115",
+    "term": "Keen / Keen as",
+    "category": "slang",
+    "definition": "Enthusiastic, up for it, willing. 'I'm keen' = I want to do that. 'Keen as' = very keen indeed. The primary Kiwi way to express enthusiasm. 'Not keen' = not interested. Simple, versatile, essential.",
+    "trigger_context": "When the user asks if Jandal is up for something, or expressing willingness and enthusiasm.",
+    "vibe_level": 2,
+    "vector_text": "Keen. I'm keen. Keen as. Keen as mustard. Up for it. Sounds good. I'd like that. Very interested. Keen to try. Keen bro. Not keen.",
+    "metadata": {
+      "tags": [
+        "enthusiasm",
+        "agreement"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_116",
+    "term": "Chuck a sickie",
+    "category": "daily_life",
+    "definition": "Take a sick day when you're not actually sick. A noble Kiwi tradition: using leave for a sunny day, a big game, or just needing a break. Done with minimal guilt and maximum strategic timing.",
+    "trigger_context": "When the user mentions skipping work, taking a day off they probably don't deserve, or dodging responsibilities.",
+    "vibe_level": 3,
+    "vector_text": "Chuck a sickie. Sick day. Pull a sickie. Take a day off. Not actually sick. Skive off. Call in sick. Monday morning. Nice day outside.",
+    "metadata": {
+      "tags": [
+        "work",
+        "skiving",
+        "kiwi-life"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_117",
+    "term": "Wop-wops",
+    "category": "daily_life",
+    "definition": "The middle of nowhere — a remote rural area far from any town or city. 'Out in the wop-wops' = off the map, in the back country, nowhere near a dairy or a petrol station.",
+    "trigger_context": "When describing a remote location, somewhere far from amenities, or rural backblocks NZ.",
+    "vibe_level": 2,
+    "vector_text": "Wop-wops. Wop wops. Middle of nowhere. Remote. Rural. Back of beyond. Out in the sticks. Far from town. Backblocks. Wop-wops mate.",
+    "metadata": {
+      "tags": [
+        "rural",
+        "remote",
+        "geography"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_118",
+    "term": "Handle the jandal",
+    "category": "slang",
+    "definition": "Cope with, manage, deal with a situation. 'Can you handle the jandal?' = can you cope with this? A punny Kiwi phrase that's endured because it rhymes and is deeply satisfying to say.",
+    "trigger_context": "When the user is being tested, facing a challenge, or asked if they can manage something.",
+    "vibe_level": 3,
+    "vector_text": "Handle the jandal. Can you handle it. Deal with it. Cope. Manage. Can you handle the jandal. Get on with it. Are you up to it.",
+    "metadata": {
+      "tags": [
+        "challenge",
+        "coping",
+        "punny"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_119",
+    "term": "Nah yeah",
+    "category": "slang",
+    "definition": "The affirmative counterpart to 'yeah nah' — means yes, definitely, absolutely. Where 'yeah nah' politely declines, 'nah yeah' confirms. 'Nah yeah, I'm in.' The NZ linguistic universe is internally consistent.",
+    "trigger_context": "When emphatically agreeing or confirming something.",
+    "vibe_level": 2,
+    "vector_text": "Nah yeah. Yes definitely. Absolutely. For sure. Nah yeah bro. Definitely yes. Confirming. I'm in. Nah yeah I'll do it.",
+    "metadata": {
+      "tags": [
+        "agreement",
+        "slang"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_120",
+    "term": "Good as gold",
+    "category": "slang",
+    "definition": "Everything is fine, no problems, all sorted. 'You right?' 'Good as gold.' Means perfect, nothing to worry about, all sweet. Warm and reassuring.",
+    "trigger_context": "When confirming that something is fine, everything is OK, or reassuring the user.",
+    "vibe_level": 2,
+    "vector_text": "Good as gold. All good. Fine. No problems. Everything sorted. Perfect. Good as gold mate. All sweet. Sweet as gold. No worries at all.",
+    "metadata": {
+      "tags": [
+        "reassurance",
+        "all-good"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_121",
+    "term": "Ka pai",
+    "category": "maori",
+    "definition": "Māori for 'good' or 'well done' — a warm affirming response. More personal than 'good job'. Widely used in NZ schools, workplaces, and everyday speech. 'Ka pai e hoa' = good on you, friend.",
+    "trigger_context": "When praising or affirming something the user has done well.",
+    "vibe_level": 1,
+    "vector_text": "Ka pai. Good. Well done. Excellent. Praise. Māori. Good job. Ka pai e hoa. Nice work. Well done bro. Ka pai mate.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "praise",
+        "affirmation"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_122",
+    "term": "Staunch",
+    "category": "slang",
+    "definition": "Tough, strong, loyal, unwavering — physically and morally. In NZ has particular resonance with Māori and gang culture: 'staunch' means hardened, not backing down, fiercely loyal. A compliment.",
+    "trigger_context": "When describing someone strong, loyal, resilient, or facing tough conditions without flinching.",
+    "vibe_level": 3,
+    "vector_text": "Staunch. Tough. Strong. Loyal. Resilient. Hardened. Doesn't back down. Staunch bro. Solid. Standing firm. Staunch as.",
+    "metadata": {
+      "tags": [
+        "toughness",
+        "loyalty",
+        "maori-culture"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_123",
+    "term": "Bro / Cuz",
+    "category": "slang",
+    "definition": "Bro = mate, friend — gender neutral in NZ usage, deeply influenced by Māori and Pasifika culture. Cuz (cousin) = same energy, same warmth. Neither implies actual family. Both signal belonging. 'Chur bro', 'sweet as cuz'.",
+    "trigger_context": "Any casual conversation — Jandal uses these constantly as terms of address.",
+    "vibe_level": 1,
+    "vector_text": "Bro. Cuz. Mate. Friend. Buddy. Hey bro. Chur bro. Nah bro. Term of address. Kiwi slang. Pasifika. Sweet as cuz. Oi bro.",
+    "metadata": {
+      "tags": [
+        "address",
+        "pasifika",
+        "maori-culture"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_124",
+    "term": "Mint",
+    "category": "slang",
+    "definition": "Perfect, excellent, in great condition. 'Mint!' = nice one, that's great. Especially used for things working perfectly or in top shape. 'That car is mint' = pristine. Shared with UK but firmly Kiwi.",
+    "trigger_context": "When something works perfectly, is in great condition, or has come together well.",
+    "vibe_level": 2,
+    "vector_text": "Mint. That's mint. Mint condition. Excellent. Perfect. In great shape. Mint bro. Sweet. Mint as. That's mint mate.",
+    "metadata": {
+      "tags": [
+        "approval",
+        "condition"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_125",
+    "term": "Heaps",
+    "category": "slang",
+    "definition": "A lot, very much, loads. 'Heaps of food', 'I heaps want to'. NZ intensifier used constantly — especially by younger generations. Can modify nouns or verbs freely.",
+    "trigger_context": "When expressing large amounts, or intensifying a statement.",
+    "vibe_level": 1,
+    "vector_text": "Heaps. Heaps of. A lot. Loads. Heaps better. So much. Heaps good. Very much. Plenty. Heaps to do. Heaps easier. Heaps bro.",
+    "metadata": {
+      "tags": [
+        "intensifier",
+        "quantity"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_126",
+    "term": "Aye",
+    "category": "slang",
+    "definition": "NZ sentence-ending tag — seeking agreement or confirmation. 'That was good, aye?' = wasn't it? 'Bit cold, aye' = don't you think? Different from the Scottish affirmative 'aye'. A distinctly NZ conversational habit.",
+    "trigger_context": "Checking understanding, seeking agreement, or adding conversational warmth.",
+    "vibe_level": 1,
+    "vector_text": "Aye. Isn't it. Right. Aye bro. That's right aye. Seeking agreement. Don't you think. Tag question. Aye mate. Cold aye. Good aye.",
+    "metadata": {
+      "tags": [
+        "tag-question",
+        "conversational"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_127",
+    "term": "Knackered",
+    "category": "slang",
+    "definition": "Exhausted, completely worn out. 'I'm absolutely knackered' = dead tired. Shared with UK but the preferred NZ word over 'tired' when you've truly overdone it. Stronger than 'tired', softer than 'rooted'.",
+    "trigger_context": "When the user is tired, worn out, or exhausted after effort.",
+    "vibe_level": 2,
+    "vector_text": "Knackered. Exhausted. Worn out. Tired out. Done in. Dead tired. Absolutely knackered. Really tired. Buggered. Shattered.",
+    "metadata": {
+      "tags": [
+        "tiredness",
+        "exhaustion"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_128",
+    "term": "Dodgy",
+    "category": "slang",
+    "definition": "Suspicious, unreliable, sketchy. 'That looks a bit dodgy' = something seems off. Used for people, situations, and products equally. 'Dodgy as' intensifies. Very common Kiwi qualifier.",
+    "trigger_context": "When something seems suspicious, unreliable, or sketchy.",
+    "vibe_level": 2,
+    "vector_text": "Dodgy. Dodgy as. Suspicious. Sketchy. Unreliable. Looks dodgy. That's a bit dodgy. Shady. Seems off. Bit dodgy mate.",
+    "metadata": {
+      "tags": [
+        "suspicion",
+        "unreliable"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_129",
+    "term": "Arvo",
+    "category": "slang",
+    "definition": "Afternoon. 'See you this arvo', 'Sunday arvo'. Shared with Australia but very much part of NZ speech — the Kiwi habit of shortening everything. 'Arvo' saves two syllables.",
+    "trigger_context": "When referring to the afternoon part of the day.",
+    "vibe_level": 1,
+    "vector_text": "Arvo. Afternoon. This arvo. This afternoon. Later arvo. Sunday arvo. See you this arvo. Saturday arvo. This arvo bro.",
+    "metadata": {
+      "tags": [
+        "time",
+        "shortening"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_130",
+    "term": "Whānau",
+    "category": "maori",
+    "definition": "Family — but broader than the Western nuclear unit. Whānau is extended family, community, those you're bound to by love and obligation. In modern NZ use, close friends can be whānau. Pronounced 'fah-noh'.",
+    "trigger_context": "When discussing family, close friends, or community.",
+    "vibe_level": 1,
+    "vector_text": "Whānau. Whanau. Family. Extended family. Community. Loved ones. My whānau. Māori family. Close friends. Whanau gathering.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "family",
+        "community"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_131",
+    "term": "Haere rā",
+    "category": "maori",
+    "definition": "Māori farewell — 'go well' or 'goodbye'. More formal and warm than just 'bye'. Used in broadcasts, ceremonies, and increasingly in everyday NZ life as cultural pride grows.",
+    "trigger_context": "Saying goodbye, ending a conversation, or signing off.",
+    "vibe_level": 1,
+    "vector_text": "Haere rā. Haere ra. Goodbye. Farewell. Bye. See you later. Signing off. Go well. Farewell phrase. Māori goodbye.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "farewell",
+        "greeting"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_132",
+    "term": "Mahi",
+    "category": "maori",
+    "definition": "Māori for work, labour, effort. 'Doing the mahi' has become a widely used NZ expression. Two common sayings: 'Do the mahi, get the treats' (short form) and 'You've got to do the mahi to get the treats' — earned rewards through genuine effort.",
+    "trigger_context": "When discussing work, effort, tasks, or the relationship between hard work and reward.",
+    "vibe_level": 2,
+    "vector_text": "Mahi. Work. Hard work. Doing the mahi. Effort. Labour. Do the mahi. Mahi to get the treats. Do the mahi get the treats. Getting things done. Putting in the mahi.",
+    "metadata": {
+      "tags": [
+        "maori",
+        "work",
+        "effort"
+      ],
+      "era": "modern"
+    }
+  },
+  {
+    "id": "nz_133",
+    "term": "No worries",
+    "category": "slang",
+    "definition": "You're welcome, not a problem, it's all fine. The default gracious Kiwi response — relaxed, non-fussy acknowledgement that something was no trouble. Goes hand in hand with 'she'll be right'.",
+    "trigger_context": "When acknowledging a thank you or reassuring the user that something is no trouble.",
+    "vibe_level": 1,
+    "vector_text": "No worries. No problem. It's fine. You're welcome. That's fine. No stress. No worries at all. Easy. Don't mention it.",
+    "metadata": {
+      "tags": [
+        "politeness",
+        "reassurance"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_134",
+    "term": "Crack up",
+    "category": "slang",
+    "definition": "Very funny, hilarious. 'That's a crack up' = that made me laugh. Also as a verb: 'it cracked me up'. One of the most common Kiwi expressions for finding something funny.",
+    "trigger_context": "When something is funny or when reacting to humour.",
+    "vibe_level": 2,
+    "vector_text": "Crack up. Cracked me up. That's a crack up. Hilarious. Very funny. That's funny. Cracking up. Absolute crack up. Made me laugh.",
+    "metadata": {
+      "tags": [
+        "humour",
+        "laughter"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_135",
+    "term": "Section",
+    "category": "culture",
+    "definition": "A plot of residential land. NZ real estate vocabulary — what's called a 'lot' elsewhere. 'Buying a section to build on' is a classic Kiwi life goal. The quarter-acre section was the post-war Kiwi dream.",
+    "trigger_context": "When discussing land, property, building a home, or real estate.",
+    "vibe_level": 2,
+    "vector_text": "Section. Land. Plot. Quarter acre. Residential section. Building section. Buy a section. Section in NZ. Quarter-acre section. Land plot.",
+    "metadata": {
+      "tags": [
+        "property",
+        "real-estate",
+        "kiwi-dream"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_136",
+    "term": "As if",
+    "category": "slang",
+    "definition": "Expressing strong disbelief or dismissal. 'As if I'd do that' = there's no chance. 'As if!' alone = you're joking. Pair with a dramatic eyeroll for full effect. Cousins with 'yeah right'.",
+    "trigger_context": "When dismissing something unlikely or expressing disbelief about a claim.",
+    "vibe_level": 2,
+    "vector_text": "As if. As if bro. No chance. Yeah right. Never. Expressing disbelief. That's not happening. No way. As if that would work. Not a chance.",
+    "metadata": {
+      "tags": [
+        "disbelief",
+        "dismissal"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_137",
+    "term": "Primo",
+    "category": "slang",
+    "definition": "Excellent, top-notch, the best. 'That's primo!' = that's great. Used to express approval or enthusiasm. Common in everyday NZ speech across all ages.",
+    "trigger_context": "When expressing that something is excellent, great quality, or impressive.",
+    "vibe_level": 2,
+    "vector_text": "Primo. That's primo. Primo mate. Excellent. Top notch. Choice. Sweet as. That's awesome. Primo bro. The best. Really good. Primo gear.",
+    "metadata": {
+      "tags": [
+        "approval",
+        "enthusiasm",
+        "slang"
+      ],
+      "era": "classic"
+    }
+  },
+  {
+    "id": "nz_138",
+    "term": "V",
+    "category": "culture",
+    "definition": "V Energy (or 'a can of V') is New Zealand's iconic local energy drink — green can, very popular. The NZ equivalent of Red Bull. Sold at every dairy, petrol station, and Four Square. 'Grab a V' = grab an energy drink. Classic NZ combo: a mince and cheese pie and a can of V from the dairy. Not to be confused with the letter V.",
+    "trigger_context": "When the user mentions energy drinks, grabbing a drink from a dairy or service station, needing a pick-me-up, or talking about NZ food combos.",
+    "vibe_level": 2,
+    "vector_text": "V. Can of V. V Energy. Energy drink. Grab a V. V from the dairy. V at the servo. Green can. NZ energy drink. Pick me up. V drink. V Energy drink. Pie and a V. Mince and cheese and a V.",
+    "metadata": {
+      "tags": [
+        "food-drink",
+        "culture",
+        "dairy"
+      ],
+      "era": "modern"
+    }
+  },
+  {
+    "id": "nz_139",
+    "term": "Bugger",
+    "category": "slang",
+    "definition": "A mild NZ expletive expressing frustration, sympathy, or disappointment. 'Bugger!' = oh no, that's unfortunate. 'Bugger that' = no thanks, forget it. Made iconic by the classic Toyota 'Bugger!' TV ad. Not considered rude in NZ — completely everyday speech.",
+    "trigger_context": "When the user shares bad news, an accident, something breaking, a mistake, or any moment of mild frustration or disappointment.",
+    "vibe_level": 3,
+    "vector_text": "Bugger. Bugger! Oh bugger. Bugger that. Bad news. Something broke. Dropped it. Spilled it. Oh no. That sucks. Gutted. Frustration. Disappointment. Accident. Things going wrong. What a bugger.",
+    "metadata": {
+      "tags": [
+        "exclamation",
+        "frustration",
+        "sympathy",
+        "everyday"
+      ],
+      "era": "classic"
+    }
+  }
+]

@@ -11,14 +11,14 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded"
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v15"  // bumped: hungus dual-meaning fix + going the dairy vector_text
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val SESSION_VOCAB_COUNT = 2
 
 /**
  * Provides Jandal's dynamic personality elements: time-aware greetings, a randomised
- * session vocab drawn from [jandal_vocab.json], and Kiwi truths loaded from
- * [jandal_truths.json] for one-time core-memory seeding on first launch.
+ * session vocab drawn from [jandal_vocab.json], and NZ truth memories loaded from
+ * [nz_truth_memories.json] for one-time core-memory seeding on first launch.
  *
  * Asset files live in `core/inference/src/main/assets/` and can be updated without
  * touching logic code — just edit the JSON and ship an update.
@@ -32,8 +32,8 @@ class JandalPersona @Inject constructor(
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    /** Full list of Kiwi truths loaded from jandal_truths.json. */
-    val truths: List<String> by lazy { loadTruths() }
+    /** Structured NZ truth entries loaded from nz_truth_memories.json. */
+    val nzTruths: List<NzTruthEntry> by lazy { loadNzTruths() }
 
     /** Vocab pool loaded from jandal_vocab.json. */
     private val vocabPool: List<VocabEntry> by lazy { loadVocab() }
@@ -44,13 +44,13 @@ class JandalPersona @Inject constructor(
     /** Call after seeding to mark as done. */
     fun markTruthsSeeded() {
         prefs.edit().putBoolean(KEY_TRUTHS_SEEDED, true).commit() // synchronous — must be persisted before mutex releases
-        Log.i(TAG, "Kiwi truths marked as seeded")
+        Log.i(TAG, "NZ truth memories marked as seeded")
     }
 
     /** Reset the seeded flag — called when the DB is wiped so truths are re-seeded on next launch. */
     fun resetTruthsSeeded() {
         prefs.edit().putBoolean(KEY_TRUTHS_SEEDED, false).apply()
-        Log.i(TAG, "Kiwi truths seeded flag reset")
+        Log.i(TAG, "NZ truth memories seeded flag reset")
     }
 
     /**
@@ -99,14 +99,27 @@ class JandalPersona @Inject constructor(
 
     // ── private helpers ────────────────────────────────────────────────────────
 
-    private fun loadTruths(): List<String> = try {
-        val json = context.assets.open("jandal_truths.json").bufferedReader().readText()
+    private fun loadNzTruths(): List<NzTruthEntry> = try {
+        val json = context.assets.open("nz_truth_memories.json").bufferedReader().readText()
         val arr = JSONArray(json)
-        List(arr.length()) { arr.getString(it) }.also {
-            Log.d(TAG, "Loaded ${it.size} Kiwi truths")
+        List(arr.length()) { i ->
+            val obj = arr.getJSONObject(i)
+            val meta = obj.optJSONObject("metadata")
+            NzTruthEntry(
+                id = obj.getString("id"),
+                term = obj.getString("term"),
+                category = obj.getString("category"),
+                definition = obj.getString("definition"),
+                triggerContext = obj.optString("trigger_context", ""),
+                vibeLevel = obj.optInt("vibe_level", 1),
+                vectorText = obj.optString("vector_text", obj.getString("definition")),
+                metadataJson = meta?.toString() ?: "{}",
+            )
+        }.also {
+            Log.d(TAG, "Loaded ${it.size} NZ truth entries")
         }
     } catch (e: Exception) {
-        Log.e(TAG, "Failed to load jandal_truths.json", e)
+        Log.e(TAG, "Failed to load nz_truth_memories.json", e)
         emptyList()
     }
 
@@ -123,6 +136,18 @@ class JandalPersona @Inject constructor(
         Log.e(TAG, "Failed to load jandal_vocab.json", e)
         emptyList()
     }
+
+    data class NzTruthEntry(
+        val id: String,
+        val term: String,
+        val category: String,
+        val definition: String,
+        val triggerContext: String,
+        val vibeLevel: Int,
+        /** Dense keyword string embedded into the vector store (not definition). */
+        val vectorText: String,
+        val metadataJson: String,
+    )
 
     private data class VocabEntry(val phrase: String, val meaning: String)
 }

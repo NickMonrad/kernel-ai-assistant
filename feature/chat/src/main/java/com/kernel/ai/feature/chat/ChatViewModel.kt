@@ -290,13 +290,34 @@ class ChatViewModel @Inject constructor(
                 Log.w("ChatViewModel", "truths_seeded flag was set but DB has 0 jandal_persona memories — re-seeding")
                 jandalPersona.resetTruthsSeeded()
             }
-            jandalPersona.truths.forEach { truth ->
-                val vector = embeddingEngine.embed(truth).takeIf { it.isNotEmpty() }
-                    ?: return@forEach  // skip if engine not ready
-                memoryRepository.addCoreMemory(truth, source = "jandal_persona", embeddingVector = vector, category = "agent_identity")
+            // Wipe any stale entries from a previous seed guard version before re-seeding.
+            // Without this, bumping the seed guard key adds new entries on top of old ones,
+            // producing duplicates that pollute RAG results.
+            withContext(Dispatchers.IO) {
+                val staleCount = memoryRepository.countCoreMemoriesBySource("jandal_persona")
+                if (staleCount > 0) {
+                    Log.i("ChatViewModel", "Clearing $staleCount stale jandal_persona entries before re-seeding")
+                    memoryRepository.deleteAllCoreMemoriesBySource("jandal_persona")
+                }
+                jandalPersona.nzTruths.forEach { truth ->
+                    // Embed vector_text (dense keywords) — not definition — for richer semantic retrieval
+                    val vector = embeddingEngine.embed(truth.vectorText).takeIf { it.isNotEmpty() }
+                        ?: return@forEach  // skip if engine not ready
+                    memoryRepository.addCoreMemory(
+                        content = truth.vectorText,
+                        source = "jandal_persona",
+                        embeddingVector = vector,
+                        category = "agent_identity",
+                        term = truth.term,
+                        definition = truth.definition,
+                        triggerContext = truth.triggerContext,
+                        vibeLevel = truth.vibeLevel,
+                        metadataJson = truth.metadataJson,
+                    )
+                }
             }
             jandalPersona.markTruthsSeeded()
-            Log.i("ChatViewModel", "Seeded ${jandalPersona.truths.size} Kiwi truths into core memory")
+            Log.i("ChatViewModel", "Seeded ${jandalPersona.nzTruths.size} NZ truth memories into core memory")
         }
     }
 
