@@ -2292,5 +2292,22 @@
       ],
       "era": "classic"
     }
+  },
+  {
+    "id": "nz_138",
+    "term": "V",
+    "category": "culture",
+    "definition": "V Energy (or 'a can of V') is New Zealand's iconic local energy drink — green can, very popular. The NZ equivalent of Red Bull. Sold at every dairy, petrol station, and Four Square. 'Grab a V' = grab an energy drink. Not to be confused with the letter V.",
+    "trigger_context": "When the user mentions energy drinks, grabbing a drink from a dairy or service station, or needing a pick-me-up.",
+    "vibe_level": 2,
+    "vector_text": "V. Can of V. V Energy. Energy drink. Grab a V. V from the dairy. V at the servo. Green can. NZ energy drink. Pick me up. V drink. V Energy drink.",
+    "metadata": {
+      "tags": [
+        "food-drink",
+        "culture",
+        "dairy"
+      ],
+      "era": "modern"
+    }
   }
 ]
