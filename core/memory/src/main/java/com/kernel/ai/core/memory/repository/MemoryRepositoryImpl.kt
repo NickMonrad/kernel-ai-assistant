@@ -162,7 +162,7 @@ class MemoryRepositoryImpl @Inject constructor(
                         val dist = distanceMap[entity.rowId] ?: Float.MAX_VALUE
                         val maxDist = when {
                             entity.vibeLevel <= 2 -> CORE_MAX_DISTANCE  // 1.25 — surface freely
-                            entity.vibeLevel == 3 -> 1.15f               // moderate match required
+                            entity.vibeLevel == 3 -> 1.20f               // raised from 1.15f — too tight for model's actual distance range; recalibrate in #647
                             else -> 1.20f                                 // tight match for vibe 4-5
                         }
                         dist <= maxDist
