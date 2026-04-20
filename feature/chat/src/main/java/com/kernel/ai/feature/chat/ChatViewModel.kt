@@ -1,7 +1,6 @@
 package com.kernel.ai.feature.chat
 
 import android.util.Log
-import android.content.Context
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
@@ -9,11 +8,6 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
-import dagger.hilt.android.qualifiers.ApplicationContext
 import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
@@ -59,11 +53,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -96,12 +88,8 @@ class ChatViewModel @Inject constructor(
     private val embeddingEngine: EmbeddingEngine,
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
-    @ApplicationContext private val context: Context,
+    private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
 ) : ViewModel() {
-
-    private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
-        name = "about_prefs",
-    )
 
     /** Passed via nav arg; null means "start a new conversation". */
     private val navConversationId: String? = savedStateHandle["conversationId"]
@@ -254,15 +242,9 @@ class ChatViewModel @Inject constructor(
     )
 
     init {
-        // Observe verbose logging setting and propagate to RagRepository
-        // Use IO dispatcher to avoid conflicts with logcat reads during Export Logs
-        viewModelScope.launch(Dispatchers.IO) {
-            val keyVerboseLogging = booleanPreferencesKey("verbose_logging")
-            context.settingsDataStore.data
-                .map { prefs -> prefs[keyVerboseLogging] ?: false }
-                .collect { enabled ->
-                    ragRepository.setVerboseLogging(enabled)
-                }
+        // Load verbose logging preference from DataStore (safe in core:memory module)
+        viewModelScope.launch {
+            verboseLoggingPreferenceUseCase.loadAndApplyVerboseLoggingPreference()
         }
         viewModelScope.launch { initializeConversation() }
         nzTruthSeedingService.seedIfNeeded()

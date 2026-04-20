@@ -60,9 +60,6 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
     ksp(libs.hilt.compiler)
 
-    // DataStore (for verbose logging preference)
-    implementation(libs.datastore.preferences)
-
     debugImplementation(libs.compose.ui.tooling)
 
     androidTestImplementation(platform(libs.compose.bom))
