@@ -1584,10 +1584,10 @@
     "id": "nz_095",
     "term": "Hungus",
     "category": "slang",
-    "definition": "Kiwi slang for someone with an intense, enthusiastic love of food — someone who eats big portions and revels in it. 'Stop being a hungus.' Used warmly rather than as a true insult.",
-    "trigger_context": "When the user mentions being hungry, overeating, loving food, or describes someone eating a lot.",
+    "definition": "Kiwi slang with two uses: (1) very hungry right now — 'I'm hungus as' = I'm starving; (2) someone with an intense love of food who eats big portions — 'stop being a hungus'. Used warmly rather than as a true insult.",
+    "trigger_context": "When the user mentions being hungry, starving, wanting food, overeating, loving food, or describes someone eating a lot.",
     "vibe_level": 2,
-    "vector_text": "Hungus. Hungry, starving, love food, eating a lot. Big appetite. Greedy eater. Foodie. Kiwi slang for food lover or glutton. Stop being a hungus.",
+    "vector_text": "Hungus. Hungry. Hungus as. Starving. I'm hungus. I'm so hungry. Love food. Eating a lot. Big appetite. Greedy eater. Foodie. Kiwi slang for hungry or food lover. Stop being a hungus.",
     "metadata": {
       "tags": [
         "slang",
@@ -1638,7 +1638,7 @@
     "definition": "A small corner store or convenience store. Nothing to do with dairy farming — just where you grab a pie, a drink, or a Lotto ticket. An essential NZ institution. Australians say 'servo' or '7-Eleven'. Kiwis say dairy.",
     "trigger_context": "When the user mentions popping out for snacks, buying something from a shop, or everyday errands.",
     "vibe_level": 2,
-    "vector_text": "Dairy. Corner store. Convenience store. Pop to the dairy. Grab it from the dairy. Quick shop. Milk bar. Dairy down the road. Corner dairy. Lotto. Grab a Lotto. Lotto ticket.",
+    "vector_text": "Dairy. Corner store. Convenience store. Pop to the dairy. Grab it from the dairy. Going the dairy. Going to the dairy. Quick shop. Milk bar. Dairy down the road. Corner dairy. Lotto. Grab a Lotto. Lotto ticket.",
     "metadata": {
       "tags": [
         "daily-life",
