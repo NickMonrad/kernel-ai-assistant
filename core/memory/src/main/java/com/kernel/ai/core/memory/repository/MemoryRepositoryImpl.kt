@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,12 +34,12 @@ class MemoryRepositoryImpl @Inject constructor(
         // Thresholds calibrated from on-device measurements (EmbeddingGemma-300M):
         //   ancestor memory: best match dist=1.0996 (cos_sim ≈ 0.40) — must pass
         //   aubergine memory: best match dist=0.9398 (cos_sim ≈ 0.56) — must pass
-        // Core: 1.10 = sqrt(2 * 0.605) → cos_sim ≥ 0.395 — wide net for explicit memories
-        // Episodic: 1.10 — same as core; episodic summaries are less lexically similar to
-        //   queries than verbatim core memories, so they need a looser threshold too
-        /** Loose threshold for core memories — covers cos_sim ≥ 0.40 in L2 space. */
-        private const val CORE_MAX_DISTANCE = 1.10f
-        /** Threshold for episodic memories — cos_sim ≥ 0.40 equivalent in L2 space. */
+        //   NZ corpus (e.g. nek minnit ↔ "left my scooter outside the dairy"): observed ~1.177
+        // Core: 1.25 covers cos_sim ≥ 0.22 — wide net; NZ truths need ~1.18 to surface
+        // Episodic: 1.10 — keep tighter to avoid noisy distilled summaries flooding context
+        /** Loose threshold for core memories — raised to 1.25 to cover NZ corpus entries. */
+        private const val CORE_MAX_DISTANCE = 1.25f
+        /** Threshold for episodic memories — tighter than core to reduce noise. */
         private const val EPISODIC_MAX_DISTANCE = 1.10f
         /** Minimum content length for an episodic entry to appear in search results.
          *  Guards against short model hallucinations ("Nick", "You: Here") polluting results. */
@@ -50,6 +51,7 @@ class MemoryRepositoryImpl @Inject constructor(
     private val episodicVecMutex = Mutex()
     private val coreVecTableCreated = AtomicBoolean(false)
     private val coreVecMutex = Mutex()
+    private val coreVecDimensions = AtomicInteger(0)
 
     override suspend fun addEpisodicMemory(
         conversationId: String,
@@ -159,9 +161,9 @@ class MemoryRepositoryImpl @Inject constructor(
                     .filter { entity ->
                         val dist = distanceMap[entity.rowId] ?: Float.MAX_VALUE
                         val maxDist = when {
-                            entity.vibeLevel <= 2 -> CORE_MAX_DISTANCE  // 1.10 — surface freely
-                            entity.vibeLevel == 3 -> 0.95f               // moderate match required
-                            else -> 0.80f                                 // tight match for vibe 4-5
+                            entity.vibeLevel <= 2 -> CORE_MAX_DISTANCE  // 1.25 — surface freely
+                            entity.vibeLevel == 3 -> 1.20f               // raised from 1.15f — too tight for model's actual distance range; recalibrate in #647
+                            else -> 1.20f                                 // tight match for vibe 4-5
                         }
                         dist <= maxDist
                     }
@@ -324,6 +326,7 @@ class MemoryRepositoryImpl @Inject constructor(
         coreVecMutex.withLock {
             if (!coreVecTableCreated.get()) {
                 vectorStore.createTable(CORE_VEC_TABLE, dimensions)
+                coreVecDimensions.set(dimensions)
                 coreVecTableCreated.set(true)
                 Log.i(TAG, "Created core vec table dim=$dimensions")
             }
@@ -333,6 +336,28 @@ class MemoryRepositoryImpl @Inject constructor(
     override suspend fun countCoreMemoriesBySource(source: String): Int =
         coreDao.countBySource(source)
 
-    override suspend fun deleteAllCoreMemoriesBySource(source: String) =
+    override suspend fun deleteAllCoreMemoriesBySource(source: String) {
+        // Delete from the vec table first (needs rowIds), then from the Room table.
+        val rowIds = coreDao.getRowIdsBySource(source)
+        rowIds.forEach { vectorStore.delete(CORE_VEC_TABLE, it) }
         coreDao.deleteBySource(source)
+    }
+
+    override suspend fun resetCoreVecTable() {
+        coreVecMutex.withLock {
+            // Drop + recreate to purge all ghost entries (orphaned vec rows with no Room counterpart).
+            val dim = coreVecDimensions.get()
+            vectorStore.dropTable(CORE_VEC_TABLE)
+            if (dim > 0) {
+                vectorStore.createTable(CORE_VEC_TABLE, dim)
+                Log.i(TAG, "Reset core vec table dim=$dim — all ghost entries purged")
+            } else {
+                // Table will be recreated lazily on next addCoreMemory call.
+                Log.i(TAG, "Reset core vec table — will recreate lazily (dim not yet known)")
+            }
+            coreVecTableCreated.set(dim > 0)
+        }
+        // Mark all remaining Room rows as un-vectorized so the backfill worker re-embeds them.
+        coreDao.markAllUnvectorized()
+    }
 }
