@@ -8,7 +8,17 @@ interface MemoryRepository {
     /** Store a volatile, conversation-scoped memory. */
     suspend fun addEpisodicMemory(conversationId: String, content: String, embeddingVector: FloatArray): String
     /** Store a permanent cross-conversation memory. */
-    suspend fun addCoreMemory(content: String, source: String = "user", embeddingVector: FloatArray, category: String = "user"): String
+    suspend fun addCoreMemory(
+        content: String,
+        source: String = "user",
+        embeddingVector: FloatArray,
+        category: String = "user",
+        term: String = "",
+        definition: String = "",
+        triggerContext: String = "",
+        vibeLevel: Int = 1,
+        metadataJson: String = "{}",
+    ): String
     /** Backfill vector for an existing core memory that was saved without one (used by MemoryEmbeddingWorker). */
     suspend fun backfillCoreVector(rowId: Long, vector: FloatArray)
     /** Backfill vector for an existing episodic memory that was saved without one (used by MemoryEmbeddingWorker). */
@@ -18,7 +28,7 @@ interface MemoryRepository {
         queryVector: FloatArray,
         coreTopK: Int = 10,
         episodicTopK: Int = 5,
-        identityTopK: Int = 2,
+        identityTopK: Int = 5,
     ): List<MemorySearchResult>
     /** Delete a specific core memory. */
     suspend fun deleteCoreMemory(id: String)
@@ -42,4 +52,6 @@ interface MemoryRepository {
     suspend fun updateEpisodicMemory(id: String, newContent: String, newVector: FloatArray)
     /** Count core memories by source (e.g. "jandal_persona"). Used to detect stale seeded flag. */
     suspend fun countCoreMemoriesBySource(source: String): Int
+    /** Delete all core memories from a given source (e.g. "jandal_persona") for clean re-seeding. */
+    suspend fun deleteAllCoreMemoriesBySource(source: String)
 }

@@ -7,4 +7,7 @@ data class MemorySearchResult(
     val score: Float,
     val lastAccessedAt: Long = 0L, // populated for core memories; used as tiebreaker when truncating
     val conversationId: String? = null, // populated for episodic memories; used for summary-to-detail retrieval
+    // NZ truth structured fields — populated for agent_identity memories, empty otherwise
+    val term: String = "",
+    val definition: String = "",
 )
