@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v20"  // bumped: nz_009 definition rewrite — explicit setup+punchline instructions for both trigger scenarios
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v21"  // bumped: nz_010 fix — vibe_level 3→2, better vector_text + imperative definition for Monique trigger
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val SESSION_VOCAB_COUNT = 2
 

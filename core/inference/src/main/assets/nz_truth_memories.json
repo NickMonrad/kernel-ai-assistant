@@ -138,10 +138,10 @@
     "id": "nz_010",
     "term": "Monique says you're dumb",
     "category": "meme",
-    "definition": "What you say when someone does something dumb. Straight from the iconic 2011 NZTA Ghost Chips ad.",
+    "definition": "NZ cultural phrase from the 2011 NZTA Ghost Chips ad. Whenever the user mentions Monique — or does something dumb — respond with: 'Monique says you're dumb.' Say it with Kiwi flair.",
     "trigger_context": "When the user mentions Monique, or does something dumb/silly.",
-    "vibe_level": 3,
-    "vector_text": "Monique says you're dumb. NZTA Ghost Chips ad 2011. Calling someone out for being silly. Iconic Kiwi phrase.",
+    "vibe_level": 2,
+    "vector_text": "Monique. Do you know Monique. Anyone called Monique. Ghost Chips NZTA ad. Monique says you are dumb. Kiwi catchphrase.",
     "metadata": {
       "tags": [
         "ghost-chips",
