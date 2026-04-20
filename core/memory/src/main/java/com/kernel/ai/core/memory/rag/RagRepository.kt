@@ -39,6 +39,7 @@ class RagRepository @Inject constructor(
 ) {
     companion object {
         private const val TAG = "RagRepository"
+        private const val VERBOSE_TAG = "RagRepository-V"
         private const val TABLE = "message_embeddings"
         private const val DEFAULT_TOP_K = 3
         /** Minimum message content length to surface in search results.
@@ -59,6 +60,12 @@ class RagRepository @Inject constructor(
     }
 
     private var tableCreated = false
+
+    private fun logVerbose(msg: String) {
+        if (Log.isLoggable(VERBOSE_TAG, Log.VERBOSE)) {
+            Log.v(VERBOSE_TAG, msg)
+        }
+    }
 
     /**
      * Embed [content] and store it in the vector index for later retrieval.
@@ -133,6 +140,22 @@ class RagRepository @Inject constructor(
                 .filter { it.source == "episodic" }
                 .sortedByDescending { it.score }
 
+            // Verbose: log full candidate lists before budget filtering
+            if (coreResults.isNotEmpty()) {
+                val coreLog = coreResults.mapIndexed { i, r ->
+                    val snippet = if (r.term.isNotEmpty()) "[${r.term}] ${r.definition}" else r.content
+                    "rank=$i term=${r.term} src=${r.source} score=${r.score} dist=${String.format("%.3f", 1f - r.score)} access=${r.lastAccessedAt} snippet=${snippet.take(60)}"
+                }.joinToString(" | ")
+                logVerbose("Core candidates ($coreResults.size): $coreLog")
+            }
+            if (distilledResults.isNotEmpty()) {
+                val distilledLog = distilledResults.mapIndexed { i, r ->
+                    val convId = r.conversationId ?: "none"
+                    "rank=$i conv=$convId src=${r.source} score=${r.score} dist=${String.format("%.3f", 1f - r.score)} snippet=${r.content.take(60)}"
+                }.joinToString(" | ")
+                logVerbose("Distilled candidates ($distilledResults.size): $distilledLog")
+            }
+
             val coreHeader = "[Core Memories — permanent facts about the user]\n"
             val coreFooter = "[End of core memories]"
             val coreOverhead = (coreHeader.length + coreFooter.length + charsPerToken - 1) / charsPerToken
@@ -145,9 +168,13 @@ class RagRepository @Inject constructor(
                     result.content.take(300)
                 }
                 val cost = (line.length + 1 + charsPerToken - 1) / charsPerToken
-                if (coreBudget - cost < 0) break
+                if (coreBudget - cost < 0) {
+                    logVerbose("Core OUT (budget): [${result.term}] cost=$cost budgetRemaining=$coreBudget")
+                    break
+                }
                 coreMemoryLines.add(line)
                 coreBudget -= cost
+                logVerbose("Core IN: [${result.term}] cost=$cost budgetRemaining=$coreBudget")
             }
             if (coreMemoryLines.isNotEmpty()) {
                 tokenBudgetRemaining = coreBudget
@@ -161,9 +188,13 @@ class RagRepository @Inject constructor(
                 val prefix = result.conversationId?.let { "conversation:$it | " } ?: ""
                 val line = "$prefix${result.content.take(400)}"
                 val cost = (line.length + 1 + charsPerToken - 1) / charsPerToken
-                if (distilledBudget - cost < 0) break
+                if (distilledBudget - cost < 0) {
+                    logVerbose("Distilled OUT (budget): conv=${result.conversationId} cost=$cost budgetRemaining=$distilledBudget")
+                    break
+                }
                 distilledMemoryLines.add(line)
                 distilledBudget -= cost
+                logVerbose("Distilled IN: conv=${result.conversationId} cost=$cost budgetRemaining=$distilledBudget")
             }
             if (distilledMemoryLines.isNotEmpty()) {
                 tokenBudgetRemaining = distilledBudget
