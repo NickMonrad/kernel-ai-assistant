@@ -3,8 +3,10 @@ package com.kernel.ai.core.memory.repository
 import android.util.Log
 import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
+import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
+import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.vector.VectorStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
@@ -19,6 +21,7 @@ import javax.inject.Singleton
 class MemoryRepositoryImpl @Inject constructor(
     private val episodicDao: EpisodicMemoryDao,
     private val coreDao: CoreMemoryDao,
+    private val kiwiMemoryDao: KiwiMemoryDao,
     private val vectorStore: VectorStore,
 ) : MemoryRepository {
 
@@ -26,6 +29,7 @@ class MemoryRepositoryImpl @Inject constructor(
         private const val TAG = "KernelAI"
         private const val EPISODIC_VEC_TABLE = "episodic_memories_vec"
         private const val CORE_VEC_TABLE = "core_memories_vec"
+        private const val KIWI_VEC_TABLE = "kiwi_memories_vec"
         private const val EPISODIC_MAX = 500
         private const val CORE_MAX = 200
         private const val EPISODIC_TTL_MS = 30L * 24 * 60 * 60 * 1000  // 30 days
@@ -52,6 +56,9 @@ class MemoryRepositoryImpl @Inject constructor(
     private val coreVecTableCreated = AtomicBoolean(false)
     private val coreVecMutex = Mutex()
     private val coreVecDimensions = AtomicInteger(0)
+    private val kiwiVecTableCreated = AtomicBoolean(false)
+    private val kiwiVecMutex = Mutex()
+    private val kiwiVecDimensions = AtomicInteger(0)
 
     override suspend fun addEpisodicMemory(
         conversationId: String,
@@ -135,6 +142,7 @@ class MemoryRepositoryImpl @Inject constructor(
         coreTopK: Int,
         episodicTopK: Int,
         identityTopK: Int,
+        kiwiTopK: Int,
     ): List<MemorySearchResult> {
         val results = mutableListOf<MemorySearchResult>()
 
@@ -151,7 +159,7 @@ class MemoryRepositoryImpl @Inject constructor(
 
                 // Split by category and apply separate topK limits
                 val userEntities = entities
-                    .filter { it.category != "agent_identity" }
+                    .filter { it.category != "agent_identity" && it.source != "jandal_persona" }
                     .sortedBy { distanceMap[it.rowId] ?: Float.MAX_VALUE }
                     .take(coreTopK)
                 val identityEntities = entities
@@ -221,6 +229,49 @@ class MemoryRepositoryImpl @Inject constructor(
                 }
             }
         }.onFailure { Log.w(TAG, "Episodic memory search failed: ${it.message}") }
+
+        // ── Kiwi (NZ corpus) search ────────────────────────────────────────
+        if (kiwiTopK > 0) {
+            runCatching {
+                val rawKiwiResults = vectorStore.search(KIWI_VEC_TABLE, queryVector, kiwiTopK)
+                Log.d(TAG, "Kiwi vec search: ${rawKiwiResults.size} raw results, distances=${rawKiwiResults.map { "%.3f".format(it.distance) }}")
+                val kiwiResults = rawKiwiResults.filter { it.distance <= CORE_MAX_DISTANCE }
+                val rowIds = kiwiResults.map { it.rowId }
+                if (rowIds.isNotEmpty()) {
+                    val entities = kiwiMemoryDao.getByRowIds(rowIds)
+                    val distanceMap = kiwiResults.associate { it.rowId to it.distance }
+                    val filtered = entities
+                        .sortedBy { distanceMap[it.rowId] ?: Float.MAX_VALUE }
+                        .filter { entity ->
+                            val dist = distanceMap[entity.rowId] ?: Float.MAX_VALUE
+                            val maxDist = when {
+                                entity.vibeLevel <= 2 -> CORE_MAX_DISTANCE
+                                entity.vibeLevel == 3 -> 1.20f
+                                else -> 1.20f
+                            }
+                            dist <= maxDist
+                        }
+                        .take(kiwiTopK)
+                    filtered.forEach { entity ->
+                        results.add(
+                            MemorySearchResult(
+                                id = entity.id,
+                                content = entity.content,
+                                source = "kiwi",
+                                score = 1f - (distanceMap[entity.rowId] ?: 1f),
+                                lastAccessedAt = entity.lastAccessedAt,
+                                term = entity.term,
+                                definition = entity.definition,
+                            )
+                        )
+                    }
+                    runCatching {
+                        val now = System.currentTimeMillis()
+                        kiwiMemoryDao.incrementAccessStatsAndNotify(filtered.map { it.id }, now)
+                    }.onFailure { Log.w(TAG, "kiwi incrementAccessStats failed: ${it.message}") }
+                }
+            }.onFailure { Log.w(TAG, "Kiwi memory search failed: ${it.message}") }
+        }
 
         return results
     }
@@ -333,6 +384,18 @@ class MemoryRepositoryImpl @Inject constructor(
         }
     }
 
+    private suspend fun ensureKiwiVecTable(dimensions: Int) {
+        if (kiwiVecTableCreated.get()) return
+        kiwiVecMutex.withLock {
+            if (!kiwiVecTableCreated.get()) {
+                vectorStore.createTable(KIWI_VEC_TABLE, dimensions)
+                kiwiVecDimensions.set(dimensions)
+                kiwiVecTableCreated.set(true)
+                Log.i(TAG, "Created kiwi vec table dim=$dimensions")
+            }
+        }
+    }
+
     override suspend fun countCoreMemoriesBySource(source: String): Int =
         coreDao.countBySource(source)
 
@@ -345,19 +408,58 @@ class MemoryRepositoryImpl @Inject constructor(
 
     override suspend fun resetCoreVecTable() {
         coreVecMutex.withLock {
-            // Drop + recreate to purge all ghost entries (orphaned vec rows with no Room counterpart).
             val dim = coreVecDimensions.get()
             vectorStore.dropTable(CORE_VEC_TABLE)
             if (dim > 0) {
                 vectorStore.createTable(CORE_VEC_TABLE, dim)
                 Log.i(TAG, "Reset core vec table dim=$dim — all ghost entries purged")
             } else {
-                // Table will be recreated lazily on next addCoreMemory call.
                 Log.i(TAG, "Reset core vec table — will recreate lazily (dim not yet known)")
             }
             coreVecTableCreated.set(dim > 0)
         }
-        // Mark all remaining Room rows as un-vectorized so the backfill worker re-embeds them.
         coreDao.markAllUnvectorized()
     }
+
+    override suspend fun upsertKiwiMemory(entity: KiwiMemoryEntity, embeddingVector: FloatArray) {
+        val rowId = kiwiMemoryDao.insert(entity)
+        if (rowId > 0) {
+            ensureKiwiVecTable(embeddingVector.size)
+            vectorStore.upsert(KIWI_VEC_TABLE, rowId, embeddingVector)
+            kiwiMemoryDao.markVectorized(rowId)
+        }
+        Log.d(TAG, "Upserted kiwi memory id=${entity.id} rowId=$rowId")
+    }
+
+    override suspend fun deleteAllKiwiMemoriesBySource(source: String) {
+        val rowIds = kiwiMemoryDao.getRowIdsBySource(source)
+        rowIds.forEach { vectorStore.delete(KIWI_VEC_TABLE, it) }
+        kiwiMemoryDao.deleteBySource(source)
+    }
+
+    override suspend fun resetKiwiVecTable() {
+        kiwiVecMutex.withLock {
+            val dim = kiwiVecDimensions.get().takeIf { it > 0 } ?: coreVecDimensions.get()
+            vectorStore.dropTable(KIWI_VEC_TABLE)
+            if (dim > 0) {
+                vectorStore.createTable(KIWI_VEC_TABLE, dim)
+                kiwiVecDimensions.set(dim)
+                Log.i(TAG, "Reset kiwi vec table dim=$dim — all ghost entries purged")
+            } else {
+                Log.i(TAG, "Reset kiwi vec table — will recreate lazily (dim not yet known)")
+            }
+            kiwiVecTableCreated.set(dim > 0)
+        }
+        kiwiMemoryDao.markAllUnvectorized()
+    }
+
+    override suspend fun backfillKiwiVector(rowId: Long, vector: FloatArray) {
+        ensureKiwiVecTable(vector.size)
+        vectorStore.upsert(KIWI_VEC_TABLE, rowId, vector)
+        kiwiMemoryDao.markVectorized(rowId)
+    }
+
+    override fun observeAllKiwiMemories(): Flow<List<KiwiMemoryEntity>> = kiwiMemoryDao.observeAll()
+
+    override suspend fun getAllKiwiMemories(): List<KiwiMemoryEntity> = kiwiMemoryDao.getAll()
 }

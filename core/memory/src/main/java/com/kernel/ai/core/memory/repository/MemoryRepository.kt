@@ -2,6 +2,7 @@ package com.kernel.ai.core.memory.repository
 
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
+import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import kotlinx.coroutines.flow.Flow
 
 interface MemoryRepository {
@@ -23,12 +24,14 @@ interface MemoryRepository {
     suspend fun backfillCoreVector(rowId: Long, vector: FloatArray)
     /** Backfill vector for an existing episodic memory that was saved without one (used by MemoryEmbeddingWorker). */
     suspend fun backfillEpisodicVector(rowId: Long, vector: FloatArray)
-    /** Search BOTH tiers; core ranked above episodic. Agent identity memories use separate topK. */
+    /** Search BOTH tiers; core ranked above episodic. Agent identity memories use separate topK.
+     *  Kiwi (NZ corpus) entries are also searched and merged into the result (using [kiwiTopK]). */
     suspend fun searchMemories(
         queryVector: FloatArray,
         coreTopK: Int = 10,
         episodicTopK: Int = 5,
         identityTopK: Int = 5,
+        kiwiTopK: Int = 10,
     ): List<MemorySearchResult>
     /** Delete a specific core memory. */
     suspend fun deleteCoreMemory(id: String)
@@ -61,4 +64,20 @@ interface MemoryRepository {
      * worker re-embeds them. Call this before reseeding on a seed-guard version bump.
      */
     suspend fun resetCoreVecTable()
+
+    /** Upsert a kiwi memory entity and its embedding vector into the kiwi vec table. */
+    suspend fun upsertKiwiMemory(entity: KiwiMemoryEntity, embeddingVector: FloatArray)
+    /** Delete all kiwi memories from a given source (e.g. "jandal_persona") for clean re-seeding. */
+    suspend fun deleteAllKiwiMemoriesBySource(source: String)
+    /**
+     * Drop and recreate the kiwi vec table to purge ghost entries. Marks all kiwi rows as
+     * un-vectorized so the backfill worker re-embeds them on next startup.
+     */
+    suspend fun resetKiwiVecTable()
+    /** Backfill vector for a kiwi memory entry (used by MemoryEmbeddingWorker). */
+    suspend fun backfillKiwiVector(rowId: Long, vector: FloatArray)
+    /** Observe all kiwi memories (for UI). */
+    fun observeAllKiwiMemories(): Flow<List<KiwiMemoryEntity>>
+    /** Return all kiwi memories as a snapshot list. */
+    suspend fun getAllKiwiMemories(): List<KiwiMemoryEntity>
 }

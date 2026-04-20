@@ -2,6 +2,7 @@ package com.kernel.ai.feature.settings
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import androidx.core.content.FileProvider
@@ -9,6 +10,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -42,6 +44,7 @@ class AboutViewModelTest {
     private val testScope = TestScope(testDispatcher)
 
     private val context: Context = mockk()
+    private val applicationInfo: ApplicationInfo = mockk()
     private val packageManager: PackageManager = mockk()
     private val packageInfo: PackageInfo = mockk()
     private val dataStore: DataStore<Preferences> = mockk()
@@ -53,6 +56,8 @@ class AboutViewModelTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         every { context.packageManager } returns packageManager
+        every { context.applicationInfo } returns applicationInfo
+        every { applicationInfo.flags } returns ApplicationInfo.FLAG_DEBUGGABLE
         every { context.packageName } returns "com.kernel.ai.test"
         every { context.cacheDir } returns cacheDir
         every { packageInfo.versionName } returns "1.2.3"
@@ -272,5 +277,21 @@ class AboutViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(ExportState.Idle, viewModel.uiState.value.exportState)
+    }
+
+    @Test
+    fun `verbose logging defaults to debug when preference absent`() = testScope.runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.verboseLogging)
+    }
+
+    @Test
+    fun `setVerboseLogging updates ui state immediately`() = testScope.runTest {
+        coEvery { dataStore.updateData(any()) } returns emptyPreferences()
+
+        viewModel.setVerboseLogging(false)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(false, viewModel.uiState.value.verboseLogging)
     }
 }

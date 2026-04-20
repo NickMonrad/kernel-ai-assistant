@@ -31,6 +31,7 @@ class EpisodicDistillationUseCase @Inject constructor(
         private const val MIN_TURNS = 4
         /** Minimum character length for a distilled sentence to be worth embedding and storing. */
         private const val MIN_SENTENCE_LENGTH = 20
+        private const val MIN_GROUNDED_TOKEN_OVERLAP = 2
         private val LEADING_JUNK = Regex("""^[\s\d]+[.)]\s*|^[-•*]\s*""")
 
         /**
@@ -60,6 +61,14 @@ class EpisodicDistillationUseCase @Inject constructor(
             "unable to turn", "set an alarm", "set a timer", "alarm set",
             "timer set", "volume set", "brightness set", "wi-fi", "wifi",
             "bluetooth", "do not disturb", "dnd",
+        )
+
+        private val STOP_WORDS = setOf(
+            "the", "and", "for", "that", "with", "this", "from", "have", "has",
+            "had", "was", "were", "are", "you", "your", "about", "into", "they",
+            "them", "their", "just", "than", "then", "only", "been", "being",
+            "while", "when", "where", "what", "which", "after", "before", "user",
+            "assistant", "jandal", "nick",
         )
     }
 
@@ -117,16 +126,35 @@ $transcript
 [END CONVERSATION]
             """.trimIndent()
 
+            // Distillation runs when the chat VM is closing. Reset the system prompt first so the
+            // summariser only sees the transcript below rather than the active chat session's
+            // user profile or prior KV-cache context.
+            inferenceEngine.updateSystemPrompt(
+                """
+You are distilling a conversation transcript into episodic memories.
+Use ONLY facts explicitly present in the transcript provided by the user.
+Do NOT use any hidden system prompt, stored user profile, or prior conversation context.
+Return only standalone memory sentences, one per line, with no bullets or numbering.
+                """.trimIndent()
+            )
             val response = inferenceEngine.generateOnce(prompt)
             if (response.isBlank()) {
                 Log.w(TAG, "Episodic distillation returned blank response for $conversationId")
                 return
             }
 
+            val transcriptTokens = tokenize(transcript)
             val sentences = response.lines()
                 .map { LEADING_JUNK.replace(it.trim(), "") }
                 .filter { it.length >= MIN_SENTENCE_LENGTH }
                 .filterNot { isEphemeralSentence(it) }
+                .filter { sentence ->
+                    val grounded = isGroundedInTranscript(sentence, transcriptTokens)
+                    if (!grounded) {
+                        Log.w(TAG, "Episodic distillation dropped ungrounded sentence: $sentence")
+                    }
+                    grounded
+                }
 
             if (sentences.isEmpty()) {
                 Log.w(TAG, "Episodic distillation: no sentences parsed for $conversationId")
@@ -143,5 +171,24 @@ $transcript
         } catch (e: Exception) {
             Log.w(TAG, "Episodic distillation failed for $conversationId: ${e.message}")
         }
+    }
+
+    private fun tokenize(text: String): Set<String> =
+        Regex("[A-Za-z][A-Za-z0-9'-]{2,}")
+            .findAll(text.lowercase())
+            .map { it.value.trim('\'', '-') }
+            .filter { it !in STOP_WORDS }
+            .toSet()
+
+    private fun isGroundedInTranscript(sentence: String, transcriptTokens: Set<String>): Boolean {
+        if (transcriptTokens.isEmpty()) return false
+        val sentenceTokens = tokenize(sentence)
+        if (sentenceTokens.isEmpty()) return false
+        val overlap = sentenceTokens.count { it in transcriptTokens }
+        val requiredOverlap = maxOf(
+            MIN_GROUNDED_TOKEN_OVERLAP,
+            kotlin.math.ceil(sentenceTokens.size * 0.3).toInt(),
+        )
+        return overlap >= requiredOverlap
     }
 }
