@@ -58,10 +58,13 @@ class ChatScreenToolChipTest {
                     feelsLikeText = null,
                     description = "Rain",
                     emoji = "🌧️",
+                    highLowText = "High 13°C • Low 12°C",
                     humidityText = "82%",
                     windText = "4 m/s",
                     precipText = "5mm rain",
+                    uvText = "UV max 6 (High)",
                     airQualityText = null,
+                    sunText = "Sunrise 07:10 • Sunset 17:31",
                 ),
             ),
         )

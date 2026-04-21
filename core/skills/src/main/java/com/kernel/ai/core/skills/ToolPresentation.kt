@@ -10,10 +10,13 @@ sealed interface ToolPresentation {
         val feelsLikeText: String?,
         val description: String,
         val emoji: String,
+        val highLowText: String? = null,
         val humidityText: String?,
         val windText: String?,
         val precipText: String?,
+        val uvText: String? = null,
         val airQualityText: String?,
+        val sunText: String? = null,
     ) : ToolPresentation
 
     data class Status(
@@ -54,10 +57,13 @@ object ToolPresentationJson {
             put("feelsLikeText", presentation.feelsLikeText)
             put("description", presentation.description)
             put("emoji", presentation.emoji)
+            put("highLowText", presentation.highLowText)
             put("humidityText", presentation.humidityText)
             put("windText", presentation.windText)
             put("precipText", presentation.precipText)
+            put("uvText", presentation.uvText)
             put("airQualityText", presentation.airQualityText)
+            put("sunText", presentation.sunText)
         }
 
         is ToolPresentation.Status -> JSONObject().apply {
@@ -90,10 +96,13 @@ object ToolPresentationJson {
             feelsLikeText = obj.optString("feelsLikeText").takeIf { it.isNotBlank() },
             description = obj.optString("description"),
             emoji = obj.optString("emoji"),
+            highLowText = obj.optString("highLowText").takeIf { it.isNotBlank() },
             humidityText = obj.optString("humidityText").takeIf { it.isNotBlank() },
             windText = obj.optString("windText").takeIf { it.isNotBlank() },
             precipText = obj.optString("precipText").takeIf { it.isNotBlank() },
+            uvText = obj.optString("uvText").takeIf { it.isNotBlank() },
             airQualityText = obj.optString("airQualityText").takeIf { it.isNotBlank() },
+            sunText = obj.optString("sunText").takeIf { it.isNotBlank() },
         )
 
         "status" -> ToolPresentation.Status(

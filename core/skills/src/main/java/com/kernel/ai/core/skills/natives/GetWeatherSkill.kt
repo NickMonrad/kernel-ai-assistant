@@ -266,6 +266,12 @@ class GetWeatherSkill @Inject constructor(
         val firstUv = uvMaxArr?.let {
             if (it.length() > 0 && !it.isNull(0)) it.getDouble(0) else null
         }
+        val firstSunrise = sunriseArr?.let {
+            if (it.length() > 0 && !it.isNull(0)) it.getString(0).substringAfterLast("T") else null
+        }
+        val firstSunset = sunsetArr?.let {
+            if (it.length() > 0 && !it.isNull(0)) it.getString(0).substringAfterLast("T") else null
+        }
         val temperatureText = buildString {
             if (!firstHigh.isNaN()) append("%.0f°C".format(firstHigh))
             if (!firstLow.isNaN()) {
@@ -273,6 +279,19 @@ class GetWeatherSkill @Inject constructor(
                 append("%.0f°C".format(firstLow))
             }
         }.ifBlank { "Forecast unavailable" }
+        val highLowText = buildString {
+            if (!firstHigh.isNaN()) append("High %.0f°C".format(firstHigh))
+            if (!firstLow.isNaN()) {
+                if (isNotEmpty()) append(" • ")
+                append("Low %.0f°C".format(firstLow))
+            }
+        }.takeIf { it.isNotBlank() }
+        val sunText = when {
+            firstSunrise != null && firstSunset != null -> "Sunrise $firstSunrise • Sunset $firstSunset"
+            firstSunrise != null -> "Sunrise $firstSunrise"
+            firstSunset != null -> "Sunset $firstSunset"
+            else -> null
+        }
         return SkillResult.DirectReply(
             text,
             presentation = ToolPresentation.Weather(
@@ -281,10 +300,13 @@ class GetWeatherSkill @Inject constructor(
                 feelsLikeText = null,
                 description = wmoDescription(firstCode),
                 emoji = wmoEmoji(firstCode),
+                highLowText = highLowText,
                 humidityText = null,
                 windText = null,
                 precipText = if (!firstRain.isNaN()) "%.0fmm rain".format(firstRain) else null,
-                airQualityText = firstUv?.let { "UV %.0f (%s)".format(it, uvIndexLabel(it)) },
+                uvText = firstUv?.let { "UV max %.0f (%s)".format(it, uvIndexLabel(it)) },
+                airQualityText = null,
+                sunText = sunText,
             ),
         )
     }
@@ -461,6 +483,26 @@ class GetWeatherSkill @Inject constructor(
                 append("%.1fmm".format(precipitation))
             }
         }.takeIf { it.isNotBlank() }
+        val highLowText = buildString {
+            tempMax?.let { append("High %.0f°C".format(it)) }
+            tempMin?.let {
+                if (isNotEmpty()) append(" • ")
+                append("Low %.0f°C".format(it))
+            }
+        }.takeIf { it.isNotBlank() }
+        val uvText = buildString {
+            uvIndex?.let { append("UV %.0f (%s)".format(it, uvIndexLabel(it))) }
+            uvIndexMax?.let {
+                if (isNotEmpty()) append(" • ")
+                append("Max %.0f".format(it))
+            }
+        }.takeIf { it.isNotBlank() }
+        val sunText = when {
+            sunriseTime != null && sunsetTime != null -> "Sunrise $sunriseTime • Sunset $sunsetTime"
+            sunriseTime != null -> "Sunrise $sunriseTime"
+            sunsetTime != null -> "Sunset $sunsetTime"
+            else -> null
+        }
         return SkillResult.DirectReply(
             text,
             presentation = ToolPresentation.Weather(
@@ -469,10 +511,13 @@ class GetWeatherSkill @Inject constructor(
                 feelsLikeText = if (!feelsLike.isNaN()) "Feels like %.0f°C".format(feelsLike) else null,
                 description = description,
                 emoji = emoji,
+                highLowText = highLowText,
                 humidityText = if (humidity >= 0) "Humidity $humidity%" else null,
                 windText = if (!windSpeed.isNaN()) "Wind %.1f m/s".format(windSpeed) else null,
                 precipText = precipText,
-                airQualityText = airQuality?.usAqi?.let { "AQI $it" },
+                uvText = uvText,
+                airQualityText = airQuality?.usAqi?.let { "AQI $it (${aqiLabel(it)})" },
+                sunText = sunText,
             ),
         )
     }

@@ -15,10 +15,13 @@ class ToolPresentationJsonTest {
             feelsLikeText = "Feels like 11°C",
             description = "Rain",
             emoji = "🌧️",
+            highLowText = "High 13°C • Low 12°C",
             humidityText = "Humidity 82%",
             windText = "Wind 4 m/s",
             precipText = "5mm rain",
+            uvText = "UV 5 (Moderate) • Max 7",
             airQualityText = "AQI 12",
+            sunText = "Sunrise 07:10 • Sunset 17:31",
         )
 
         val parsed = ToolPresentationJson.fromJsonString(ToolPresentationJson.toJsonString(original))

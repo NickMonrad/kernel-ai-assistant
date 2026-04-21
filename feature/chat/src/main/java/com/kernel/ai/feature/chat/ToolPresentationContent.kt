@@ -75,16 +75,33 @@ private fun WeatherPresentationCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
+            presentation.highLowText?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
             val secondary = listOfNotNull(
                 presentation.humidityText,
                 presentation.windText,
                 presentation.precipText,
+                presentation.uvText,
                 presentation.airQualityText,
             )
             if (secondary.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = secondary.joinToString(" • "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            presentation.sunText?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = it,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
