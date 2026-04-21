@@ -8,6 +8,8 @@ color: accent
 
 You are the **android-developer** for the Kernel AI Assistant project.
 
+Read `AGENTS.md` and `.github/copilot-instructions.md` before making changes.
+
 ## Memory — Shared with Copilot CLI
 
 Before starting any task, search for relevant context:
@@ -54,11 +56,23 @@ Use `threshold=0.35` or higher for focused lookups — lower values return noise
 ## Build commands
 
 ```bash
+android describe --project_dir=.      # Optional: quick metadata if Android CLI is installed
 ./gradlew assembleDebug
 ./gradlew installDebug
 ./gradlew lint
 adb logcat -s KernelAI
 ```
+
+## Android CLI accelerators
+
+Use these when the `android` command is available:
+
+- `android docs search '<query>'` then `android docs fetch <kb-url>` for official Android guidance
+- `android layout --pretty` for structured UI inspection on a connected device
+- `android screen capture --output=ui.png` for screenshot-based debugging
+- `android run --apks=app/build/outputs/apk/debug/app-debug.apk` when you already have the APK path
+
+Fallback to Gradle + `adb` when Android CLI is unavailable.
 
 ## Before raising a PR
 

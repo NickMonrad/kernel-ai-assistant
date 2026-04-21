@@ -112,6 +112,27 @@ cd kernel-ai-assistant
 
 Open in Android Studio, connect your device via USB, and run.
 
+### Optional: Android CLI for agent workflows
+
+This repo can use the official `android` CLI as a low-noise accelerator for agentic Android work:
+
+```bash
+./scripts/setup-android-cli.sh
+android describe --project_dir=.
+android docs search 'edge-to-edge Compose guidance'
+```
+
+Useful commands in this repo:
+
+- `android describe --project_dir=.` — discover project metadata and build outputs
+- `android docs search ...` / `android docs fetch ...` — fetch official Android guidance
+- `android layout --pretty` — inspect the active app UI from a connected device/emulator
+- `android run --apks=app/build/outputs/apk/debug/app-debug.apk` — deploy a known APK
+
+`./scripts/setup-android-cli.sh` installs the official Google CLI into `~/.local/bin` on supported platforms, runs `android init`, and wires the `android-cli` skill into detected agents such as OpenCode and Copilot.
+
+If the CLI is unavailable on your platform, keep using the normal Gradle + `adb` workflow.
+
 ## Key Technical Pillars
 
 * **Inference:** Google AI Edge (LiteRT) with INT4 quantization, GPU + NPU delegates
