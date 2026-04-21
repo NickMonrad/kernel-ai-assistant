@@ -46,16 +46,19 @@ class KernelAIToolSet @Inject constructor(
     @Volatile private var toolCalledInThisTurn = false
     @Volatile private var lastToolName: String? = null
     @Volatile private var lastToolResult: String? = null
+    @Volatile private var lastToolPresentation: ToolPresentation? = null
 
     fun resetTurnState() {
         toolCalledInThisTurn = false
         lastToolName = null
         lastToolResult = null
+        lastToolPresentation = null
     }
 
     fun wasToolCalled(): Boolean = toolCalledInThisTurn
     fun lastToolName(): String? = lastToolName
     fun lastToolResult(): String? = lastToolResult
+    fun lastToolPresentation(): ToolPresentation? = lastToolPresentation
 
     // -------------------------------------------------------------------------
     // Gateway tools — each delegates to the matching Skill.execute()
@@ -181,6 +184,11 @@ class KernelAIToolSet @Inject constructor(
             val result = runBlocking {
                 skill.execute(SkillCall(skillName = skillName, arguments = args))
             }
+            lastToolPresentation = when (result) {
+                is SkillResult.Success -> result.presentation
+                is SkillResult.DirectReply -> result.presentation
+                else -> null
+            }
             when (result) {
                 is SkillResult.Success -> mapOf("result" to result.content)
                 is SkillResult.DirectReply -> mapOf("result" to result.content)
@@ -189,6 +197,7 @@ class KernelAIToolSet @Inject constructor(
                 is SkillResult.UnknownSkill -> mapOf("error" to "Unknown skill: ${result.skillName}")
             }
         } catch (e: Exception) {
+            lastToolPresentation = null
             Log.e(TAG, "ToolSet: $skillName execution failed", e)
             mapOf("error" to (e.message ?: "Unknown error executing $skillName"))
         }

@@ -9,6 +9,7 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -263,12 +264,14 @@ class ActionsViewModel @Inject constructor(
             skillName = skillName,
             resultText = result.content,
             isSuccess = true,
+            presentationJson = result.presentation?.let(ToolPresentationJson::toJsonString),
         )
         is SkillResult.Success -> QuickActionEntity(
             userQuery = query,
             skillName = skillName,
             resultText = result.content,
             isSuccess = true,
+            presentationJson = result.presentation?.let(ToolPresentationJson::toJsonString),
         )
         is SkillResult.Failure -> QuickActionEntity(
             userQuery = query,
