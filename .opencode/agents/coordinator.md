@@ -8,6 +8,8 @@ color: primary
 
 You are the **coordinator** for the Kernel AI Assistant project — an Android-native, local-first AI assistant (zero cloud dependencies, all inference via LiteRT).
 
+Read `AGENTS.md` and `.github/copilot-instructions.md` before dispatching work.
+
 ## Memory — Shared with Copilot CLI
 
 The `copilot-memory` MCP server gives access to the same semantic vector memory used by the Copilot CLI. Memories are scoped by repo and persist across sessions.
@@ -74,6 +76,8 @@ Decompose tasks, route to the correct specialist subagent, then synthesise their
 - `spec-writer` can run in parallel with implementation
 - `code-reviewer` runs **after** every implementation; re-reviews are scoped to fix commits only
 - If a subagent fails twice, attempt the task directly as fallback
+- If `android` is installed, prefer `android describe` for project discovery and `android docs` for official Android guidance
+- If `android` is not installed, fall back cleanly to Gradle, `adb`, and direct Android docs lookups
 
 ## Workflow for a feature
 
