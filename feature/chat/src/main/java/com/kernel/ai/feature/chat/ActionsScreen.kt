@@ -1,5 +1,9 @@
 package com.kernel.ai.feature.chat
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -24,6 +28,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
@@ -52,6 +57,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,9 +66,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.ToolPresentationJson
+import com.kernel.ai.core.voice.VoiceCaptureMode
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -83,10 +91,45 @@ fun ActionsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val pendingSlot by viewModel.pendingSlot.collectAsStateWithLifecycle()
+    val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
     var showBottomSheet by rememberSaveable { mutableStateOf(false) }
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
+    var pendingPermissionMode by rememberSaveable { mutableStateOf<VoiceCaptureMode?>(null) }
     val listState = rememberLazyListState()
+
+    val microphonePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val mode = pendingPermissionMode
+        pendingPermissionMode = null
+        if (!granted) {
+            viewModel.onMicrophonePermissionDenied()
+            return@rememberLauncherForActivityResult
+        }
+        when (mode) {
+            VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
+            VoiceCaptureMode.SlotReply -> viewModel.startVoiceSlotReply()
+            null -> Unit
+        }
+    }
+
+    fun requestVoiceCapture(mode: VoiceCaptureMode) {
+        val alreadyGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (alreadyGranted) {
+            when (mode) {
+                VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
+                VoiceCaptureMode.SlotReply -> viewModel.startVoiceSlotReply()
+            }
+            return
+        }
+        pendingPermissionMode = mode
+        microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
 
     // Auto-scroll to top when a new action result arrives (#607).
     LaunchedEffect(actions.firstOrNull()?.id) {
@@ -148,6 +191,16 @@ fun ActionsScreen(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "New conversation")
+                }
+                SmallFloatingActionButton(
+                    onClick = {
+                        if (voiceCaptureState !is ActionsViewModel.VoiceCaptureState.Listening) {
+                            requestVoiceCapture(VoiceCaptureMode.Command)
+                        }
+                    },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                ) {
+                    Icon(Icons.Default.Mic, contentDescription = "Start voice action")
                 }
                 FloatingActionButton(
                     onClick = { showBottomSheet = true },
@@ -227,6 +280,36 @@ fun ActionsScreen(
                 }
             }
 
+            if (voiceCaptureState is ActionsViewModel.VoiceCaptureState.Listening) {
+                val listening = voiceCaptureState as ActionsViewModel.VoiceCaptureState.Listening
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    ),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = when (listening.mode) {
+                                VoiceCaptureMode.Command -> "Listening for a quick action…"
+                                VoiceCaptureMode.SlotReply -> "Listening for your slot reply…"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                }
+            }
+
             // Action history or empty state
             if (actions.isEmpty() && uiState == ActionsViewModel.UiState.Idle) {
                 Box(
@@ -273,10 +356,15 @@ fun ActionsScreen(
     if (showBottomSheet) {
         QuickActionBottomSheet(
             uiState = uiState,
+            voiceCaptureState = voiceCaptureState,
             onDismiss = { showBottomSheet = false },
             onSubmit = { query ->
                 viewModel.executeAction(query)
                 showBottomSheet = false
+            },
+            onVoiceAction = {
+                showBottomSheet = false
+                requestVoiceCapture(VoiceCaptureMode.Command)
             },
         )
     }
@@ -286,9 +374,12 @@ fun ActionsScreen(
     pendingSlot?.let { slot ->
         SlotFillBottomSheet(
             promptMessage = slot.request.promptMessage,
+            inputMode = slot.inputMode,
             uiState = uiState,
+            voiceCaptureState = voiceCaptureState,
             onDismiss = { viewModel.cancelSlotFill() },
             onSubmit = { reply -> viewModel.onSlotReply(reply) },
+            onVoiceReply = { requestVoiceCapture(VoiceCaptureMode.SlotReply) },
         )
     }
 
@@ -317,15 +408,20 @@ fun ActionsScreen(
 @Composable
 private fun SlotFillBottomSheet(
     promptMessage: String,
+    inputMode: InputMode,
     uiState: ActionsViewModel.UiState,
+    voiceCaptureState: ActionsViewModel.VoiceCaptureState,
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
+    onVoiceReply: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     var inputText by rememberSaveable { mutableStateOf("") }
     // Guards against submit() and onDismissRequest firing simultaneously (e.g. tap Send + swipe).
     var isSubmitting by rememberSaveable { mutableStateOf(false) }
+    val isVoiceReplyListening = voiceCaptureState is ActionsViewModel.VoiceCaptureState.Listening &&
+        voiceCaptureState.mode == VoiceCaptureMode.SlotReply
 
     fun submit() {
         val text = inputText.trim()
@@ -353,6 +449,15 @@ private fun SlotFillBottomSheet(
             )
             Spacer(modifier = Modifier.height(16.dp))
 
+            if (inputMode == InputMode.Voice) {
+                Text(
+                    text = "You can type a reply or tap the mic to answer by voice.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
             OutlinedTextField(
                 value = inputText,
                 onValueChange = { inputText = it },
@@ -365,15 +470,34 @@ private fun SlotFillBottomSheet(
                     if (uiState == ActionsViewModel.UiState.Executing) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp))
                     } else {
-                        IconButton(
-                            onClick = { submit() },
-                            enabled = inputText.isNotBlank(),
-                        ) {
-                            Icon(Icons.Default.Send, contentDescription = "Submit")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (inputMode == InputMode.Voice) {
+                                IconButton(
+                                    onClick = onVoiceReply,
+                                    enabled = !isVoiceReplyListening,
+                                ) {
+                                    Icon(Icons.Default.Mic, contentDescription = "Reply by voice")
+                                }
+                            }
+                            IconButton(
+                                onClick = { submit() },
+                                enabled = inputText.isNotBlank(),
+                            ) {
+                                Icon(Icons.Default.Send, contentDescription = "Submit")
+                            }
                         }
                     }
                 },
             )
+
+            if (isVoiceReplyListening) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Listening for your reply…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
@@ -382,12 +506,16 @@ private fun SlotFillBottomSheet(
 @Composable
 private fun QuickActionBottomSheet(
     uiState: ActionsViewModel.UiState,
+    voiceCaptureState: ActionsViewModel.VoiceCaptureState,
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
+    onVoiceAction: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     var inputText by rememberSaveable { mutableStateOf("") }
+    val isVoiceCommandListening = voiceCaptureState is ActionsViewModel.VoiceCaptureState.Listening &&
+        voiceCaptureState.mode == VoiceCaptureMode.Command
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -405,7 +533,7 @@ private fun QuickActionBottomSheet(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Type a command like \"turn on flashlight\" or \"set timer for 5 minutes\"",
+                text = "Type a command or tap the mic for a voice action.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
@@ -422,22 +550,45 @@ private fun QuickActionBottomSheet(
                     if (isLoading) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp))
                     } else {
-                        IconButton(
-                            onClick = {
-                                if (inputText.isNotBlank()) {
-                                    val query = inputText.trim()
-                                    inputText = ""
-                                    scope.launch { sheetState.hide() }
-                                    onSubmit(query)
-                                }
-                            },
-                            enabled = inputText.isNotBlank(),
-                        ) {
-                            Icon(Icons.Default.Send, contentDescription = "Send")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = {
+                                    if (!isVoiceCommandListening) {
+                                        scope.launch { sheetState.hide() }.invokeOnCompletion { cause ->
+                                            if (cause == null) onVoiceAction()
+                                        }
+                                    }
+                                },
+                                enabled = !isVoiceCommandListening,
+                            ) {
+                                Icon(Icons.Default.Mic, contentDescription = "Start voice action")
+                            }
+                            IconButton(
+                                onClick = {
+                                    if (inputText.isNotBlank()) {
+                                        val query = inputText.trim()
+                                        inputText = ""
+                                        scope.launch { sheetState.hide() }
+                                        onSubmit(query)
+                                    }
+                                },
+                                enabled = inputText.isNotBlank(),
+                            ) {
+                                Icon(Icons.Default.Send, contentDescription = "Send")
+                            }
                         }
                     }
                 },
             )
+
+            if (isVoiceCommandListening) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Listening for your quick action…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
 
             if (uiState == ActionsViewModel.UiState.Executing) {
                 Spacer(modifier = Modifier.height(12.dp))

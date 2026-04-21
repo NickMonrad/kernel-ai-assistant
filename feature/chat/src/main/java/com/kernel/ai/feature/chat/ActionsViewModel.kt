@@ -11,6 +11,13 @@ import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
+import com.kernel.ai.core.voice.VoiceCaptureMode
+import com.kernel.ai.core.voice.VoiceInputController
+import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputResult
+import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +51,8 @@ class ActionsViewModel @Inject constructor(
     private val quickIntentRouter: QuickIntentRouter,
     private val skillRegistry: SkillRegistry,
     private val quickActionDao: QuickActionDao,
+    private val voiceInputController: VoiceInputController,
+    private val voiceOutputController: VoiceOutputController,
 ) : ViewModel() {
 
     // ── Action history ──────────────────────────────────────────────────────
@@ -56,6 +65,11 @@ class ActionsViewModel @Inject constructor(
     sealed interface UiState {
         object Idle : UiState
         object Executing : UiState
+    }
+
+    sealed interface VoiceCaptureState {
+        object Idle : VoiceCaptureState
+        data class Listening(val mode: VoiceCaptureMode) : VoiceCaptureState
     }
 
     /** One-shot navigation/UI events consumed by the screen. */
@@ -89,7 +103,54 @@ class ActionsViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
+    val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            voiceInputController.events.collect { event ->
+                when (event) {
+                    is VoiceInputEvent.ListeningStarted -> {
+                        _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode)
+                    }
+                    is VoiceInputEvent.Transcript -> {
+                        _voiceCaptureState.value = VoiceCaptureState.Idle
+                        when (event.mode) {
+                            VoiceCaptureMode.Command -> executeAction(event.text, InputMode.Voice)
+                            VoiceCaptureMode.SlotReply -> onSlotReply(event.text)
+                        }
+                    }
+                    is VoiceInputEvent.Error -> {
+                        _voiceCaptureState.value = VoiceCaptureState.Idle
+                        _error.value = event.message
+                    }
+                    is VoiceInputEvent.ListeningStopped -> {
+                        _voiceCaptureState.value = VoiceCaptureState.Idle
+                    }
+                }
+            }
+        }
+    }
+
     // ── Public API ──────────────────────────────────────────────────────────
+
+    fun startVoiceCommand() {
+        startVoiceCapture(VoiceCaptureMode.Command)
+    }
+
+    fun startVoiceSlotReply() {
+        if (_pendingSlot.value == null) return
+        startVoiceCapture(VoiceCaptureMode.SlotReply)
+    }
+
+    fun stopVoiceCapture() {
+        voiceInputController.stopListening()
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+    }
+
+    fun onMicrophonePermissionDenied() {
+        _error.value = "Microphone permission is required for voice input."
+    }
 
     /**
      * Executes a quick-action command via the [QuickIntentRouter] Tier 2 fast intent layer.
@@ -119,14 +180,14 @@ class ActionsViewModel @Inject constructor(
                 when (routeResult) {
                     is QuickIntentRouter.RouteResult.FallThrough -> {
                         Log.d(TAG, "ActionsViewModel: FallThrough for \"$query\" → navigating to chat")
-                        quickActionDao.insert(
-                            QuickActionEntity(
-                                userQuery = query,
-                                skillName = "llm_fallthrough",
-                                resultText = "Sending to Jandal for processing…",
-                                isSuccess = true,
-                            )
+                        val entity = QuickActionEntity(
+                            userQuery = query,
+                            skillName = "llm_fallthrough",
+                            resultText = "Sending to Jandal for processing…",
+                            isSuccess = true,
                         )
+                        quickActionDao.insert(entity)
+                        speakForVoice(inputMode, entity.resultText)
                         _events.emit(UiEvent.NavigateToChat(query))
                     }
                     is QuickIntentRouter.RouteResult.NeedsSlot -> {
@@ -142,22 +203,29 @@ class ActionsViewModel @Inject constructor(
                             originalQuery = query,
                             inputMode = inputMode,
                         )
+                        speakForVoice(inputMode, _pendingSlot.value?.request?.promptMessage.orEmpty())
                     }
-                    is QuickIntentRouter.RouteResult.RegexMatch ->
-                        quickActionDao.insert(executeIntent(query, routeResult.intent.intentName, routeResult.intent.params))
-                    is QuickIntentRouter.RouteResult.ClassifierMatch ->
-                        quickActionDao.insert(executeIntent(query, routeResult.intent.intentName, routeResult.intent.params))
+                    is QuickIntentRouter.RouteResult.RegexMatch -> {
+                        val entity = executeIntent(query, routeResult.intent.intentName, routeResult.intent.params)
+                        quickActionDao.insert(entity)
+                        speakForVoice(inputMode, entity.resultText)
+                    }
+                    is QuickIntentRouter.RouteResult.ClassifierMatch -> {
+                        val entity = executeIntent(query, routeResult.intent.intentName, routeResult.intent.params)
+                        quickActionDao.insert(entity)
+                        speakForVoice(inputMode, entity.resultText)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: executeAction failed — ${e.message}", e)
                 _error.value = e.message ?: "Unknown error"
-                quickActionDao.insert(
-                    QuickActionEntity(
-                        userQuery = query,
-                        resultText = "Error: ${e.message ?: "Unknown"}",
-                        isSuccess = false,
-                    )
+                val entity = QuickActionEntity(
+                    userQuery = query,
+                    resultText = "Error: ${e.message ?: "Unknown"}",
+                    isSuccess = false,
                 )
+                quickActionDao.insert(entity)
+                speakForVoice(inputMode, entity.resultText)
             } finally {
                 _uiState.value = UiState.Idle
             }
@@ -185,16 +253,17 @@ class ActionsViewModel @Inject constructor(
             try {
                 val entity = executeIntent(pending.originalQuery, pending.request.intentName, mergedParams)
                 quickActionDao.insert(entity)
+                speakForVoice(pending.inputMode, entity.resultText)
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onSlotReply failed — ${e.message}", e)
                 _error.value = e.message ?: "Unknown error"
-                quickActionDao.insert(
-                    QuickActionEntity(
-                        userQuery = pending.originalQuery,
-                        resultText = "Error: ${e.message ?: "Unknown"}",
-                        isSuccess = false,
-                    )
+                val entity = QuickActionEntity(
+                    userQuery = pending.originalQuery,
+                    resultText = "Error: ${e.message ?: "Unknown"}",
+                    isSuccess = false,
                 )
+                quickActionDao.insert(entity)
+                speakForVoice(pending.inputMode, entity.resultText)
             } finally {
                 _uiState.value = UiState.Idle
             }
@@ -204,6 +273,8 @@ class ActionsViewModel @Inject constructor(
     /** Silently dismiss the slot-fill sheet with no log entry. */
     fun cancelSlotFill() {
         _pendingSlot.value = null
+        stopVoiceCapture()
+        voiceOutputController.stop()
     }
 
     fun deleteAction(id: String) {
@@ -291,5 +362,40 @@ class ActionsViewModel @Inject constructor(
             resultText = "Parse error: ${result.reason}",
             isSuccess = false,
         )
+    }
+
+    private fun startVoiceCapture(mode: VoiceCaptureMode) {
+        _error.value = null
+        viewModelScope.launch {
+            when (val result = voiceInputController.startListening(mode)) {
+                is VoiceInputStartResult.Started -> {
+                    _voiceCaptureState.value = VoiceCaptureState.Listening(mode)
+                }
+                is VoiceInputStartResult.Unavailable -> {
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    _error.value = result.message
+                }
+            }
+        }
+    }
+
+    private fun speakForVoice(inputMode: InputMode, text: String) {
+        if (inputMode != InputMode.Voice) return
+        val summary = toSpokenSummary(text)
+        if (summary.isBlank()) return
+        viewModelScope.launch {
+            when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = summary))) {
+                is VoiceOutputResult.Spoken -> Unit
+                is VoiceOutputResult.Unavailable -> _error.value = result.message
+            }
+        }
+    }
+
+    private fun toSpokenSummary(text: String): String {
+        return text.lineSequence()
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .joinToString(" ")
+            .take(180)
     }
 }
