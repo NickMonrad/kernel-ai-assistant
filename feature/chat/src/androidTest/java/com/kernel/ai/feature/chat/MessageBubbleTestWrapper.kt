@@ -49,6 +49,15 @@ fun MessageBubbleTestWrapper(
     showThinkingProcess: Boolean = true,
 ) {
     val isUser = message.role == ChatMessage.Role.USER
+    val surfacedFallbackLinks = if (!isUser && message.toolCall?.presentation == null && message.toolCall != null) {
+        collectAdditionalUrls(
+            visibleText = message.content,
+            message.toolCall.resultText,
+            message.toolCall.requestJson,
+        )
+    } else {
+        emptyList()
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -108,10 +117,13 @@ fun MessageBubbleTestWrapper(
             color = MaterialTheme.colorScheme.surfaceVariant,
             shape = RoundedCornerShape(12.dp),
         ) {
-            Text(
-                text = message.content,
-                modifier = Modifier.padding(12.dp),
-            )
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(text = message.content)
+                if (surfacedFallbackLinks.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    ToolLinkList(urls = surfacedFallbackLinks)
+                }
+            }
         }
     }
 }
@@ -119,6 +131,13 @@ fun MessageBubbleTestWrapper(
 @Composable
 private fun ToolCallChipTestWrapper(toolCall: ToolCallInfo, modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
+    val toolLinks = remember(toolCall.requestJson, toolCall.resultText) {
+        collectAdditionalUrls(
+            visibleText = "",
+            toolCall.resultText,
+            toolCall.requestJson,
+        )
+    }
     val clipboardManager = LocalClipboardManager.current
     Surface(
         modifier = modifier.fillMaxWidth().testTag("tool_chip"),
@@ -159,6 +178,10 @@ private fun ToolCallChipTestWrapper(toolCall: ToolCallInfo, modifier: Modifier =
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (toolLinks.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    ToolLinkList(urls = toolLinks)
+                }
                 Spacer(Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
