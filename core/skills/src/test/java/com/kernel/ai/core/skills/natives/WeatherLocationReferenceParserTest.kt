@@ -13,6 +13,18 @@ class WeatherLocationReferenceParserTest {
     }
 
     @Test
+    fun `extracts country from embedded capital reference`() {
+        assertEquals(
+            "New Zealand",
+            WeatherLocationReferenceParser.extractCountryFromCapitalQuery("in the capital of New Zealand"),
+        )
+        assertEquals(
+            "New Zealand",
+            WeatherLocationReferenceParser.extractCountryFromCapitalQuery("how's the weather in the capital of New Zealand"),
+        )
+    }
+
+    @Test
     fun `normalizes country aliases`() {
         assertEquals("New Zealand", WeatherLocationReferenceParser.normalizeCountryName("nz"))
         assertEquals("United States", WeatherLocationReferenceParser.normalizeCountryName("USA"))

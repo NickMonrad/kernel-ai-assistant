@@ -2,7 +2,7 @@ package com.kernel.ai.core.skills.natives
 
 internal object WeatherLocationReferenceParser {
     private val CAPITAL_OF_REGEX = Regex(
-        """^(?:the\s+)?capital(?:\s+city)?\s+of\s+(.+)$""",
+        """(?:^|\b)(?:the\s+)?capital(?:\s+city)?\s+of\s+(.+?)(?:\s+(?:today|tonight|now|forecast))?[?.!]*$""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -20,7 +20,7 @@ internal object WeatherLocationReferenceParser {
     )
 
     fun extractCountryFromCapitalQuery(raw: String): String? {
-        val match = CAPITAL_OF_REGEX.matchEntire(raw.trim()) ?: return null
+        val match = CAPITAL_OF_REGEX.find(raw.trim()) ?: return null
         val country = match.groupValues[1].trim().trimEnd('?', '.', '!')
         return normalizeCountryName(country)
     }
