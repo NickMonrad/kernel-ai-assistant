@@ -236,6 +236,17 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice command corrects cancel the time of timer mishear`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("cancel the timer") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "cancel the timer")
+
+        viewModel.executeAction("cancel the time of", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("cancel the timer") }
+    }
+
+    @Test
     fun `voice command normalizes spoken alarm time`() = runTest(dispatcher) {
         every { quickIntentRouter.route("set an alarm for 6:30 am") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 6:30 am")

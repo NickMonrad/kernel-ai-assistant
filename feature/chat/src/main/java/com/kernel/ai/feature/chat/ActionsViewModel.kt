@@ -668,6 +668,7 @@ class ActionsViewModel @Inject constructor(
         val COMMON_VOICE_PHRASE_REPLACEMENTS = listOf(
             Regex("""\bsure\s+me\b""", RegexOption.IGNORE_CASE) to "show me",
             Regex("""\bsit\s+a\b""", RegexOption.IGNORE_CASE) to "set a",
+            Regex("""\bcancel\s+the\s+time\s+of\b""", RegexOption.IGNORE_CASE) to "cancel the timer",
             Regex("""\bminute\s+time\b""", RegexOption.IGNORE_CASE) to "minute timer",
         )
         val NON_LIST_ITEM_LEAD_WORDS = setOf(
