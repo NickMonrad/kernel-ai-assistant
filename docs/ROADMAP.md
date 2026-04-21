@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-04-17 (Sprint 4 complete: PRs #520 #528 #530 merged — media controls, podcasts, timer management, side panel, alarm multiselect, bulk list add, profile crash fix, mailto URI fix, opencode agents)
+> **Last updated:** 2026-04-21 (docs refresh for #513; recent shipped work includes PRs #661, #667, and #668 — rich tool result UI, indirect weather resolution, and list/fallback-link polish)
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -21,7 +21,7 @@
 | **Chat model** | Gemma-4 E-4B / E-2B |
 | **Embeddings** | EmbeddingGemma-300M (SentencePiece + TFLite) |
 | **Intent router (simple)** | `QuickIntentRouter` (Kotlin regex, zero memory, <5ms) |
-| **Intent router (complex)** | Gemma-4 native JSON tool-call format |
+| **Intent router (complex)** | Gemma-4 native SDK tool calling (`@Tool`) + constrained decoding |
 | **Vector search** | sqlite-vec 0.1.9 via bundled SQLite 3.49.2 |
 | **Wasm runtime** | Chicory (pure JVM) |
 | **Test device** | Samsung Galaxy S23 Ultra (SD 8 Gen 2, 12GB RAM) |
@@ -158,7 +158,7 @@ The architectural foundation that determines tool call accuracy and response qua
 | [#301](https://github.com/NickMonrad/kernel-ai-assistant/issues/301) | Switch vec0 tables to `distance_metric=cosine` | ⬜ Pending | 🟢 Low |
 | [#230](https://github.com/NickMonrad/kernel-ai-assistant/issues/230) | Review `safeTokenCount()` token alignment logic | ⬜ Pending | 🟢 Low |
 
-> **Key insight (from #340 analysis):** Our system prompt previously injected ~500+ tokens of tool rules on every turn. Issues #341 (lazy loading) and #372 (native SDK tool calling) resolved this: the prompt now carries ~100 tokens of skill names, and the SDK handles tool declaration generation + constrained decoding for guaranteed well-formed calls. PR #382 (#367 + #374) further reduced total prompt tokens by ~62% (1,257t → 480t) via slim identity prompt, YAML structured profile, and NZ knowledge split. topK is now user-configurable via #342 (PR #388).
+> **Key insight (from #340 analysis):** Phase 3A delivered the current prompt/tooling shape: concise system rules, `load_skill` for on-demand full instructions, LiteRT-LM native SDK tool calling with constrained decoding, and a legacy text-extraction fallback for the cases where the model emits raw JSON instead of going through the SDK path. PR #382 (#367 + #374) further reduced prompt pressure via a slim identity prompt, YAML structured profile, and NZ knowledge split. topK is now user-configurable via #342 (PR #388).
 
 ---
 
@@ -182,18 +182,14 @@ The architectural foundation that determines tool call accuracy and response qua
 
 | Sub-Issue | Title | Status | Priority |
 |-----------|-------|--------|----------|
-| [#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222) | Rich tool result UI — weather cards, confirmation chips, list cards | ⬜ Pending | 🔴 High |
-| [#619](https://github.com/NickMonrad/kernel-ai-assistant/issues/619) | `date_diff` tool — native date arithmetic (LLM is unreliable) | ⬜ Pending | 🔴 High |
-| [#608](https://github.com/NickMonrad/kernel-ai-assistant/issues/608) | Colloquial weather phrases fall through to LLM instead of weather skill | ⬜ Pending | 🔴 High |
+| [#222](https://github.com/NickMonrad/kernel-ai-assistant/issues/222) | Rich tool result UI — weather cards, confirmation chips, list cards | ✅ Done | 🔴 High |
+| [#619](https://github.com/NickMonrad/kernel-ai-assistant/issues/619) | `date_diff` tool — native date arithmetic (LLM is unreliable) | ✅ Done | 🔴 High |
+| [#608](https://github.com/NickMonrad/kernel-ai-assistant/issues/608) | Colloquial weather phrases fall through to LLM instead of weather skill | ✅ Done | 🔴 High |
 | [#261](https://github.com/NickMonrad/kernel-ai-assistant/issues/261) | Skill discoverability UI — settings screen with enable/disable | ⬜ Pending | 🟡 Medium |
 | [#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256) | SMS/email — pre-populate recipient from contacts | ⬜ Pending | 🟡 Medium |
 | [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Maps & location — navigate, open, nearby search | ⬜ Pending | 🟡 Medium |
 | [#327](https://github.com/NickMonrad/kernel-ai-assistant/issues/327) | Full date-specific alarms via `AlarmManager.setExact()` | ⬜ Pending | 🟢 Low |
 | [#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407) | WebSearchSkill — LLM tool calling via Brave/Tavily API | ⬜ Pending | 🟡 Medium |
-
-**Still pending (no issue yet):**
-- `add_to_shopping_list` — Room-backed local list
-- WiFi / Bluetooth / Airplane / Hotspot toggles — settings intent fallbacks
 
 **Already completed skills:**
 - ✅ set_alarm (PR #257/#262, time param fix PR #339)
@@ -207,6 +203,13 @@ The architectural foundation that determines tool call accuracy and response qua
 - ✅ get_system_info (datetime fix PR #339)
 - ✅ create_calendar_event (PR #309, date/time parsing PR #325)
 - ✅ set_do_not_disturb (shipped — `NotificationManager.setInterruptionFilter()`, PR #390)
+- ✅ rich tool result UI baseline (#222, PR #661)
+- ✅ `get_date_diff` native date arithmetic (#619)
+- ✅ colloquial + indirect weather routing (#608, #663, PR #667)
+- ✅ list preview + fallback link polish (#664, #665, PR #668)
+
+**Still pending:**
+- WiFi / Bluetooth / Airplane / Hotspot settings fallbacks
 
 ---
 
@@ -281,7 +284,7 @@ Slot filling, disambiguation, confirmation, and context-switching — transforms
 
 | Sub-Issue | Title | Status | Priority |
 |-----------|-------|--------|----------|
-| [#521](https://github.com/NickMonrad/kernel-ai-assistant/issues/521) | Add media control intents: pause, stop, skip, previous | ⬜ Pending | 🟡 Medium |
+| [#521](https://github.com/NickMonrad/kernel-ai-assistant/issues/521) | Add media control intents: pause, stop, skip, previous | ✅ Done | 🟡 Medium |
 
 ---
 
@@ -484,9 +487,9 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#599](https://github.com/NickMonrad/kernel-ai-assistant/issues/599) | Unit tests for ActionsViewModel slot-fill state machine | Phase 3G | ⬜ Pending |
 | [#600](https://github.com/NickMonrad/kernel-ai-assistant/issues/600) | Slot fill spec: document expected multi-step interactions per intent | Phase 3G | ⬜ Pending |
 | [#601](https://github.com/NickMonrad/kernel-ai-assistant/issues/601) | Multi-slot: re-check for missing slots after each slot reply | Phase 3G | ⬜ Pending |
-| [#608](https://github.com/NickMonrad/kernel-ai-assistant/issues/608) | Colloquial weather phrases fall through to LLM instead of weather skill | Phase 3C | ⬜ Pending |
+| [#608](https://github.com/NickMonrad/kernel-ai-assistant/issues/608) | Colloquial weather phrases fall through to LLM instead of weather skill | Phase 3C | ✅ Done — PR #667 follow-up completed the routing/references path |
 | [#617](https://github.com/NickMonrad/kernel-ai-assistant/issues/617) | Homescreen widget for quick actions / voice | Phase 3F | ⬜ Pending |
-| [#619](https://github.com/NickMonrad/kernel-ai-assistant/issues/619) | `date_diff` tool — native date arithmetic (LLM arithmetic unreliable) | Phase 3C | ⬜ Pending |
+| [#619](https://github.com/NickMonrad/kernel-ai-assistant/issues/619) | `date_diff` tool — native date arithmetic (LLM arithmetic unreliable) | Phase 3C | ✅ Done |
 | [#620](https://github.com/NickMonrad/kernel-ai-assistant/issues/620) | Bypass `needsConfirmation` for no-param MiniLM matches | Phase 3G | ⬜ Pending |
 | [#621](https://github.com/NickMonrad/kernel-ai-assistant/issues/621) | Multi-turn QIR: dispatch pending intent on user confirmation | Phase 3G | ⬜ Pending |
 | [#624](https://github.com/NickMonrad/kernel-ai-assistant/issues/624) | Add more NZ truth memories (Kiwi memes + cultural touchpoints) | Phase 3B | ⬜ Pending |
