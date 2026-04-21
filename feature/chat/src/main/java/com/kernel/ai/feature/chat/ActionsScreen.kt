@@ -62,6 +62,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
+import com.kernel.ai.core.skills.ToolPresentationJson
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -461,6 +462,9 @@ private fun ActionHistoryCard(
 ) {
     var expanded by remember { mutableStateOf(false) }
     var isOverflowing by remember { mutableStateOf(false) }
+    val presentation = remember(action.presentationJson) {
+        ToolPresentationJson.fromJsonString(action.presentationJson)
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -517,25 +521,31 @@ private fun ActionHistoryCard(
                 }
             }
 
-            // Result text
             Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = action.resultText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = if (expanded) Int.MAX_VALUE else 3,
-                overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
-                onTextLayout = { result -> if (result.hasVisualOverflow) isOverflowing = true },
-            )
-            if (isOverflowing || expanded) {
-                TextButton(
-                    onClick = { expanded = !expanded },
-                    modifier = Modifier.align(Alignment.End),
-                ) {
-                    Text(
-                        text = if (expanded) "Show less" else "Show more",
-                        style = MaterialTheme.typography.labelSmall,
-                    )
+            if (presentation != null && action.isSuccess) {
+                ToolPresentationContent(
+                    presentation = presentation,
+                    compact = true,
+                )
+            } else {
+                Text(
+                    text = action.resultText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (expanded) Int.MAX_VALUE else 3,
+                    overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
+                    onTextLayout = { result -> if (result.hasVisualOverflow) isOverflowing = true },
+                )
+                if (isOverflowing || expanded) {
+                    TextButton(
+                        onClick = { expanded = !expanded },
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Text(
+                            text = if (expanded) "Show less" else "Show more",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
                 }
             }
 

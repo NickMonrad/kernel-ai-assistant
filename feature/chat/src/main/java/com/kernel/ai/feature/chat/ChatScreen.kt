@@ -432,6 +432,8 @@ private fun MessageBubble(
     } else {
         MaterialTheme.colorScheme.surfaceVariant
     }
+    val richPresentation = message.toolCall?.presentation
+    val suppressAssistantBubble = !isUser && richPresentation != null && message.toolCall?.isSuccess == true
     var showMenu by remember { mutableStateOf(false) }
 
     // Both user and assistant messages use combinedClickable for long-press → context menu.
@@ -488,6 +490,15 @@ private fun MessageBubble(
             }
         }
 
+        if (!isUser && richPresentation != null) {
+            ToolPresentationContent(
+                presentation = richPresentation,
+                modifier = Modifier
+                    .padding(bottom = 4.dp)
+                    .widthIn(max = 320.dp),
+            )
+        }
+
         // Tool call chip (shown above message bubble for assistant messages)
         if (!isUser && message.toolCall != null) {
             ToolCallChip(
@@ -498,77 +509,79 @@ private fun MessageBubble(
             )
         }
 
-        Box(modifier = bubbleModifier) {
-            Surface(
-                color = bubbleColor,
-                shape = RoundedCornerShape(
-                    topStart = if (isUser) 18.dp else 4.dp,
-                    topEnd = if (isUser) 4.dp else 18.dp,
-                    bottomStart = 18.dp,
-                    bottomEnd = 18.dp,
-                ),
-                modifier = Modifier
-                    .widthIn(max = 300.dp),
-            ) {
-                if (isUser) {
-                    // User messages: plain text, no link/code parsing needed.
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = message.content,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                    }
-                } else {
-                    // Assistant messages: render full Markdown with inline + block support.
-                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                        val contentColor = LocalContentColor.current
-                        MarkdownContent(
-                            text  = message.content,
-                            style = MaterialTheme.typography.bodyMedium.copy(color = contentColor),
-                            onLongPress = { showMenu = true },
-                        )
-                        if (message.isStreaming) {
-                            val generatingMessage = remember { LoadingMessages.randomGenerating() }
-                            Row(
-                                modifier = Modifier.padding(top = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(12.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                                Text(
-                                    text = generatingMessage,
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontStyle = FontStyle.Italic,
-                                    ),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+        if (!suppressAssistantBubble) {
+            Box(modifier = bubbleModifier) {
+                Surface(
+                    color = bubbleColor,
+                    shape = RoundedCornerShape(
+                        topStart = if (isUser) 18.dp else 4.dp,
+                        topEnd = if (isUser) 4.dp else 18.dp,
+                        bottomStart = 18.dp,
+                        bottomEnd = 18.dp,
+                    ),
+                    modifier = Modifier
+                        .widthIn(max = 300.dp),
+                ) {
+                    if (isUser) {
+                        // User messages: plain text, no link/code parsing needed.
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = message.content,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                        }
+                    } else {
+                        // Assistant messages: render full Markdown with inline + block support.
+                        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                            val contentColor = LocalContentColor.current
+                            MarkdownContent(
+                                text = message.content,
+                                style = MaterialTheme.typography.bodyMedium.copy(color = contentColor),
+                                onLongPress = { showMenu = true },
+                            )
+                            if (message.isStreaming) {
+                                val generatingMessage = remember { LoadingMessages.randomGenerating() }
+                                Row(
+                                    modifier = Modifier.padding(top = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                    Text(
+                                        text = generatingMessage,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontStyle = FontStyle.Italic,
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false },
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Copy message") },
-                    onClick = {
-                        showMenu = false
-                        onCopy(message.content)
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null)
-                    },
-                )
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Copy message") },
+                        onClick = {
+                            showMenu = false
+                            onCopy(message.content)
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null)
+                        },
+                    )
+                }
             }
         }
     }
