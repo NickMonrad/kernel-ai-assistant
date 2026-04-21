@@ -20,5 +20,7 @@ data class QuickActionEntity(
     val resultText: String,
     /** Whether the action completed successfully. */
     val isSuccess: Boolean,
+    /** Optional serialized ToolPresentation payload for rich result UI. */
+    val presentationJson: String? = null,
     val timestamp: Long = System.currentTimeMillis(),
 )

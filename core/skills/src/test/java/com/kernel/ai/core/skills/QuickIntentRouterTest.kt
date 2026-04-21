@@ -2166,6 +2166,8 @@ class QuickIntentRouterTest {
         fun getListItemsRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("show my todo list", "todo"),
             Arguments.of("what's on my shopping list", "shopping"),
+            Arguments.of("what's in my shopping list", "shopping"),
+            Arguments.of("display list called shopping", "shopping"),
             Arguments.of("show me my grocery list", "grocery"),
             Arguments.of("read my shopping list", "shopping"),
             Arguments.of("get my to-do list", "to-do"),

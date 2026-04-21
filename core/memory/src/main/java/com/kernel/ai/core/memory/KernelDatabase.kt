@@ -48,7 +48,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -268,6 +268,13 @@ abstract class KernelDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_kiwi_memories_id ON kiwi_memories (id)")
+            }
+        }
+
+        /** Adds presentationJson to quick_actions for rich tool result UI (#222). */
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE quick_actions ADD COLUMN presentationJson TEXT DEFAULT NULL")
             }
         }
     }
