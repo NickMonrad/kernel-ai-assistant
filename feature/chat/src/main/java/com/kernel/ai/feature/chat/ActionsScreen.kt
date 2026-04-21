@@ -528,6 +528,7 @@ private fun ActionHistoryCard(
                     compact = true,
                 )
             } else {
+                val resultLinks = remember(action.resultText) { extractUrls(action.resultText) }
                 Text(
                     text = action.resultText,
                     style = MaterialTheme.typography.bodySmall,
@@ -536,6 +537,10 @@ private fun ActionHistoryCard(
                     overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
                     onTextLayout = { result -> if (result.hasVisualOverflow) isOverflowing = true },
                 )
+                if (resultLinks.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    ToolLinkList(urls = resultLinks)
+                }
                 if (isOverflowing || expanded) {
                     TextButton(
                         onClick = { expanded = !expanded },
