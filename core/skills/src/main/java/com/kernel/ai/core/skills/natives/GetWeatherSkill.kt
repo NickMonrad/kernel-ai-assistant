@@ -101,6 +101,7 @@ class GetWeatherSkill @Inject constructor(
 
     private suspend fun resolveIndirectLocationReference(locationName: String): String? {
         val country = WeatherLocationReferenceParser.extractCountryFromCapitalQuery(locationName) ?: return null
+        WeatherLocationReferenceParser.knownCapitalForCountry(country)?.let { return it }
         return lookupCountryCapital(country)
     }
 

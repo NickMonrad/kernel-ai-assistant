@@ -19,6 +19,29 @@ internal object WeatherLocationReferenceParser {
         "u.a.e." to "United Arab Emirates",
     )
 
+    private val KNOWN_CAPITALS = mapOf(
+        "New Zealand" to "Wellington",
+        "Australia" to "Canberra",
+        "United States" to "Washington, D.C.",
+        "United Kingdom" to "London",
+        "Ireland" to "Dublin",
+        "Canada" to "Ottawa",
+        "France" to "Paris",
+        "Germany" to "Berlin",
+        "Italy" to "Rome",
+        "Spain" to "Madrid",
+        "Portugal" to "Lisbon",
+        "Netherlands" to "Amsterdam",
+        "Belgium" to "Brussels",
+        "Switzerland" to "Bern",
+        "Austria" to "Vienna",
+        "Japan" to "Tokyo",
+        "China" to "Beijing",
+        "India" to "New Delhi",
+        "Singapore" to "Singapore",
+        "United Arab Emirates" to "Abu Dhabi",
+    )
+
     fun extractCountryFromCapitalQuery(raw: String): String? {
         val match = CAPITAL_OF_REGEX.find(raw.trim()) ?: return null
         val country = match.groupValues[1].trim().trimEnd('?', '.', '!')
@@ -30,4 +53,6 @@ internal object WeatherLocationReferenceParser {
         val alias = COUNTRY_ALIASES[trimmed.lowercase()]
         return alias ?: trimmed
     }
+
+    fun knownCapitalForCountry(raw: String): String? = KNOWN_CAPITALS[normalizeCountryName(raw)]
 }

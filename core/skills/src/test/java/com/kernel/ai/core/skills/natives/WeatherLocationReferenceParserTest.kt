@@ -31,6 +31,12 @@ class WeatherLocationReferenceParserTest {
     }
 
     @Test
+    fun `returns known capitals for normalized countries`() {
+        assertEquals("Wellington", WeatherLocationReferenceParser.knownCapitalForCountry("nz"))
+        assertEquals("London", WeatherLocationReferenceParser.knownCapitalForCountry("United Kingdom"))
+    }
+
+    @Test
     fun `returns null for non-capital query`() {
         assertNull(WeatherLocationReferenceParser.extractCountryFromCapitalQuery("Wellington"))
     }
