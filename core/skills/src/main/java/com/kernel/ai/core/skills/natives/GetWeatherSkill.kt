@@ -76,25 +76,56 @@ class GetWeatherSkill @Inject constructor(
     // ── Location ──────────────────────────────────────────────────────────────
 
     private suspend fun fetchByLocationName(locationName: String, forecastDays: Int = 0): SkillResult {
-        val coordinates = geocodeLocation(locationName)
+        val resolvedLocationName = resolveIndirectLocationReference(locationName) ?: locationName
+        val coordinates = geocodeLocation(resolvedLocationName)
             ?: return SkillResult.Failure(
                 name,
-                "Couldn't find location: $locationName. Please try a different city or location name.",
+                "Couldn't find location: $resolvedLocationName. Please try a different city or location name.",
             )
         
         return if (forecastDays > 0) {
             fetchForecast(
                 lat = coordinates.first,
                 lon = coordinates.second,
-                displayName = locationName,
+                displayName = resolvedLocationName,
                 days = forecastDays
             )
         } else {
             fetchWeather(
                 lat = coordinates.first,
                 lon = coordinates.second,
-                displayName = locationName
+                displayName = resolvedLocationName
             )
+        }
+    }
+
+    private suspend fun resolveIndirectLocationReference(locationName: String): String? {
+        val country = WeatherLocationReferenceParser.extractCountryFromCapitalQuery(locationName) ?: return null
+        return lookupCountryCapital(country)
+    }
+
+    private suspend fun lookupCountryCapital(countryName: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val normalizedCountry = WeatherLocationReferenceParser.normalizeCountryName(countryName)
+            val url = "https://restcountries.com/v3.1/name/" +
+                java.net.URLEncoder.encode(normalizedCountry, "UTF-8") +
+                "?fields=capital,name"
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "KernelAI/1.0 (Android)")
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val body = response.body?.string() ?: return@withContext null
+                val results = org.json.JSONArray(body)
+                if (results.length() == 0) return@withContext null
+                val first = results.getJSONObject(0)
+                val capitalArray = first.optJSONArray("capital") ?: return@withContext null
+                capitalArray.optString(0).takeIf { it.isNotBlank() }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Country capital lookup failed for: $countryName", e)
+            null
         }
     }
 

@@ -735,8 +735,18 @@ class ChatViewModel @Inject constructor(
                 pendingConfirmationIntent = null
             }
 
+            val weatherFollowUpLocation = WeatherConversationReferenceResolver.resolveLocation(
+                query = text,
+                messages = _messages.value.dropLast(1),
+            )
             val routeResult = quickIntentRouter.route(text)
-            val matchedIntent = when (routeResult) {
+            val matchedIntent = weatherFollowUpLocation?.let {
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = mapOf("location" to it),
+                    source = "conversation",
+                )
+            } ?: when (routeResult) {
                 is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent
                 is QuickIntentRouter.RouteResult.ClassifierMatch -> {
                     if (routeResult.needsConfirmation) {
