@@ -194,6 +194,7 @@ class NativeIntentHandler @Inject constructor(
      */
     private fun normalizeIntentName(raw: String): String {
         val trimmed = raw.trim().lowercase()
+        INTENT_ALIASES[trimmed]?.let { return it }
         if (trimmed in KNOWN_INTENTS) return trimmed
         // Strip all word separators and compare canonically
         val stripped = trimmed.replace(Regex("[_\\s]+"), "")
@@ -201,6 +202,10 @@ class NativeIntentHandler @Inject constructor(
     }
 
     companion object {
+        private val INTENT_ALIASES = mapOf(
+            "get_list" to "get_list_items",
+        )
+
         private val KNOWN_INTENTS = setOf(
             "toggle_flashlight_on", "toggle_flashlight_off",
             "send_email", "send_sms", "make_call",
