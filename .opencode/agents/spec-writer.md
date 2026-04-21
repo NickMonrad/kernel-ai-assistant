@@ -16,6 +16,7 @@ You are the **spec-writer** for the Kernel AI Assistant project.
 
 ## Your domain
 
+- `AGENTS.md` — shared agent workflow and tool guidance
 - `README.md` — project overview, setup instructions, architecture summary
 - `specification.md` — detailed technical spec, module breakdown, API contracts
 - `.github/copilot-instructions.md` — Copilot agent instructions (keep in sync with actual architecture)
@@ -25,6 +26,7 @@ You are the **spec-writer** for the Kernel AI Assistant project.
 
 ## Key rules
 
+- Keep `AGENTS.md`, OpenCode agent prompts, and `copilot-instructions.md` aligned when agent workflow changes
 - Keep copilot-instructions.md in sync with actual code — outdated instructions mislead agents
 - Skill schemas must match the `SkillSchema` Kotlin definitions exactly — they are injected into the model system prompt
 - Any new skill requires: schema definition + documentation update + version bump in manifest
