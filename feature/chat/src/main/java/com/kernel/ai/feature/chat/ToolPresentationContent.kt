@@ -78,22 +78,47 @@ private fun WeatherPresentationCard(
             presentation.highLowText?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = it,
+                    text = withLeadingIcon(it, "🌡"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
             }
-            val secondary = listOfNotNull(
-                presentation.humidityText,
-                presentation.windText,
-                presentation.precipText,
-                presentation.uvText,
-                presentation.airQualityText,
-            )
-            if (secondary.isNotEmpty()) {
+            weatherDetailText(presentation.humidityText, "💧")?.let { detail ->
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = secondary.joinToString(" • "),
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            weatherDetailText(presentation.windText, "💨")?.let { detail ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            weatherDetailText(presentation.precipText, "☔")?.let { detail ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            weatherDetailText(presentation.uvText, "☀️")?.let { detail ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            weatherDetailText(presentation.airQualityText, "🌬")?.let { detail ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = detail,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
@@ -101,7 +126,7 @@ private fun WeatherPresentationCard(
             presentation.sunText?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = it,
+                    text = withLeadingIcon(it, "🌅"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
@@ -109,6 +134,21 @@ private fun WeatherPresentationCard(
         }
     }
 }
+
+private fun weatherDetailText(value: String?, icon: String): String? =
+    value?.takeIf { it.isNotBlank() }?.let { withLeadingIcon(it, icon) }
+
+private fun withLeadingIcon(text: String, icon: String): String =
+    if (text.firstOrNull()?.isHighSurrogate() == true || text.firstOrNull()?.isLowSurrogate() == true) {
+        text
+    } else if (text.startsWith(icon) || text.startsWith("🌡") || text.startsWith("💧") ||
+        text.startsWith("💨") || text.startsWith("☔") || text.startsWith("☀") ||
+        text.startsWith("🌬") || text.startsWith("🌅") || text.startsWith("🌇")
+    ) {
+        text
+    } else {
+        "$icon $text"
+    }
 
 @Composable
 private fun StatusPresentationCard(

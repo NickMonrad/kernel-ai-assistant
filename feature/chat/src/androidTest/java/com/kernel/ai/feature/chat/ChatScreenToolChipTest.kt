@@ -3,6 +3,7 @@ package com.kernel.ai.feature.chat
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ToolCallInfo
@@ -71,6 +72,8 @@ class ChatScreenToolChipTest {
         setContent(message)
 
         composeTestRule.onNodeWithTag("tool_chip").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Wellington").assertIsDisplayed()
+        composeTestRule.onNodeWithText("🌡 High 13°C • Low 12°C").assertIsDisplayed()
     }
 
     @Test

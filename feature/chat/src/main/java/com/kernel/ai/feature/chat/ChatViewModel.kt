@@ -34,6 +34,7 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.SlotFillResult
 import com.kernel.ai.core.skills.slot.SlotFillerManager
@@ -556,6 +557,7 @@ class ChatViewModel @Inject constructor(
         skillName: String,
         requestJson: String,
         isSuccess: Boolean,
+        presentation: ToolPresentation? = null,
     ) {
         val msgId = UUID.randomUUID().toString()
         val toolCall = ToolCallInfo(
@@ -563,6 +565,7 @@ class ChatViewModel @Inject constructor(
             requestJson = requestJson,
             resultText = content,
             isSuccess = isSuccess,
+            presentation = presentation,
         )
         val msg = ChatMessage(
             id = msgId,
@@ -673,6 +676,7 @@ class ChatViewModel @Inject constructor(
                                         skillName = fillResult.intentName,
                                         requestJson = callParams.toString(),
                                         isSuccess = true,
+                                        presentation = skillResult.presentation,
                                     )
                                 }
                                 is SkillResult.Success -> appendAssistantMessage(convId, skillResult.content, shouldIndex = false)
@@ -708,6 +712,7 @@ class ChatViewModel @Inject constructor(
                                 skillName = pendingConfirmation.intentName,
                                 requestJson = callParams.toString(),
                                 isSuccess = true,
+                                presentation = skillResult.presentation,
                             )
                             return@launch
                         }
@@ -806,6 +811,7 @@ class ChatViewModel @Inject constructor(
                                 skillName = matchedIntent.intentName,
                                 requestJson = callParams.toString(),
                                 isSuccess = true,
+                                presentation = skillResult.presentation,
                             )
                             return@launch
                         }
