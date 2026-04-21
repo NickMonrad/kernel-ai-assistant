@@ -1602,8 +1602,12 @@ class NativeIntentHandler @Inject constructor(
             "${m.groupValues[1]}:${m.groupValues[2]}${meridiem}"
         }
 
+        // 0b. Recover malformed time strings produced by upstream number flattening.
+        //     "36:00" -> "6:30", "37:00" -> "7:30", "80:00" -> "8:00"
+        val recovered = recoverMalformedTime(expanded)
+
         // 1. Strip extra trailing digits after a valid HH:mm prefix (e.g. "18:0000" → "18:00").
-        val stripped = Regex("""^(\d{1,2}:\d{2})\d+(.*)$""").replace(expanded) { m ->
+        val stripped = Regex("""^(\d{1,2}:\d{2})\d+(.*)$""").replace(recovered) { m ->
             m.groupValues[1] + m.groupValues[2]
         }
 
@@ -1633,7 +1637,28 @@ class NativeIntentHandler @Inject constructor(
                 return LocalTime.parse(input, fmt)
             } catch (_: DateTimeParseException) { /* try next */ }
         }
-        Log.w(TAG, "resolveTime: could not parse '$raw' (expanded='$expanded', normalized='$input')")
+        Log.w(TAG, "resolveTime: could not parse '$raw' (expanded='$expanded', recovered='$recovered', normalized='$input')")
         return null
+    }
+
+    private fun recoverMalformedTime(input: String): String {
+        val flattenedThirty = Regex("""^(3[1-9]|4[0-2]):00(\s*(?:am|pm|AM|PM))?$""")
+        flattenedThirty.matchEntire(input)?.let { match ->
+            val rawHour = match.groupValues[1].toIntOrNull() ?: return@let
+            val meridiem = match.groupValues[2]
+            val hour = rawHour - 30
+            if (hour in 1..12) {
+                return "$hour:30$meridiem"
+            }
+        }
+
+        val flattenedOclock = Regex("""^([1-9]|1[0-2])0:00(\s*(?:am|pm|AM|PM))?$""")
+        flattenedOclock.matchEntire(input)?.let { match ->
+            val hour = match.groupValues[1].toIntOrNull() ?: return@let
+            val meridiem = match.groupValues[2]
+            return "$hour:00$meridiem"
+        }
+
+        return input
     }
 }

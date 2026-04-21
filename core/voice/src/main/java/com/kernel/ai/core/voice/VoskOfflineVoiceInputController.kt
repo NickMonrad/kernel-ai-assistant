@@ -6,6 +6,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -22,6 +23,7 @@ private const val MODEL_ASSET_DIR = "vosk-model"
 private const val MODEL_TARGET_DIR = "voice"
 private const val SAMPLE_RATE = 16000.0f
 private const val LISTEN_TIMEOUT_MS = 10_000
+private const val STARTUP_SETTLE_MS = 300L
 
 @Singleton
 class VoskOfflineVoiceInputController @Inject constructor(
@@ -64,6 +66,7 @@ class VoskOfflineVoiceInputController @Inject constructor(
                         "Voice capture is already active."
                     )
                 }
+                delay(STARTUP_SETTLE_MS)
                 _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
                 VoiceInputStartResult.Started
             } catch (e: Exception) {
@@ -119,7 +122,13 @@ class VoskOfflineVoiceInputController @Inject constructor(
     ) : RecognitionListener {
         private var completed = false
 
-        override fun onPartialResult(hypothesis: String) = Unit
+        override fun onPartialResult(hypothesis: String) {
+            if (completed) return
+            val text = parsePartialTranscript(hypothesis)
+            if (text.isNotBlank()) {
+                _events.tryEmit(VoiceInputEvent.PartialTranscript(mode = mode, text = text))
+            }
+        }
 
         override fun onResult(hypothesis: String) {
             completeWithTranscript(hypothesis)
@@ -175,6 +184,12 @@ class VoskOfflineVoiceInputController @Inject constructor(
     private fun parseTranscript(hypothesis: String): String {
         return runCatching {
             JSONObject(hypothesis).optString("text").trim()
+        }.getOrDefault("")
+    }
+
+    private fun parsePartialTranscript(hypothesis: String): String {
+        return runCatching {
+            JSONObject(hypothesis).optString("partial").trim()
         }.getOrDefault("")
     }
 }
