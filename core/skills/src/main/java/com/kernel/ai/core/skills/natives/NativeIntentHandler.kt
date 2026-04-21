@@ -30,6 +30,7 @@ import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.DayOfWeek
 import java.time.Instant
@@ -193,6 +194,7 @@ class NativeIntentHandler @Inject constructor(
      */
     private fun normalizeIntentName(raw: String): String {
         val trimmed = raw.trim().lowercase()
+        INTENT_ALIASES[trimmed]?.let { return it }
         if (trimmed in KNOWN_INTENTS) return trimmed
         // Strip all word separators and compare canonically
         val stripped = trimmed.replace(Regex("[_\\s]+"), "")
@@ -200,6 +202,10 @@ class NativeIntentHandler @Inject constructor(
     }
 
     companion object {
+        private val INTENT_ALIASES = mapOf(
+            "get_list" to "get_list_items",
+        )
+
         private val KNOWN_INTENTS = setOf(
             "toggle_flashlight_on", "toggle_flashlight_off",
             "send_email", "send_sms", "make_call",
@@ -1125,11 +1131,15 @@ class NativeIntentHandler @Inject constructor(
         val item = params["item"] ?: return SkillResult.Failure("add_to_list", "No item specified")
         val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
         val listName = normalizeListName(raw)
-        runBlocking {
+        val items = runBlocking {
             listNameDao.insert(ListNameEntity(name = listName))
             listItemDao.insert(ListItemEntity(listName = listName, item = item))
+            listItemDao.getByList(listName)
         }
-        return SkillResult.DirectReply("Added \"$item\" to your $listName.")
+        return SkillResult.DirectReply(
+            "Added \"$item\" to your $listName.",
+            presentation = buildListPreview(listName, items),
+        )
     }
 
     private fun bulkAddToList(params: Map<String, String>): SkillResult {
@@ -1144,13 +1154,15 @@ class NativeIntentHandler @Inject constructor(
             itemsParam.split(",").map { it.trim() }.filter { it.isNotBlank() }
         }
         if (items.isEmpty()) return SkillResult.Failure("bulk_add_to_list", "No valid items to add")
-        runBlocking {
+        val currentItems = runBlocking {
             listNameDao.insert(ListNameEntity(name = listName))
             items.forEach { listItemDao.insert(ListItemEntity(listName = listName, item = it)) }
+            listItemDao.getByList(listName)
         }
         return SkillResult.DirectReply(
             "Added ${items.size} item${if (items.size == 1) "" else "s"} to your $listName:\n" +
-                items.joinToString(", ")
+                items.joinToString(", "),
+            presentation = buildListPreview(listName, currentItems),
         )
     }
 
@@ -1158,7 +1170,10 @@ class NativeIntentHandler @Inject constructor(
         val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
         val name = raw.lowercase().trim()
         runBlocking { listNameDao.insert(ListNameEntity(name = name)) }
-        return SkillResult.DirectReply("Created list \"$name\".")
+        return SkillResult.DirectReply(
+            "Created list \"$name\".",
+            presentation = buildListPreview(name, emptyList(), "No items yet."),
+        )
     }
 
     private fun getListItems(params: Map<String, String>): SkillResult {
@@ -1166,10 +1181,16 @@ class NativeIntentHandler @Inject constructor(
         val listName = normalizeListName(raw)
         val items = runBlocking { listItemDao.getByList(listName) }
         return if (items.isEmpty()) {
-            SkillResult.DirectReply("Your $listName is empty.")
+            SkillResult.DirectReply(
+                "Your $listName is empty.",
+                presentation = buildListPreview(listName, emptyList(), "No items yet."),
+            )
         } else {
             val bullets = items.joinToString("\n") { "• ${it.item}" }
-            SkillResult.DirectReply("$listName (${items.size} item${if (items.size == 1) "" else "s"}):\n$bullets")
+            SkillResult.DirectReply(
+                "$listName (${items.size} item${if (items.size == 1) "" else "s"}):\n$bullets",
+                presentation = buildListPreview(listName, items),
+            )
         }
     }
 
@@ -1181,8 +1202,14 @@ class NativeIntentHandler @Inject constructor(
         val match = all.firstOrNull { it.item.equals(item, ignoreCase = true) }
             ?: all.firstOrNull { it.item.contains(item, ignoreCase = true) }
             ?: return SkillResult.DirectReply("\"$item\" not found in $listName.")
-        runBlocking { listItemDao.deleteItem(match.id) }
-        return SkillResult.DirectReply("Removed \"${match.item}\" from $listName.")
+        val remaining = runBlocking {
+            listItemDao.deleteItem(match.id)
+            listItemDao.getByList(listName)
+        }
+        return SkillResult.DirectReply(
+            "Removed \"${match.item}\" from $listName.",
+            presentation = buildListPreview(listName, remaining, "No items left."),
+        )
     }
 
     // ── Smart Home (stub — pending #311 / #312) ───────────────────────────────
@@ -1273,8 +1300,44 @@ class NativeIntentHandler @Inject constructor(
                 append(" — $targetFormatted.")
             }
         }
-        return SkillResult.DirectReply(reply)
+        val primaryText = when {
+            days == 0L -> "Today"
+            days > 0 -> "$absDays day${if (absDays != 1L) "s" else ""}"
+            else -> "$absDays day${if (absDays != 1L) "s" else ""} ago"
+        }
+        val contextText = when {
+            days == 0L -> targetFormatted
+            days > 0 -> "Until $targetFormatted"
+            else -> "Since $targetFormatted"
+        }
+        val breakdownText = if (weeks > 0) {
+            buildString {
+                append("$weeks week${if (weeks != 1L) "s" else ""}")
+                if (remainderDays > 0) {
+                    append(", $remainderDays day${if (remainderDays != 1L) "s" else ""}")
+                }
+            }
+        } else null
+        return SkillResult.DirectReply(
+            reply,
+            presentation = ToolPresentation.ComputedResult(
+                primaryText = primaryText,
+                contextText = contextText,
+                breakdownText = breakdownText,
+            ),
+        )
     }
+
+    private fun buildListPreview(
+        listName: String,
+        items: List<ListItemEntity>,
+        emptyMessage: String? = null,
+    ): ToolPresentation.ListPreview = ToolPresentation.ListPreview(
+        title = listName,
+        items = items.map { it.item },
+        totalCount = items.size,
+        emptyMessage = emptyMessage,
+    )
 
     /**
      * Parses a date string in various natural formats, including named NZ/common holidays.

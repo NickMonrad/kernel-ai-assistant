@@ -34,6 +34,7 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.SlotFillResult
 import com.kernel.ai.core.skills.slot.SlotFillerManager
@@ -42,6 +43,8 @@ import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
 import com.kernel.ai.feature.chat.model.ToolCallInfo
+import com.kernel.ai.feature.chat.model.toJsonString
+import com.kernel.ai.feature.chat.model.toolCallInfoFromJson
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -391,20 +394,7 @@ class ChatViewModel @Inject constructor(
                     role = if (entity.role == "user") ChatMessage.Role.USER else ChatMessage.Role.ASSISTANT,
                     content = entity.content,
                     thinkingText = entity.thinkingText,
-                    toolCall = entity.toolCallJson?.let { json ->
-                        try {
-                            val obj = org.json.JSONObject(json)
-                            ToolCallInfo(
-                                skillName = obj.getString("skillName"),
-                                requestJson = obj.getString("requestJson"),
-                                resultText = obj.getString("resultText"),
-                                isSuccess = obj.getBoolean("isSuccess"),
-                            )
-                        } catch (e: Exception) {
-                            Log.w("KernelAI", "Failed to deserialize toolCallJson: ${e.message}")
-                            null
-                        }
-                    },
+                    toolCall = entity.toolCallJson?.let(::toolCallInfoFromJson),
                 )
             }
             // History is in Room but not in LiteRT's KV cache — replay on next send.
@@ -567,6 +557,7 @@ class ChatViewModel @Inject constructor(
         skillName: String,
         requestJson: String,
         isSuccess: Boolean,
+        presentation: ToolPresentation? = null,
     ) {
         val msgId = UUID.randomUUID().toString()
         val toolCall = ToolCallInfo(
@@ -574,6 +565,7 @@ class ChatViewModel @Inject constructor(
             requestJson = requestJson,
             resultText = content,
             isSuccess = isSuccess,
+            presentation = presentation,
         )
         val msg = ChatMessage(
             id = msgId,
@@ -582,15 +574,9 @@ class ChatViewModel @Inject constructor(
             toolCall = toolCall,
         )
         _messages.update { it + msg }
-        val toolCallJsonStr = org.json.JSONObject().apply {
-            put("skillName", toolCall.skillName)
-            put("requestJson", toolCall.requestJson)
-            put("resultText", toolCall.resultText)
-            put("isSuccess", toolCall.isSuccess)
-        }.toString()
         val savedId = conversationRepository.addMessage(
             convId, "assistant", content,
-            toolCallJson = toolCallJsonStr,
+            toolCallJson = toolCall.toJsonString(),
         )
         if (shouldIndexToolCallResult(skillName)) ragRepository.indexMessage(savedId, convId, content)
     }
@@ -690,6 +676,7 @@ class ChatViewModel @Inject constructor(
                                         skillName = fillResult.intentName,
                                         requestJson = callParams.toString(),
                                         isSuccess = true,
+                                        presentation = skillResult.presentation,
                                     )
                                 }
                                 is SkillResult.Success -> appendAssistantMessage(convId, skillResult.content, shouldIndex = false)
@@ -725,6 +712,7 @@ class ChatViewModel @Inject constructor(
                                 skillName = pendingConfirmation.intentName,
                                 requestJson = callParams.toString(),
                                 isSuccess = true,
+                                presentation = skillResult.presentation,
                             )
                             return@launch
                         }
@@ -823,6 +811,7 @@ class ChatViewModel @Inject constructor(
                                 skillName = matchedIntent.intentName,
                                 requestJson = callParams.toString(),
                                 isSuccess = true,
+                                presentation = skillResult.presentation,
                             )
                             return@launch
                         }
@@ -1013,6 +1002,7 @@ class ChatViewModel @Inject constructor(
                                     requestJson = "",
                                     resultText = result,
                                     isSuccess = !result.startsWith("error"),
+                                    presentation = kernelAIToolSet.lastToolPresentation(),
                                 )
                             } else null
 
@@ -1025,7 +1015,12 @@ class ChatViewModel @Inject constructor(
 
                             if (nativeToolCall != null || toolCallResult != null) {
                                 val toolCall = nativeToolCall ?: toolCallResult!!.first
-                                val resultContent = if (nativeToolCall != null) fullContent else toolCallResult!!.second
+                                val resultContent = when {
+                                    nativeToolCall != null && toolCall.presentation != null && toolCall.isSuccess ->
+                                        toolCall.resultText
+                                    nativeToolCall != null -> fullContent
+                                    else -> toolCallResult!!.second
+                                }
 
                                 // Update streaming message with result text
                                 _messages.update { msgs ->
@@ -1039,16 +1034,10 @@ class ChatViewModel @Inject constructor(
                                 }
 
                                 // Persist with toolCallJson
-                                val toolCallJsonStr = org.json.JSONObject().apply {
-                                    put("skillName", toolCall.skillName)
-                                    put("requestJson", toolCall.requestJson)
-                                    put("resultText", toolCall.resultText)
-                                    put("isSuccess", toolCall.isSuccess)
-                                }.toString()
                                 val savedId = conversationRepository.addMessage(
                                     convId, "assistant", resultContent,
                                     thinkingText = thinking,
-                                    toolCallJson = toolCallJsonStr,
+                                    toolCallJson = toolCall.toJsonString(),
                                 )
                                 // Only index knowledge results (e.g. Wikipedia) — not device
                                 // actions, weather, or system info which are ephemeral (#614).
@@ -1339,6 +1328,7 @@ class ChatViewModel @Inject constructor(
                     requestJson = extracted,
                     resultText = result.content,
                     isSuccess = true,
+                    presentation = result.presentation,
                 )
                 Pair(toolCall, result.content)
             }
@@ -1351,6 +1341,7 @@ class ChatViewModel @Inject constructor(
                     requestJson = extracted,
                     resultText = result.content,
                     isSuccess = true,
+                    presentation = result.presentation,
                 )
                 Pair(toolCall, result.content)
             }
