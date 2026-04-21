@@ -82,6 +82,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -156,32 +157,36 @@ fun ChatScreen(
             onRetry = viewModel::retryDownload,
             onNavigateToSettings = onNavigateToSettings,
         )
-        is ChatUiState.Ready -> ChatContent(
-            state = state,
-            onInputChanged = viewModel::onInputChanged,
-            onSend = viewModel::sendMessage,
-            onCancel = viewModel::cancelGeneration,
-            onBack = onBack,
-            onNewConversation = {
-                viewModel.startNewConversation()
-                onNewConversation()
-            },
-            onRenameConversation = viewModel::renameConversation,
-            snackbarHostState = snackbarHostState,
-            onCopyMessage = { content ->
-                clipboardManager.setText(AnnotatedString(stripMarkdownForClipboard(content)))
-                scope.launch { snackbarHostState.showSnackbar("Message copied") }
-            },
-            onCopyAll = {
-                scope.launch {
-                    val text = withContext(Dispatchers.Default) {
-                        stripMarkdownForClipboard(viewModel.getConversationAsText())
+        is ChatUiState.Ready -> {
+            val isSeeding by viewModel.isSeeding.collectAsState()
+            ChatContent(
+                state = state,
+                isSeeding = isSeeding,
+                onInputChanged = viewModel::onInputChanged,
+                onSend = viewModel::sendMessage,
+                onCancel = viewModel::cancelGeneration,
+                onBack = onBack,
+                onNewConversation = {
+                    viewModel.startNewConversation()
+                    onNewConversation()
+                },
+                onRenameConversation = viewModel::renameConversation,
+                snackbarHostState = snackbarHostState,
+                onCopyMessage = { content ->
+                    clipboardManager.setText(AnnotatedString(stripMarkdownForClipboard(content)))
+                    scope.launch { snackbarHostState.showSnackbar("Message copied") }
+                },
+                onCopyAll = {
+                    scope.launch {
+                        val text = withContext(Dispatchers.Default) {
+                            stripMarkdownForClipboard(viewModel.getConversationAsText())
+                        }
+                        clipboardManager.setText(AnnotatedString(text))
+                        snackbarHostState.showSnackbar("Conversation copied")
                     }
-                    clipboardManager.setText(AnnotatedString(text))
-                    snackbarHostState.showSnackbar("Conversation copied")
-                }
-            },
-        )
+                },
+            )
+        }
     }
 }
 
@@ -189,6 +194,7 @@ fun ChatScreen(
 @Composable
 private fun ChatContent(
     state: ChatUiState.Ready,
+    isSeeding: Boolean,
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit,
@@ -343,6 +349,32 @@ private fun ChatContent(
                             modifier = Modifier.padding(top = 2.dp),
                         )
                     }
+                }
+            }
+
+            AnimatedVisibility(
+                visible = isSeeding,
+                enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(initialAlpha = 0.7f),
+                exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(targetAlpha = 0.7f),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 1.5.dp,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Updating knowledge base…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 

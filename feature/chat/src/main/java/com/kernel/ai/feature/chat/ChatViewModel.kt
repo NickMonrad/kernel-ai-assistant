@@ -94,6 +94,8 @@ class ChatViewModel @Inject constructor(
     private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
 ) : ViewModel() {
 
+    val isSeeding: StateFlow<Boolean> = nzTruthSeedingService.isSeeding
+
     /** Passed via nav arg; null means "start a new conversation". */
     private val navConversationId: String? = savedStateHandle["conversationId"]
 
