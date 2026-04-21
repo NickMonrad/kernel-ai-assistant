@@ -12,7 +12,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.skills.ToolPresentation
@@ -189,6 +194,15 @@ private fun ListPreviewPresentationCard(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
+    var expanded by rememberSaveable(presentation.title, presentation.totalCount, compact) { mutableStateOf(false) }
+    val collapsedCount = if (compact) 3 else 5
+    val hasHiddenItems = presentation.totalCount > collapsedCount
+    val visibleItems = if (hasHiddenItems && !expanded) {
+        presentation.items.take(collapsedCount)
+    } else {
+        presentation.items
+    }
+
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
@@ -208,7 +222,6 @@ private fun ListPreviewPresentationCard(
                     color = MaterialTheme.colorScheme.onTertiaryContainer,
                 )
             } else {
-                val visibleItems = presentation.items.take(if (compact) 3 else 5)
                 visibleItems.forEach { item ->
                     Text(
                         text = "• $item",
@@ -216,13 +229,22 @@ private fun ListPreviewPresentationCard(
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
                 }
-                if (presentation.totalCount > visibleItems.size) {
+                if (hasHiddenItems) {
                     Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "+ ${presentation.totalCount - visibleItems.size} more",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    )
+                    TextButton(
+                        onClick = { expanded = !expanded },
+                        modifier = Modifier.padding(start = 4.dp),
+                    ) {
+                        Text(
+                            text = if (expanded) {
+                                "Show less"
+                            } else {
+                                "+ ${presentation.totalCount - collapsedCount} more"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
                 }
             }
         }

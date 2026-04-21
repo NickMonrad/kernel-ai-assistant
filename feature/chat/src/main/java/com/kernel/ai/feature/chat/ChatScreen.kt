@@ -401,6 +401,15 @@ private fun MessageBubble(
         MaterialTheme.colorScheme.surfaceVariant
     }
     val richPresentation = message.toolCall?.presentation
+    val surfacedFallbackLinks = if (!isUser && richPresentation == null && message.toolCall != null) {
+        collectAdditionalUrls(
+            visibleText = message.content,
+            message.toolCall.resultText,
+            message.toolCall.requestJson,
+        )
+    } else {
+        emptyList()
+    }
     val suppressAssistantBubble = !isUser && richPresentation != null && message.toolCall?.isSuccess == true
     var showMenu by remember { mutableStateOf(false) }
 
@@ -511,6 +520,10 @@ private fun MessageBubble(
                                 style = MaterialTheme.typography.bodyMedium.copy(color = contentColor),
                                 onLongPress = { showMenu = true },
                             )
+                            if (surfacedFallbackLinks.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                ToolLinkList(urls = surfacedFallbackLinks)
+                            }
                             if (message.isStreaming) {
                                 val generatingMessage = remember { LoadingMessages.randomGenerating() }
                                 Row(
@@ -870,6 +883,13 @@ private fun formatEta(remainingMs: Long): String {
 @Composable
 private fun ToolCallChip(toolCall: ToolCallInfo, modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
+    val toolLinks = remember(toolCall.requestJson, toolCall.resultText) {
+        collectAdditionalUrls(
+            visibleText = "",
+            toolCall.resultText,
+            toolCall.requestJson,
+        )
+    }
     val clipboardManager = LocalClipboardManager.current
     Surface(
         modifier = modifier.fillMaxWidth().testTag("tool_chip"),
@@ -910,6 +930,10 @@ private fun ToolCallChip(toolCall: ToolCallInfo, modifier: Modifier = Modifier) 
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (toolLinks.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    ToolLinkList(urls = toolLinks)
+                }
                 Spacer(Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),

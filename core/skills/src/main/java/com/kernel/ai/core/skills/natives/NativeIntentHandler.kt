@@ -1334,7 +1334,7 @@ class NativeIntentHandler @Inject constructor(
         emptyMessage: String? = null,
     ): ToolPresentation.ListPreview = ToolPresentation.ListPreview(
         title = listName,
-        items = items.map { it.item },
+        items = items.sortedByDescending { it.addedAt }.map { it.item },
         totalCount = items.size,
         emptyMessage = emptyMessage,
     )

@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ToolCallInfo
@@ -74,6 +75,43 @@ class ChatScreenToolChipTest {
         composeTestRule.onNodeWithTag("tool_chip").assertIsDisplayed()
         composeTestRule.onNodeWithText("Wellington").assertIsDisplayed()
         composeTestRule.onNodeWithText("🌡 High 13°C • Low 12°C").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolChipShowsSurfacedLink_whenExpandedToolResultContainsUrl() {
+        val message = ChatMessage(
+            id = "link",
+            role = ChatMessage.Role.ASSISTANT,
+            content = "Here's a summary.",
+            toolCall = ToolCallInfo(
+                skillName = "search_wikipedia",
+                requestJson = """{"query":"mother's day","url":"https://en.wikipedia.org/wiki/Mother%27s_Day"}""",
+                resultText = "Summary only. Source: https://en.wikipedia.org/wiki/Mother%27s_Day",
+                isSuccess = true,
+            ),
+        )
+        setContent(message)
+
+        composeTestRule.onNodeWithTag("tool_chip").performClick()
+        composeTestRule.onNodeWithText("https://en.wikipedia.org/wiki/Mother%27s_Day").assertIsDisplayed()
+    }
+
+    @Test
+    fun fallbackBubbleSurfacesToolLink_whenVisibleMessageOmitsUrl() {
+        val message = ChatMessage(
+            id = "bubble-link",
+            role = ChatMessage.Role.ASSISTANT,
+            content = "Here's a summary.",
+            toolCall = ToolCallInfo(
+                skillName = "search_wikipedia",
+                requestJson = """{"query":"mother's day"}""",
+                resultText = "Summary only. Source: https://en.wikipedia.org/wiki/Mother%27s_Day",
+                isSuccess = true,
+            ),
+        )
+        setContent(message)
+
+        composeTestRule.onNodeWithText("https://en.wikipedia.org/wiki/Mother%27s_Day").assertIsDisplayed()
     }
 
     @Test
