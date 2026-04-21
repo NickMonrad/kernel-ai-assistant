@@ -40,8 +40,15 @@ class VoskOfflineVoiceInputController @Inject constructor(
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         stopListening()
 
-        val installedModel = ensureModel() ?: return VoiceInputStartResult.Unavailable(
-            "Offline voice model is not provisioned yet. Add a Vosk model under app/src/main/assets/$MODEL_ASSET_DIR."
+        val installedModel = try {
+            ensureModel()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to provision Vosk model", e)
+            return VoiceInputStartResult.Unavailable(
+                e.message ?: "Failed to prepare offline voice input."
+            )
+        } ?: return VoiceInputStartResult.Unavailable(
+            "Offline voice model is not provisioned correctly in this build."
         )
 
         return withContext(Dispatchers.Main.immediate) {
@@ -85,6 +92,17 @@ class VoskOfflineVoiceInputController @Inject constructor(
         }
         if (!hasAssets) {
             Log.w(TAG, "No Vosk model assets found under $MODEL_ASSET_DIR")
+            return null
+        }
+
+        val hasUuid = withContext(Dispatchers.IO) {
+            runCatching {
+                context.assets.open("$MODEL_ASSET_DIR/uuid").close()
+                true
+            }.getOrDefault(false)
+        }
+        if (!hasUuid) {
+            Log.w(TAG, "Vosk model assets are missing $MODEL_ASSET_DIR/uuid")
             return null
         }
 
