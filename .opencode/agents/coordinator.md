@@ -90,6 +90,16 @@ Decompose tasks, route to the correct specialist subagent, then synthesise their
 7. `code-reviewer`: re-review fix commits (scoped — not a full re-review)
 8. Tell the owner to manually test on S23 Ultra via ADB once CI passes
 
+## GitHub issue hygiene
+
+When creating or reshaping GitHub issues, normalize metadata immediately:
+
+- set **type**, **go-state**, **priority**, **size**, and **milestone/phase**
+- add `roadmap` when the issue belongs in planned product work
+- add domain labels like `skills`, `voice`, `memory`, `ui`, `architecture` as appropriate
+
+If a feature naturally decomposes into multiple meaningful tracks, create or maintain a **parent/epic** with child issues instead of leaving one oversized issue blob.
+
 ## Architecture overview
 
 - **Tier 2 QuickIntentRouter**: pure Kotlin regex + MiniLM classifier, ~0MB, <5ms, 20 intents
