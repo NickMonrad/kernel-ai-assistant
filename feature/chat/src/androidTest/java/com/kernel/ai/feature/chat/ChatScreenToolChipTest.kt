@@ -3,6 +3,7 @@ package com.kernel.ai.feature.chat
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ToolCallInfo
 import org.junit.Rule
@@ -33,6 +34,35 @@ class ChatScreenToolChipTest {
                 requestJson = """{"seconds":60}""",
                 resultText = "Timer set for 60 seconds",
                 isSuccess = true,
+            ),
+        )
+        setContent(message)
+
+        composeTestRule.onNodeWithTag("tool_chip").assertIsDisplayed()
+    }
+
+    @Test
+    fun toolChipVisible_whenRichPresentationPresent() {
+        val message = ChatMessage(
+            id = "rich",
+            role = ChatMessage.Role.ASSISTANT,
+            content = "Weather response",
+            toolCall = ToolCallInfo(
+                skillName = "get_weather",
+                requestJson = """{"location":"Wellington"}""",
+                resultText = "Wellington forecast: 13°C / 12°C",
+                isSuccess = true,
+                presentation = ToolPresentation.Weather(
+                    locationName = "Wellington",
+                    temperatureText = "13°C / 12°C",
+                    feelsLikeText = null,
+                    description = "Rain",
+                    emoji = "🌧️",
+                    humidityText = "82%",
+                    windText = "4 m/s",
+                    precipText = "5mm rain",
+                    airQualityText = null,
+                ),
             ),
         )
         setContent(message)

@@ -11,6 +11,7 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillParameter
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.SkillSchema
+import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -258,7 +259,34 @@ class GetWeatherSkill @Inject constructor(
         }.trimEnd()
 
         Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast for $locationLabel")
-        return SkillResult.DirectReply(text)
+        val firstCode = codes.optInt(0, -1)
+        val firstHigh = maxTemps.optDouble(0, Double.NaN)
+        val firstLow = minTemps.optDouble(0, Double.NaN)
+        val firstRain = precip.optDouble(0, Double.NaN)
+        val firstUv = uvMaxArr?.let {
+            if (it.length() > 0 && !it.isNull(0)) it.getDouble(0) else null
+        }
+        val temperatureText = buildString {
+            if (!firstHigh.isNaN()) append("%.0f°C".format(firstHigh))
+            if (!firstLow.isNaN()) {
+                if (isNotEmpty()) append(" / ")
+                append("%.0f°C".format(firstLow))
+            }
+        }.ifBlank { "Forecast unavailable" }
+        return SkillResult.DirectReply(
+            text,
+            presentation = ToolPresentation.Weather(
+                locationName = locationLabel,
+                temperatureText = temperatureText,
+                feelsLikeText = null,
+                description = wmoDescription(firstCode),
+                emoji = wmoEmoji(firstCode),
+                humidityText = null,
+                windText = null,
+                precipText = if (!firstRain.isNaN()) "%.0fmm rain".format(firstRain) else null,
+                airQualityText = firstUv?.let { "UV %.0f (%s)".format(it, uvIndexLabel(it)) },
+            ),
+        )
     }
 
     private fun formatForecastDate(dateStr: String): String {
@@ -426,7 +454,27 @@ class GetWeatherSkill @Inject constructor(
 
         Log.d(TAG, "GetWeatherSkill: fetched weather for $locationLabel")
         // DirectReply: structured data — numeric temperature/humidity/wind values
-        return SkillResult.DirectReply(text)
+        val precipText = buildString {
+            if (precipChance >= 0) append("Rain chance $precipChance%")
+            if (!precipitation.isNaN()) {
+                if (isNotEmpty()) append(" • ")
+                append("%.1fmm".format(precipitation))
+            }
+        }.takeIf { it.isNotBlank() }
+        return SkillResult.DirectReply(
+            text,
+            presentation = ToolPresentation.Weather(
+                locationName = locationLabel,
+                temperatureText = if (!temp.isNaN()) "%.0f°C".format(temp) else "?",
+                feelsLikeText = if (!feelsLike.isNaN()) "Feels like %.0f°C".format(feelsLike) else null,
+                description = description,
+                emoji = emoji,
+                humidityText = if (humidity >= 0) "Humidity $humidity%" else null,
+                windText = if (!windSpeed.isNaN()) "Wind %.1f m/s".format(windSpeed) else null,
+                precipText = precipText,
+                airQualityText = airQuality?.usAqi?.let { "AQI $it" },
+            ),
+        )
     }
 
     private fun uvIndexLabel(uv: Double): String = when {
