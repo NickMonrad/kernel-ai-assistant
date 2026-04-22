@@ -52,6 +52,10 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.runBlocking
 
 private const val TAG = "KernelAI"
+private const val ALARM_RECEIVER_CLASS = "com.kernel.ai.alarm.AlarmBroadcastReceiver"
+private const val EXTRA_ALARM_LABEL = "alarm_label"
+private const val EXTRA_ALARM_ID = "alarm_id"
+private const val EXTRA_ALARM_TITLE = "alarm_title"
 
 /**
  * Central dispatcher for all native Android operations triggered via the [run_intent][RunIntentSkill] gateway.
@@ -65,7 +69,7 @@ private const val TAG = "KernelAI"
  *   send_email              — ACTION_SENDTO mailto: URI (params: subject, body)
  *   send_sms                — ACTION_SENDTO SMS composer (params: message)
  *   set_alarm               — AlarmClock.ACTION_SET_ALARM (params: hours, minutes, label)
- *   set_timer               — AlarmClock.ACTION_SET_TIMER (params: duration_seconds, label)
+ *   set_timer               — Built-in timer via AlarmManager (params: duration_seconds, label)
  *   create_calendar_event   — CalendarContract ACTION_INSERT edit screen (params: title, date, time?, duration_minutes?, description?)
  *   get_battery             — BatteryManager capacity + charging state
  *   get_time / get_date     — LocalDateTime formatted display
@@ -399,32 +403,21 @@ class NativeIntentHandler @Inject constructor(
     private fun setTimer(params: Map<String, String>): SkillResult {
         val seconds = params["duration_seconds"]?.toIntOrNull()
             ?: return SkillResult.Failure("run_intent", "duration_seconds is required and must be an integer.")
-        val intent = Intent(AlarmClock.ACTION_SET_TIMER).apply {
-            putExtra(AlarmClock.EXTRA_LENGTH, seconds)
-            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
-            params["label"]?.takeIf { it.isNotBlank() }?.let {
-                putExtra(AlarmClock.EXTRA_MESSAGE, it)
-            }
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        if (context.packageManager.resolveActivity(intent, 0) == null) {
-            return SkillResult.Failure("run_intent", "No clock app found to set a timer.")
-        }
+        val durationMs = seconds * 1000L
+        val label = params["label"]?.takeIf { it.isNotBlank() }
+        val now = System.currentTimeMillis()
+        val timer = ScheduledAlarmEntity(
+            id = UUID.randomUUID().toString(),
+            entryType = "TIMER",
+            label = label,
+            durationMs = durationMs,
+            startedAtMs = now,
+            triggerAtMillis = now + durationMs,
+            createdAt = now,
+        )
         return try {
-            context.startActivity(intent)
-            val durationMs = seconds * 1000L
-            val label = params["label"]?.takeIf { it.isNotBlank() }
-            runBlocking {
-                scheduledAlarmDao.insert(ScheduledAlarmEntity(
-                    id = UUID.randomUUID().toString(),
-                    entryType = "TIMER",
-                    label = label,
-                    durationMs = durationMs,
-                    startedAtMs = System.currentTimeMillis(),
-                    triggerAtMillis = System.currentTimeMillis() + durationMs,
-                    createdAt = System.currentTimeMillis(),
-                ))
-            }
+            runBlocking { scheduledAlarmDao.insert(timer) }
+            scheduleTimerBroadcast(timer)
             val mins = seconds / 60
             val secs = seconds % 60
             val labelStr = when {
@@ -433,23 +426,22 @@ class NativeIntentHandler @Inject constructor(
                 else -> "$seconds seconds"
             }
             SkillResult.Success("Timer set for $labelStr.")
-        } catch (e: ActivityNotFoundException) {
-            SkillResult.Failure("run_intent", "No clock app found to set a timer.")
+        } catch (e: Exception) {
+            SkillResult.Failure("run_intent", "Could not set the timer.")
         }
     }
 
     private fun cancelTimer(): SkillResult {
-        // ACTION_DISMISS_TIMER (API 26+) stops any ringing timer and cancels
-        // all running timers — covers both "stop that noise" and "cancel timer".
-        val intent = Intent(AlarmClock.ACTION_DISMISS_TIMER).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        val timers = runBlocking { scheduledAlarmDao.getAllTimers() }
+        if (timers.isEmpty()) return SkillResult.DirectReply("No timers running.")
+        runBlocking {
+            timers.forEach { timer ->
+                cancelTimerBroadcast(timer)
+                scheduledAlarmDao.delete(timer.id)
+            }
         }
-        return try {
-            context.startActivity(intent)
-            SkillResult.Success("Timer cancelled.")
-        } catch (e: ActivityNotFoundException) {
-            SkillResult.Failure("run_intent", "No clock app found to cancel the timer.")
-        }
+        val count = timers.size
+        return SkillResult.Success("Cancelled $count timer${if (count == 1) "" else "s"}.")
     }
 
     // ── Timer Registry ────────────────────────────────────────────────────────
@@ -473,22 +465,20 @@ class NativeIntentHandler @Inject constructor(
 
     private fun cancelTimerNamed(params: Map<String, String>): SkillResult {
         val name = params["name"] ?: return cancelTimer()
-        val deleted = runBlocking {
-            val byName = scheduledAlarmDao.deleteTimerByName(name)
-            if (byName > 0) byName
-            else parseDurationToMs(name)?.let { scheduledAlarmDao.deleteTimerByDuration(it) } ?: 0
+        val durationMs = parseDurationToMs(name)
+        val timers = runBlocking { scheduledAlarmDao.getAllTimers() }
+        val matches = timers.filter { timer ->
+            timer.label?.equals(name, ignoreCase = true) == true ||
+                (durationMs != null && timer.durationMs == durationMs)
         }
-        if (deleted == 0) return SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
-        // Also dismiss via clock app so any ringing/running timer actually stops
-        return try {
-            context.startActivity(Intent(AlarmClock.ACTION_DISMISS_TIMER).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            })
-            SkillResult.Success("Cancelled the $name timer")
-        } catch (e: ActivityNotFoundException) {
-            // DB entry removed — partial success
-            SkillResult.Success("Cancelled the $name timer (clock app unavailable to stop it)")
+        if (matches.isEmpty()) return SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
+        runBlocking {
+            matches.forEach { timer ->
+                cancelTimerBroadcast(timer)
+                scheduledAlarmDao.delete(timer.id)
+            }
         }
+        return SkillResult.Success("Cancelled the $name timer")
     }
 
     private fun getTimerRemaining(params: Map<String, String>): SkillResult {
@@ -533,6 +523,46 @@ class NativeIntentHandler @Inject constructor(
             "minute", "min" -> amount * 60_000L
             else -> amount * 1_000L
         }
+    }
+
+    private fun scheduleTimerBroadcast(timer: ScheduledAlarmEntity) {
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        val broadcastIntent = Intent().apply {
+            component = android.content.ComponentName(
+                context.packageName,
+                ALARM_RECEIVER_CLASS,
+            )
+            putExtra(EXTRA_ALARM_LABEL, timer.label ?: "Timer")
+            putExtra(EXTRA_ALARM_ID, timer.id)
+            putExtra(EXTRA_ALARM_TITLE, "Timer")
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            timer.id.hashCode(),
+            broadcastIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, timer.triggerAtMillis, pendingIntent)
+    }
+
+    private fun cancelTimerBroadcast(timer: ScheduledAlarmEntity) {
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        val broadcastIntent = Intent().apply {
+            component = android.content.ComponentName(
+                context.packageName,
+                ALARM_RECEIVER_CLASS,
+            )
+            putExtra(EXTRA_ALARM_LABEL, timer.label ?: "Timer")
+            putExtra(EXTRA_ALARM_ID, timer.id)
+            putExtra(EXTRA_ALARM_TITLE, "Timer")
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            timer.id.hashCode(),
+            broadcastIntent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        )
+        pendingIntent?.let { alarmManager.cancel(it) }
     }
 
     // ── Calendar ──────────────────────────────────────────────────────────────
@@ -850,15 +880,16 @@ class NativeIntentHandler @Inject constructor(
     // ── Plexamp ──
 
     private fun playPlexamp(params: Map<String, String>): SkillResult {
-        val query = params["query"] ?: return SkillResult.Failure("play_plexamp", "No search query provided")
-        // Plexamp doesn't register a searchable activity, so ACTION_SEARCH throws
-        // ActivityNotFoundException even when the app is installed. Fall back to launching
-        // the app directly via its launcher intent.
         val launchIntent = context.packageManager.getLaunchIntentForPackage("tv.plex.labs.plexamp")
         return if (launchIntent != null) {
             launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
             context.startActivity(launchIntent)
-            SkillResult.Success("Opening Plexamp — search for: $query")
+            val query = params["query"]?.takeIf { it.isNotBlank() }
+            if (query != null) {
+                SkillResult.Success("Opening Plexamp — search for: $query")
+            } else {
+                SkillResult.Success("Opening Plexamp")
+            }
         } else {
             SkillResult.Failure("play_plexamp", "Plexamp app not installed")
         }
@@ -867,7 +898,17 @@ class NativeIntentHandler @Inject constructor(
     // ── YouTube Music ──
 
     private fun playYoutubeMusic(params: Map<String, String>): SkillResult {
-        val query = params["query"] ?: return SkillResult.Failure("play_youtube_music", "No search query provided")
+        val query = params["query"]?.takeIf { it.isNotBlank() }
+        if (query == null) {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.youtube.music")
+            return if (launchIntent != null) {
+                launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                context.startActivity(launchIntent)
+                SkillResult.Success("Opening YouTube Music")
+            } else {
+                SkillResult.Failure("play_youtube_music", "YouTube Music app not installed")
+            }
+        }
         return try {
             // ACTION_VIEW with a music.youtube.com URL navigates directly to search results
             // in the app, which is a better UX than ACTION_SEARCH (which only opens the search bar).
@@ -950,9 +991,15 @@ class NativeIntentHandler @Inject constructor(
     private fun openApp(params: Map<String, String>): SkillResult {
         val appName = params["app_name"] ?: return SkillResult.Failure("open_app", "No app name provided")
         val pm = context.packageManager
-        // Try to find a matching app by label
+        val requestedKey = normalizeAppLookupKey(appName)
         val matchingApp = pm.getInstalledApplications(0).firstOrNull { appInfo ->
-            pm.getApplicationLabel(appInfo).toString().equals(appName, ignoreCase = true)
+            val labelKey = normalizeAppLookupKey(pm.getApplicationLabel(appInfo).toString())
+            val packageKey = normalizeAppLookupKey(appInfo.packageName)
+            labelKey == requestedKey || packageKey.endsWith(requestedKey)
+        } ?: pm.getInstalledApplications(0).firstOrNull { appInfo ->
+            val labelKey = normalizeAppLookupKey(pm.getApplicationLabel(appInfo).toString())
+            val packageKey = normalizeAppLookupKey(appInfo.packageName)
+            labelKey.contains(requestedKey) || packageKey.contains(requestedKey)
         }
         val launchIntent = matchingApp?.let { pm.getLaunchIntentForPackage(it.packageName) }
         return if (launchIntent != null) {
@@ -962,6 +1009,11 @@ class NativeIntentHandler @Inject constructor(
         } else {
             SkillResult.Failure("open_app", "Could not find app: $appName")
         }
+    }
+
+    private fun normalizeAppLookupKey(raw: String): String {
+        return raw.lowercase()
+            .replace(Regex("[^a-z0-9]+"), "")
     }
 
     // ── Navigation ────────────────────────────────────────────────────────────

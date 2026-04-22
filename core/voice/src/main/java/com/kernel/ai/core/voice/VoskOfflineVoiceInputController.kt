@@ -1,5 +1,9 @@
 package com.kernel.ai.core.voice
 
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.os.Build
 import android.content.Context
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -39,6 +43,13 @@ class VoskOfflineVoiceInputController @Inject constructor(
     @Volatile
     private var speechService: SpeechService? = null
 
+    private val audioManager by lazy {
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
+
+    @Volatile
+    private var audioFocusRequest: AudioFocusRequest? = null
+
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         stopListening()
 
@@ -55,6 +66,7 @@ class VoskOfflineVoiceInputController @Inject constructor(
 
         return withContext(Dispatchers.Main.immediate) {
             try {
+                requestAudioFocus()
                 val recognizer = Recognizer(installedModel, SAMPLE_RATE)
                 val service = SpeechService(recognizer, SAMPLE_RATE)
                 speechService = service
@@ -62,6 +74,7 @@ class VoskOfflineVoiceInputController @Inject constructor(
                 if (!service.startListening(listener, LISTEN_TIMEOUT_MS)) {
                     service.shutdown()
                     speechService = null
+                    releaseAudioFocus()
                     return@withContext VoiceInputStartResult.Unavailable(
                         "Voice capture is already active."
                     )
@@ -73,6 +86,7 @@ class VoskOfflineVoiceInputController @Inject constructor(
                 Log.e(TAG, "Failed to start Vosk voice capture", e)
                 speechService?.shutdown()
                 speechService = null
+                releaseAudioFocus()
                 VoiceInputStartResult.Unavailable(
                     e.message ?: "Failed to start offline voice input."
                 )
@@ -85,6 +99,7 @@ class VoskOfflineVoiceInputController @Inject constructor(
         service.stop()
         service.shutdown()
         speechService = null
+        releaseAudioFocus()
     }
 
     private suspend fun ensureModel(): Model? {
@@ -155,6 +170,7 @@ class VoskOfflineVoiceInputController @Inject constructor(
             )
             _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
             speechService = null
+            releaseAudioFocus()
         }
 
         override fun onTimeout() {
@@ -168,6 +184,7 @@ class VoskOfflineVoiceInputController @Inject constructor(
             )
             _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
             speechService = null
+            releaseAudioFocus()
         }
 
         private fun completeWithTranscript(hypothesis: String) {
@@ -191,5 +208,38 @@ class VoskOfflineVoiceInputController @Inject constructor(
         return runCatching {
             JSONObject(hypothesis).optString("partial").trim()
         }.getOrDefault("")
+    }
+
+    private fun requestAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener { }
+                .build()
+            audioFocusRequest = request
+            audioManager.requestAudioFocus(request)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(
+                { },
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
+            )
+        }
+    }
+
+    private fun releaseAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            audioFocusRequest = null
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(null)
+        }
     }
 }

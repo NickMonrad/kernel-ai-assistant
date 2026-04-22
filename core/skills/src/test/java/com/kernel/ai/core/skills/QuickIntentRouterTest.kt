@@ -412,6 +412,37 @@ class QuickIntentRouterTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // VOICE REGRESSION TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Voice Regression Coverage")
+    inner class VoiceRegressions {
+
+        @Test
+        fun `should match timer remaining aliases without explicit timer noun`() {
+            assertRegexMatch(regexOnlyRouter.route("get time remaining"), "get_timer_remaining", "get time remaining")
+            assertRegexMatch(
+                regexOnlyRouter.route("how much time is remaining"),
+                "get_timer_remaining",
+                "how much time is remaining",
+            )
+        }
+
+        @Test
+        fun `should match bare toggle bluetooth and wifi phrases`() {
+            assertRegexMatch(regexOnlyRouter.route("toggle bluetooth"), "toggle_bluetooth", "toggle bluetooth")
+            assertRegexMatch(regexOnlyRouter.route("toggle wifi"), "toggle_wifi", "toggle wifi")
+        }
+
+        @Test
+        fun `should match bare media app launch phrases`() {
+            assertRegexMatch(regexOnlyRouter.route("play youtube music"), "play_youtube_music", "play youtube music")
+            assertRegexMatch(regexOnlyRouter.route("play plexamp"), "play_plexamp", "play plexamp")
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // DND TESTS
     // ═══════════════════════════════════════════════════════════════════════════
 

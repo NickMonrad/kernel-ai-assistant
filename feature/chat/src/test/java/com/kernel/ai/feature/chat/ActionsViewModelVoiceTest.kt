@@ -135,6 +135,31 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice mode auto starts slot reply capture after prompt finishes`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("send a text message to my wife") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_sms",
+                    params = mapOf("contact" to "my wife"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "message",
+                    promptTemplate = "What would you like to say to {contact}?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        coVerify { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+    }
+
+    @Test
     fun `partial transcript is surfaced while listening`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
@@ -225,6 +250,17 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice command corrects sure i mean map mishear`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("show me cafes on the map") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "show me cafes on the map")
+
+        viewModel.executeAction("sure i mean cafes on the map", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("show me cafes on the map") }
+    }
+
+    @Test
     fun `voice command corrects sit a minute time timer mishear`() = runTest(dispatcher) {
         every { quickIntentRouter.route("set a 20 minute timer") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "set a 20 minute timer")
@@ -233,6 +269,17 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         verify { quickIntentRouter.route("set a 20 minute timer") }
+    }
+
+    @Test
+    fun `voice command corrects start time timer mishear`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("start timer for 5 minutes") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "start timer for 5 minutes")
+
+        viewModel.executeAction("start time for 5 minutes", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("start timer for 5 minutes") }
     }
 
     @Test
@@ -247,6 +294,56 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice command corrects wifi dnd system and list mishears`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("turn off wifi") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "turn off wifi")
+        every { quickIntentRouter.route("turn on dnd") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "turn on dnd")
+        every { quickIntentRouter.route("get system info") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "get system info")
+        every { quickIntentRouter.route("create list called to do") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "create list called to do")
+
+        viewModel.executeAction("turn off why fine", InputMode.Voice)
+        viewModel.executeAction("turn on day in day", InputMode.Voice)
+        viewModel.executeAction("get system far", InputMode.Voice)
+        viewModel.executeAction("create lust called to do", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("turn off wifi") }
+        verify { quickIntentRouter.route("turn on dnd") }
+        verify { quickIntentRouter.route("get system info") }
+        verify { quickIntentRouter.route("create list called to do") }
+    }
+
+    @Test
+    fun `voice command corrects media and list item mishears`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("play youtube music") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "play youtube music")
+        every { quickIntentRouter.route("play plexamp") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "play plexamp")
+        every { quickIntentRouter.route("add panadol to the shopping list") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "add panadol to the shopping list")
+        every { quickIntentRouter.route("next track") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "next track")
+        every { quickIntentRouter.route("what's the date today") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "what's the date today")
+
+        viewModel.executeAction("play huge your music", InputMode.Voice)
+        viewModel.executeAction("play play exam", InputMode.Voice)
+        viewModel.executeAction("add and pen adult to the shopping list", InputMode.Voice)
+        viewModel.executeAction("next drink", InputMode.Voice)
+        viewModel.executeAction("what's the day today", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("play youtube music") }
+        verify { quickIntentRouter.route("play plexamp") }
+        verify { quickIntentRouter.route("add panadol to the shopping list") }
+        verify { quickIntentRouter.route("next track") }
+        verify { quickIntentRouter.route("what's the date today") }
+    }
+
+    @Test
     fun `voice command normalizes spoken alarm time`() = runTest(dispatcher) {
         every { quickIntentRouter.route("set an alarm for 6:30 am") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 6:30 am")
@@ -255,6 +352,25 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         verify { quickIntentRouter.route("set an alarm for 6:30 am") }
+    }
+
+    @Test
+    fun `voice command normalizes malformed alarm thirty phrases`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("set an alarm for 15:30") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 15:30")
+        every { quickIntentRouter.route("set an alarm for 17:30") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 17:30")
+        every { quickIntentRouter.route("set an alarm for 19:30") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 19:30")
+
+        viewModel.executeAction("set an alarm for 15 dirty", InputMode.Voice)
+        viewModel.executeAction("sit on the lam for 47", InputMode.Voice)
+        viewModel.executeAction("set an alarm for 49", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("set an alarm for 15:30") }
+        verify { quickIntentRouter.route("set an alarm for 17:30") }
+        verify { quickIntentRouter.route("set an alarm for 19:30") }
     }
 
     @Test

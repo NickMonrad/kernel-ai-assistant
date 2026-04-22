@@ -116,6 +116,7 @@ class ActionsViewModel @Inject constructor(
 
     private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
+    private var shouldAutoStartVoiceSlotReply = false
 
     init {
         viewModelScope.launch {
@@ -171,6 +172,14 @@ class ActionsViewModel @Inject constructor(
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
                         _voicePlaybackState.value = VoicePlaybackState.Idle
+                        if (
+                            shouldAutoStartVoiceSlotReply &&
+                            _pendingSlot.value?.inputMode == InputMode.Voice &&
+                            _voiceCaptureState.value == VoiceCaptureState.Idle
+                        ) {
+                            shouldAutoStartVoiceSlotReply = false
+                            startVoiceCapture(VoiceCaptureMode.SlotReply)
+                        }
                     }
                 }
             }
@@ -185,6 +194,7 @@ class ActionsViewModel @Inject constructor(
 
     fun startVoiceSlotReply() {
         if (_pendingSlot.value == null) return
+        shouldAutoStartVoiceSlotReply = false
         startVoiceCapture(VoiceCaptureMode.SlotReply)
     }
 
@@ -194,6 +204,7 @@ class ActionsViewModel @Inject constructor(
     }
 
     fun stopVoiceOutput() {
+        shouldAutoStartVoiceSlotReply = false
         voiceOutputController.stop()
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
@@ -225,6 +236,7 @@ class ActionsViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
+                shouldAutoStartVoiceSlotReply = false
                 voiceOutputController.stop()
                 _uiState.value = UiState.Executing
 
@@ -255,6 +267,7 @@ class ActionsViewModel @Inject constructor(
                             originalQuery = normalizedQuery,
                             inputMode = inputMode,
                         )
+                        shouldAutoStartVoiceSlotReply = inputMode == InputMode.Voice
                         speakForVoice(inputMode, _pendingSlot.value?.request?.promptMessage.orEmpty())
                     }
                     is QuickIntentRouter.RouteResult.RegexMatch -> {
@@ -293,6 +306,7 @@ class ActionsViewModel @Inject constructor(
      */
     fun onSlotReply(text: String) {
         val pending = _pendingSlot.value ?: return
+        shouldAutoStartVoiceSlotReply = false
         val normalizedText = if (pending.inputMode == InputMode.Voice) {
             normalizeVoiceSlotReply(text, pending.request.missingSlot.name)
         } else {
@@ -332,6 +346,7 @@ class ActionsViewModel @Inject constructor(
 
     /** Silently dismiss the slot-fill sheet with no log entry. */
     fun cancelSlotFill() {
+        shouldAutoStartVoiceSlotReply = false
         _pendingSlot.value = null
         stopVoiceCapture()
         voiceOutputController.stop()
@@ -472,8 +487,8 @@ class ActionsViewModel @Inject constructor(
 
     private fun normalizeVoiceCommand(text: String): String {
         val original = text.trim()
-        val normalized = normalizeCommonVoiceMishears(
-            normalizeAlarmTimeFragments(
+        val normalized = normalizeAlarmTimeFragments(
+            normalizeCommonVoiceMishears(
                 normalizeSpokenNumbers(normalizeSpokenTimes(original))
             )
         )
@@ -519,6 +534,25 @@ class ActionsViewModel @Inject constructor(
             val meridiem = match.groupValues[2].lowercase()
             if (hour !in 1..12) return@replace match.value
             "$hour:30 $meridiem"
+        }
+        normalized = SPACED_THIRTY_WORD_TIME.replace(normalized) { match ->
+            val hour = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+            val meridiem = match.groupValues[2].trim().lowercase()
+            if (hour !in 0..23) return@replace match.value
+            buildString {
+                append(hour)
+                append(":30")
+                if (meridiem.isNotBlank()) {
+                    append(' ')
+                    append(meridiem)
+                }
+            }
+        }
+        normalized = FLATTENED_BARE_THIRTY_TIME.replace(normalized) { match ->
+            val flattened = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+            val hour = flattened - 30
+            if (hour !in 1..23) return@replace match.value
+            "$hour:30"
         }
         return normalized
     }
@@ -665,11 +699,36 @@ class ActionsViewModel @Inject constructor(
             """\b(3[1-9]|4[0-2])\s*(am|pm|a\.m\.|p\.m\.)\b""",
             RegexOption.IGNORE_CASE,
         )
+        val SPACED_THIRTY_WORD_TIME = Regex(
+            """\b(\d{1,2})\s+(?:thirty|dirty)\s*(am|pm|a\.m\.|p\.m\.)?\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        val FLATTENED_BARE_THIRTY_TIME = Regex(
+            """\b(3[1-9]|4\d|5[0-3])\b""",
+            RegexOption.IGNORE_CASE,
+        )
         val COMMON_VOICE_PHRASE_REPLACEMENTS = listOf(
+            Regex("""^add\s+and\s+""", RegexOption.IGNORE_CASE) to "add ",
+            Regex("""\bsure\s+i\s+mean\b""", RegexOption.IGNORE_CASE) to "show me",
             Regex("""\bsure\s+me\b""", RegexOption.IGNORE_CASE) to "show me",
+            Regex("""\bsarah\s+a\b""", RegexOption.IGNORE_CASE) to "set a",
             Regex("""\bsit\s+a\b""", RegexOption.IGNORE_CASE) to "set a",
+            Regex("""\bsit\s+on\s+the\s+lam\b""", RegexOption.IGNORE_CASE) to "set an alarm",
             Regex("""\bcancel\s+the\s+time\s+of\b""", RegexOption.IGNORE_CASE) to "cancel the timer",
             Regex("""\bminute\s+time\b""", RegexOption.IGNORE_CASE) to "minute timer",
+            Regex("""\bstart\s+time\s+for\b""", RegexOption.IGNORE_CASE) to "start timer for",
+            Regex("""\bwhy\s+fine\b""", RegexOption.IGNORE_CASE) to "wifi",
+            Regex("""\bday\s+in\s+day\b""", RegexOption.IGNORE_CASE) to "dnd",
+            Regex("""\bnext\s+drink\b""", RegexOption.IGNORE_CASE) to "next track",
+            Regex("""\bget\s+system\s+far\b""", RegexOption.IGNORE_CASE) to "get system info",
+            Regex("""\bcreate\s+lust\b""", RegexOption.IGNORE_CASE) to "create list",
+            Regex("""\bhuge\s+your\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
+            Regex("""\bplay\s+exam\b""", RegexOption.IGNORE_CASE) to "plexamp",
+            Regex("""\bplex\s+amp\b""", RegexOption.IGNORE_CASE) to "plexamp",
+            Regex("""\bpen\s+adult\b""", RegexOption.IGNORE_CASE) to "panadol",
+            Regex("""\bspaghetti\s+pastor\b""", RegexOption.IGNORE_CASE) to "spaghetti pasta",
+            Regex("""\bpowerpoint\s+dick\b""", RegexOption.IGNORE_CASE) to "powerpoint deck",
+            Regex("""\bwhat(?:'s| is)\s+the\s+day\s+today\b""", RegexOption.IGNORE_CASE) to "what's the date today",
         )
         val NON_LIST_ITEM_LEAD_WORDS = setOf(
             "add", "put", "show", "open", "go", "take", "remove", "delete", "clear",

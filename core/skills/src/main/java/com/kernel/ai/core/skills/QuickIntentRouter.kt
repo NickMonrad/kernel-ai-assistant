@@ -353,6 +353,22 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        IntentPattern(
+            intentName = "get_timer_remaining",
+            regex = Regex(
+                """(?:get|show|what(?:'s|\s+is))\s+(?:the\s+)?time\s+remaining\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "get_timer_remaining",
+            regex = Regex(
+                """how\s+much\s+time\s+(?:is|as)\s+remaining\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
 
         // ── Timer (set) ──
         IntentPattern(
@@ -1013,6 +1029,22 @@ class QuickIntentRouter(
                 mapOf("state" to state)
             },
         ),
+        IntentPattern(
+            intentName = "toggle_bluetooth",
+            regex = Regex(
+                """toggle\s+(?:bluetooth|bt)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_wifi",
+            regex = Regex(
+                """toggle\s+(?:wi-?fi|wireless)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
 
         // ── Airplane Mode ──
         // Explicit Android-compat: "enable/disable airplane/flight mode" — split from optional-prefix form
@@ -1110,6 +1142,22 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        IntentPattern(
+            intentName = "play_youtube_music",
+            regex = Regex(
+                """(?:play|open|launch|start)\s+youtube\s+music\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "play_plexamp",
+            regex = Regex(
+                """(?:play|open|launch|start)\s+plexamp\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
         ),
         // Plex — word boundary ensures "on plex" doesn't match "on Plexamp"
         IntentPattern(
