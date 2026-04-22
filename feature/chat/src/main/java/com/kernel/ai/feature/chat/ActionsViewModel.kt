@@ -229,6 +229,14 @@ class ActionsViewModel @Inject constructor(
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
+    fun pauseTransientVoiceUi() {
+        shouldAutoStartVoiceSlotReply = false
+        voiceInputController.stopListening()
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+        voiceOutputController.stop()
+        _voicePlaybackState.value = VoicePlaybackState.Idle
+    }
+
     fun onMicrophonePermissionDenied() {
         _error.value = "Microphone permission is required for voice input."
     }

@@ -173,6 +173,36 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `pauseTransientVoiceUi cancels pending slot reply auto restart`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("send a text message to my wife") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_sms",
+                    params = mapOf("contact" to "my wife"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "message",
+                    promptTemplate = "What would you like to say to {contact}?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+
+        viewModel.pauseTransientVoiceUi()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351)
+        runCurrent()
+
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        verify(atLeast = 1) { voiceInputController.stopListening() }
+        verify(atLeast = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
     fun `partial transcript is surfaced while listening`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
