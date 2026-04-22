@@ -231,6 +231,14 @@ class NativeIntentHandler @Inject constructor(
             "get_weather", "get_date_diff", "get_system_info",
             "save_memory",
         )
+
+        private val GENERIC_MEDIA_QUERY_KEYS = setOf(
+            "music",
+            "somemusic",
+            "songs",
+            "asong",
+            "some songs".replace(" ", ""),
+        )
     }
 
 
@@ -892,13 +900,16 @@ class NativeIntentHandler @Inject constructor(
     // ── Plexamp ──
 
     private fun playPlexamp(params: Map<String, String>): SkillResult {
-        val launchIntent = context.packageManager.getLaunchIntentForPackage("tv.plex.labs.plexamp")
+        val query = normalizeMediaAppQuery(params["query"])
+        val launchIntent = findLaunchIntent(
+            appName = "plexamp",
+            preferredPackage = "tv.plex.labs.plexamp",
+        )
         return if (launchIntent != null) {
             launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
             context.startActivity(launchIntent)
-            val query = params["query"]?.takeIf { it.isNotBlank() }
             if (query != null) {
-                SkillResult.Success("Opening Plexamp — search for: $query")
+                SkillResult.Success("Opening Plexamp for: $query")
             } else {
                 SkillResult.Success("Opening Plexamp")
             }
@@ -910,9 +921,12 @@ class NativeIntentHandler @Inject constructor(
     // ── YouTube Music ──
 
     private fun playYoutubeMusic(params: Map<String, String>): SkillResult {
-        val query = params["query"]?.takeIf { it.isNotBlank() }
+        val query = normalizeMediaAppQuery(params["query"])
         if (query == null) {
-            val launchIntent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.youtube.music")
+            val launchIntent = findLaunchIntent(
+                appName = "youtube music",
+                preferredPackage = "com.google.android.apps.youtube.music",
+            )
             return if (launchIntent != null) {
                 launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 context.startActivity(launchIntent)
@@ -1002,7 +1016,21 @@ class NativeIntentHandler @Inject constructor(
 
     private fun openApp(params: Map<String, String>): SkillResult {
         val appName = params["app_name"] ?: return SkillResult.Failure("open_app", "No app name provided")
+        val launchIntent = findLaunchIntent(appName)
+        return if (launchIntent != null) {
+            launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            context.startActivity(launchIntent)
+            SkillResult.Success("Opening $appName")
+        } else {
+            SkillResult.Failure("open_app", "Could not find app: $appName")
+        }
+    }
+
+    private fun findLaunchIntent(appName: String, preferredPackage: String? = null): Intent? {
         val pm = context.packageManager
+        preferredPackage?.let { preferred ->
+            pm.getLaunchIntentForPackage(preferred)?.let { return it }
+        }
         val requestedKey = normalizeAppLookupKey(appName)
         val matchingApp = pm.getInstalledApplications(0).firstOrNull { appInfo ->
             val labelKey = normalizeAppLookupKey(pm.getApplicationLabel(appInfo).toString())
@@ -1013,19 +1041,18 @@ class NativeIntentHandler @Inject constructor(
             val packageKey = normalizeAppLookupKey(appInfo.packageName)
             labelKey.contains(requestedKey) || packageKey.contains(requestedKey)
         }
-        val launchIntent = matchingApp?.let { pm.getLaunchIntentForPackage(it.packageName) }
-        return if (launchIntent != null) {
-            launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            context.startActivity(launchIntent)
-            SkillResult.Success("Opening $appName")
-        } else {
-            SkillResult.Failure("open_app", "Could not find app: $appName")
-        }
+        return matchingApp?.let { pm.getLaunchIntentForPackage(it.packageName) }
     }
 
     private fun normalizeAppLookupKey(raw: String): String {
         return raw.lowercase()
             .replace(Regex("[^a-z0-9]+"), "")
+    }
+
+    private fun normalizeMediaAppQuery(raw: String?): String? {
+        val query = raw?.trim()?.trimEnd('.', ',', '!', '?')?.takeIf { it.isNotBlank() } ?: return null
+        val normalizedKey = normalizeAppLookupKey(query)
+        return if (normalizedKey in GENERIC_MEDIA_QUERY_KEYS) null else query
     }
 
     // ── Navigation ────────────────────────────────────────────────────────────

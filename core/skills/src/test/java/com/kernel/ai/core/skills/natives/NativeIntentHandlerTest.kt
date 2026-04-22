@@ -171,6 +171,20 @@ class NativeIntentHandlerTest {
         assertEquals("4 minutes 53 seconds", resolved)
     }
 
+    @Test
+    fun `normalizeMediaAppQuery drops generic filler requests`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "normalizeMediaAppQuery",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val generic = method.invoke(handler, "music") as String?
+        val meaningful = method.invoke(handler, "Daft Punk") as String?
+
+        assertEquals(null, generic)
+        assertEquals("Daft Punk", meaningful)
+    }
+
     private data class PhoneRow(
         val contactId: String,
         val displayName: String,

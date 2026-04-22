@@ -558,6 +558,7 @@ class ActionsViewModel @Inject constructor(
                 }
             }
         }
+        normalized = TO_THIRTY_TIME.replace(normalized, "2:30")
         normalized = FLATTENED_BARE_THIRTY_TIME.replace(normalized) { match ->
             val flattened = match.groupValues[1].toIntOrNull() ?: return@replace match.value
             val hour = flattened - 30
@@ -717,8 +718,14 @@ class ActionsViewModel @Inject constructor(
             """\b(3[1-9]|4\d|5[0-3])\b""",
             RegexOption.IGNORE_CASE,
         )
+        val TO_THIRTY_TIME = Regex(
+            """\b(?:to|too)\s+30\b""",
+            RegexOption.IGNORE_CASE,
+        )
         val COMMON_VOICE_PHRASE_REPLACEMENTS = listOf(
             Regex("""^add\s+and\s+""", RegexOption.IGNORE_CASE) to "add ",
+            Regex("""^cole\s+""", RegexOption.IGNORE_CASE) to "call ",
+            Regex("""^cold\s+""", RegexOption.IGNORE_CASE) to "call ",
             Regex("""\bsure\s+i\s+mean\b""", RegexOption.IGNORE_CASE) to "show me",
             Regex("""\bsure\s+me\b""", RegexOption.IGNORE_CASE) to "show me",
             Regex("""\bsarah\s+a\b""", RegexOption.IGNORE_CASE) to "set a",

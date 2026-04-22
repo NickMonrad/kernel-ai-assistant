@@ -303,6 +303,21 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice command corrects initial call verb mishears`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "call susan monrad")
+        every { quickIntentRouter.route("call michael sofoclis") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "call michael sofoclis")
+
+        viewModel.executeAction("cold susan monrad", InputMode.Voice)
+        viewModel.executeAction("cole michael sofoclis", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("call susan monrad") }
+        verify { quickIntentRouter.route("call michael sofoclis") }
+    }
+
+    @Test
     fun `voice command corrects wifi dnd system and list mishears`() = runTest(dispatcher) {
         every { quickIntentRouter.route("turn off wifi") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "turn off wifi")
@@ -383,15 +398,19 @@ class ActionsViewModelVoiceTest {
             QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 17:30")
         every { quickIntentRouter.route("set an alarm for 19:30") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 19:30")
+        every { quickIntentRouter.route("set an alarm for 2:30 called dentist") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 2:30 called dentist")
 
         viewModel.executeAction("set an alarm for 15 dirty", InputMode.Voice)
         viewModel.executeAction("sit on the lam for 47", InputMode.Voice)
         viewModel.executeAction("set an alarm for 49", InputMode.Voice)
+        viewModel.executeAction("set an alarm for to 30 called dentist", InputMode.Voice)
         advanceUntilIdle()
 
         verify { quickIntentRouter.route("set an alarm for 15:30") }
         verify { quickIntentRouter.route("set an alarm for 17:30") }
         verify { quickIntentRouter.route("set an alarm for 19:30") }
+        verify { quickIntentRouter.route("set an alarm for 2:30 called dentist") }
     }
 
     @Test

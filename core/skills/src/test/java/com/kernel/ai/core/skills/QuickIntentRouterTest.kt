@@ -303,6 +303,18 @@ class QuickIntentRouterTest {
             assertEquals("0", intent.params["minutes"])
             assertEquals("8:00", intent.params["time"])
         }
+
+        @Test
+        fun `should parse named alarm with recovered to 30 time`() {
+            val result = regexOnlyRouter.route("set an alarm for to 30 called dentist")
+            assertRegexMatch(result, "set_alarm", "set an alarm for to 30 called dentist")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("2", intent.params["hours"])
+            assertEquals("30", intent.params["minutes"])
+            assertEquals("2:30", intent.params["time"])
+            assertEquals("dentist", intent.params["label"])
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
