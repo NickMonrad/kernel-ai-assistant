@@ -9,15 +9,18 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.ContextWindowManager
-import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
+import com.kernel.ai.core.inference.BORING_AI_SYSTEM_PROMPT
+import com.kernel.ai.core.inference.BORING_MINIMAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.GenerationResult
+import com.kernel.ai.core.inference.HALF_JANDAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.IdentityTier
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.LlmDispatcher
 import com.kernel.ai.core.inference.MINIMAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.ModelConfig
+import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -56,6 +59,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -297,6 +301,13 @@ class ChatViewModel @Inject constructor(
                 initEngineWhenReady()
             }
         }
+        viewModelScope.launch {
+            jandalPersona.personaMode.collect {
+                if (inferenceEngine.isReady.value) {
+                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                }
+            }
+        }
     }
 
     private suspend fun buildSystemPrompt(
@@ -305,6 +316,7 @@ class ChatViewModel @Inject constructor(
         identityTier: IdentityTier = IdentityTier.FULL,
     ): String {
         val profile = userProfileRepository.get()
+        val personaMode = jandalPersona.currentPersonaMode
         val now = LocalDateTime.now()
         val dateTime = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))
         // ISO date injected alongside the human-readable date so the model can copy it directly
@@ -313,15 +325,29 @@ class ChatViewModel @Inject constructor(
         return buildString {
             when (identityTier) {
                 IdentityTier.FULL -> {
-                    append(DEFAULT_SYSTEM_PROMPT)
+                    append(
+                        when (personaMode) {
+                            PersonaMode.FULL -> com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
+                            PersonaMode.HALF -> HALF_JANDAL_SYSTEM_PROMPT
+                            PersonaMode.BORING -> BORING_AI_SYSTEM_PROMPT
+                        }
+                    )
                     // Session vocab is stable per conversation — safe to bake into system prompt.
                     // Greeting instruction is injected per-turn (in the user prompt context)
                     // so it can change from "Kia ora" on turn 1 to "no greeting" on turn 2+
                     // without needing an expensive system prompt reset that clears the KV cache.
-                    append("\n\n${jandalPersona.buildSessionVocab()}")
+                    jandalPersona.buildSessionVocab(personaMode)
+                        .takeIf { it.isNotBlank() }
+                        ?.let { append("\n\n$it") }
                 }
                 IdentityTier.MINIMAL -> {
-                    append(MINIMAL_SYSTEM_PROMPT)
+                    append(
+                        if (personaMode == PersonaMode.BORING) {
+                            BORING_MINIMAL_SYSTEM_PROMPT
+                        } else {
+                            MINIMAL_SYSTEM_PROMPT
+                        }
+                    )
                 }
             }
             append("\n\n[Current date and time]\n$dateTime (ISO: $isoDate)")
@@ -329,14 +355,14 @@ class ChatViewModel @Inject constructor(
             if (identityTier == IdentityTier.FULL) {
                 // Prefer structured YAML injection (compact, ~200 tokens) over raw text (~750 tokens).
                 val structured = userProfileRepository.getStructured()
+                val contextWindowSize = activeModel?.let { model ->
+                    modelSettingsRepository.getSettings(model.modelId).contextWindowSize
+                } ?: 4096
+                val maxProfileChars = modelSettingsRepository.getMaxUserProfileChars(contextWindowSize)
                 if (structured != null && !structured.isEmpty()) {
-                    append("\n\n[User Profile]\n${structured.toYaml()}")
+                    append("\n\n[User Profile]\n${structured.toYaml().take(maxProfileChars)}")
                 } else if (profile.isNotBlank()) {
                     // Fallback to raw text if no structured data yet
-                    val contextWindowSize = activeModel?.let { model ->
-                        modelSettingsRepository.getSettings(model.modelId).contextWindowSize
-                    } ?: 4096
-                    val maxProfileChars = modelSettingsRepository.getMaxUserProfileChars(contextWindowSize)
                     val injectedProfile = profile.take(maxProfileChars)
                     append("\n\n[User Profile]\n$injectedProfile")
                 }
@@ -348,27 +374,24 @@ class ChatViewModel @Inject constructor(
                     append("[End of previous conversation context]")
                 }
             }
-            // Native tool calling pipeline (Google Gallery pattern).
-            // Tool declarations are auto-generated by the SDK from @Tool annotations — no need
-            // to list parameters or format rules. Only the 3-step pipeline enforcement and skill
-            // names are needed here.
-            val skillNames = skillRegistry.allSkills()
-                .filter { it.name != "load_skill" }
-                .sortedBy { it.name }
-                .joinToString("\n") { "  - ${it.name}: ${it.description.take(80)}" }
-            if (skillNames.isNotBlank()) {
-                append(
-                    "\n\n[Tool Use]\n" +
-                        "For EVERY task that requires a tool, you MUST execute these steps in exact order.\n" +
-                        "You MUST NOT skip any steps.\n\n" +
-                        "1. Find the most relevant skill from this list:\n" +
-                        skillNames + "\n\n" +
-                        "2. Call load_skill with the skill name to get its full instructions.\n\n" +
-                        "3. Follow the skill's instructions exactly to complete the task. " +
-                        "Output ONLY the final result to the user.\n\n" +
-                        "CRITICAL: Execute all steps silently. Do NOT output intermediate reasoning or tool call text."
-                )
-            }
+        }
+    }
+
+    private fun buildToolUsePrompt(): String {
+        val skillNames = skillRegistry.allSkills()
+            .filter { it.name != "load_skill" }
+            .sortedBy { it.name }
+            .joinToString("\n") { "  - ${it.name}: ${it.description.take(80)}" }
+        if (skillNames.isBlank()) return ""
+        return buildString {
+            append("[Tool Use]\n")
+            append("For this request, if a tool is needed, you MUST execute these steps in exact order.\n")
+            append("You MUST NOT skip any steps.\n\n")
+            append("1. Find the most relevant skill from this list:\n")
+            append(skillNames)
+            append("\n\n2. Call load_skill with the skill name to get its full instructions.\n\n")
+            append("3. Follow the skill's instructions exactly to complete the task. Output ONLY the final result to the user.\n\n")
+            append("CRITICAL: Execute all steps silently. Do NOT output intermediate reasoning or tool call text.")
         }
     }
 
@@ -950,11 +973,16 @@ class ChatViewModel @Inject constructor(
                 if (effectiveRagContext.isNotBlank()) append("$effectiveRagContext\n\n")
                 if (anaphoraContext.isNotBlank()) append("$anaphoraContext\n\n")
                 if (systemContext != null) append("$systemContext\n\n")
+                if (isToolQuery) {
+                    buildToolUsePrompt()
+                        .takeIf { it.isNotBlank() }
+                        ?.let { append("$it\n\n") }
+                }
                 // Greeting instruction injected per-turn so turn 1 says "Kia ora" and
                 // subsequent turns explicitly suppress greetings — without invalidating the KV cache.
                 // Suppressed entirely for tool queries to keep the prompt focused.
                 if (!isToolQuery) {
-                    append("[System: ${jandalPersona.buildGreetingInstruction(isFirstReply)}]\n\n")
+                    append("[System: ${jandalPersona.buildGreetingInstruction(isFirstReply, jandalPersona.currentPersonaMode)}]\n\n")
                 }
                 append(text)
             }
