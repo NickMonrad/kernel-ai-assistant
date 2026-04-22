@@ -826,6 +826,7 @@ class ActionsViewModel @Inject constructor(
             Regex("""\bnew\s+job\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
             Regex("""\bplay\s+exam\b""", RegexOption.IGNORE_CASE) to "plexamp",
             Regex("""\bplex\s+amp\b""", RegexOption.IGNORE_CASE) to "plexamp",
+            Regex("""\bcomplex\s+amp\b""", RegexOption.IGNORE_CASE) to "plexamp",
             Regex("""\bplagues\s+amp\b""", RegexOption.IGNORE_CASE) to "plexamp",
             Regex("""\bpen\s+adult\b""", RegexOption.IGNORE_CASE) to "panadol",
             Regex("""\bspaghetti\s+pastor\b""", RegexOption.IGNORE_CASE) to "spaghetti pasta",

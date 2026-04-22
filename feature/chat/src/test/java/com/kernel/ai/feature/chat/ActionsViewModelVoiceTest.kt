@@ -422,6 +422,7 @@ class ActionsViewModelVoiceTest {
 
         viewModel.executeAction("play huge your music", InputMode.Voice)
         viewModel.executeAction("play play exam", InputMode.Voice)
+        viewModel.executeAction("play music complex amp", InputMode.Voice)
         viewModel.executeAction("open you tube music", InputMode.Voice)
         viewModel.executeAction("open plagues amp", InputMode.Voice)
         viewModel.executeAction("add and pen adult to the shopping list", InputMode.Voice)

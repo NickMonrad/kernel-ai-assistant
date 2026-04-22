@@ -272,6 +272,12 @@ fun KernelNavHost(
                             autoStartVoiceCommand = startVoice,
                             initialQuery = initialQuickActionQuery,
                             adbSlotReply = initialSlotReply,
+                            onAutoOpenSheetConsumed = {
+                                backStackEntry.arguments?.putBoolean("openSheet", false)
+                            },
+                            onAutoStartVoiceConsumed = {
+                                backStackEntry.arguments?.putBoolean(ARG_START_VOICE, false)
+                            },
                             onNavigateToChat = { query ->
                                 val encoded = Uri.encode(query)
                                 navController.navigate("$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded")

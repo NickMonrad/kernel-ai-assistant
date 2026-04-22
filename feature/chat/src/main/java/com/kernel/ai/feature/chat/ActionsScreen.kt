@@ -91,6 +91,8 @@ fun ActionsScreen(
     autoStartVoiceCommand: Boolean = false,
     initialQuery: String? = null,
     adbSlotReply: String? = null,
+    onAutoOpenSheetConsumed: () -> Unit = {},
+    onAutoStartVoiceConsumed: () -> Unit = {},
     onNavigateToChat: (query: String) -> Unit = {},
     onNewConversation: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
@@ -170,12 +172,14 @@ fun ActionsScreen(
     // Auto-open the quick action sheet when navigated here via the FAB shortcut.
     // LaunchedEffect(Unit) ensures this runs once on initial composition only —
     // avoids re-opening the sheet on recomposition or after process death/restore.
-    LaunchedEffect(Unit) {
+    LaunchedEffect(autoOpenSheet) {
         if (autoOpenSheet) showBottomSheet = true
+        if (autoOpenSheet) onAutoOpenSheetConsumed()
     }
 
     LaunchedEffect(autoStartVoiceCommand) {
         if (autoStartVoiceCommand) {
+            onAutoStartVoiceConsumed()
             requestVoiceCapture(VoiceCaptureMode.Command)
         }
     }
