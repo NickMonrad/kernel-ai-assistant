@@ -91,10 +91,32 @@ class RagRepositoryTest {
         assertTrue(!result.contains("[Episodic Memories"), "Output must NOT contain [Episodic Memories] when table not initialised")
         assertTrue(result.startsWith("The following context has been retrieved from memory."), "Output must start with framing instruction")
 
-        // Verify the correct topK contract — core gets 10 slots, episodic is suppressed (0)
+        // Verify the retrieval caps stay tight to avoid over-injecting long-term memories.
         coVerify(exactly = 1) {
-            memoryRepository.searchMemories(any(), coreTopK = 10, episodicTopK = 3)
+            memoryRepository.searchMemories(any(), coreTopK = 6, episodicTopK = 3, kiwiTopK = 6)
         }
+    }
+
+    @Test
+    fun `getRelevantContext — includes kiwi memories in long-term memory section`() = runTest {
+        val queryVector = floatArrayOf(1.0f, 0.0f, 0.0f)
+        coEvery { embeddingEngine.embed(any()) } returns queryVector
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
+            MemorySearchResult(
+                id = "kiwi-1",
+                content = "Flight of the Conchords are a New Zealand comedy duo",
+                source = "kiwi",
+                score = 0.96f,
+                term = "Flight of the Conchords",
+                definition = "A New Zealand musical comedy duo consisting of Bret McKenzie and Jemaine Clement.",
+            )
+        )
+
+        val result = ragRepository.getRelevantContext("who are flight of the conchords", conversationId = "test-conv")
+
+        assertTrue(result.contains("[Core Memories"), "Output must contain the long-term memory section")
+        assertTrue(result.contains("[NZ Context: Flight of the Conchords]"), "Kiwi memory should be formatted as NZ context")
+        assertTrue(result.contains("musical comedy duo"), "Kiwi definition should be injected into the prompt")
     }
 
     @Test
@@ -241,5 +263,28 @@ class RagRepositoryTest {
 
         assertTrue(result.contains("Recent fact"), "Higher lastAccessedAt must win the tiebreak and appear in output")
         assertFalse(result.contains("Stale fact"), "Lower lastAccessedAt must be truncated when budget is tight")
+    }
+
+    @Test
+    fun `getRelevantContext — caps long-term memory lines across core and kiwi`() = runTest {
+        val queryVector = floatArrayOf(1.0f, 0.0f, 0.0f)
+        coEvery { embeddingEngine.embed(any()) } returns queryVector
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns (1..8).map { index ->
+            MemorySearchResult(
+                id = "memory-$index",
+                content = "Memory $index",
+                source = if (index <= 4) "core" else "kiwi",
+                score = 1.0f - (index * 0.01f),
+                lastAccessedAt = (10_000 - index).toLong(),
+                term = if (index > 4) "Kiwi $index" else "",
+                definition = if (index > 4) "Definition $index" else "",
+            )
+        }
+
+        val result = ragRepository.getRelevantContext("query", conversationId = "c", maxTokens = 500)
+
+        assertTrue(result.contains("Memory 1"), "Top-ranked core memories should still be included")
+        assertTrue(result.contains("[NZ Context: Kiwi 5]"), "Top-ranked kiwi memories should be eligible for inclusion")
+        assertFalse(result.contains("Definition 8"), "Long-term memory injection must be capped to protect context budget")
     }
 }
