@@ -753,7 +753,7 @@ private fun OnboardingContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
         ) {
-            Text(text = "🧠", style = MaterialTheme.typography.displayLarge)
+            Text(text = "🩴", style = MaterialTheme.typography.displayLarge)
             Text(
                 text = "Kia ora, welcome to Jandal",
                 style = MaterialTheme.typography.headlineMedium,

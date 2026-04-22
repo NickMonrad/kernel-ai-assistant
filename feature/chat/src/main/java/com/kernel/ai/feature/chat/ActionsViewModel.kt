@@ -11,7 +11,16 @@ import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
+import com.kernel.ai.core.voice.VoiceCaptureMode
+import com.kernel.ai.core.voice.VoiceInputController
+import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputEvent
+import com.kernel.ai.core.voice.VoiceOutputResult
+import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -23,6 +32,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
+private const val SLOT_REPLY_REARM_DELAY_MS = 350L
+private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
 
 /** Input modality for an action. Carried through slot-fill state for voice-readiness (#350/#588). */
 enum class InputMode { Text, Voice }
@@ -44,6 +55,8 @@ class ActionsViewModel @Inject constructor(
     private val quickIntentRouter: QuickIntentRouter,
     private val skillRegistry: SkillRegistry,
     private val quickActionDao: QuickActionDao,
+    private val voiceInputController: VoiceInputController,
+    private val voiceOutputController: VoiceOutputController,
 ) : ViewModel() {
 
     // ── Action history ──────────────────────────────────────────────────────
@@ -58,11 +71,31 @@ class ActionsViewModel @Inject constructor(
         object Executing : UiState
     }
 
+    sealed interface VoiceCaptureState {
+        object Idle : VoiceCaptureState
+        data class Preparing(val mode: VoiceCaptureMode) : VoiceCaptureState
+        data class Listening(val mode: VoiceCaptureMode, val transcript: String = "") : VoiceCaptureState
+        data class Processing(val mode: VoiceCaptureMode, val transcript: String) : VoiceCaptureState
+    }
+
+    sealed interface VoicePlaybackState {
+        object Idle : VoicePlaybackState
+        data class Speaking(val text: String) : VoicePlaybackState
+    }
+
     /** One-shot navigation/UI events consumed by the screen. */
     sealed interface UiEvent {
         /** Query couldn't be handled by quick actions — navigate to chat for LLM processing. */
         data class NavigateToChat(val query: String) : UiEvent
+        object RequestPhonePermission : UiEvent
     }
+
+    private data class PendingPhonePermissionAction(
+        val query: String,
+        val intentName: String,
+        val params: Map<String, String>,
+        val inputMode: InputMode,
+    )
 
     /**
      * Local slot-fill state. Holds the pending [PendingSlotRequest] plus the original
@@ -89,7 +122,155 @@ class ActionsViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
+    val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
+
+    private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
+    val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
+    private var shouldAutoStartVoiceSlotReply = false
+    private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
+
+    init {
+        viewModelScope.launch {
+            voiceInputController.events.collect { event ->
+                when (event) {
+                    is VoiceInputEvent.ListeningStarted -> {
+                        val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
+                            ?.takeIf { it.mode == event.mode }
+                            ?.transcript
+                            .orEmpty()
+                        _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, currentTranscript)
+                    }
+                    is VoiceInputEvent.PartialTranscript -> {
+                        _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, event.text)
+                    }
+                    is VoiceInputEvent.Transcript -> {
+                        val normalizedTranscript = normalizeVoiceCommand(event.text)
+                        _voiceCaptureState.value = VoiceCaptureState.Processing(event.mode, normalizedTranscript)
+                        when (event.mode) {
+                            VoiceCaptureMode.Command -> executeAction(normalizedTranscript, InputMode.Voice)
+                            VoiceCaptureMode.SlotReply -> onSlotReply(normalizedTranscript)
+                        }
+                    }
+                    is VoiceInputEvent.Error -> {
+                        _voiceCaptureState.value = VoiceCaptureState.Idle
+                        _error.value = event.message
+                    }
+                    is VoiceInputEvent.ListeningStopped -> {
+                        val currentState = _voiceCaptureState.value
+                        when (currentState) {
+                            is VoiceCaptureState.Listening -> {
+                                _voiceCaptureState.value = if (currentState.transcript.isBlank()) {
+                                    VoiceCaptureState.Idle
+                                } else {
+                                    VoiceCaptureState.Processing(
+                                        mode = currentState.mode,
+                                        transcript = currentState.transcript,
+                                    )
+                                }
+                            }
+                            is VoiceCaptureState.Processing -> Unit
+                            else -> _voiceCaptureState.value = VoiceCaptureState.Idle
+                        }
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputController.events.collect { event ->
+                when (event) {
+                    is VoiceOutputEvent.SpeakingStarted -> {
+                        _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
+                    }
+                    VoiceOutputEvent.SpeakingStopped -> {
+                        _voicePlaybackState.value = VoicePlaybackState.Idle
+                        if (
+                            shouldAutoStartVoiceSlotReply &&
+                            _pendingSlot.value?.inputMode == InputMode.Voice &&
+                            _voiceCaptureState.value == VoiceCaptureState.Idle
+                        ) {
+                            shouldAutoStartVoiceSlotReply = false
+                            viewModelScope.launch {
+                                delay(SLOT_REPLY_REARM_DELAY_MS)
+                                if (
+                                    _pendingSlot.value?.inputMode == InputMode.Voice &&
+                                    _voiceCaptureState.value == VoiceCaptureState.Idle
+                                ) {
+                                    startVoiceCapture(VoiceCaptureMode.SlotReply)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // ── Public API ──────────────────────────────────────────────────────────
+
+    fun startVoiceCommand() {
+        startVoiceCapture(VoiceCaptureMode.Command)
+    }
+
+    fun startVoiceSlotReply() {
+        if (_pendingSlot.value == null) return
+        shouldAutoStartVoiceSlotReply = false
+        startVoiceCapture(VoiceCaptureMode.SlotReply)
+    }
+
+    fun stopVoiceCapture() {
+        voiceInputController.stopListening()
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+    }
+
+    fun stopVoiceOutput() {
+        shouldAutoStartVoiceSlotReply = false
+        voiceOutputController.stop()
+        _voicePlaybackState.value = VoicePlaybackState.Idle
+    }
+
+    fun pauseTransientVoiceUi() {
+        shouldAutoStartVoiceSlotReply = false
+        voiceInputController.stopListening()
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+        voiceOutputController.stop()
+        _voicePlaybackState.value = VoicePlaybackState.Idle
+    }
+
+    fun onMicrophonePermissionDenied() {
+        _error.value = "Microphone permission is required for voice input."
+    }
+
+    fun onPhonePermissionGranted() {
+        val pending = pendingPhonePermissionAction ?: return
+        pendingPhonePermissionAction = null
+        viewModelScope.launch {
+            _uiState.value = UiState.Executing
+            try {
+                shouldAutoStartVoiceSlotReply = false
+                voiceOutputController.stop()
+                val entity = executeIntent(
+                    query = pending.query,
+                    intentName = pending.intentName,
+                    params = pending.params,
+                    inputMode = pending.inputMode,
+                )
+                quickActionDao.insert(entity)
+                speakForVoice(pending.inputMode, entity.resultText)
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: onPhonePermissionGranted failed — ${e.message}", e)
+                _error.value = e.message ?: "Unknown error"
+            } finally {
+                _voiceCaptureState.value = VoiceCaptureState.Idle
+                _uiState.value = UiState.Idle
+            }
+        }
+    }
+
+    fun onPhonePermissionDenied() {
+        pendingPhonePermissionAction = null
+        _error.value = "Phone permission is required for auto-dial."
+    }
 
     /**
      * Executes a quick-action command via the [QuickIntentRouter] Tier 2 fast intent layer.
@@ -102,63 +283,85 @@ class ActionsViewModel @Inject constructor(
      * @param inputMode Carried into [PendingSlotState] for voice-readiness; no-op until #350.
      */
     fun executeAction(query: String, inputMode: InputMode = InputMode.Text) {
-        if (query.isBlank()) return
+        val normalizedQuery = if (inputMode == InputMode.Voice) normalizeVoiceCommand(query) else query.trim()
+        if (normalizedQuery.isBlank()) return
         if (_pendingSlot.value != null) {
             // A slot-fill is already in progress — ignore until the user replies or cancels.
             // Voice (#350) may want to cancel-and-proceed here instead.
-            Log.w(TAG, "ActionsViewModel: executeAction called while slot-fill pending — ignoring \"$query\"")
+            Log.w(TAG, "ActionsViewModel: executeAction called while slot-fill pending — ignoring \"$normalizedQuery\"")
             return
         }
         _error.value = null
 
         viewModelScope.launch {
             try {
+                shouldAutoStartVoiceSlotReply = false
+                voiceOutputController.stop()
                 _uiState.value = UiState.Executing
 
-                val routeResult = quickIntentRouter.route(query)
+                val routeResult = quickIntentRouter.route(normalizedQuery)
                 when (routeResult) {
                     is QuickIntentRouter.RouteResult.FallThrough -> {
-                        Log.d(TAG, "ActionsViewModel: FallThrough for \"$query\" → navigating to chat")
-                        quickActionDao.insert(
-                            QuickActionEntity(
-                                userQuery = query,
-                                skillName = "llm_fallthrough",
-                                resultText = "Sending to Jandal for processing…",
-                                isSuccess = true,
-                            )
+                        Log.d(TAG, "ActionsViewModel: FallThrough for \"$normalizedQuery\" → navigating to chat")
+                        val entity = QuickActionEntity(
+                            userQuery = normalizedQuery,
+                            skillName = "llm_fallthrough",
+                            resultText = "Sending to Jandal for processing…",
+                            isSuccess = true,
                         )
-                        _events.emit(UiEvent.NavigateToChat(query))
+                        quickActionDao.insert(entity)
+                        speakForVoice(inputMode, entity.resultText)
+                        _events.emit(UiEvent.NavigateToChat(normalizedQuery))
                     }
                     is QuickIntentRouter.RouteResult.NeedsSlot -> {
                         // Pause execution — show slot prompt in a ModalBottomSheet.
                         // Do NOT use SlotFillerManager; state lives locally here.
-                        Log.d(TAG, "ActionsViewModel: NeedsSlot for \"$query\" → showing slot sheet")
+                        Log.d(TAG, "ActionsViewModel: NeedsSlot for \"$normalizedQuery\" → showing slot sheet")
                         _pendingSlot.value = PendingSlotState(
                             request = PendingSlotRequest(
                                 intentName = routeResult.intent.intentName,
                                 existingParams = routeResult.intent.params,
                                 missingSlot = routeResult.missingSlot,
                             ),
-                            originalQuery = query,
+                            originalQuery = normalizedQuery,
                             inputMode = inputMode,
                         )
+                        shouldAutoStartVoiceSlotReply = inputMode == InputMode.Voice
+                        speakForVoice(inputMode, _pendingSlot.value?.request?.promptMessage.orEmpty())
                     }
-                    is QuickIntentRouter.RouteResult.RegexMatch ->
-                        quickActionDao.insert(executeIntent(query, routeResult.intent.intentName, routeResult.intent.params))
-                    is QuickIntentRouter.RouteResult.ClassifierMatch ->
-                        quickActionDao.insert(executeIntent(query, routeResult.intent.intentName, routeResult.intent.params))
+                    is QuickIntentRouter.RouteResult.RegexMatch -> {
+                        val entity = executeIntent(
+                            query = normalizedQuery,
+                            intentName = routeResult.intent.intentName,
+                            params = routeResult.intent.params,
+                            inputMode = inputMode,
+                        )
+                        quickActionDao.insert(entity)
+                        speakForVoice(inputMode, entity.resultText)
+                    }
+                    is QuickIntentRouter.RouteResult.ClassifierMatch -> {
+                        val entity = executeIntent(
+                            query = normalizedQuery,
+                            intentName = routeResult.intent.intentName,
+                            params = routeResult.intent.params,
+                            inputMode = inputMode,
+                        )
+                        quickActionDao.insert(entity)
+                        speakForVoice(inputMode, entity.resultText)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: executeAction failed — ${e.message}", e)
                 _error.value = e.message ?: "Unknown error"
-                quickActionDao.insert(
-                    QuickActionEntity(
-                        userQuery = query,
-                        resultText = "Error: ${e.message ?: "Unknown"}",
-                        isSuccess = false,
-                    )
+                val entity = QuickActionEntity(
+                    userQuery = normalizedQuery,
+                    resultText = "Error: ${e.message ?: "Unknown"}",
+                    isSuccess = false,
                 )
+                quickActionDao.insert(entity)
+                speakForVoice(inputMode, entity.resultText)
             } finally {
+                _voiceCaptureState.value = VoiceCaptureState.Idle
                 _uiState.value = UiState.Idle
             }
         }
@@ -172,30 +375,44 @@ class ActionsViewModel @Inject constructor(
      */
     fun onSlotReply(text: String) {
         val pending = _pendingSlot.value ?: return
-        if (text.isBlank()) {
+        shouldAutoStartVoiceSlotReply = false
+        val normalizedText = if (pending.inputMode == InputMode.Voice) {
+            normalizeVoiceSlotReply(text, pending.request.missingSlot.name)
+        } else {
+            text.trim()
+        }
+        if (normalizedText.isBlank()) {
             cancelSlotFill()
             return
         }
         _pendingSlot.value = null
         val mergedParams = pending.request.existingParams +
-                mapOf(pending.request.missingSlot.name to text.trim())
+                mapOf(pending.request.missingSlot.name to normalizedText)
 
         viewModelScope.launch {
             _uiState.value = UiState.Executing
             try {
-                val entity = executeIntent(pending.originalQuery, pending.request.intentName, mergedParams)
+                voiceOutputController.stop()
+                val entity = executeIntent(
+                    query = pending.originalQuery,
+                    intentName = pending.request.intentName,
+                    params = mergedParams,
+                    inputMode = pending.inputMode,
+                )
                 quickActionDao.insert(entity)
+                speakForVoice(pending.inputMode, entity.resultText)
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onSlotReply failed — ${e.message}", e)
                 _error.value = e.message ?: "Unknown error"
-                quickActionDao.insert(
-                    QuickActionEntity(
-                        userQuery = pending.originalQuery,
-                        resultText = "Error: ${e.message ?: "Unknown"}",
-                        isSuccess = false,
-                    )
+                val entity = QuickActionEntity(
+                    userQuery = pending.originalQuery,
+                    resultText = "Error: ${e.message ?: "Unknown"}",
+                    isSuccess = false,
                 )
+                quickActionDao.insert(entity)
+                speakForVoice(pending.inputMode, entity.resultText)
             } finally {
+                _voiceCaptureState.value = VoiceCaptureState.Idle
                 _uiState.value = UiState.Idle
             }
         }
@@ -203,7 +420,10 @@ class ActionsViewModel @Inject constructor(
 
     /** Silently dismiss the slot-fill sheet with no log entry. */
     fun cancelSlotFill() {
+        shouldAutoStartVoiceSlotReply = false
         _pendingSlot.value = null
+        stopVoiceCapture()
+        voiceOutputController.stop()
     }
 
     fun deleteAction(id: String) {
@@ -234,6 +454,7 @@ class ActionsViewModel @Inject constructor(
         query: String,
         intentName: String,
         params: Map<String, String>,
+        inputMode: InputMode,
     ): QuickActionEntity {
         val directSkill = skillRegistry.get(intentName)
         val (skill, callParams) = when {
@@ -242,6 +463,15 @@ class ActionsViewModel @Inject constructor(
         }
         return if (skill != null) {
             val skillResult = skill.execute(SkillCall(skill.name, callParams))
+            if (shouldRequestPhonePermission(intentName, skillResult)) {
+                pendingPhonePermissionAction = PendingPhonePermissionAction(
+                    query = query,
+                    intentName = intentName,
+                    params = params,
+                    inputMode = inputMode,
+                )
+                _events.emit(UiEvent.RequestPhonePermission)
+            }
             buildEntityFromSkillResult(query, intentName, skillResult)
         } else {
             Log.w(TAG, "ActionsViewModel: intent '$intentName' has no registered skill")
@@ -276,7 +506,11 @@ class ActionsViewModel @Inject constructor(
         is SkillResult.Failure -> QuickActionEntity(
             userQuery = query,
             skillName = skillName,
-            resultText = "Action failed: ${result.error}",
+            resultText = if (isPhonePermissionRequired(skillName, result)) {
+                result.error
+            } else {
+                "Action failed: ${result.error}"
+            },
             isSuccess = false,
         )
         is SkillResult.UnknownSkill -> QuickActionEntity(
@@ -291,5 +525,367 @@ class ActionsViewModel @Inject constructor(
             resultText = "Parse error: ${result.reason}",
             isSuccess = false,
         )
+    }
+
+    private fun shouldRequestPhonePermission(intentName: String, result: SkillResult): Boolean {
+        return isPhonePermissionRequired(intentName, result)
+    }
+
+    private fun isPhonePermissionRequired(intentName: String, result: SkillResult): Boolean {
+        return intentName == "make_call" &&
+            result is SkillResult.Failure &&
+            result.error == PHONE_PERMISSION_REQUIRED_ERROR
+    }
+
+    private fun startVoiceCapture(mode: VoiceCaptureMode) {
+        _error.value = null
+        voiceOutputController.stop()
+        _voiceCaptureState.value = VoiceCaptureState.Preparing(mode)
+        viewModelScope.launch {
+            when (val result = voiceInputController.startListening(mode)) {
+                is VoiceInputStartResult.Started -> {
+                    if (_voiceCaptureState.value is VoiceCaptureState.Preparing) {
+                        _voiceCaptureState.value = VoiceCaptureState.Listening(mode)
+                    }
+                }
+                is VoiceInputStartResult.Unavailable -> {
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    _error.value = result.message
+                }
+            }
+        }
+    }
+
+    private fun speakForVoice(inputMode: InputMode, text: String) {
+        if (inputMode != InputMode.Voice) return
+        val summary = toSpokenSummary(text)
+        if (summary.isBlank()) return
+        viewModelScope.launch {
+            when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = summary))) {
+                is VoiceOutputResult.Spoken -> Unit
+                is VoiceOutputResult.Unavailable -> _error.value = result.message
+            }
+        }
+    }
+
+    private fun toSpokenSummary(text: String): String {
+        val normalized = text.lineSequence()
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .joinToString(" ")
+        val lowered = normalized.lowercase()
+        return when {
+            lowered.startsWith("error:") -> "That didn't work. Check the action history for details."
+            lowered.startsWith("action failed:") -> "That action failed. Check the action history for details."
+            lowered.startsWith("unknown skill:") -> "That action isn't available yet."
+            lowered.startsWith("parse error:") -> "I couldn't understand that action."
+            else -> normalized.take(180)
+        }
+    }
+
+    private fun normalizeVoiceCommand(text: String): String {
+        val original = text.trim()
+        val normalized = normalizeAlarmTimeFragments(
+            normalizeCommonVoiceMishears(
+                normalizeSpokenNumbers(normalizeSpokenTimes(original))
+            )
+        )
+        if (normalized != original) {
+            Log.d(TAG, "ActionsViewModel: normalized voice command \"$original\" -> \"$normalized\"")
+        }
+        val listEllipsisMatch = VOICE_ADD_TO_LIST_WITHOUT_VERB.matchEntire(normalized)
+        if (listEllipsisMatch != null) {
+            val item = listEllipsisMatch.groupValues[1].trim()
+            val listName = listEllipsisMatch.groupValues[2].trim()
+            val firstWord = item.substringBefore(' ').lowercase()
+            if (item.isNotBlank() && listName.isNotBlank() && firstWord !in NON_LIST_ITEM_LEAD_WORDS) {
+                return "add $item to $listName list"
+            }
+        }
+        return normalized
+    }
+
+    private fun normalizeAlarmTimeFragments(text: String): String {
+        if (!ALARM_TIME_CONTEXT.containsMatchIn(text)) return text
+        var normalized = text
+        normalized = SPACED_DIGIT_TIME.replace(normalized) { match ->
+            val hour = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+            val minute = match.groupValues[2].toIntOrNull() ?: return@replace match.value
+            val meridiem = match.groupValues[3].lowercase()
+            if (hour !in 1..12 || minute !in 0..59) return@replace match.value
+            "$hour:${minute.toString().padStart(2, '0')} $meridiem"
+        }
+        normalized = COMPACT_DIGIT_TIME.replace(normalized) { match ->
+            val digits = match.groupValues[1]
+            val meridiem = match.groupValues[2].lowercase()
+            val (hour, minute) = when (digits.length) {
+                3 -> digits.take(1).toInt() to digits.drop(1).toInt()
+                4 -> digits.take(2).toInt() to digits.drop(2).toInt()
+                else -> return@replace match.value
+            }
+            if (hour !in 1..12 || minute !in 0..59) return@replace match.value
+            "$hour:${minute.toString().padStart(2, '0')} $meridiem"
+        }
+        normalized = FLATTENED_THIRTY_TIME.replace(normalized) { match ->
+            val flattened = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+            val hour = flattened - 30
+            val meridiem = match.groupValues[2].lowercase()
+            if (hour !in 1..12) return@replace match.value
+            "$hour:30 $meridiem"
+        }
+        normalized = SPACED_THIRTY_WORD_TIME.replace(normalized) { match ->
+            val hour = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+            val meridiem = match.groupValues[2].trim().lowercase()
+            if (hour !in 0..23) return@replace match.value
+            buildString {
+                append(hour)
+                append(":30")
+                if (meridiem.isNotBlank()) {
+                    append(' ')
+                    append(meridiem)
+                }
+            }
+        }
+        normalized = TO_THIRTY_TIME.replace(normalized, "2:30")
+        normalized = FLATTENED_BARE_THIRTY_TIME.replace(normalized) { match ->
+            val flattened = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+            val hour = flattened - 30
+            if (hour !in 1..23) return@replace match.value
+            "$hour:30"
+        }
+        return normalized
+    }
+
+    private fun normalizeSpokenTimes(text: String): String {
+        return SPOKEN_TIME_PHRASE.replace(text) { match ->
+            val hourWord = match.groupValues[1].lowercase()
+            val minutePhrase = match.groupValues[2].trim()
+            val meridiem = match.groupValues[3].trim()
+            val hour = parseSpokenHour(hourWord) ?: return@replace match.value
+            val minute = parseSpokenMinutePhrase(minutePhrase) ?: return@replace match.value
+            buildString {
+                append(hour)
+                append(':')
+                append(minute.toString().padStart(2, '0'))
+                if (meridiem.isNotBlank()) {
+                    append(' ')
+                    append(meridiem.lowercase())
+                }
+            }
+        }
+    }
+
+    private fun parseSpokenMinutePhrase(phrase: String): Int? {
+        val normalized = phrase.trim().lowercase()
+        if (normalized.isBlank()) return null
+        val minute = parseSpokenNumberPhrase(normalized)?.toIntOrNull() ?: return null
+        return minute.takeIf { it in 0..59 }
+    }
+
+    private fun parseSpokenHour(raw: String): Int? {
+        val normalized = raw.trim().lowercase()
+        return normalized.toIntOrNull()
+            ?.takeIf { it in 1..12 }
+            ?: BASIC_SPOKEN_NUMBERS[normalized]?.takeIf { it in 1..12 }
+    }
+
+    private fun normalizeCommonVoiceMishears(text: String): String {
+        var normalized = text
+        COMMON_VOICE_PHRASE_REPLACEMENTS.forEach { (regex, replacement) ->
+            normalized = regex.replace(normalized, replacement)
+        }
+        return normalized
+    }
+
+    private fun normalizeVoiceSlotReply(text: String, slotName: String): String {
+        val trimmed = text.trim()
+        if (trimmed.isBlank()) return trimmed
+        if (looksLikeNumericSlot(slotName) || looksLikeStandaloneNumberPhrase(trimmed)) {
+            return normalizeSpokenNumbers(trimmed)
+        }
+        return trimmed
+    }
+
+    private fun looksLikeNumericSlot(slotName: String): Boolean {
+        val normalized = slotName.lowercase()
+        return listOf(
+            "time", "hour", "minute", "second", "day", "days", "week", "month", "year",
+            "duration", "count", "number", "qty", "quantity", "amount", "percent",
+            "percentage", "level", "volume", "brightness",
+        ).any { normalized.contains(it) }
+    }
+
+    private fun looksLikeStandaloneNumberPhrase(text: String): Boolean {
+        val words = text.lowercase()
+            .replace(Regex("[^a-z\\s-]"), " ")
+            .trim()
+            .split(Regex("\\s+"))
+            .filter(String::isNotBlank)
+        return words.isNotEmpty() && words.all { SPOKEN_NUMBER_WORDS.contains(it) }
+    }
+
+    private fun normalizeSpokenNumbers(text: String): String {
+        val pattern = Regex(
+            "\\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|oh|o)(?:[ -]+(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|oh|o))*\\b",
+            RegexOption.IGNORE_CASE,
+        )
+        return pattern.replace(text) { match ->
+            parseSpokenNumberPhrase(match.value) ?: match.value
+        }
+    }
+
+    private fun parseSpokenNumberPhrase(phrase: String): String? {
+        val tokens = phrase.lowercase()
+            .split(Regex("[ -]+"))
+            .filter(String::isNotBlank)
+        if (tokens.isEmpty()) return null
+
+        if (tokens.size >= 2 && tokens.all { SINGLE_DIGIT_SPOKEN_NUMBERS.containsKey(it) }) {
+            return tokens.joinToString(separator = "") { SINGLE_DIGIT_SPOKEN_NUMBERS.getValue(it).toString() }
+        }
+
+        var total = 0
+        var current = 0
+        var sawValue = false
+        for (token in tokens) {
+            when {
+                BASIC_SPOKEN_NUMBERS.containsKey(token) -> {
+                    current += BASIC_SPOKEN_NUMBERS.getValue(token)
+                    sawValue = true
+                }
+                TENS_SPOKEN_NUMBERS.containsKey(token) -> {
+                    current += TENS_SPOKEN_NUMBERS.getValue(token)
+                    sawValue = true
+                }
+                token == "hundred" -> {
+                    current = if (current == 0) 100 else current * 100
+                    sawValue = true
+                }
+                token == "thousand" -> {
+                    val group = if (current == 0) 1 else current
+                    total += group * 1000
+                    current = 0
+                    sawValue = true
+                }
+                else -> return null
+            }
+        }
+        return if (sawValue) (total + current).toString() else null
+    }
+
+    private companion object {
+        val VOICE_ADD_TO_LIST_WITHOUT_VERB = Regex(
+            """^(.+?)\s+to\s+(?:(?:my|the)\s+)?(.+?)\s+list$""",
+            RegexOption.IGNORE_CASE,
+        )
+        val SPOKEN_TIME_PHRASE = Regex(
+            """\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+((?:oh|o|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)(?:[ -]+(?:one|two|three|four|five|six|seven|eight|nine))?)\s*(am|pm|a\.m\.|p\.m\.)?\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        val ALARM_TIME_CONTEXT = Regex(
+            """\b(?:alarm|wake\s+me|remind\s+me)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        val SPACED_DIGIT_TIME = Regex(
+            """\b(\d{1,2})\s+(\d{2})\s*(am|pm|a\.m\.|p\.m\.)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        val COMPACT_DIGIT_TIME = Regex(
+            """\b(\d{3,4})\s*(am|pm|a\.m\.|p\.m\.)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        val FLATTENED_THIRTY_TIME = Regex(
+            """\b(3[1-9]|4[0-2])\s*(am|pm|a\.m\.|p\.m\.)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        val SPACED_THIRTY_WORD_TIME = Regex(
+            """\b(\d{1,2})\s+(?:thirty|dirty)\s*(am|pm|a\.m\.|p\.m\.)?\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        val FLATTENED_BARE_THIRTY_TIME = Regex(
+            """\b(3[1-9]|4\d|5[0-3])\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        val TO_THIRTY_TIME = Regex(
+            """\b(?:to|too)\s+30\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        val COMMON_VOICE_PHRASE_REPLACEMENTS = listOf(
+            Regex("""^add\s+and\s+""", RegexOption.IGNORE_CASE) to "add ",
+            Regex("""^cole\s+""", RegexOption.IGNORE_CASE) to "call ",
+            Regex("""^cold\s+""", RegexOption.IGNORE_CASE) to "call ",
+            Regex("""\bsure\s+i\s+mean\b""", RegexOption.IGNORE_CASE) to "show me",
+            Regex("""\bsure\s+me\b""", RegexOption.IGNORE_CASE) to "show me",
+            Regex("""\bsarah\s+a\b""", RegexOption.IGNORE_CASE) to "set a",
+            Regex("""\bsit\s+a\b""", RegexOption.IGNORE_CASE) to "set a",
+            Regex("""\bsit\s+on\s+the\s+lam\b""", RegexOption.IGNORE_CASE) to "set an alarm",
+            Regex("""\bcancel\s+the\s+time\s+of\b""", RegexOption.IGNORE_CASE) to "cancel the timer",
+            Regex("""\bminute\s+time\b""", RegexOption.IGNORE_CASE) to "minute timer",
+            Regex("""\bstart\s+time\s+for\b""", RegexOption.IGNORE_CASE) to "start timer for",
+            Regex("""\bwhy\s+fine\b""", RegexOption.IGNORE_CASE) to "wifi",
+            Regex("""\bwhy\s+fi\b""", RegexOption.IGNORE_CASE) to "wifi",
+            Regex("""\bday\s+in\s+day\b""", RegexOption.IGNORE_CASE) to "dnd",
+            Regex("""\bnext\s+drink\b""", RegexOption.IGNORE_CASE) to "next track",
+            Regex("""\bget\s+system\s+far\b""", RegexOption.IGNORE_CASE) to "get system info",
+            Regex("""\bcreate\s+lust\b""", RegexOption.IGNORE_CASE) to "create list",
+            Regex("""\bhuge\s+your\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
+            Regex("""\byou\s+tube\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
+            Regex("""\bnujood\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
+            Regex("""\bnew\s+job\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
+            Regex("""\bplay\s+exam\b""", RegexOption.IGNORE_CASE) to "plexamp",
+            Regex("""\bplex\s+amp\b""", RegexOption.IGNORE_CASE) to "plexamp",
+            Regex("""\bcomplex\s+amp\b""", RegexOption.IGNORE_CASE) to "plexamp",
+            Regex("""\bplagues\s+amp\b""", RegexOption.IGNORE_CASE) to "plexamp",
+            Regex("""\bpen\s+adult\b""", RegexOption.IGNORE_CASE) to "panadol",
+            Regex("""\bspaghetti\s+pastor\b""", RegexOption.IGNORE_CASE) to "spaghetti pasta",
+            Regex("""\bpowerpoint\s+dick\b""", RegexOption.IGNORE_CASE) to "powerpoint deck",
+            Regex("""\bwhat(?:'s| is)\s+the\s+day\s+today\b""", RegexOption.IGNORE_CASE) to "what's the date today",
+        )
+        val NON_LIST_ITEM_LEAD_WORDS = setOf(
+            "add", "put", "show", "open", "go", "take", "remove", "delete", "clear",
+            "display", "read", "create", "make", "start", "what", "what's", "whats",
+        )
+        val BASIC_SPOKEN_NUMBERS = mapOf(
+            "zero" to 0,
+            "one" to 1,
+            "two" to 2,
+            "three" to 3,
+            "four" to 4,
+            "five" to 5,
+            "six" to 6,
+            "seven" to 7,
+            "eight" to 8,
+            "nine" to 9,
+            "ten" to 10,
+            "eleven" to 11,
+            "twelve" to 12,
+            "thirteen" to 13,
+            "fourteen" to 14,
+            "fifteen" to 15,
+            "sixteen" to 16,
+            "seventeen" to 17,
+            "eighteen" to 18,
+            "nineteen" to 19,
+        )
+        val TENS_SPOKEN_NUMBERS = mapOf(
+            "twenty" to 20,
+            "thirty" to 30,
+            "forty" to 40,
+            "fifty" to 50,
+            "sixty" to 60,
+            "seventy" to 70,
+            "eighty" to 80,
+            "ninety" to 90,
+        )
+        val SINGLE_DIGIT_SPOKEN_NUMBERS = BASIC_SPOKEN_NUMBERS
+            .filterValues { it in 0..9 }
+            .toMutableMap()
+            .apply {
+                put("oh", 0)
+                put("o", 0)
+            }
+        val SPOKEN_NUMBER_WORDS = BASIC_SPOKEN_NUMBERS.keys +
+            TENS_SPOKEN_NUMBERS.keys +
+            setOf("hundred", "thousand", "oh", "o")
     }
 }

@@ -13,12 +13,14 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
     companion object {
         const val EXTRA_LABEL = "alarm_label"
         const val EXTRA_ALARM_ID = "alarm_id"
+        const val EXTRA_TITLE = "alarm_title"
         const val NOTIFICATION_CHANNEL_ID = "kernel_alarm"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         val label = intent.getStringExtra(EXTRA_LABEL) ?: "Alarm"
         val alarmId = intent.getStringExtra(EXTRA_ALARM_ID) ?: return
+        val title = intent.getStringExtra(EXTRA_TITLE) ?: "Alarm"
 
         val notificationManager = context.getSystemService(NotificationManager::class.java)
 
@@ -40,7 +42,7 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("Alarm")
+            .setContentTitle(title)
             .setContentText(label)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)

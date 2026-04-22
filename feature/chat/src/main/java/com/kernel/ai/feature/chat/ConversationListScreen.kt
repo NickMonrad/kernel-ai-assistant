@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -61,6 +62,7 @@ fun ConversationListScreen(
     onOpenConversation: (String) -> Unit,
     onNewConversation: () -> Unit,
     onNavigateToActions: () -> Unit = {},
+    onNavigateToVoiceActions: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel(),
 ) {
@@ -125,6 +127,13 @@ fun ConversationListScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    SmallFloatingActionButton(
+                        onClick = onNavigateToVoiceActions,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = "Voice action")
+                    }
                     SmallFloatingActionButton(
                         onClick = onNavigateToActions,
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
