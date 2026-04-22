@@ -648,6 +648,7 @@ class ChatViewModel @Inject constructor(
             // Set by the Tier 2 intercept when a skill executes successfully; injected into
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
+            var groundingContext: String? = null
             // Set true when QIR routes to a device action, OR when the LLM calls a non-indexable
             // tool (run_intent, get_weather, etc.) — suppresses RAG indexing for both the user
             // message and the LLM response to prevent stale device state in future RAG (#614).
@@ -973,6 +974,9 @@ class ChatViewModel @Inject constructor(
                 if (effectiveRagContext.isNotBlank()) append("$effectiveRagContext\n\n")
                 if (anaphoraContext.isNotBlank()) append("$anaphoraContext\n\n")
                 if (systemContext != null) append("$systemContext\n\n")
+                if (effectiveRagContext.isNotBlank() || systemContext != null) {
+                    append("[System: If the answer depends on provided context, memory, or tool output, copy exact dates, numbers, names, titles, and quoted phrases exactly as written. You may still explain or analyse them when the user asks, but do not mutate literal facts. If the exact detail is not present, say you are not sure.]\n\n")
+                }
                 if (isToolQuery) {
                     buildToolUsePrompt()
                         .takeIf { it.isNotBlank() }
@@ -986,6 +990,13 @@ class ChatViewModel @Inject constructor(
                 }
                 append(text)
             }
+            groundingContext = buildString {
+                if (effectiveRagContext.isNotBlank()) append(effectiveRagContext)
+                if (systemContext != null) {
+                    if (isNotBlank()) append('\n')
+                    append(systemContext)
+                }
+            }.ifBlank { null }
 
             } finally {
                 // Reset the loading spinner on every exit path from the pre-inference block —
@@ -1027,7 +1038,7 @@ class ChatViewModel @Inject constructor(
                         }
 
                         is GenerationResult.Complete -> {
-                            val fullContent = correctSkillNumbers(accumulatedContent.toString(), systemContext)
+                            val fullContent = correctGroundedFacts(accumulatedContent.toString(), groundingContext)
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
 
                             // With native SDK tool calling, tool execution happens
@@ -1438,33 +1449,6 @@ class ChatViewModel @Inject constructor(
 
     private fun looksLikeAnaphora(text: String): Boolean = com.kernel.ai.feature.chat.looksLikeAnaphora(text)
 
-    /**
-     * Corrects digit-truncated numbers in a model response when a [System:] skill context was
-     * injected. E.g. model reads "Battery is at 92%" from context but outputs "9%" — a known
-     * Gemma-4 generation artefact. Only corrects percentage values to avoid false positives.
-     */
-    private fun correctSkillNumbers(response: String, systemContext: String?): String {
-        if (systemContext == null) return response
-        // Snapshot original percentage tokens so later loop iterations can't re-correct
-        // a token that was already fixed by a prior iteration (chain-correction guard).
-        val originalPctTokens = Regex("""(\d+)%""").findAll(response).map { it.groupValues[1] }.toSet()
-        val expectedNumbers = Regex("""\d+""").findAll(systemContext).map { it.value }
-            .filter { it.length >= 2 }
-            .toList()
-        var corrected = response
-        expectedNumbers.forEach { expected ->
-            if (corrected.contains("$expected%")) return@forEach // full percentage already present
-            corrected = corrected.replace(Regex("""(\d+)%""")) { pctMatch ->
-                val found = pctMatch.groupValues[1]
-                // Only repair tokens that existed in the original response (not already corrected)
-                // and where the model's output is a strict prefix of the expected value.
-                if (found in originalPctTokens && expected.startsWith(found) && found.length < expected.length) "$expected%"
-                else pctMatch.value
-            }
-        }
-        return corrected
-    }
-
     private fun looksLikeToolConfirmation(response: String): Boolean =
         com.kernel.ai.feature.chat.looksLikeToolConfirmation(response)
 }
@@ -1491,6 +1475,81 @@ private fun shouldIndexToolCallResult(skillName: String): Boolean = when (skillN
     "search_memory",    // read-only, no new content
     -> false
     else -> true        // run_js (wikipedia etc.) — knowledge worth recalling
+}
+
+/**
+ * Repairs a small set of known literal-copy failures when the model was given grounding context.
+ *
+ * The repair is intentionally narrow:
+ * - percentage truncation from [System:] tool context, e.g. 92% -> 9%
+ * - malformed standalone year tokens, e.g. 200007 -> 2007 or 209 -> 2009
+ *
+ * Broader paraphrasing is left untouched so analytical answers still read naturally.
+ */
+internal fun correctGroundedFacts(response: String, groundingContext: String?): String {
+    if (groundingContext.isNullOrBlank()) return response
+
+    val expectedNumbers = Regex("""\d+""").findAll(groundingContext)
+        .map { it.value }
+        .filter { it.length >= 2 }
+        .distinct()
+        .toList()
+
+    // Snapshot original percentage tokens so later loop iterations can't re-correct
+    // a token that was already fixed by a prior iteration (chain-correction guard).
+    val originalPctTokens = Regex("""(\d+)%""").findAll(response).map { it.groupValues[1] }.toSet()
+    var corrected = response
+    expectedNumbers.forEach { expected ->
+        if (corrected.contains("$expected%")) return@forEach
+        corrected = corrected.replace(Regex("""(\d+)%""")) { pctMatch ->
+            val found = pctMatch.groupValues[1]
+            if (found in originalPctTokens && expected.startsWith(found) && found.length < expected.length) "$expected%"
+            else pctMatch.value
+        }
+    }
+
+    val expectedYears = Regex("""(?<!\d)(?:1[6-9]\d{2}|20\d{2}|21\d{2})(?!\d)""")
+        .findAll(groundingContext)
+        .map { it.value }
+        .distinct()
+        .toList()
+    if (expectedYears.isEmpty()) return corrected
+
+    return Regex("""(?<![\d%])\d{3,6}(?![\d%])""").replace(corrected) { match ->
+        val found = match.value
+        if (found.length == 4 && found in expectedYears) return@replace found
+
+        val candidates = expectedYears.filter { expected ->
+            expected != found &&
+                found.firstOrNull() == expected.firstOrNull() &&
+                levenshteinDistance(found, expected) <= if (found.length <= 4) 1 else 2
+        }
+        if (candidates.size == 1) candidates.first() else found
+    }
+}
+
+private fun levenshteinDistance(left: String, right: String): Int {
+    if (left == right) return 0
+    if (left.isEmpty()) return right.length
+    if (right.isEmpty()) return left.length
+
+    val prev = IntArray(right.length + 1) { it }
+    val curr = IntArray(right.length + 1)
+
+    for (i in 1..left.length) {
+        curr[0] = i
+        for (j in 1..right.length) {
+            val cost = if (left[i - 1] == right[j - 1]) 0 else 1
+            curr[j] = minOf(
+                curr[j - 1] + 1,
+                prev[j] + 1,
+                prev[j - 1] + cost,
+            )
+        }
+        for (j in prev.indices) prev[j] = curr[j]
+    }
+
+    return prev[right.length]
 }
 
 private fun formatBytes(bytes: Long): String = when {
