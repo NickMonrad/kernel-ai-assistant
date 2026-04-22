@@ -213,6 +213,22 @@ class NativeIntentHandlerTest {
         verify(exactly = 2) { audioManager.dispatchMediaKeyEvent(any()) }
     }
 
+    @Test
+    fun `isVoicemailTarget normalizes spaced voicemail phrase`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "isVoicemailTarget",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val spaced = method.invoke(handler, "voice mail") as Boolean
+        val compact = method.invoke(handler, "voicemail") as Boolean
+        val contact = method.invoke(handler, "voice mail at work") as Boolean
+
+        assertEquals(true, spaced)
+        assertEquals(true, compact)
+        assertEquals(false, contact)
+    }
+
     private data class PhoneRow(
         val contactId: String,
         val displayName: String,

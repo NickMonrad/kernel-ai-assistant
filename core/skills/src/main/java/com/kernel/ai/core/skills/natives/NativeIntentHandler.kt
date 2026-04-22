@@ -1099,6 +1099,9 @@ class NativeIntentHandler @Inject constructor(
 
     private fun makeCall(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: return SkillResult.Failure("make_call", "No contact specified")
+        if (isVoicemailTarget(contact)) {
+            return openVoicemail(contact)
+        }
 
         // If the input looks like a phone number (digits, +, spaces, dashes), dial it directly.
         val looksLikeNumber = contact.replace(Regex("[\\s\\-().+]"), "").all { it.isDigit() } &&
@@ -1123,6 +1126,33 @@ class NativeIntentHandler @Inject constructor(
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("make_call", "No phone app available")
         }
+    }
+
+    private fun openVoicemail(label: String): SkillResult {
+        return try {
+            val canCall = context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            val action = if (canCall) Intent.ACTION_CALL else Intent.ACTION_DIAL
+            val intent = Intent(action, Uri.parse("voicemail:")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success(
+                if (canCall) {
+                    "Calling $label"
+                } else {
+                    "Opening dialer for $label (grant Phone permission for auto-dial)"
+                }
+            )
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("make_call", "No phone app available")
+        }
+    }
+
+    private fun isVoicemailTarget(raw: String): Boolean {
+        val normalized = raw.trim().lowercase()
+            .replace(Regex("[^a-z0-9]+"), "")
+        return normalized == "voicemail"
     }
 
     private data class ContactPhoneCandidate(
