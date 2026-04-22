@@ -20,6 +20,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Contact lookup for SMS, email, and call by name -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Microphone access for offline Quick Actions voice input -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Required to read/write the Do Not Disturb (interruption filter) policy -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <!-- Required to change screen brightness -->
@@ -37,6 +39,12 @@
         <intent>
             <action android:name="android.intent.action.SET_TIMER" />
         </intent>
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="tv.plex.labs.plexamp" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.plexapp.android" />
+        <package android:name="com.netflix.mediaclient" />
     </queries>
 
     <application

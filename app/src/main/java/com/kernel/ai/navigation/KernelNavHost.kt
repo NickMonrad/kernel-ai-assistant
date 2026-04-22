@@ -56,6 +56,7 @@ import kotlinx.coroutines.launch
 private const val ROUTE_LIST = "conversation_list"
 private const val ROUTE_ACTIONS = "actions"
 private const val ROUTE_ACTIONS_OPEN = "actions?openSheet=true"
+private const val ROUTE_ACTIONS_VOICE = "actions?startVoice=true"
 private const val ROUTE_CHAT = "chat"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_USER_PROFILE = "settings/user_profile"
@@ -72,6 +73,9 @@ private const val ROUTE_LIST_ITEMS = "lists/{listName}"
 private const val ARG_LIST_NAME = "listName"
 private const val ARG_CONVERSATION_ID = "conversationId"
 private const val ARG_INITIAL_QUERY = "initialQuery"
+private const val ARG_START_VOICE = "startVoice"
+private const val STATE_OPEN_SHEET_CONSUMED = "openSheetConsumed"
+private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
 
 /** Routes that show the bottom navigation bar. */
 private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
@@ -230,6 +234,12 @@ fun KernelNavHost(
                             onNewConversation = {
                                 navController.navigate(ROUTE_CHAT)
                             },
+                            onNavigateToVoiceActions = {
+                                navController.navigate(ROUTE_ACTIONS_VOICE) {
+                                    popUpTo(ROUTE_LIST) { saveState = true }
+                                    launchSingleTop = true
+                                }
+                            },
                             onNavigateToActions = {
                                 navController.navigate(ROUTE_ACTIONS_OPEN) {
                                     popUpTo(ROUTE_LIST) { saveState = true }
@@ -244,18 +254,36 @@ fun KernelNavHost(
                 }
 
                 composable(
-                    route = "$ROUTE_ACTIONS?openSheet={openSheet}",
-                    arguments = listOf(navArgument("openSheet") {
-                        type = NavType.BoolType
-                        defaultValue = false
-                    }),
+                    route = "$ROUTE_ACTIONS?openSheet={openSheet}&$ARG_START_VOICE={$ARG_START_VOICE}",
+                    arguments = listOf(
+                        navArgument("openSheet") {
+                            type = NavType.BoolType
+                            defaultValue = false
+                        },
+                        navArgument(ARG_START_VOICE) {
+                            type = NavType.BoolType
+                            defaultValue = false
+                        },
+                    ),
                 ) { backStackEntry ->
-                    val openSheet = backStackEntry.arguments?.getBoolean("openSheet") ?: false
+                    val openSheet = (backStackEntry.arguments?.getBoolean("openSheet") ?: false) &&
+                        (backStackEntry.savedStateHandle.get<Boolean>(STATE_OPEN_SHEET_CONSUMED) != true)
+                    val startVoice = (backStackEntry.arguments?.getBoolean(ARG_START_VOICE) ?: false) &&
+                        (backStackEntry.savedStateHandle.get<Boolean>(STATE_START_VOICE_CONSUMED) != true)
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ActionsScreen(
                             autoOpenSheet = openSheet,
+                            autoStartVoiceCommand = startVoice,
                             initialQuery = initialQuickActionQuery,
                             adbSlotReply = initialSlotReply,
+                            onAutoOpenSheetConsumed = {
+                                backStackEntry.savedStateHandle[STATE_OPEN_SHEET_CONSUMED] = true
+                                backStackEntry.arguments?.putBoolean("openSheet", false)
+                            },
+                            onAutoStartVoiceConsumed = {
+                                backStackEntry.savedStateHandle[STATE_START_VOICE_CONSUMED] = true
+                                backStackEntry.arguments?.putBoolean(ARG_START_VOICE, false)
+                            },
                             onNavigateToChat = { query ->
                                 val encoded = Uri.encode(query)
                                 navController.navigate("$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded")

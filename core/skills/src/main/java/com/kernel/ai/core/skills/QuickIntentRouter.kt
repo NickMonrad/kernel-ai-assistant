@@ -126,11 +126,11 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Pattern: bare "torch" / "flashlight" / "illuminate" — terse ON command
+        // Pattern: terse ON command like "torch", "flashlight", or "torch please"
         IntentPattern(
             intentName = "toggle_flashlight_on",
             regex = Regex(
-                """^(?:torch|flashlight|flash\s*light|illuminate)\b""",
+                """^(?:torch|flashlight|flash\s*light|illuminate)(?:\s+please)?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -353,6 +353,22 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        IntentPattern(
+            intentName = "get_timer_remaining",
+            regex = Regex(
+                """(?:get|show|what(?:'s|\s+is))\s+(?:the\s+)?time\s+remaining\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "get_timer_remaining",
+            regex = Regex(
+                """how\s+much\s+time\s+(?:is|as)\s+remaining\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
 
         // ── Timer (set) ──
         IntentPattern(
@@ -547,6 +563,14 @@ class QuickIntentRouter(
             intentName = "toggle_dnd_off",
             regex = Regex(
                 """^(?:dnd|do\s+not\s+disturb)\s+off$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """^toggle\s+(?:dnd|do\s+not\s+disturb)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -1013,6 +1037,22 @@ class QuickIntentRouter(
                 mapOf("state" to state)
             },
         ),
+        IntentPattern(
+            intentName = "toggle_bluetooth",
+            regex = Regex(
+                """toggle\s+(?:bluetooth|bt)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_wifi",
+            regex = Regex(
+                """toggle\s+(?:wi-?fi|wireless)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
 
         // ── Airplane Mode ──
         // Explicit Android-compat: "enable/disable airplane/flight mode" — split from optional-prefix form
@@ -1110,6 +1150,22 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        IntentPattern(
+            intentName = "play_youtube_music",
+            regex = Regex(
+                """(?:play|open|launch|start)\s+youtube\s+music\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "play_plexamp",
+            regex = Regex(
+                """(?:play|open|launch|start)\s+plexamp\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
         ),
         // Plex — word boundary ensures "on plex" doesn't match "on Plexamp"
         IntentPattern(
@@ -1612,6 +1668,15 @@ class QuickIntentRouter(
             intentName = "find_nearby",
             regex = Regex(
                 """(?:find|show\s+me|look\s+for|search\s+for|locate)\s+(.+?)\s+(?:near(?:by|\s+me)|close\s+by|around\s+(?:here|me))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "show me dog parks on the map" / "find cafes on the map"
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show\s+me|look\s+for|search\s+for|locate)\s+(.+?)\s+on\s+(?:the\s+)?map""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
@@ -2322,7 +2387,7 @@ class QuickIntentRouter(
 
         fun parseAlarmTime(raw: String): Map<String, String> {
             val params = mutableMapOf<String, String>()
-            val cleaned = raw.lowercase().trim()
+            val cleaned = normalizeCompactAlarmText(raw.lowercase().trim())
                 .replace(Regex("""\s*(o'clock|oclock)"""), "")
                 .trim()
 
@@ -2330,13 +2395,19 @@ class QuickIntentRouter(
             val timeRegex = Regex("""(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?""")
             val match = timeRegex.find(cleaned) ?: return params
 
-            var hours = match.groupValues[1].toIntOrNull() ?: return params
+            val rawHours = match.groupValues[1].toIntOrNull() ?: return params
             val minutes = match.groupValues[2].toIntOrNull() ?: 0
             val meridiem = match.groupValues[3].replace(".", "").lowercase()
+            if (minutes !in 0..59) return params
+            if (meridiem.isNotBlank() && rawHours !in 1..12) return params
+            if (meridiem.isBlank() && rawHours !in 0..23) return params
+
+            var hours = rawHours
 
             // Convert to 24h
             if (meridiem == "pm" && hours < 12) hours += 12
             if (meridiem == "am" && hours == 12) hours = 0
+            if (hours !in 0..23) return params
 
             params["hours"] = hours.toString()
             params["minutes"] = minutes.toString()
@@ -2366,6 +2437,64 @@ class QuickIntentRouter(
             }
 
             return params
+        }
+
+        private fun normalizeCompactAlarmText(raw: String): String {
+            var normalized = raw
+            normalized = Regex(
+                """\b(\d{1,2})\s+(\d{2})\b""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized) { match ->
+                val hour = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+                val minute = match.groupValues[2].toIntOrNull() ?: return@replace match.value
+                if (hour !in 0..23 || minute !in 0..59) return@replace match.value
+                "$hour:${minute.toString().padStart(2, '0')}"
+            }
+            normalized = Regex(
+                """\b(?:to|too)\s+30\b""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized, "2:30")
+            normalized = Regex(
+                """\b(\d{1,2})\s+(\d{2})\s*(am|pm|a\.m\.|p\.m\.)\b""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized) { match ->
+                val hour = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+                val minute = match.groupValues[2].toIntOrNull() ?: return@replace match.value
+                val meridiem = match.groupValues[3].lowercase()
+                if (hour !in 1..12 || minute !in 0..59) return@replace match.value
+                "$hour:${minute.toString().padStart(2, '0')} $meridiem"
+            }
+            normalized = Regex(
+                """\b(\d{3,4})\s*(am|pm|a\.m\.|p\.m\.)\b""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized) { match ->
+                val digits = match.groupValues[1]
+                val meridiem = match.groupValues[2].lowercase()
+                val (hour, minute) = when (digits.length) {
+                    3 -> digits.take(1).toInt() to digits.drop(1).toInt()
+                    4 -> digits.take(2).toInt() to digits.drop(2).toInt()
+                    else -> return@replace match.value
+                }
+                if (hour !in 1..12 || minute !in 0..59) return@replace match.value
+                "$hour:${minute.toString().padStart(2, '0')} $meridiem"
+            }
+            normalized = Regex(
+                """\b(3[1-9]|4[0-2])\s*(am|pm|a\.m\.|p\.m\.)\b""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized) { match ->
+                val flattened = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+                val hour = flattened - 30
+                val meridiem = match.groupValues[2].lowercase()
+                if (hour !in 1..12) return@replace match.value
+                "$hour:30 $meridiem"
+            }
+            normalized = Regex(
+                """\b([1-9]|1[0-2])0(?:'clock|o'clock|oclock)\b""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized) { match ->
+                match.groupValues[1]
+            }
+            return normalized
         }
 
         fun parseTimerDuration(match: MatchResult, input: String = ""): Map<String, String> {

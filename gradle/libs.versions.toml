@@ -50,6 +50,7 @@ securityCrypto = "1.1.0-alpha06"
 # Weather skill deps
 okhttp = "4.12.0"
 playServicesLocation = "21.3.0"
+vosk = "0.3.75"
 
 [libraries]
 # Compose BOM
@@ -116,6 +117,7 @@ security-crypto = { group = "androidx.security", name = "security-crypto", versi
 # Weather skill deps
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "vosk" }
 
 # Testing — UIAutomator
 uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }

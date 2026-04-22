@@ -4,7 +4,6 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.provider.AlarmClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
@@ -20,6 +19,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
+
+private const val ALARM_RECEIVER_CLASS = "com.kernel.ai.alarm.AlarmBroadcastReceiver"
+private const val EXTRA_ALARM_LABEL = "alarm_label"
+private const val EXTRA_ALARM_ID = "alarm_id"
+private const val EXTRA_ALARM_TITLE = "alarm_title"
 
 enum class AlarmTimerFilter { ALL, ALARMS, TIMERS }
 
@@ -93,14 +97,14 @@ class SidePanelViewModel @Inject constructor(
         _showBulkDeleteConfirmation.value = false
     }
 
-    /** Delete all selected items, cancelling AlarmManager broadcasts for alarm-type entries. */
+    /** Delete all selected items, cancelling AlarmManager broadcasts for alarm/timer entries. */
     fun deleteSelected() {
         val ids = _selectedIds.value
         val toDelete = (alarms.value + timers.value).filter { it.id in ids }
         viewModelScope.launch {
             try {
                 toDelete.forEach { item ->
-                    if (item.entryType == "ALARM") cancelAlarmBroadcast(item)
+                    if (item.entryType == "ALARM") cancelAlarmBroadcast(item) else cancelTimerBroadcast(item)
                     dao.delete(item.id)
                 }
             } finally {
@@ -119,9 +123,10 @@ class SidePanelViewModel @Inject constructor(
         }
     }
 
-    /** Cancel a running timer: delete from DB (timers don't use AlarmManager broadcasts). */
+    /** Cancel a running timer: cancel its pending broadcast and delete from DB. */
     fun cancelTimer(timer: ScheduledAlarmEntity) {
         viewModelScope.launch {
+            cancelTimerBroadcast(timer)
             dao.delete(timer.id)
         }
     }
@@ -168,10 +173,7 @@ class SidePanelViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Create a new timer — persists to DB and launches the system clock timer via AlarmClock.
-     * The DB entry provides countdown display; the system handles the actual alert.
-     */
+    /** Create a new built-in timer — persists to DB and schedules a local broadcast. */
     fun scheduleTimer(durationMs: Long, label: String?) {
         viewModelScope.launch {
             val timerId = UUID.randomUUID().toString()
@@ -186,13 +188,7 @@ class SidePanelViewModel @Inject constructor(
                 startedAtMs = now,
             )
             dao.insert(entity)
-            val intent = Intent(AlarmClock.ACTION_SET_TIMER).apply {
-                putExtra(AlarmClock.EXTRA_LENGTH, (durationMs / 1_000).toInt())
-                putExtra(AlarmClock.EXTRA_SKIP_UI, false)
-                label?.takeIf { it.isNotBlank() }?.let { putExtra(AlarmClock.EXTRA_MESSAGE, it) }
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
+            scheduleTimerBroadcast(entity)
         }
     }
 
@@ -226,6 +222,46 @@ class SidePanelViewModel @Inject constructor(
         val pendingIntent = PendingIntent.getBroadcast(
             context,
             alarm.id.hashCode(),
+            broadcastIntent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        )
+        pendingIntent?.let { alarmManager.cancel(it) }
+    }
+
+    private fun scheduleTimerBroadcast(timer: ScheduledAlarmEntity) {
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        val broadcastIntent = Intent().apply {
+            component = android.content.ComponentName(
+                context.packageName,
+                ALARM_RECEIVER_CLASS,
+            )
+            putExtra(EXTRA_ALARM_LABEL, timer.label ?: "Timer")
+            putExtra(EXTRA_ALARM_ID, timer.id)
+            putExtra(EXTRA_ALARM_TITLE, "Timer")
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            timer.id.hashCode(),
+            broadcastIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, timer.triggerAtMillis, pendingIntent)
+    }
+
+    private fun cancelTimerBroadcast(timer: ScheduledAlarmEntity) {
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        val broadcastIntent = Intent().apply {
+            component = android.content.ComponentName(
+                context.packageName,
+                ALARM_RECEIVER_CLASS,
+            )
+            putExtra(EXTRA_ALARM_LABEL, timer.label ?: "Timer")
+            putExtra(EXTRA_ALARM_ID, timer.id)
+            putExtra(EXTRA_ALARM_TITLE, "Timer")
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            timer.id.hashCode(),
             broadcastIntent,
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
         )
