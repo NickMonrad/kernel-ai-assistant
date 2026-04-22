@@ -76,10 +76,13 @@ class AndroidTextToSpeechController @Inject constructor(
 
     override fun stop() {
         scope.launch {
+            val hadActiveUtterance = activeUtteranceId != null || activeUtteranceText != null
             textToSpeech?.stop()
             activeUtteranceId = null
             activeUtteranceText = null
-            _events.emit(VoiceOutputEvent.SpeakingStopped)
+            if (hadActiveUtterance) {
+                _events.emit(VoiceOutputEvent.SpeakingStopped)
+            }
         }
     }
 

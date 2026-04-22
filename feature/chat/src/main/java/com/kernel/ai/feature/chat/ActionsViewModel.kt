@@ -20,6 +20,7 @@ import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -31,6 +32,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
+private const val SLOT_REPLY_REARM_DELAY_MS = 350L
 
 /** Input modality for an action. Carried through slot-fill state for voice-readiness (#350/#588). */
 enum class InputMode { Text, Voice }
@@ -178,7 +180,15 @@ class ActionsViewModel @Inject constructor(
                             _voiceCaptureState.value == VoiceCaptureState.Idle
                         ) {
                             shouldAutoStartVoiceSlotReply = false
-                            startVoiceCapture(VoiceCaptureMode.SlotReply)
+                            viewModelScope.launch {
+                                delay(SLOT_REPLY_REARM_DELAY_MS)
+                                if (
+                                    _pendingSlot.value?.inputMode == InputMode.Voice &&
+                                    _voiceCaptureState.value == VoiceCaptureState.Idle
+                                ) {
+                                    startVoiceCapture(VoiceCaptureMode.SlotReply)
+                                }
+                            }
                         }
                     }
                 }
@@ -718,13 +728,18 @@ class ActionsViewModel @Inject constructor(
             Regex("""\bminute\s+time\b""", RegexOption.IGNORE_CASE) to "minute timer",
             Regex("""\bstart\s+time\s+for\b""", RegexOption.IGNORE_CASE) to "start timer for",
             Regex("""\bwhy\s+fine\b""", RegexOption.IGNORE_CASE) to "wifi",
+            Regex("""\bwhy\s+fi\b""", RegexOption.IGNORE_CASE) to "wifi",
             Regex("""\bday\s+in\s+day\b""", RegexOption.IGNORE_CASE) to "dnd",
             Regex("""\bnext\s+drink\b""", RegexOption.IGNORE_CASE) to "next track",
             Regex("""\bget\s+system\s+far\b""", RegexOption.IGNORE_CASE) to "get system info",
             Regex("""\bcreate\s+lust\b""", RegexOption.IGNORE_CASE) to "create list",
             Regex("""\bhuge\s+your\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
+            Regex("""\byou\s+tube\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
+            Regex("""\bnujood\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
+            Regex("""\bnew\s+job\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
             Regex("""\bplay\s+exam\b""", RegexOption.IGNORE_CASE) to "plexamp",
             Regex("""\bplex\s+amp\b""", RegexOption.IGNORE_CASE) to "plexamp",
+            Regex("""\bplagues\s+amp\b""", RegexOption.IGNORE_CASE) to "plexamp",
             Regex("""\bpen\s+adult\b""", RegexOption.IGNORE_CASE) to "panadol",
             Regex("""\bspaghetti\s+pastor\b""", RegexOption.IGNORE_CASE) to "spaghetti pasta",
             Regex("""\bpowerpoint\s+dick\b""", RegexOption.IGNORE_CASE) to "powerpoint deck",

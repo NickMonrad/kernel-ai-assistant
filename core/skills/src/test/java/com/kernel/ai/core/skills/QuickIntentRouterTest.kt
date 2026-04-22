@@ -436,9 +436,16 @@ class QuickIntentRouterTest {
         }
 
         @Test
+        fun `should match bare toggle dnd phrase`() {
+            assertRegexMatch(regexOnlyRouter.route("toggle dnd"), "toggle_dnd_on", "toggle dnd")
+        }
+
+        @Test
         fun `should match bare media app launch phrases`() {
             assertRegexMatch(regexOnlyRouter.route("play youtube music"), "play_youtube_music", "play youtube music")
             assertRegexMatch(regexOnlyRouter.route("play plexamp"), "play_plexamp", "play plexamp")
+            assertRegexMatch(regexOnlyRouter.route("open youtube music"), "play_youtube_music", "open youtube music")
+            assertRegexMatch(regexOnlyRouter.route("open plexamp"), "play_plexamp", "open plexamp")
         }
     }
 

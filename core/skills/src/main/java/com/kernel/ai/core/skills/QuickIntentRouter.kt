@@ -567,6 +567,14 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """^toggle\s+(?:dnd|do\s+not\s+disturb)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
 
         // ── Battery ──
         IntentPattern(

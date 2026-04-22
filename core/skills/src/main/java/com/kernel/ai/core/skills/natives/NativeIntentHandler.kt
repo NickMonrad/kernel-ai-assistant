@@ -495,7 +495,7 @@ class NativeIntentHandler @Inject constructor(
         }
         return if (remMs != null && remMs > 0) {
             val label = timer.label ?: "Timer"
-            SkillResult.DirectReply("$label — ${formatDuration(remMs / 1000)} remaining")
+            SkillResult.DirectReply("$label — ${formatSpokenDuration(remMs / 1000)} remaining")
         } else {
             SkillResult.DirectReply("Timer has finished.")
         }
@@ -512,6 +512,18 @@ class NativeIntentHandler @Inject constructor(
             mins > 0 -> "${mins} minute${if (mins != 1L) "s" else ""}"
             else -> "${secs} seconds"
         }
+    }
+
+    private fun formatSpokenDuration(seconds: Long): String {
+        val hrs = seconds / 3600
+        val mins = (seconds % 3600) / 60
+        val secs = seconds % 60
+        val parts = buildList {
+            if (hrs > 0) add("$hrs hour${if (hrs != 1L) "s" else ""}")
+            if (mins > 0) add("$mins minute${if (mins != 1L) "s" else ""}")
+            if (secs > 0 || isEmpty()) add("$secs second${if (secs != 1L) "s" else ""}")
+        }
+        return parts.joinToString(" ")
     }
 
     private fun parseDurationToMs(text: String): Long? {
@@ -1083,6 +1095,15 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
+    private data class ContactPhoneCandidate(
+        val contactId: String,
+        val displayName: String,
+        val phoneNumber: String,
+        val isPrimary: Boolean,
+        val isSuperPrimary: Boolean,
+        val phoneType: Int,
+    )
+
     private fun resolveContactNumber(name: String): String? {
         // 0. Self-referential aliases — resolve to device's own phone number
         val selfTerms = setOf("myself", "me", "my number", "my phone", "my cell")
@@ -1109,24 +1130,91 @@ class NativeIntentHandler @Inject constructor(
             return aliasMatch.phoneNumber
         }
 
-        // 2. ContactsContract fuzzy search — only pre-populate if unique match
+        val requestedKey = normalizeContactLookupKey(name)
+        val requestedTokens = tokenizeContactLookupTerms(name)
+
+        // 2. ContactsContract search — tokenize the request so direct contact names still
+        // resolve even when spacing/punctuation differ, and only auto-select when the best
+        // match points to a single contact.
         return try {
             val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
             val projection = arrayOf(
                 ContactsContract.CommonDataKinds.Phone.NUMBER,
                 ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
+                ContactsContract.CommonDataKinds.Phone.IS_PRIMARY,
+                ContactsContract.CommonDataKinds.Phone.IS_SUPER_PRIMARY,
+                ContactsContract.CommonDataKinds.Phone.TYPE,
             )
-            val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
-            val selectionArgs = arrayOf("%$name%")
+            val selection = requestedTokens
+                .joinToString(" AND ") { "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?" }
+            val selectionArgs = requestedTokens
+                .map { "%$it%" }
+                .toTypedArray()
             context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-                val matches = mutableListOf<String>()
+                val matches = mutableListOf<ContactPhoneCandidate>()
                 while (cursor.moveToNext()) {
-                    matches += cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER))
+                    val phoneNumber = cursor.getString(
+                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                    )
+                    if (phoneNumber.isNullOrBlank()) continue
+                    matches += ContactPhoneCandidate(
+                        contactId = cursor.getString(
+                            cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
+                        ) ?: "",
+                        displayName = cursor.getString(
+                            cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                        ) ?: "",
+                        phoneNumber = phoneNumber,
+                        isPrimary = cursor.getInt(
+                            cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.IS_PRIMARY)
+                        ) == 1,
+                        isSuperPrimary = cursor.getInt(
+                            cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.IS_SUPER_PRIMARY)
+                        ) == 1,
+                        phoneType = cursor.getInt(
+                            cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.TYPE)
+                        ),
+                    )
                 }
-                when (matches.size) {
-                    0 -> { Log.d(TAG, "Contact not found for '$name'"); null }
-                    1 -> { Log.d(TAG, "Contact resolved: '$name' → ${matches[0]}"); matches[0] }
-                    else -> { Log.d(TAG, "Multiple contacts match '$name' — not pre-populating"); null }
+                val rankedMatches = matches
+                    .distinctBy { "${it.contactId}:${it.phoneNumber}" }
+                    .mapNotNull { candidate ->
+                        scoreContactPhoneCandidate(
+                            requestedKey = requestedKey,
+                            requestedTokens = requestedTokens,
+                            candidate = candidate,
+                        )?.let { score -> candidate to score }
+                    }
+                when {
+                    rankedMatches.isEmpty() -> {
+                        Log.d(TAG, "Contact not found for '$name'")
+                        null
+                    }
+                    else -> {
+                        val bestScore = rankedMatches.maxOf { it.second }
+                        val topMatches = rankedMatches.filter { it.second == bestScore }
+                        val topContactIds = topMatches
+                            .map { it.first.contactId }
+                            .toSet()
+                        if (topContactIds.size != 1) {
+                            Log.d(TAG, "Multiple contacts match '$name' at top score — not pre-populating")
+                            null
+                        } else {
+                            val selected = topMatches
+                                .map { it.first }
+                                .sortedWith(
+                                    compareByDescending<ContactPhoneCandidate> { it.isSuperPrimary }
+                                        .thenByDescending { it.isPrimary }
+                                        .thenByDescending {
+                                            it.phoneType == ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE
+                                        }
+                                )
+                                .first()
+                            Log.d(TAG, "Contact resolved: '$name' → ${selected.phoneNumber}")
+                            selected.phoneNumber
+                        }
+                    }
                 }
             }
         } catch (e: SecurityException) {
@@ -1135,6 +1223,40 @@ class NativeIntentHandler @Inject constructor(
         } catch (e: Exception) {
             Log.w(TAG, "Contact lookup failed for '$name'", e)
             null
+        }
+    }
+
+    private fun normalizeContactLookupKey(raw: String): String {
+        return raw.lowercase()
+            .replace(Regex("[^a-z0-9]+"), " ")
+            .trim()
+            .replace(Regex("\\s+"), " ")
+    }
+
+    private fun tokenizeContactLookupTerms(raw: String): List<String> {
+        return normalizeContactLookupKey(raw)
+            .split(" ")
+            .filter { it.isNotBlank() }
+            .ifEmpty { listOf(raw.trim()) }
+    }
+
+    private fun scoreContactPhoneCandidate(
+        requestedKey: String,
+        requestedTokens: List<String>,
+        candidate: ContactPhoneCandidate,
+    ): Int? {
+        val candidateKey = normalizeContactLookupKey(candidate.displayName)
+        if (candidateKey.isBlank()) return null
+        val candidateTokens = candidateKey.split(" ").filter { it.isNotBlank() }
+        val requestedPhrase = requestedTokens.joinToString(" ")
+        return when {
+            candidateKey == requestedKey -> 500
+            candidateKey.startsWith("$requestedPhrase ") -> 420
+            candidateTokens.any { it == requestedKey } -> 380
+            requestedTokens.all { token -> candidateTokens.contains(token) } -> 320
+            candidateKey.contains(requestedPhrase) -> 260
+            candidateKey.contains(requestedKey.replace(" ", "")) -> 220
+            else -> null
         }
     }
 

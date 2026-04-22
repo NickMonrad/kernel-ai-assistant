@@ -29,7 +29,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.test.resetMain
@@ -154,7 +156,14 @@ class ActionsViewModelVoiceTest {
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
         advanceUntilIdle()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
-        advanceUntilIdle()
+        runCurrent()
+
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        advanceTimeBy(349)
+        runCurrent()
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        advanceTimeBy(1)
+        runCurrent()
 
         coVerify { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
     }
@@ -297,6 +306,8 @@ class ActionsViewModelVoiceTest {
     fun `voice command corrects wifi dnd system and list mishears`() = runTest(dispatcher) {
         every { quickIntentRouter.route("turn off wifi") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "turn off wifi")
+        every { quickIntentRouter.route("toggle wifi") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "toggle wifi")
         every { quickIntentRouter.route("turn on dnd") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "turn on dnd")
         every { quickIntentRouter.route("get system info") } returns
@@ -305,12 +316,14 @@ class ActionsViewModelVoiceTest {
             QuickIntentRouter.RouteResult.FallThrough(input = "create list called to do")
 
         viewModel.executeAction("turn off why fine", InputMode.Voice)
+        viewModel.executeAction("toggle why fi", InputMode.Voice)
         viewModel.executeAction("turn on day in day", InputMode.Voice)
         viewModel.executeAction("get system far", InputMode.Voice)
         viewModel.executeAction("create lust called to do", InputMode.Voice)
         advanceUntilIdle()
 
         verify { quickIntentRouter.route("turn off wifi") }
+        verify { quickIntentRouter.route("toggle wifi") }
         verify { quickIntentRouter.route("turn on dnd") }
         verify { quickIntentRouter.route("get system info") }
         verify { quickIntentRouter.route("create list called to do") }
@@ -322,6 +335,10 @@ class ActionsViewModelVoiceTest {
             QuickIntentRouter.RouteResult.FallThrough(input = "play youtube music")
         every { quickIntentRouter.route("play plexamp") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "play plexamp")
+        every { quickIntentRouter.route("open youtube music") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "open youtube music")
+        every { quickIntentRouter.route("open plexamp") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "open plexamp")
         every { quickIntentRouter.route("add panadol to the shopping list") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "add panadol to the shopping list")
         every { quickIntentRouter.route("next track") } returns
@@ -331,6 +348,8 @@ class ActionsViewModelVoiceTest {
 
         viewModel.executeAction("play huge your music", InputMode.Voice)
         viewModel.executeAction("play play exam", InputMode.Voice)
+        viewModel.executeAction("open you tube music", InputMode.Voice)
+        viewModel.executeAction("open plagues amp", InputMode.Voice)
         viewModel.executeAction("add and pen adult to the shopping list", InputMode.Voice)
         viewModel.executeAction("next drink", InputMode.Voice)
         viewModel.executeAction("what's the day today", InputMode.Voice)
@@ -338,6 +357,8 @@ class ActionsViewModelVoiceTest {
 
         verify { quickIntentRouter.route("play youtube music") }
         verify { quickIntentRouter.route("play plexamp") }
+        verify { quickIntentRouter.route("open youtube music") }
+        verify { quickIntentRouter.route("open plexamp") }
         verify { quickIntentRouter.route("add panadol to the shopping list") }
         verify { quickIntentRouter.route("next track") }
         verify { quickIntentRouter.route("what's the date today") }
