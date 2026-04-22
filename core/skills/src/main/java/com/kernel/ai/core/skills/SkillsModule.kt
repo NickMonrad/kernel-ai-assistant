@@ -55,6 +55,10 @@ abstract class SkillsModule {
     @IntoSet
     abstract fun bindQueryWikipediaSkill(skill: QueryWikipediaSkill): Skill
 
+    @Binds
+    @IntoSet
+    abstract fun bindMealPlannerSkill(skill: MealPlannerSkill): Skill
+
     /** Bind MiniLMIntentClassifier as the IntentClassifier for QuickIntentRouter. */
     @Binds
     @Singleton

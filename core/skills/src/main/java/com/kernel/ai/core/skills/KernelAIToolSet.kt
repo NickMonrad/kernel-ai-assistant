@@ -66,7 +66,7 @@ class KernelAIToolSet @Inject constructor(
 
     @Tool(description = "Load full instructions for a skill before calling it. MUST be called first before using any other tool.")
     fun loadSkill(
-        @ToolParam(description = "The skill name to load: run_intent, get_weather, query_wikipedia, save_memory, search_memory, get_system_info, or run_js") skillName: String,
+        @ToolParam(description = "The skill name to load: run_intent, get_weather, query_wikipedia, meal_planner, save_memory, search_memory, get_system_info, or run_js") skillName: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "load_skill"

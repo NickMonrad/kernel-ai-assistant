@@ -28,7 +28,7 @@ class LoadSkillSkill @Inject constructor(
     override val description =
         "Load full instructions for a skill before calling it. " +
             "Call this first whenever you need to use run_intent, get_weather, " +
-            "query_wikipedia, save_memory, search_memory, or get_system_info."
+            "query_wikipedia, meal_planner, save_memory, search_memory, or get_system_info."
 
     override val schema = SkillSchema(
         parameters = mapOf(
@@ -39,6 +39,7 @@ class LoadSkillSkill @Inject constructor(
                     "run_intent",
                     "get_weather",
                     "query_wikipedia",
+                    "meal_planner",
                     "save_memory",
                     "search_memory",
                     "get_system_info",
@@ -52,6 +53,7 @@ class LoadSkillSkill @Inject constructor(
     override val examples = listOf(
         "Load device action instructions → loadSkill(skillName=\"run_intent\")",
         "Load Wikipedia instructions → loadSkill(skillName=\"query_wikipedia\")",
+        "Load meal planner instructions → loadSkill(skillName=\"meal_planner\")",
         "Load memory save instructions → loadSkill(skillName=\"save_memory\")",
     )
 
@@ -65,7 +67,7 @@ class LoadSkillSkill @Inject constructor(
         val skill = skillRegistry.get().get(skillName)
             ?: return SkillResult.Failure(
                 name,
-                "Unknown skill: '$skillName'. Available: run_intent, get_weather, query_wikipedia, save_memory, search_memory, get_system_info, run_js",
+                "Unknown skill: '$skillName'. Available: run_intent, get_weather, query_wikipedia, meal_planner, save_memory, search_memory, get_system_info, run_js",
             )
         return SkillResult.Success(skill.fullInstructions)
     }

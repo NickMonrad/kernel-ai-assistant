@@ -31,6 +31,8 @@ internal fun looksLikeToolQuery(query: String): Boolean {
         "add to", "put on", "put in", "add .+ to .+ list",
         "create .+ list", "make .+ list", "remove from", "delete from",
         "what's on my", "show my", "read my .+ list",
+        "meal plan", "meal planner", "plan meals", "plan my meals", "weekly meals",
+        "shopping list", "ingredients list",
         "set alarm", "set a timer", "set timer", "remind me",
         "send email", "send sms", "send a text", "call ",
         "search wikipedia", "look up", "wikipedia",
