@@ -39,6 +39,12 @@
         <intent>
             <action android:name="android.intent.action.SET_TIMER" />
         </intent>
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="tv.plex.labs.plexamp" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.plexapp.android" />
+        <package android:name="com.netflix.mediaclient" />
     </queries>
 
     <application
