@@ -66,7 +66,7 @@ class KernelAIToolSet @Inject constructor(
 
     @Tool(description = "Load full instructions for a skill before calling it. MUST be called first before using any other tool.")
     fun loadSkill(
-        @ToolParam(description = "The skill name to load: run_intent, run_js, save_memory, search_memory, or get_system_info") skillName: String,
+        @ToolParam(description = "The skill name to load: run_intent, get_weather, query_wikipedia, save_memory, search_memory, get_system_info, or run_js") skillName: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "load_skill"
@@ -98,11 +98,11 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Run a built-in JavaScript skill. Use 'query-wikipedia' for Wikipedia or encyclopedia lookups. DO NOT use for weather — use the getWeather tool instead. NOTE: to use this tool, first call loadSkill('run_js') — do NOT call loadSkill('query-wikipedia').")
+    @Tool(description = "Execute the internal JavaScript gateway for JS-backed skills. First call loadSkill for the specific skill you want, such as query_wikipedia. DO NOT load run_js when a specific skill exists.")
     fun runJs(
-        @ToolParam(description = "The JS skill to run: 'get-weather-city' or 'query-wikipedia'. IMPORTANT: load this tool with loadSkill('run_js'), not loadSkill('query-wikipedia').") skillName: String,
-        @ToolParam(description = "The search query or input (city name for weather, topic for Wikipedia)") query: String,
-        @ToolParam(description = "For get-weather-city only: number of forecast days 1-7. Omit for current weather, use 3 when user asks for forecast without specifying days") forecastDays: String,
+        @ToolParam(description = "The bundled JS skill to run: 'get-weather-city' or 'query-wikipedia'. Use 'query-wikipedia' for Wikipedia lookups.") skillName: String,
+        @ToolParam(description = "The search query or input (topic for Wikipedia, city name for the legacy city-weather JS skill)") query: String,
+        @ToolParam(description = "For get-weather-city only: number of forecast days 1-7. Leave blank for query-wikipedia and all non-weather uses.") forecastDays: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "run_js"

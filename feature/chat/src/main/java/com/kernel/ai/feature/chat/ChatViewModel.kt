@@ -378,10 +378,7 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun buildToolUsePrompt(): String {
-        val skillNames = skillRegistry.allSkills()
-            .filter { it.name != "load_skill" }
-            .sortedBy { it.name }
-            .joinToString("\n") { "  - ${it.name}: ${it.description.take(80)}" }
+        val skillNames = skillRegistry.buildNativeDeclarations()
         if (skillNames.isBlank()) return ""
         return buildString {
             append("[Tool Use]\n")
