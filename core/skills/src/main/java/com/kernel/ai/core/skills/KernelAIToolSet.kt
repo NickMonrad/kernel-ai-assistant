@@ -64,7 +64,7 @@ class KernelAIToolSet @Inject constructor(
     // Gateway tools — each delegates to the matching Skill.execute()
     // -------------------------------------------------------------------------
 
-    @Tool(description = "Load full instructions for a skill before calling it. MUST be called first before using any other tool.")
+    @Tool(description = "Load full instructions for a skill before calling it. You MUST call this first before using any other tool for a new task. Do not use run_intent before load_skill.")
     fun loadSkill(
         @ToolParam(description = "The skill name to load: run_intent, get_weather, query_wikipedia, meal_planner, save_memory, search_memory, get_system_info, or run_js") skillName: String,
     ): Map<String, String> {
@@ -76,7 +76,7 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Execute a native Android device action: flashlight, alarms, timers, calendar events, email, SMS, phone calls, Do Not Disturb, volume, Wi-Fi, Bluetooth, airplane mode, hotspot, media playback (local/YouTube/Spotify/Netflix/Plex), navigation, app launching, battery status, current time, current date, date arithmetic, and list management (shopping lists, grocery lists, to-do lists). NOT for weather, web search, memory recall, or general knowledge questions.")
+    @Tool(description = "Execute a native Android device action: flashlight, alarms, timers, calendar events, email, SMS, phone calls, Do Not Disturb, volume, Wi-Fi, Bluetooth, airplane mode, hotspot, media playback (local/YouTube/Spotify/Netflix/Plex), navigation, app launching, battery status, current time, current date, date arithmetic, and list management (shopping lists, grocery lists, to-do lists). NOT for weather, web search, memory recall, or general knowledge questions. Never use this to start a skill. Do not pass skill names like meal_planner or query_wikipedia as intent names.")
     fun runIntent(
         @ToolParam(description = "The intent action: toggle_flashlight_on, toggle_flashlight_off, send_email, send_sms, make_call, set_alarm, set_timer, create_calendar_event, toggle_dnd_on, toggle_dnd_off, toggle_wifi, toggle_bluetooth, toggle_airplane_mode, toggle_hotspot, set_volume, play_media, play_media_album, play_media_playlist, play_youtube, play_spotify, play_plexamp, play_youtube_music, play_netflix, play_plex, navigate_to, find_nearby, open_app, get_battery, get_time, get_date, get_date_diff, add_to_list (ONE item only), bulk_add_to_list (TWO OR MORE items — always use this when adding multiple items at once), create_list, get_list_items, remove_from_list") intentName: String,
         @ToolParam(description = "Additional parameters as key:value pairs in JSON. For set_alarm: {\"time\":\"10pm\"} or {\"time\":\"7:30am\",\"day\":\"monday\",\"label\":\"Wake up\"}. For set_timer: {\"duration_seconds\":\"180\"}. For send_email: {\"subject\":\"Hi\",\"body\":\"Text\"}. For send_sms: {\"contact\":\"Mom\",\"message\":\"Text\"}. For make_call: {\"contact\":\"Dad\"}. For create_calendar_event: {\"title\":\"Meeting\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}. For set_volume: {\"value\":\"50\",\"is_percent\":\"true\"}. For play_media: {\"query\":\"Song Name\",\"artist\":\"Artist\"}. For play_plex: {\"title\":\"Movie Name\"}. For navigate_to: {\"destination\":\"airport\"}. For toggle_wifi/bluetooth/airplane_mode/hotspot: {\"state\":\"on\"}. For open_app: {\"app_name\":\"Spotify\"}. For toggle_dnd/flashlight/get_battery/get_time/get_date: {}. For get_date_diff: {\"target_date\":\"2026-08-22\"} or {\"target_date\":\"Christmas\"} — ALWAYS use this for date arithmetic, never calculate days yourself. For add_to_list (single item): {\"item\":\"milk\",\"list_name\":\"shopping list\"}. For bulk_add_to_list (multiple items — use whenever 2+ items are mentioned): {\"items\":\"milk,eggs,bread\",\"list_name\":\"shopping list\"}. For create_list: {\"list_name\":\"meal plan\"}. For get_list_items: {\"list_name\":\"shopping list\"}. For remove_from_list: {\"item\":\"milk\",\"list_name\":\"shopping list\"}") parameters: String,
@@ -84,6 +84,24 @@ class KernelAIToolSet @Inject constructor(
         toolCalledInThisTurn = true
         lastToolName = "run_intent"
         Log.d(TAG, "ToolSet: runIntent($intentName, $parameters)")
+
+        val reservedSkillNames = setOf(
+            "load_skill",
+            "run_intent",
+            "run_js",
+            "get_weather",
+            "get_weather_gps",
+            "query_wikipedia",
+            "meal_planner",
+            "save_memory",
+            "search_memory",
+            "get_system_info",
+        )
+        if (intentName in reservedSkillNames) {
+            val error = "Invalid run_intent call: '$intentName' is a skill name, not an intent. Use load_skill first for skills like meal_planner or query_wikipedia."
+            lastToolResult = error
+            return mapOf("status" to "error", "error" to error)
+        }
 
         val args = mutableMapOf("intent_name" to intentName)
         try {

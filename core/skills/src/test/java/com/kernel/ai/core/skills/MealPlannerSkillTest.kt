@@ -8,12 +8,15 @@ class MealPlannerSkillTest {
     private val skill = MealPlannerSkill()
 
     @Test
-    fun `fullInstructions describe saving to meal plan and shopping list`() {
+    fun `fullInstructions enforce staged flow and bulk list saves`() {
         val instructions = skill.fullInstructions
 
-        assertTrue(instructions.contains("meal plan"))
-        assertTrue(instructions.contains("shopping list"))
+        assertTrue(instructions.contains("IMPORTANT START RULE"))
+        assertTrue(instructions.contains("Do NOT call run_intent to start meal planning"))
+        assertTrue(instructions.contains("Stage 1"))
+        assertTrue(instructions.contains("Stage 3"))
+        assertTrue(instructions.contains("Shopping"))
         assertTrue(instructions.contains("bulk_add_to_list"))
-        assertTrue(instructions.contains("Do NOT use save_memory"))
+        assertTrue(instructions.contains("CRITICAL SAVE RULE"))
     }
 }

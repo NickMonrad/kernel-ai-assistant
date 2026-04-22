@@ -382,13 +382,20 @@ class ChatViewModel @Inject constructor(
         if (skillNames.isBlank()) return ""
         return buildString {
             append("[Tool Use]\n")
-            append("For this request, if a tool is needed, you MUST execute these steps in exact order.\n")
+            append("You are an AI assistant that helps users by answering questions and completes tasks using skills.\n")
+            append("For EVERY new task, request, or question that needs a tool, you MUST execute these steps in exact order.\n")
             append("You MUST NOT skip any steps.\n\n")
-            append("1. Find the most relevant skill from this list:\n")
+            append("1. First, find the most relevant skill from this list:\n")
             append(skillNames)
-            append("\n\n2. Call load_skill with the skill name to get its full instructions.\n\n")
-            append("3. Follow the skill's instructions exactly to complete the task. Output ONLY the final result to the user.\n\n")
-            append("CRITICAL: Execute all steps silently. Do NOT output intermediate reasoning or tool call text.")
+            append("\n\n")
+            append("After this step you MUST go to the next step. ")
+            append("You MUST NOT use run_intent under any circumstances at this step.\n\n")
+            append("2. If a relevant skill exists, call load_skill with the skill name to get its full instructions.\n\n")
+            append("You MUST NOT use run_intent under any circumstances at this step.\n\n")
+            append("3. Follow the skill's instructions exactly to complete the task. ")
+            append("Only use run_intent after steps 1 and 2 are complete and only when the loaded skill tells you to. ")
+            append("Output ONLY the final result to the user when successful.\n\n")
+            append("CRITICAL: Execute all steps silently. Do NOT output intermediate reasoning, status updates, or tool call text.")
         }
     }
 

@@ -48,6 +48,12 @@ class MealPlannerSkill @Inject constructor() : Skill {
     override val fullInstructions: String = """
 meal_planner: Generate multi-stage meal plans with state persistence and incremental list saves.
 
+IMPORTANT START RULE:
+  - This skill must be loaded with load_skill before any save actions happen.
+  - Do NOT call run_intent to start meal planning.
+  - During Stage 1 and Stage 2, ask questions and plan in chat only.
+  - Only call run_intent in Stage 3 when you are saving finished recipe data.
+
 FLOW (4 Stages):
 
 Stage 1 — Collect Preferences (ask in 2-3 grouped batches):
@@ -65,7 +71,7 @@ Stage 3 — Detail Each Recipe & Save:
     1. Generate recipe title, ingredients list, and cooking method steps
     2. Format ingredients as a bullet-point list
     3. Format method as numbered steps that users can check off while cooking
-    4. SAVE (call run_intent + bulk_add_to_list TWICE):
+    4. SAVE (call run_intent with bulk_add_to_list TWICE):
        a) Add all ingredients to the "Shopping" list
        b) Create a new list named "{Day Name} {Dish Name}" (e.g. "Monday Pasta Carbonara")
        c) Add method steps as checkoff items to the recipe-specific list
@@ -90,8 +96,8 @@ EXAMPLE TWO-STEP SAVE:
   Day 1 ingredients: ["2 cups pasta", "3 eggs", "100g bacon", "parmesan cheese"]
   Day 1 method: ["1. Boil pasta in salted water", "2. Fry bacon until crispy", "3. Mix eggs with cheese", ...]
 
-  FIRST call: run_intent(action="add_items_to_list", listName="Shopping", items=["2 cups pasta", "3 eggs", "100g bacon", "parmesan cheese", ...])
-  SECOND call: run_intent(action="add_items_to_list", listName="Monday Pasta Carbonara", items=["1. Boil pasta in salted water", "2. Fry bacon until crispy", ...])
+  FIRST call: run_intent(intent_name="bulk_add_to_list", list_name="Shopping", items=["2 cups pasta", "3 eggs", "100g bacon", "parmesan cheese", ...])
+  SECOND call: run_intent(intent_name="bulk_add_to_list", list_name="Monday Pasta Carbonara", items=["1. Boil pasta in salted water", "2. Fry bacon until crispy", ...])
 
 LIST NAMING CONVENTION:
   - Shared: "Shopping" (cumulative, all ingredients across all days)
