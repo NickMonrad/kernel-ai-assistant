@@ -33,6 +33,7 @@ import javax.inject.Inject
 
 private const val TAG = "KernelAI"
 private const val SLOT_REPLY_REARM_DELAY_MS = 350L
+private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
 
 /** Input modality for an action. Carried through slot-fill state for voice-readiness (#350/#588). */
 enum class InputMode { Text, Voice }
@@ -86,7 +87,15 @@ class ActionsViewModel @Inject constructor(
     sealed interface UiEvent {
         /** Query couldn't be handled by quick actions — navigate to chat for LLM processing. */
         data class NavigateToChat(val query: String) : UiEvent
+        object RequestPhonePermission : UiEvent
     }
+
+    private data class PendingPhonePermissionAction(
+        val query: String,
+        val intentName: String,
+        val params: Map<String, String>,
+        val inputMode: InputMode,
+    )
 
     /**
      * Local slot-fill state. Holds the pending [PendingSlotRequest] plus the original
@@ -119,6 +128,7 @@ class ActionsViewModel @Inject constructor(
     private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
     private var shouldAutoStartVoiceSlotReply = false
+    private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
 
     init {
         viewModelScope.launch {
@@ -223,6 +233,37 @@ class ActionsViewModel @Inject constructor(
         _error.value = "Microphone permission is required for voice input."
     }
 
+    fun onPhonePermissionGranted() {
+        val pending = pendingPhonePermissionAction ?: return
+        pendingPhonePermissionAction = null
+        viewModelScope.launch {
+            _uiState.value = UiState.Executing
+            try {
+                shouldAutoStartVoiceSlotReply = false
+                voiceOutputController.stop()
+                val entity = executeIntent(
+                    query = pending.query,
+                    intentName = pending.intentName,
+                    params = pending.params,
+                    inputMode = pending.inputMode,
+                )
+                quickActionDao.insert(entity)
+                speakForVoice(pending.inputMode, entity.resultText)
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: onPhonePermissionGranted failed — ${e.message}", e)
+                _error.value = e.message ?: "Unknown error"
+            } finally {
+                _voiceCaptureState.value = VoiceCaptureState.Idle
+                _uiState.value = UiState.Idle
+            }
+        }
+    }
+
+    fun onPhonePermissionDenied() {
+        pendingPhonePermissionAction = null
+        _error.value = "Phone permission is required for auto-dial."
+    }
+
     /**
      * Executes a quick-action command via the [QuickIntentRouter] Tier 2 fast intent layer.
      *
@@ -281,12 +322,22 @@ class ActionsViewModel @Inject constructor(
                         speakForVoice(inputMode, _pendingSlot.value?.request?.promptMessage.orEmpty())
                     }
                     is QuickIntentRouter.RouteResult.RegexMatch -> {
-                        val entity = executeIntent(normalizedQuery, routeResult.intent.intentName, routeResult.intent.params)
+                        val entity = executeIntent(
+                            query = normalizedQuery,
+                            intentName = routeResult.intent.intentName,
+                            params = routeResult.intent.params,
+                            inputMode = inputMode,
+                        )
                         quickActionDao.insert(entity)
                         speakForVoice(inputMode, entity.resultText)
                     }
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> {
-                        val entity = executeIntent(normalizedQuery, routeResult.intent.intentName, routeResult.intent.params)
+                        val entity = executeIntent(
+                            query = normalizedQuery,
+                            intentName = routeResult.intent.intentName,
+                            params = routeResult.intent.params,
+                            inputMode = inputMode,
+                        )
                         quickActionDao.insert(entity)
                         speakForVoice(inputMode, entity.resultText)
                     }
@@ -334,7 +385,12 @@ class ActionsViewModel @Inject constructor(
             _uiState.value = UiState.Executing
             try {
                 voiceOutputController.stop()
-                val entity = executeIntent(pending.originalQuery, pending.request.intentName, mergedParams)
+                val entity = executeIntent(
+                    query = pending.originalQuery,
+                    intentName = pending.request.intentName,
+                    params = mergedParams,
+                    inputMode = pending.inputMode,
+                )
                 quickActionDao.insert(entity)
                 speakForVoice(pending.inputMode, entity.resultText)
             } catch (e: Exception) {
@@ -390,6 +446,7 @@ class ActionsViewModel @Inject constructor(
         query: String,
         intentName: String,
         params: Map<String, String>,
+        inputMode: InputMode,
     ): QuickActionEntity {
         val directSkill = skillRegistry.get(intentName)
         val (skill, callParams) = when {
@@ -398,6 +455,15 @@ class ActionsViewModel @Inject constructor(
         }
         return if (skill != null) {
             val skillResult = skill.execute(SkillCall(skill.name, callParams))
+            if (shouldRequestPhonePermission(intentName, skillResult)) {
+                pendingPhonePermissionAction = PendingPhonePermissionAction(
+                    query = query,
+                    intentName = intentName,
+                    params = params,
+                    inputMode = inputMode,
+                )
+                _events.emit(UiEvent.RequestPhonePermission)
+            }
             buildEntityFromSkillResult(query, intentName, skillResult)
         } else {
             Log.w(TAG, "ActionsViewModel: intent '$intentName' has no registered skill")
@@ -432,7 +498,11 @@ class ActionsViewModel @Inject constructor(
         is SkillResult.Failure -> QuickActionEntity(
             userQuery = query,
             skillName = skillName,
-            resultText = "Action failed: ${result.error}",
+            resultText = if (isPhonePermissionRequired(skillName, result)) {
+                result.error
+            } else {
+                "Action failed: ${result.error}"
+            },
             isSuccess = false,
         )
         is SkillResult.UnknownSkill -> QuickActionEntity(
@@ -447,6 +517,16 @@ class ActionsViewModel @Inject constructor(
             resultText = "Parse error: ${result.reason}",
             isSuccess = false,
         )
+    }
+
+    private fun shouldRequestPhonePermission(intentName: String, result: SkillResult): Boolean {
+        return isPhonePermissionRequired(intentName, result)
+    }
+
+    private fun isPhonePermissionRequired(intentName: String, result: SkillResult): Boolean {
+        return intentName == "make_call" &&
+            result is SkillResult.Failure &&
+            result.error == PHONE_PERMISSION_REQUIRED_ERROR
     }
 
     private fun startVoiceCapture(mode: VoiceCaptureMode) {

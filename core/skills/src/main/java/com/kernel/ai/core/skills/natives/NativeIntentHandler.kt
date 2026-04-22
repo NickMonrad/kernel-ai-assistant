@@ -56,6 +56,7 @@ private const val ALARM_RECEIVER_CLASS = "com.kernel.ai.alarm.AlarmBroadcastRece
 private const val EXTRA_ALARM_LABEL = "alarm_label"
 private const val EXTRA_ALARM_ID = "alarm_id"
 private const val EXTRA_ALARM_TITLE = "alarm_title"
+private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
 
 /**
  * Central dispatcher for all native Android operations triggered via the [run_intent][RunIntentSkill] gateway.
@@ -1114,15 +1115,16 @@ class NativeIntentHandler @Inject constructor(
             )
         return try {
             // Use ACTION_CALL to auto-dial (hands-free use case — e.g. driving).
-            // Falls back to ACTION_DIAL if CALL_PHONE permission not yet granted.
             val canCall = context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
-            val action = if (canCall) Intent.ACTION_CALL else Intent.ACTION_DIAL
-            val intent = Intent(action, Uri.parse("tel:${Uri.encode(phoneNumber)}")).apply {
+            if (!canCall) {
+                return SkillResult.Failure("make_call", PHONE_PERMISSION_REQUIRED_ERROR)
+            }
+            val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(phoneNumber)}")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
-            SkillResult.Success(if (canCall) "Calling $contact" else "Opening dialer for $contact (grant Phone permission for auto-dial)")
+            SkillResult.Success("Calling $contact")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("make_call", "No phone app available")
         }
@@ -1132,18 +1134,14 @@ class NativeIntentHandler @Inject constructor(
         return try {
             val canCall = context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
-            val action = if (canCall) Intent.ACTION_CALL else Intent.ACTION_DIAL
-            val intent = Intent(action, Uri.parse("voicemail:")).apply {
+            if (!canCall) {
+                return SkillResult.Failure("make_call", PHONE_PERMISSION_REQUIRED_ERROR)
+            }
+            val intent = Intent(Intent.ACTION_CALL, Uri.parse("voicemail:")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
-            SkillResult.Success(
-                if (canCall) {
-                    "Calling $label"
-                } else {
-                    "Opening dialer for $label (grant Phone permission for auto-dial)"
-                }
-            )
+            SkillResult.Success("Calling $label")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("make_call", "No phone app available")
         }

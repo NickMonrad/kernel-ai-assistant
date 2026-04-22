@@ -4,7 +4,10 @@ import android.util.Log
 import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.QuickIntentRouter
+import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.slot.SlotSpec
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
@@ -28,6 +31,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -223,6 +227,61 @@ class ActionsViewModelVoiceTest {
                 }
             )
         }
+    }
+
+    @Test
+    fun `make call permission flow emits event and retries after grant`() = runTest(dispatcher) {
+        val runIntentSkill = mockk<Skill>()
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val collectJob = launch { viewModel.events.collect { events += it } }
+        every { quickIntentRouter.route("call susan monrad") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "make_call",
+                    params = mapOf("contact" to "susan monrad"),
+                ),
+            )
+        every { skillRegistry.get("make_call") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        every { runIntentSkill.name } returns "run_intent"
+        every { runIntentSkill.description } returns "Run intent"
+        every { runIntentSkill.schema } returns SkillSchema()
+        coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
+            SkillResult.Failure("make_call", "Phone permission is required for auto-dial."),
+            SkillResult.Success("Calling susan monrad"),
+        )
+
+        viewModel.executeAction("call susan monrad", InputMode.Text)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(ActionsViewModel.UiEvent.RequestPhonePermission),
+            events,
+        )
+        coVerify {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "make_call" &&
+                        it.resultText == "Phone permission is required for auto-dial." &&
+                        !it.isSuccess
+                }
+            )
+        }
+
+        viewModel.onPhonePermissionGranted()
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { runIntentSkill.execute(any()) }
+        coVerify {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "make_call" &&
+                        it.resultText == "Calling susan monrad" &&
+                        it.isSuccess
+                }
+            )
+        }
+        collectJob.cancel()
     }
 
     @Test

@@ -136,6 +136,15 @@ fun ActionsScreen(
             null -> Unit
         }
     }
+    val phonePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            viewModel.onPhonePermissionGranted()
+        } else {
+            viewModel.onPhonePermissionDenied()
+        }
+    }
 
     fun requestVoiceCapture(mode: VoiceCaptureMode) {
         val alreadyGranted = ContextCompat.checkSelfPermission(
@@ -187,6 +196,8 @@ fun ActionsScreen(
         viewModel.events.collect { event ->
             when (event) {
                 is ActionsViewModel.UiEvent.NavigateToChat -> onNavigateToChat(event.query)
+                ActionsViewModel.UiEvent.RequestPhonePermission ->
+                    phonePermissionLauncher.launch(Manifest.permission.CALL_PHONE)
             }
         }
     }
