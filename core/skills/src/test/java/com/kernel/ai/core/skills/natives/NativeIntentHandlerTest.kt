@@ -2,7 +2,10 @@ package com.kernel.ai.core.skills.natives
 
 import android.content.ContentResolver
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.database.Cursor
+import android.media.AudioManager
 import android.provider.ContactsContract
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
@@ -18,6 +21,7 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
+import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -183,6 +187,30 @@ class NativeIntentHandlerTest {
 
         assertEquals(null, generic)
         assertEquals("Daft Punk", meaningful)
+    }
+
+    @Test
+    fun `playYoutubeMusic launches app and sends play key for generic music query`() {
+        val packageManager = mockk<PackageManager>(relaxed = true)
+        val audioManager = mockk<AudioManager>(relaxed = true)
+        val launchIntent = mockk<Intent>(relaxed = true)
+        every { context.packageManager } returns packageManager
+        every { packageManager.getLaunchIntentForPackage("com.google.android.apps.youtube.music") } returns launchIntent
+        every { context.getSystemService(Context.AUDIO_SERVICE) } returns audioManager
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "playYoutubeMusic",
+            Map::class.java,
+        ).apply { isAccessible = true }
+
+        val result = method.invoke(handler, mapOf("query" to "music")) as com.kernel.ai.core.skills.SkillResult
+
+        assertEquals(
+            com.kernel.ai.core.skills.SkillResult.Success("Opening YouTube Music and starting playback"),
+            result,
+        )
+        verify { context.startActivity(launchIntent) }
+        verify(exactly = 2) { audioManager.dispatchMediaKeyEvent(any()) }
     }
 
     private data class PhoneRow(

@@ -823,9 +823,10 @@ class NativeIntentHandler @Inject constructor(
         am.dispatchMediaKeyEvent(down)
         am.dispatchMediaKeyEvent(up)
         val label = when (keyCode) {
-            KeyEvent.KEYCODE_MEDIA_PAUSE    -> "Paused"
-            KeyEvent.KEYCODE_MEDIA_STOP     -> "Stopped"
-            KeyEvent.KEYCODE_MEDIA_NEXT     -> "Skipped to next track"
+            KeyEvent.KEYCODE_MEDIA_PLAY -> "Started playback"
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> "Paused"
+            KeyEvent.KEYCODE_MEDIA_STOP -> "Stopped"
+            KeyEvent.KEYCODE_MEDIA_NEXT -> "Skipped to next track"
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "Previous track"
             else -> "Done"
         }
@@ -911,7 +912,8 @@ class NativeIntentHandler @Inject constructor(
             if (query != null) {
                 SkillResult.Success("Opening Plexamp for: $query")
             } else {
-                SkillResult.Success("Opening Plexamp")
+                dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY)
+                SkillResult.Success("Opening Plexamp and starting playback")
             }
         } else {
             SkillResult.Failure("play_plexamp", "Plexamp app not installed")
@@ -930,7 +932,8 @@ class NativeIntentHandler @Inject constructor(
             return if (launchIntent != null) {
                 launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 context.startActivity(launchIntent)
-                SkillResult.Success("Opening YouTube Music")
+                dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY)
+                SkillResult.Success("Opening YouTube Music and starting playback")
             } else {
                 SkillResult.Failure("play_youtube_music", "YouTube Music app not installed")
             }
