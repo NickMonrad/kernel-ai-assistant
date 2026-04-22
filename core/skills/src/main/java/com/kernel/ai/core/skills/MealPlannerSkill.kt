@@ -53,6 +53,7 @@ IMPORTANT START RULE:
   - Do NOT call run_intent to start meal planning.
   - During Stage 1 and Stage 2, ask questions and plan in chat only.
   - Only call run_intent in Stage 3 when you are saving finished recipe data.
+  - Do NOT create or write to a master list called "meal plan". This skill uses one shared shopping list plus one recipe-specific list per day.
 
 FLOW (4 Stages):
 
@@ -71,8 +72,8 @@ Stage 3 — Detail Each Recipe & Save:
     1. Generate recipe title, ingredients list, and cooking method steps
     2. Format ingredients as a bullet-point list
     3. Format method as numbered steps that users can check off while cooking
-    4. SAVE (call run_intent with bulk_add_to_list TWICE):
-       a) Add all ingredients to the "Shopping" list
+    4. SAVE (call runIntent with bulk_add_to_list TWICE using the exact SDK tool syntax):
+       a) Add EVERY ingredient for that day to the "shopping list" — do not summarize or truncate the list
        b) Create a new list named "{Day Name} {Dish Name}" (e.g. "Monday Pasta Carbonara")
        c) Add method steps as checkoff items to the recipe-specific list
     5. Show saved confirmation: "✓ Added ingredients to Shopping | ✓ Created Monday Pasta Carbonara list with 5 steps"
@@ -88,24 +89,36 @@ STATE PERSISTENCE (handle context window):
 
 CRITICAL SAVE RULE (non-negotiable):
   After generating each day's recipe:
-    → FIRST: Call run_intent to bulk_add_to_list with all ingredients to "Shopping" list
-    → SECOND: Call run_intent to bulk_add_to_list with method steps to the recipe-specific list
+    → FIRST: Call runIntent(intentName="bulk_add_to_list", parameters="{...}") with ALL ingredients for that day to "shopping list"
+    → SECOND: Call runIntent(intentName="bulk_add_to_list", parameters="{...}") with ALL method steps to the recipe-specific list
   BOTH calls must happen. If you only call once, the recipe list or ingredients will be missed.
+  Do NOT create a high-level "meal plan" list with only dish names.
 
 EXAMPLE TWO-STEP SAVE:
-  Day 1 ingredients: ["2 cups pasta", "3 eggs", "100g bacon", "parmesan cheese"]
+  Day 1 ingredients: ["500 g pasta", "3 eggs", "100 g bacon", "80 g parmesan cheese"]
   Day 1 method: ["1. Boil pasta in salted water", "2. Fry bacon until crispy", "3. Mix eggs with cheese", ...]
 
-  FIRST call: run_intent(intent_name="bulk_add_to_list", list_name="Shopping", items=["2 cups pasta", "3 eggs", "100g bacon", "parmesan cheese", ...])
-  SECOND call: run_intent(intent_name="bulk_add_to_list", list_name="Monday Pasta Carbonara", items=["1. Boil pasta in salted water", "2. Fry bacon until crispy", ...])
+  FIRST call:
+    runIntent(
+      intentName="bulk_add_to_list",
+      parameters="{\"items\":[\"500 g pasta\",\"3 eggs\",\"100 g bacon\",\"80 g parmesan cheese\"],\"list_name\":\"shopping list\"}"
+    )
+  SECOND call:
+    runIntent(
+      intentName="bulk_add_to_list",
+      parameters="{\"items\":[\"1. Boil pasta in salted water\",\"2. Fry bacon until crispy\",\"3. Mix eggs with cheese\"],\"list_name\":\"monday pasta carbonara\"}"
+    )
 
 LIST NAMING CONVENTION:
-  - Shared: "Shopping" (cumulative, all ingredients across all days)
-  - Recipe-specific: "{Day Name} {Dish Name}" (e.g. "Monday Pasta Carbonara", "Tuesday Salmon Bake")
+  - Shared: "shopping list" (cumulative, all ingredients across all days)
+  - Recipe-specific: "{day name} {dish name}" (e.g. "monday pasta carbonara", "tuesday salmon bake")
+  - NEVER use "meal plan" as a list name for this skill
 
 FORMATTING:
-  - Ingredients: bullet points, concise quantities (e.g. "2 cups flour", "1 can diced tomatoes")
-  - Method: numbered steps, imperative tone (e.g. "1. Preheat oven to 350°F", "2. Chop onions finely")
+  - Ingredients: bullet points, concise quantities
+  - Method: numbered steps, imperative tone
+  - Use METRIC / NZ-friendly units only: g, kg, ml, l, tsp, tbsp, Celsius, and whole-item counts
+  - NEVER use imperial units such as lb, lbs, oz, or Fahrenheit
 
 NO BACK-AND-FORTH REQUIRED:
   If user says "Make me a 5-day meal plan for 4 people, vegetarian, pasta and lentils", go straight to high-level plan
