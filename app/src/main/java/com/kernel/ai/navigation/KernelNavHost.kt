@@ -74,6 +74,8 @@ private const val ARG_LIST_NAME = "listName"
 private const val ARG_CONVERSATION_ID = "conversationId"
 private const val ARG_INITIAL_QUERY = "initialQuery"
 private const val ARG_START_VOICE = "startVoice"
+private const val STATE_OPEN_SHEET_CONSUMED = "openSheetConsumed"
+private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
 
 /** Routes that show the bottom navigation bar. */
 private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
@@ -264,8 +266,10 @@ fun KernelNavHost(
                         },
                     ),
                 ) { backStackEntry ->
-                    val openSheet = backStackEntry.arguments?.getBoolean("openSheet") ?: false
-                    val startVoice = backStackEntry.arguments?.getBoolean(ARG_START_VOICE) ?: false
+                    val openSheet = (backStackEntry.arguments?.getBoolean("openSheet") ?: false) &&
+                        (backStackEntry.savedStateHandle.get<Boolean>(STATE_OPEN_SHEET_CONSUMED) != true)
+                    val startVoice = (backStackEntry.arguments?.getBoolean(ARG_START_VOICE) ?: false) &&
+                        (backStackEntry.savedStateHandle.get<Boolean>(STATE_START_VOICE_CONSUMED) != true)
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ActionsScreen(
                             autoOpenSheet = openSheet,
@@ -273,9 +277,11 @@ fun KernelNavHost(
                             initialQuery = initialQuickActionQuery,
                             adbSlotReply = initialSlotReply,
                             onAutoOpenSheetConsumed = {
+                                backStackEntry.savedStateHandle[STATE_OPEN_SHEET_CONSUMED] = true
                                 backStackEntry.arguments?.putBoolean("openSheet", false)
                             },
                             onAutoStartVoiceConsumed = {
+                                backStackEntry.savedStateHandle[STATE_START_VOICE_CONSUMED] = true
                                 backStackEntry.arguments?.putBoolean(ARG_START_VOICE, false)
                             },
                             onNavigateToChat = { query ->
