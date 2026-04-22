@@ -37,6 +37,7 @@ internal fun looksLikeToolQuery(query: String): Boolean {
         "turn on", "turn off", "toggle", "open app",
         "play ", "navigate to", "directions to",
         "what time", "what's the time", "battery", "get battery",
+        "meal plan", "plan my meals", "meal planner", "plan meals",
     )
     return toolKeywords.any { keyword ->
         if (keyword.contains(Regex("[.+*?]"))) {

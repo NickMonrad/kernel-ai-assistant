@@ -35,7 +35,7 @@ class LoadSkillSkill @Inject constructor(
             "skill_name" to SkillParameter(
                 type = "string",
                 description = "The name of the skill to load.",
-                enum = listOf("run_intent", "run_js", "save_memory", "search_memory", "get_system_info"),
+                enum = listOf("run_intent", "run_js", "save_memory", "search_memory", "get_system_info", "meal_planner"),
             ),
         ),
         required = listOf("skill_name"),
@@ -56,7 +56,7 @@ class LoadSkillSkill @Inject constructor(
         val skill = skillRegistry.get().get(skillName)
             ?: return SkillResult.Failure(
                 name,
-                "Unknown skill: '$skillName'. Available: run_intent, run_js, save_memory, search_memory, get_system_info",
+                "Unknown skill: '$skillName'. Available: run_intent, run_js, save_memory, search_memory, get_system_info, meal_planner",
             )
         return SkillResult.Success(skill.fullInstructions)
     }

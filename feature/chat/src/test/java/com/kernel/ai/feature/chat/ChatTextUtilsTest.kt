@@ -213,6 +213,10 @@ class ChatTextUtilsTest {
                 "create a grocery list",
                 "remove from my list",
                 "delete from shopping list",
+                "meal plan for 5 days",
+                "plan my meals",
+                "meal planner",
+                "plan meals vegetarian",
             ],
         )
         fun `returns true for tool-related queries`(query: String) {
