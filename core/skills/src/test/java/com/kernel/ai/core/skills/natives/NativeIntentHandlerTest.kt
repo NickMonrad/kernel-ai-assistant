@@ -164,6 +164,36 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `make_call resolves conservative fuzzy surname matches`() {
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                any(),
+                any(),
+                any(),
+                null,
+            )
+        } answers {
+            phoneCursor(
+                PhoneRow(
+                    contactId = "77",
+                    displayName = "Michael Sofoclis",
+                    phoneNumber = "0271234567",
+                ),
+            )
+        }
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveContactNumber",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "Michael Sophocles") as String?
+
+        assertEquals("0271234567", resolved)
+    }
+
+    @Test
     fun `formatSpokenDuration uses full words for timer speech`() {
         val method = NativeIntentHandler::class.java.getDeclaredMethod(
             "formatSpokenDuration",
