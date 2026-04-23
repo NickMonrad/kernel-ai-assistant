@@ -215,8 +215,8 @@ private val KOTLIN_KEYWORDS = setOf(
     "public", "private", "protected", "internal", "const", "suspend", "inline",
     "noinline", "crossinline", "tailrec", "operator", "infix", "reified",
     "by", "lazy", "lateinit", "where", "field", "it", "set", "get",
-    "true", "false", "null", "is", "notnull", "to", "run", "apply", "with",
-    "let", "also", "apply", "use", "measure", "repeat",
+    "true", "false", "null", "notnull", "to", "run", "apply", "with",
+    "let", "also", "use", "measure", "repeat",
 )
 
 private val KOTLIN_TYPES = setOf(
@@ -450,11 +450,10 @@ private val JS_KEYWORDS = setOf(
     "typeof", "instanceof", "in", "of", "import", "export", "from", "as",
     "class", "extends", "super", "this", "static", "get", "set",
     "true", "false", "null", "undefined", "NaN", "Infinity",
-    "void", "delete", "typeof",
+    "void",
     "interface", "type", "namespace", "module", "enum", "implements",
     "private", "protected", "public", "readonly", "abstract", "declare",
-    "is", "keyof", "never", "unknown", "any", "string", "number", "boolean",
-    "true", "false",
+    "is", "keyof", "never", "unknown", "any",
 )
 
 private val JS_TYPES = setOf(
@@ -568,7 +567,7 @@ class JSTokenizer : LanguageTokenizer {
                         } else {
                             tokens.add(Token(TokenType.Variable, word, start, pos))
                         }
-                    } else if (word[0].isUpperCase() && word[0].isUpperCase()) {
+                    } else if (word in JS_TYPES || word[0].isUpperCase()) {
                         tokens.add(Token(TokenType.Type, word, start, pos))
                     } else {
                         tokens.add(Token(TokenType.Variable, word, start, pos))
@@ -919,7 +918,7 @@ private val GO_KEYWORDS = setOf(
     "case", "default", "for", "range", "break", "continue", "fallthrough", "goto",
     "nil", "true", "false", "iota",
     "package", "import", "chan", "select", "interface", "struct", "map", "slice",
-    "go", "select", "make", "new", "append", "copy", "delete", "len", "cap",
+    "make", "new", "append", "copy", "delete", "len", "cap",
     "close", "complex", "real", "imag", "panic", "recover", "print", "println",
 )
 
