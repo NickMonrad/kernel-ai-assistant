@@ -220,6 +220,8 @@ class ChatTextUtilsTest {
                 "plan my meals",
                 "meal planner",
                 "plan meals vegetarian",
+                "plan a meal",
+                "sort dinners for this week",
             ],
         )
         fun `returns true for tool-related queries`(query: String) {
@@ -238,6 +240,44 @@ class ChatTextUtilsTest {
         )
         fun `returns false for non-tool queries`(query: String) {
             assertFalse(looksLikeToolQuery(query), "Expected false for '$query'")
+        }
+    }
+
+    @Nested
+    @DisplayName("looksLikeToolFollowUp")
+    inner class ToolFollowUpTests {
+
+        @Test
+        fun `returns true for meal planner continuation after meal planner exchange`() {
+            assertTrue(
+                looksLikeToolFollowUp(
+                    text = "Continue",
+                    previousUser = "Plan a meal",
+                    previousAssistant = "Ready for the full recipes with cooking steps?",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns true for yes after meal planner preference question`() {
+            assertTrue(
+                looksLikeToolFollowUp(
+                    text = "Ok let's do it",
+                    previousUser = "Plan a meal",
+                    previousAssistant = "How many people, and any dietary restrictions?",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns false for generic yes without tool context`() {
+            assertFalse(
+                looksLikeToolFollowUp(
+                    text = "Yes",
+                    previousUser = "Tell me a joke",
+                    previousAssistant = "Do you want another one?",
+                ),
+            )
         }
     }
 }

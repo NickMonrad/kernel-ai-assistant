@@ -32,6 +32,7 @@ internal fun looksLikeToolQuery(query: String): Boolean {
         "create .+ list", "make .+ list", "remove from", "delete from",
         "what's on my", "show my", "read my .+ list",
         "meal plan", "meal planner", "plan meals", "plan my meals", "weekly meals",
+        "plan a meal", "plan dinner", "plan dinners", "sort dinners", "sort meals",
         "shopping list", "ingredients list",
         "set alarm", "set a timer", "set timer", "remind me",
         "send email", "send sms", "send a text", "call ",
@@ -67,6 +68,43 @@ internal fun looksLikeAnaphora(text: String): Boolean {
            \bthat\b|\bthe\s+above\b|\bthe\s+previous\b""",
         setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
     ).containsMatchIn(lower)
+}
+
+/**
+ * Returns true if [text] is a short follow-up like "yes", "continue", or "ok let's do it"
+ * and the immediately previous exchange was already in a tool-driven flow.
+ */
+internal fun looksLikeToolFollowUp(
+    text: String,
+    previousUser: String?,
+    previousAssistant: String?,
+): Boolean {
+    val lower = text.lowercase().trim()
+    val isContinuation = Regex(
+        """^(yes|yeah|yep|yup|ok|okay|ok lets do it|okay lets do it|let'?s do it|do it|continue|carry on|go on|keep going|sounds good)\b""",
+        RegexOption.IGNORE_CASE,
+    ).containsMatchIn(lower)
+    if (!isContinuation) return false
+
+    val context = listOfNotNull(previousUser, previousAssistant)
+        .joinToString("\n")
+        .lowercase()
+    if (context.isBlank()) return false
+
+    return looksLikeToolQuery(previousUser.orEmpty()) ||
+        listOf(
+            "meal plan",
+            "recipe",
+            "recipes",
+            "dietary restrictions",
+            "how many people",
+            "how many days",
+            "protein preferences",
+            "full recipes",
+            "cooking steps",
+            "shopping list",
+            "ingredients",
+        ).any { context.contains(it) }
 }
 
 /**

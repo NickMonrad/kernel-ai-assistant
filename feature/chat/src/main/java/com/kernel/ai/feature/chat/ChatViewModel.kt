@@ -928,9 +928,14 @@ class ChatViewModel @Inject constructor(
             // or the query matches known tool-trigger keywords, strip the Jandal personality
             // and RAG context to free ~1000 tokens for tool-call reasoning. These queries
             // don't benefit from episodic memory or cultural tone — they need clear headspace.
+            val priorMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
+            val previousAssistant = priorMessages.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
+            val previousUser = priorMessages.lastOrNull { it.role == ChatMessage.Role.USER }?.content
+            val isToolFollowUp = looksLikeToolFollowUp(text, previousUser, previousAssistant)
             val isToolQuery = (routeResult is QuickIntentRouter.RouteResult.FallThrough &&
                 routeResult.bestGuess != null) ||
-                looksLikeToolQuery(text)
+                looksLikeToolQuery(text) ||
+                isToolFollowUp
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
             val effectiveRagContext = if (isToolQuery) "" else ragContext
             val effectiveRagTokenCost = if (isToolQuery) 0 else ragTokenCost
@@ -938,8 +943,7 @@ class ChatViewModel @Inject constructor(
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
             // the previous turn to resolve what "that/it/this" refers to. Inject the last
             // user+assistant pair as a lightweight context block — still no RAG or personality.
-            val anaphoraContext: String = if (isToolQuery && looksLikeAnaphora(text)) {
-                val priorMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
+            val anaphoraContext: String = if (isToolQuery && (looksLikeAnaphora(text) || isToolFollowUp)) {
                 val lastPair = priorMessages.takeLast(2)
                 if (lastPair.isEmpty()) "" else buildString {
                     append("[Context: previous exchange]\n")
@@ -1452,6 +1456,11 @@ class ChatViewModel @Inject constructor(
     private fun looksLikeToolQuery(query: String): Boolean = com.kernel.ai.feature.chat.looksLikeToolQuery(query)
 
     private fun looksLikeAnaphora(text: String): Boolean = com.kernel.ai.feature.chat.looksLikeAnaphora(text)
+    private fun looksLikeToolFollowUp(
+        text: String,
+        previousUser: String?,
+        previousAssistant: String?,
+    ): Boolean = com.kernel.ai.feature.chat.looksLikeToolFollowUp(text, previousUser, previousAssistant)
 
     private fun looksLikeToolConfirmation(response: String): Boolean =
         com.kernel.ai.feature.chat.looksLikeToolConfirmation(response)
