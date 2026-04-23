@@ -20,10 +20,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.gestures.detectTapGestures
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
@@ -35,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -1011,14 +1008,6 @@ private fun LinkableText(
 }
 
 /**
- * Returns Material 3 semantic colors for syntax highlighting token types.
- */
-@Composable
-private fun CodeTokenColors(): CodeTokenColors {
-    return CodeTokenColors(MaterialTheme.colorScheme)
-}
-
-/**
  * Returns Material 3 semantic colors for syntax highlighting token types from a given ColorScheme.
  */
 private fun CodeTokenColors(colorScheme: androidx.compose.material3.ColorScheme): CodeTokenColors {
@@ -1026,8 +1015,6 @@ private fun CodeTokenColors(colorScheme: androidx.compose.material3.ColorScheme)
     val primary = colorScheme.primary
     val secondary = colorScheme.secondary
     val tertiary = colorScheme.tertiary
-    val surfaceVariant = colorScheme.surfaceVariant
-    val error = colorScheme.error
 
     return CodeTokenColors(
         keyword = primary,
@@ -1084,15 +1071,15 @@ private fun FencedCodeBlock(
         }
     }
 
-    // Tokenize code and build highlighted text
+    // Tokenize code and build highlighted text (async to avoid UI jank)
     val colorScheme = MaterialTheme.colorScheme
-    val highlightedCode = remember(code, language, colorScheme) {
+    val highlightedCode by produceState(AnnotatedString(""), code, language, colorScheme) {
         val trimmedCode = code.trimEnd('\n')
-        if (language.isBlank()) {
+        value = if (language.isBlank()) {
             AnnotatedString(trimmedCode)
         } else {
             try {
-                val tokenized = tokenizeCode(language, trimmedCode)
+                val tokenized = tokenizeCodeAsync(language, trimmedCode)
                 val colors = CodeTokenColors(colorScheme)
                 buildAnnotatedString {
                     for (token in tokenized.tokens) {

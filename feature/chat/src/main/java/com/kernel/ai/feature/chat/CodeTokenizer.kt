@@ -1,6 +1,5 @@
 package com.kernel.ai.feature.chat
 
-import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
@@ -62,11 +61,22 @@ fun tokenizeLine(language: String, line: String): List<Token> {
 fun tokenizeCode(language: String, code: String): TokenizedCode {
     val allTokens = mutableListOf<Token>()
     val lines = code.lines()
+    var lineStartOffset = 0
     for ((i, line) in lines.withIndex()) {
         val tokens = tokenizeLine(language, line)
-        allTokens.addAll(tokens)
+        val adjustedTokens = tokens.map { token ->
+            token.copy(
+                start = token.start + lineStartOffset,
+                end = token.end + lineStartOffset,
+            )
+        }
+        allTokens.addAll(adjustedTokens)
         if (i < lines.size - 1) {
-            allTokens.add(Token(TokenType.Newline, "\n", allTokens.lastOrNull()?.end ?: 0, allTokens.lastOrNull()?.end ?: 0))
+            val newlineStart = lineStartOffset + line.length
+            allTokens.add(Token(TokenType.Newline, "\n", newlineStart, newlineStart + 1))
+            lineStartOffset = newlineStart + 1
+        } else {
+            lineStartOffset = lineStartOffset + line.length
         }
     }
     return TokenizedCode(language.lowercase(), allTokens)
@@ -103,9 +113,6 @@ fun registerTokenizer(language: String, tokenizer: LanguageTokenizer) {
         "typescript" -> {
             tokenizers["ts"] = tokenizer
         }
-        "json" -> {
-            tokenizers["jsonc"] = tokenizer
-        }
     }
 }
 
@@ -113,6 +120,7 @@ fun registerTokenizer(language: String, tokenizer: LanguageTokenizer) {
  * Looks up a tokenizer for the given language, falling back to a generic tokenizer.
  */
 private fun getTokenizer(language: String): LanguageTokenizer {
+    ensureTokenizersInitialized()
     val key = language.lowercase().trim()
     return tokenizers[key] ?: GenericTokenizer()
 }
@@ -234,10 +242,9 @@ class KotlinTokenizer : LanguageTokenizer {
     override fun tokenize(line: String): List<Token> {
         val tokens = mutableListOf<Token>()
         var pos = 0
-        val trimmed = line.substringBefore("//").trimStart()
 
         // Check for annotation
-        val annMatch = KOTLIN_ANNOTATIONS.matchEntire(line)
+        val annMatch = KOTLIN_ANNOTATIONS.find(line)
         if (annMatch != null && annMatch.range.start == 0) {
             val annText = annMatch.value
             tokens.add(Token(TokenType.Annotation, annText, 0, annText.length))
@@ -295,8 +302,9 @@ class KotlinTokenizer : LanguageTokenizer {
                     val word = line.substring(start, pos)
                     when {
                         word in KOTLIN_KEYWORDS -> tokens.add(Token(TokenType.Keyword, word, start, pos))
+                        word in KOTLIN_TYPES -> tokens.add(Token(TokenType.Type, word, start, pos))
                         word[0].isUpperCase() -> tokens.add(Token(TokenType.Type, word, start, pos))
-                        else -> tokens.add(Token(TokenType.Variable, word, start, pos))
+                        else -> tokens.add(Token(TokenType.Other, word, start, pos))
                     }
                 }
                 in "({[<>])}" -> {
@@ -386,22 +394,14 @@ class JavaTokenizer : LanguageTokenizer {
                     pos++
                     while (pos < line.length && (line[pos].isLetterOrDigit() || line[pos] == '_' || line[pos] == '$')) pos++
                     val word = line.substring(start, pos)
-                    when {
-                        word in JAVA_KEYWORDS -> {
-                            if (word == "new" || word == "return" || word == "if" || word == "else" ||
-                                word == "for" || word == "while" || word == "switch" || word == "case" ||
-                                word == "try" || word == "catch" || word == "throw") {
-                                tokens.add(Token(TokenType.Keyword, word, start, pos))
-                            } else if (word in setOf("public", "private", "protected", "static", "final", "abstract")) {
-                                tokens.add(Token(TokenType.Keyword, word, start, pos))
-                            } else if (word[0].isUpperCase()) {
-                                tokens.add(Token(TokenType.Type, word, start, pos))
-                            } else {
-                                tokens.add(Token(TokenType.Variable, word, start, pos))
-                            }
-                        }
-                        word[0].isUpperCase() -> tokens.add(Token(TokenType.Type, word, start, pos))
-                        else -> tokens.add(Token(TokenType.Variable, word, start, pos))
+                    if (word in JAVA_TYPES) {
+                        tokens.add(Token(TokenType.Type, word, start, pos))
+                    } else if (word in JAVA_KEYWORDS) {
+                        tokens.add(Token(TokenType.Keyword, word, start, pos))
+                    } else if (word[0].isUpperCase()) {
+                        tokens.add(Token(TokenType.Type, word, start, pos))
+                    } else {
+                        tokens.add(Token(TokenType.Variable, word, start, pos))
                     }
                 }
                 in "({[<>])}" -> {
@@ -550,7 +550,7 @@ class JSTokenizer : LanguageTokenizer {
                     val word = line.substring(start, pos)
                     if (word in JS_KEYWORDS) {
                         if (word in setOf(
-                            "function", "async", "const", "let", "var", "class", "extends",
+                            "function", "async", "await", "const", "let", "var", "class", "extends",
                             "if", "else", "for", "while", "return", "throw", "try", "catch",
                             "import", "export", "from", "new", "delete", "typeof",
                             "interface", "type", "enum", "namespace", "module",
@@ -617,7 +617,6 @@ private val PYTHON_KEYWORDS = setOf(
     "and", "or", "is", "lambda", "yield", "import", "from", "as", "with", "try",
     "except", "finally", "raise", "pass", "break", "continue", "global", "nonlocal",
     "assert", "del", "True", "False", "None", "async", "await",
-    "print", "range", "len", "type", "isinstance", "issubclass", "hasattr", "getattr", "setattr", "delattr",
     "super", "self", "cls",
 )
 
@@ -626,6 +625,7 @@ private val PYTHON_TYPES = setOf(
     "Optional", "Any", "Union", "Type", "Object", "None", "NoneType",
     "Iterable", "Iterator", "Generator", "Callable", "Sequence", "Mapping",
     "AbstractClass", "ABC",
+    "int", "float", "str", "bool", "list", "dict", "set", "tuple", "bytes",
 )
 
 class PythonTokenizer : LanguageTokenizer {
@@ -688,6 +688,8 @@ class PythonTokenizer : LanguageTokenizer {
                         } else {
                             tokens.add(Token(TokenType.Variable, word, start, pos))
                         }
+                    } else if (word in PYTHON_TYPES) {
+                        tokens.add(Token(TokenType.Type, word, start, pos))
                     } else if (word[0].isUpperCase()) {
                         tokens.add(Token(TokenType.Type, word, start, pos))
                     } else {
@@ -990,6 +992,8 @@ class GoTokenizer : LanguageTokenizer {
                         } else {
                             tokens.add(Token(TokenType.Variable, word, start, pos))
                         }
+                    } else if (word in GO_TYPES) {
+                        tokens.add(Token(TokenType.Type, word, start, pos))
                     } else if (word[0].isUpperCase()) {
                         tokens.add(Token(TokenType.Type, word, start, pos))
                     } else {
@@ -1043,13 +1047,11 @@ class GoTokenizer : LanguageTokenizer {
 
 private val RUST_KEYWORDS = setOf(
     "fn", "let", "mut", "const", "static", "ref", "move", "if", "else", "loop", "for",
-    "while", "break", "continue", "return", "match", "Some", "None", "Ok", "Err",
+    "while", "break", "continue", "return", "match",
     "true", "false", "async", "await", "dyn", "impl", "trait", "use", "mod", "pub",
     "crate", "self", "super", "where", "type", "enum", "struct", "union", "unsafe",
-    "extern", "in", "as", "self", "Self", "abstract", "become", "box", "do", "final",
-    "override", "priv", "try", "vec", "Vec", "Option", "Result", "String", "str",
-    "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128",
-    "usize", "f32", "f64", "bool", "char",
+    "extern", "in", "as", "Self", "abstract", "become", "box", "do", "final",
+    "override", "priv", "try",
 )
 
 private val RUST_TYPES = setOf(
@@ -1101,20 +1103,10 @@ class RustTokenizer : LanguageTokenizer {
                     pos++
                     while (pos < line.length && (line[pos].isLetterOrDigit() || line[pos] == '_')) pos++
                     val word = line.substring(start, pos)
-                    if (word in RUST_KEYWORDS) {
-                        if (word in setOf("fn", "let", "mut", "const", "static", "if", "else", "loop",
-                                "for", "while", "break", "continue", "return", "match", "async", "await",
-                                "impl", "trait", "use", "mod", "pub", "crate", "self", "super", "where",
-                                "type", "enum", "struct", "union", "unsafe", "extern", "dyn", "ref", "move",
-                                "Ok", "Err", "Some", "None", "true", "false", "in", "as", "Vec", "Option",
-                                "Result", "String", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16",
-                                "u32", "u64", "u128", "usize", "f32", "f64", "bool", "char")) {
-                            tokens.add(Token(TokenType.Keyword, word, start, pos))
-                        } else if (word[0].isUpperCase()) {
-                            tokens.add(Token(TokenType.Type, word, start, pos))
-                        } else {
-                            tokens.add(Token(TokenType.Variable, word, start, pos))
-                        }
+                    if (word in RUST_TYPES) {
+                        tokens.add(Token(TokenType.Type, word, start, pos))
+                    } else if (word in RUST_KEYWORDS) {
+                        tokens.add(Token(TokenType.Keyword, word, start, pos))
                     } else if (word[0].isUpperCase()) {
                         tokens.add(Token(TokenType.Type, word, start, pos))
                     } else {
@@ -1160,7 +1152,14 @@ class RustTokenizer : LanguageTokenizer {
                 '#' -> {
                     val start = pos
                     // Attribute or macro
-                    if (pos + 1 < line.length && line[pos + 1] == '!') {
+                    if (pos + 1 < line.length && line[pos + 1] == '[') {
+                        pos++
+                        while (pos < line.length && line[pos] != ']') {
+                            pos++
+                        }
+                        if (pos < line.length) pos++
+                        tokens.add(Token(TokenType.Keyword, line.substring(start, pos), start, pos))
+                    } else if (pos + 1 < line.length && line[pos + 1] == '!') {
                         pos++
                         while (pos < line.length && line[pos].isLetter()) pos++
                         tokens.add(Token(TokenType.Keyword, line.substring(start, pos), start, pos))

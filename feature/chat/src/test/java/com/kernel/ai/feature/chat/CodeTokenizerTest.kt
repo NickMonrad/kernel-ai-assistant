@@ -39,6 +39,33 @@ class CodeTokenizerTest {
         }
 
         @Test
+        fun `tokenizeLine uses language-specific tokenizers not generic`() {
+            val ktTokens = tokenizeLine("kotlin", "val x = 42")
+            assertTrue(ktTokens.any { it.type == TokenType.Keyword && it.content == "val" }, "Kotlin should recognize 'val' as keyword")
+
+            val pyTokens = tokenizeLine("python", "def foo():")
+            assertTrue(pyTokens.any { it.type == TokenType.Keyword && it.content == "def" }, "Python should recognize 'def' as keyword")
+
+            val goTokens = tokenizeLine("go", "func main() {}")
+            assertTrue(goTokens.any { it.type == TokenType.Keyword && it.content == "func" }, "Go should recognize 'func' as keyword")
+
+            val rsTokens = tokenizeLine("rust", "fn main() {}")
+            assertTrue(rsTokens.any { it.type == TokenType.Keyword && it.content == "fn" }, "Rust should recognize 'fn' as keyword")
+        }
+
+        @Test
+        fun `tokenizeLine recognizes language aliases`() {
+            val ktTokens = tokenizeLine("kt", "val x = 42")
+            assertTrue(ktTokens.any { it.type == TokenType.Keyword && it.content == "val" }, "Alias 'kt' should work like 'kotlin'")
+
+            val jsTokens = tokenizeLine("js", "const x = 1")
+            assertTrue(jsTokens.any { it.type == TokenType.Keyword && it.content == "const" }, "Alias 'js' should work like 'javascript'")
+
+            val tsTokens = tokenizeLine("ts", "const x: number = 1")
+            assertTrue(tsTokens.any { it.type == TokenType.Keyword && it.content == "const" }, "Alias 'ts' should work like 'typescript'")
+        }
+
+        @Test
         fun `tokenizeCode returns TokenizedCode with language and tokens`() {
             val code = "val x = 42"
             val result = tokenizeCode("kotlin", code)
@@ -341,7 +368,7 @@ class CodeTokenizerTest {
             assertTrue(stringTokens.isNotEmpty(), "Should recognize string literals")
         }
 
-       @Test
+        @Test
         fun `js tokenizer recognizes template literals`() {
             val line = "`hello ${"$"}{name}`"
             val tokens = tokenizer.tokenize(line)
