@@ -653,6 +653,7 @@ class ChatViewModel @Inject constructor(
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
             var groundingContext: String? = null
+            var isToolQueryForTurn = false
             // Set true when QIR routes to a device action, OR when the LLM calls a non-indexable
             // tool (run_intent, get_weather, etc.) — suppresses RAG indexing for both the user
             // message and the LLM response to prevent stale device state in future RAG (#614).
@@ -936,6 +937,7 @@ class ChatViewModel @Inject constructor(
                 routeResult.bestGuess != null) ||
                 looksLikeToolQuery(text) ||
                 isToolFollowUp
+            isToolQueryForTurn = isToolQuery
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
             val effectiveRagContext = if (isToolQuery) "" else ragContext
             val effectiveRagTokenCost = if (isToolQuery) 0 else ragTokenCost
@@ -1015,6 +1017,7 @@ class ChatViewModel @Inject constructor(
             try {
                 kernelAIToolSet.resetTurnState()
                 hallucinationRetryAttempted = false
+                var rawToolCallRetryAttempted = false
                 var currentPrompt = prompt
                 var needsHallucinationRetry: Boolean
 
@@ -1116,18 +1119,32 @@ class ChatViewModel @Inject constructor(
                                 // tight history budget, causing context amnesia (#446).
                             } else {
                                 val isHallucination = looksLikeToolConfirmation(fullContent)
+                                val isRawToolCall = isToolQueryForTurn && looksLikeRawToolCall(fullContent)
 
                                 // C2 (#487): Single automatic retry before falling to C1 failure.
                                 // If the model hallucinated a tool confirmation and we haven't
                                 // retried yet, prepend a correction and re-run inference — unless
                                 // the context window is already >75% full.
-                                if (isHallucination && !hallucinationRetryAttempted) {
-                                    hallucinationRetryAttempted = true
+                                if ((isHallucination && !hallucinationRetryAttempted) ||
+                                    (isRawToolCall && !rawToolCallRetryAttempted)
+                                ) {
+                                    if (isHallucination) {
+                                        hallucinationRetryAttempted = true
+                                    } else {
+                                        rawToolCallRetryAttempted = true
+                                    }
                                     val budgetOk = estimatedTokensUsed <= (activeContextWindowSize * 0.75).toInt()
                                     if (budgetOk) {
-                                        Log.w("KernelAI", "hallucination_retry_attempted")
+                                        Log.w(
+                                            "KernelAI",
+                                            if (isHallucination) "hallucination_retry_attempted" else "raw_tool_call_retry_attempted",
+                                        )
                                         needsHallucinationRetry = true
-                                        currentPrompt = HALLUCINATION_RETRY_CORRECTION + "\n\n" + prompt
+                                        currentPrompt = if (isHallucination) {
+                                            HALLUCINATION_RETRY_CORRECTION + "\n\n" + prompt
+                                        } else {
+                                            RAW_TOOL_CALL_RETRY_CORRECTION + "\n\n" + prompt
+                                        }
                                         // Reset streaming state for the retry pass
                                         accumulatedContent = StringBuilder()
                                         accumulatedThinking = StringBuilder()
@@ -1142,12 +1159,29 @@ class ChatViewModel @Inject constructor(
                                 }
 
                                 // Normal text or C1 hallucination failure
-                                val displayContent = if (isHallucination) {
-                                    if (currentPrompt !== prompt) Log.w("KernelAI", "hallucination_retry_failed")
-                                    Log.w("KernelAI", "Hallucination guard triggered — model confirmed action without tool call")
+                                val displayContent = if (isHallucination || isRawToolCall) {
+                                    if (currentPrompt !== prompt) {
+                                        Log.w(
+                                            "KernelAI",
+                                            if (isHallucination) "hallucination_retry_failed" else "raw_tool_call_retry_failed",
+                                        )
+                                    }
+                                    Log.w(
+                                        "KernelAI",
+                                        if (isHallucination) {
+                                            "Hallucination guard triggered — model confirmed action without tool call"
+                                        } else {
+                                            "Raw tool-call guard triggered — model leaked tool syntax instead of executing it"
+                                        },
+                                    )
                                     "I wasn't able to complete that action — please try again, or try phrasing it differently."
                                 } else {
-                                    if (currentPrompt !== prompt) Log.d("KernelAI", "hallucination_retry_succeeded")
+                                    when {
+                                        currentPrompt !== prompt && rawToolCallRetryAttempted ->
+                                            Log.d("KernelAI", "raw_tool_call_retry_succeeded")
+                                        currentPrompt !== prompt && hallucinationRetryAttempted ->
+                                            Log.d("KernelAI", "hallucination_retry_succeeded")
+                                    }
                                     fullContent
                                 }
                                 _messages.update { msgs ->
@@ -1159,7 +1193,7 @@ class ChatViewModel @Inject constructor(
                                 // ("The light's on!") poisons future RAG retrievals (#614).
                                 // Also index the user message here (deferred from sendMessage entry)
                                 // so we can skip it too if a device tool was called during inference.
-                                if (!isHallucination && !isDeviceActionExchange) {
+                                if (!isHallucination && !isRawToolCall && !isDeviceActionExchange) {
                                     if (savedUserMsgId.isNotBlank()) {
                                         ragRepository.indexMessage(savedUserMsgId, convId, text)
                                     }
@@ -1464,13 +1498,22 @@ class ChatViewModel @Inject constructor(
 
     private fun looksLikeToolConfirmation(response: String): Boolean =
         com.kernel.ai.feature.chat.looksLikeToolConfirmation(response)
+
+    private fun looksLikeRawToolCall(response: String): Boolean =
+        com.kernel.ai.feature.chat.looksLikeRawToolCall(response)
 }
 
 /** C2 correction prepended to the prompt when a hallucination retry is attempted (#487). */
 private const val HALLUCINATION_RETRY_CORRECTION =
     "[System: Your previous response was blocked. It appeared to describe performing an action " +
-    "without actually calling the required tool function. You MUST call the appropriate tool — " +
-    "do not narrate results. If the tool is unavailable, say so honestly.]"
+        "without actually calling the required tool function. You MUST call the appropriate tool — " +
+        "do not narrate results. If the tool is unavailable, say so honestly.]"
+
+private const val RAW_TOOL_CALL_RETRY_CORRECTION =
+    "[System: Your previous response was blocked. It emitted raw tool-call syntax into chat " +
+        "instead of executing the tool. Do NOT print <|tool_call> tokens, JSON tool calls, or " +
+        "function text. Silently call the appropriate native tool function and then answer with " +
+        "the final user-facing result only.]"
 
 /**
  * Returns true if a tool call result should be indexed in episodic RAG memory.

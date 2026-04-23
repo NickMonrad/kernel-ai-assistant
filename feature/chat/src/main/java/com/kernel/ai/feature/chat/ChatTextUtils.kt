@@ -84,7 +84,17 @@ internal fun looksLikeToolFollowUp(
         """^(yes|yeah|yep|yup|ok|okay|ok lets do it|okay lets do it|let'?s do it|do it|continue|carry on|go on|keep going|sounds good)\b""",
         RegexOption.IGNORE_CASE,
     ).containsMatchIn(lower)
-    if (!isContinuation) return false
+    val isContextualFollowUp = listOf(
+        Regex("""\b(?:discuss|change|review)\s+(?:the\s+)?preferences?\b""", RegexOption.IGNORE_CASE),
+        Regex("""\blet'?s\s+discuss\s+preferences?\b""", RegexOption.IGNORE_CASE),
+        Regex("""\bwhat(?:'s| is| are)?\s+(?:the\s+)?(?:meals?|recipes?|plan)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\bshow\s+(?:me\s+)?(?:the\s+)?(?:meals?|recipes?|plan)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(?:dietary restrictions?|protein preferences?)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(?:full recipes?|cooking steps|ingredients|shopping list)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(?:day\s+\d+|day\s+one|day\s+two|day\s+three|day\s+four|day\s+five|first day|next day)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(?:start over|try again|go back)\b""", RegexOption.IGNORE_CASE),
+    ).any { it.containsMatchIn(lower) }
+    if (!isContinuation && !isContextualFollowUp) return false
 
     val context = listOfNotNull(previousUser, previousAssistant)
         .joinToString("\n")
@@ -140,4 +150,17 @@ internal fun looksLikeToolConfirmation(response: String): Boolean {
         "done!", "all done", "got it, i've", "sure thing",
     )
     return actionPhrases.any { lower.contains(it) }
+}
+
+/**
+ * Returns true when the model leaked raw tool-call syntax into chat instead of executing it.
+ */
+internal fun looksLikeRawToolCall(response: String): Boolean {
+    if (response.contains("<|tool_call>") || response.contains("<tool_call|>")) return true
+
+    return Regex(
+        """\bcall:(?:load[_ ]?skill|run[_ ]?intent|run[_ ]?js|get[_ ]?weather|save[_ ]?memory|search[_ ]?memory|get[_ ]?system[_ ]?info)\b|
+           \{\s*"name"\s*:\s*"(?:load_skill|run_intent|run_js|get_weather|save_memory|search_memory|get_system_info)"""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
+    ).containsMatchIn(response)
 }

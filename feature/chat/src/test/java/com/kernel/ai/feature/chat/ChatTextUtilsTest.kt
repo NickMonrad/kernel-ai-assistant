@@ -270,6 +270,28 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `returns true for discussing preferences during meal planner flow`() {
+            assertTrue(
+                looksLikeToolFollowUp(
+                    text = "Let's discuss preferences",
+                    previousUser = "Meal planning",
+                    previousAssistant = "Would you like to proceed with the plan for the first day, or would you like to change the preferences first?",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns true for asking what the meals are during meal planner flow`() {
+            assertTrue(
+                looksLikeToolFollowUp(
+                    text = "What are the meals",
+                    previousUser = "Let's discuss preferences",
+                    previousAssistant = "How many people are you planning for, and any dietary restrictions?",
+                ),
+            )
+        }
+
+        @Test
         fun `returns false for generic yes without tool context`() {
             assertFalse(
                 looksLikeToolFollowUp(
@@ -278,6 +300,34 @@ class ChatTextUtilsTest {
                     previousAssistant = "Do you want another one?",
                 ),
             )
+        }
+    }
+
+    @Nested
+    @DisplayName("looksLikeRawToolCall")
+    inner class RawToolCallTests {
+
+        @Test
+        fun `returns true for leaked native tool call token`() {
+            assertTrue(
+                looksLikeRawToolCall(
+                    "<|tool_call>call:run_intent{intent_name:<|\"|>meal_planner<|\"|>}",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns true for leaked json tool call`() {
+            assertTrue(
+                looksLikeRawToolCall(
+                    """{"name":"load_skill","arguments":{"skill_name":"meal_planner"}}""",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns false for normal assistant reply`() {
+            assertFalse(looksLikeRawToolCall("Here are the three meals I came up with."))
         }
     }
 }
