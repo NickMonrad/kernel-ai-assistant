@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,6 +50,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
@@ -1006,15 +1008,59 @@ private fun LinkableText(
 }
 
 /**
+ * Returns Material 3 semantic colors for syntax highlighting token types from a given ColorScheme.
+ */
+private fun CodeTokenColors(colorScheme: androidx.compose.material3.ColorScheme): CodeTokenColors {
+    val onSurfaceVariant = colorScheme.onSurfaceVariant
+    val primary = colorScheme.primary
+    val secondary = colorScheme.secondary
+    val tertiary = colorScheme.tertiary
+
+    return CodeTokenColors(
+        keyword = primary,
+        type = tertiary,
+        string = secondary,
+        number = tertiary,
+        comment = onSurfaceVariant.copy(alpha = 0.6f),
+        punctuation = onSurfaceVariant,
+        operator = onSurfaceVariant,
+        annotation = secondary,
+        function = primary,
+        variable = onSurfaceVariant,
+    )
+}
+
+/**
+ * Color scheme for syntax highlighting token types.
+ */
+private data class CodeTokenColors(
+    val keyword: Color,
+    val type: Color,
+    val string: Color,
+    val number: Color,
+    val comment: Color,
+    val punctuation: Color,
+    val operator: Color,
+    val annotation: Color,
+    val function: Color,
+    val variable: Color,
+)
+
+/**
  * Renders a fenced code block with:
  *  - `surfaceVariant` background and `RoundedCornerShape(8.dp)`
  *  - `FontFamily.Monospace`, `softWrap = false`, horizontal scroll
  *  - A copy-to-clipboard button anchored top-right; icon changes to ✓ for 2 seconds after copy
  *  - An optional language label above the block (e.g. "yaml", "bash") when present
  *  - Vertical padding (8.dp) to visually separate the block from surrounding text
+ *  - Syntax highlighting for supported languages using Material 3 semantic colors
  */
 @Composable
-private fun FencedCodeBlock(language: String = "", code: String, modifier: Modifier = Modifier) {
+private fun FencedCodeBlock(
+    language: String = "",
+    code: String,
+    modifier: Modifier = Modifier,
+) {
     val clipboardManager = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
 
@@ -1022,6 +1068,45 @@ private fun FencedCodeBlock(language: String = "", code: String, modifier: Modif
         if (copied) {
             delay(2_000)
             copied = false
+        }
+    }
+
+    // Tokenize code and build highlighted text (async to avoid UI jank)
+    val colorScheme = MaterialTheme.colorScheme
+    val highlightedCode by produceState(AnnotatedString(""), code, language, colorScheme) {
+        val trimmedCode = code.trimEnd('\n')
+        value = if (language.isBlank()) {
+            AnnotatedString(trimmedCode)
+        } else {
+            try {
+                val tokenized = tokenizeCodeAsync(language, trimmedCode)
+                val colors = CodeTokenColors(colorScheme)
+                buildAnnotatedString {
+                    for (token in tokenized.tokens) {
+                        val spanStyle = when (token.type) {
+                            TokenType.Keyword -> SpanStyle(color = colors.keyword)
+                            TokenType.Type -> SpanStyle(color = colors.type)
+                            TokenType.StringLit -> SpanStyle(color = colors.string)
+                            TokenType.NumberLit -> SpanStyle(color = colors.number)
+                            TokenType.Comment -> SpanStyle(color = colors.comment, fontStyle = FontStyle.Italic)
+                            TokenType.Punctuation -> SpanStyle(color = colors.punctuation)
+                            TokenType.Operator -> SpanStyle(color = colors.operator)
+                            TokenType.Annotation -> SpanStyle(color = colors.annotation)
+                            TokenType.Function -> SpanStyle(color = colors.function, fontWeight = FontWeight.Bold)
+                            TokenType.Variable -> SpanStyle(color = colors.variable)
+                            TokenType.Whitespace -> SpanStyle()
+                            TokenType.Newline -> SpanStyle()
+                            TokenType.Other -> SpanStyle()
+                        }
+                        withStyle(spanStyle) {
+                            append(token.content)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "MarkdownRenderer: syntax highlighting failed for language '$language': ${e.message}")
+                AnnotatedString(trimmedCode)
+            }
         }
     }
 
@@ -1047,9 +1132,9 @@ private fun FencedCodeBlock(language: String = "", code: String, modifier: Modif
                     // Right padding leaves room so long lines don't slide under the copy button
                     .padding(start = 12.dp, end = 48.dp, top = 12.dp, bottom = 12.dp),
             ) {
-                Text(
-                    text     = code.trimEnd('\n'),
-                    style    = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                BasicText(
+                    text = highlightedCode,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     softWrap = false,
                 )
             }
@@ -1354,6 +1439,326 @@ private fun MarkdownTableAlignmentPreview() {
                 | SwiftUI         | Swift      | 12k   |
                 | Flutter         | Dart       | 160k  |
             """.trimIndent(),
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Code block — Kotlin syntax highlighting")
+@Composable
+private fun FencedCodeBlockKotlinPreview() {
+    KernelAITheme {
+        MarkdownContent(
+            modifier = Modifier.padding(16.dp),
+            text = """```kotlin
+import androidx.compose.runtime.*
+
+@Composable
+fun Greeting(name: String, modifier: Modifier = Modifier) {
+    val animatedName = remember { mutableStateOf(name) }
+    
+    // Display a greeting
+    Text(
+        text = "Hello, ${"$"}{animatedName}!",
+        modifier = modifier
+            .padding(16.dp)
+            .background(Color.Blue),
+    )
+}
+```""",
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Code block — Python syntax highlighting")
+@Composable
+private fun FencedCodeBlockPythonPreview() {
+    KernelAITheme {
+        MarkdownContent(
+            modifier = Modifier.padding(16.dp),
+            text = """```python
+def fibonacci(n: int) -> int:
+    \'\'\'Compute the nth Fibonacci number.\'\'\'
+    if n <= 1:
+        return n
+    
+    a, b = 0, 1
+    for _ in range(2, n + 1):
+        a, b = b, a + b
+    return b
+
+# Example usage
+result = fibonacci(10)
+print(f"Fibonacci(10) = {result}")  # Output: 55
+```""",
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Code block — JavaScript syntax highlighting")
+@Composable
+private fun FencedCodeBlockJavaScriptPreview() {
+    KernelAITheme {
+        MarkdownContent(
+            modifier = Modifier.padding(16.dp),
+            text = """```javascript
+async function fetchUsers(apiUrl) {
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${"$"}{response.status}`);
+        }
+        
+        const users = await response.json();
+        return users.filter(user => user.active === true);
+    } catch (error) {
+        console.error('Failed to fetch users:', error.message);
+        return [];
+    }
+}
+```""",
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Code block — Rust syntax highlighting")
+@Composable
+private fun FencedCodeBlockRustPreview() {
+    KernelAITheme {
+        MarkdownContent(
+            modifier = Modifier.padding(16.dp),
+            text = """```rust
+use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+struct Player {
+    name: String,
+    score: u32,
+}
+
+impl Player {
+    fn new(name: &str, score: u32) -> Self {
+        Player {
+            name: name.to_string(),
+            score,
+        }
+    }
+    
+    fn increment_score(&mut self, points: u32) {
+        self.score += points;
+    }
+}
+
+fn main() {
+    let mut players: HashMap<String, Player> = HashMap::new();
+    let mut player = Player::new("Alice", 0);
+    player.increment_score(100);
+    println!("{:?}", player);
+}
+```""",
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Code block — Go syntax highlighting")
+@Composable
+private fun FencedCodeBlockGoPreview() {
+    KernelAITheme {
+        MarkdownContent(
+            modifier = Modifier.padding(16.dp),
+            text = """```go
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+type Worker struct {
+    ID       int
+    tasks    chan int
+    results  chan int
+    wg       *sync.WaitGroup
+}
+
+func (w *Worker) Start() {
+    go func() {
+        defer w.wg.Done()
+        for task := range w.tasks {
+            result := task * 2
+            w.results <- result
+        }
+    }()
+}
+
+func main() {
+    numWorkers := 3
+    numTasks := 10
+    
+    tasks := make(chan int, numTasks)
+    results := make(chan int, numTasks)
+    
+    var wg sync.WaitGroup
+    for i := 0; i < numWorkers; i++ {
+        worker := &Worker{
+            ID:      i,
+            tasks:   tasks,
+            results: results,
+            wg:      &wg,
+        }
+        wg.Add(1)
+        worker.Start()
+    }
+    
+    for i := 1; i <= numTasks; i++ {
+        tasks <- i
+    }
+    close(tasks)
+    wg.Wait()
+    close(results)
+    
+    for result := range results {
+        fmt.Println(result)
+    }
+}
+```""",
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Code block — Swift syntax highlighting")
+@Composable
+private fun FencedCodeBlockSwiftPreview() {
+    KernelAITheme {
+        MarkdownContent(
+            modifier = Modifier.padding(16.dp),
+            text = """```swift
+import Foundation
+
+struct UserProfile {
+    let username: String
+    let email: String
+    var isActive: Bool
+    
+    func validate() -> Bool {
+        return !username.isEmpty && email.contains("@")
+    }
+}
+
+class UserManager {
+    private var users: [String: UserProfile] = [:]
+    
+    func addUser(_ profile: UserProfile) throws {
+        guard profile.validate() else {
+            throw UserManagerError.invalidProfile
+        }
+        users[profile.username] = profile
+    }
+    
+    func findUser(named name: String) -> UserProfile? {
+        return users[name]
+    }
+}
+
+enum UserManagerError: Error {
+    case invalidProfile
+    case userNotFound
+}
+```""",
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Code block — TypeScript syntax highlighting")
+@Composable
+private fun FencedCodeBlockTypeScriptPreview() {
+    KernelAITheme {
+        MarkdownContent(
+            modifier = Modifier.padding(16.dp),
+            text = """```typescript
+interface ApiResponse<T> {
+    data: T;
+    status: number;
+    message: string;
+}
+
+class HttpClient {
+    private baseUrl: string;
+    private headers: Record<string, string>;
+    
+    constructor(baseUrl: string, token?: string) {
+        this.baseUrl = baseUrl;
+        this.headers = {
+            'Content-Type': 'application/json',
+        };
+        if (token) {
+            this.headers['Authorization'] = `Bearer ${"$"}{token}`;
+        }
+    }
+    
+    async get<T>(endpoint: string): Promise<ApiResponse<T>> {
+        const response = await fetch(`${"$"}{this.baseUrl}${"$"}{endpoint}`, {
+            method: 'GET',
+            headers: this.headers,
+        });
+        return response.json() as ApiResponse<T>;
+    }
+}
+
+export default HttpClient;
+```""",
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Code block — Java syntax highlighting")
+@Composable
+private fun FencedCodeBlockJavaPreview() {
+    KernelAITheme {
+        MarkdownContent(
+            modifier = Modifier.padding(16.dp),
+            text = """```java
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
+/**
+ * A simple repository pattern implementation for user management.
+ */
+public class UserRepository {
+    private final List<User> users;
+    private final DataSource dataSource;
+    
+    public UserRepository(DataSource dataSource) {
+        this.dataSource = dataSource;
+        this.users = new ArrayList<>();
+    }
+    
+    public User findById(Long id) {
+        return users.stream()
+            .filter(user -> user.getId().equals(id))
+            .findFirst()
+            .orElse(null);
+    }
+    
+    public List<User> findByActive(boolean active) {
+        return users.stream()
+            .filter(User::isActive)
+            .collect(Collectors.toList());
+    }
+    
+    @Transactional
+    public User save(User user) {
+        if (user.getId() == null) {
+            users.add(user);
+        }
+        return user;
+    }
+}
+```""",
         )
     }
 }
