@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-04-21 (docs refresh for #513; aligned with PRs #661, #667, and #668)
+> **Last updated:** 2026-04-22 (docs refresh for #523 / PR #682; prompt/tool-routing docs updated)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -119,19 +119,35 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 ### 3.2 Prompt Assembly Order
 
 ```
-[System Prompt]          ← persona (FULL ~200t / MINIMAL ~25t), date/time
+[System Prompt]          ← persona (FULL / HALF / BORING; MINIMAL for tool turns), date/time
 [User Profile]           ← structured YAML injection (name, role, environment, context, rules)
 [Core Memories]          ← permanent facts split by category:
-                           user (coreTopK=10), agent_identity (identityTopK=5)
+                            user (coreTopK=10), agent_identity (identityTopK=5)
                            CORE_MAX_DISTANCE=1.25; NZ truths further filtered by vibe level
 [Episodic Memories]      ← distilled conversation summaries (EPISODIC_MAX_DISTANCE=1.10, episodicTopK=3)
 [Message History]        ← semantically relevant messages from current conversation (MAX_DISTANCE=0.90, topK=5)
 [Conversation Window]    ← selected recent turns (75% token budget)
-[Current User Message]   ← with RAG context prepended
+[Current User Message]   ← with RAG context prepended; tool instructions prepended only for tool-like turns
 ```
 
 **Identity tiers:** `IdentityTier.FULL` (Chat) includes greeting, vocab phrases, profile, and history.
-`IdentityTier.MINIMAL` (Actions tab) uses a slim ~25-token prompt with no profile/history.
+`IdentityTier.MINIMAL` (Actions tab / tool-like turns) uses a slim prompt with no profile/history.
+
+**Persona modes:** `PersonaMode.FULL`, `HALF`, and `BORING` are user-selectable from Model Management.
+New installs default to **Half a Jandal**. Full mode keeps the strongest Kiwi flavour, Half mode keeps
+the tone but reduces random slang and trims kiwi-memory injection, and Boring mode disables Kiwi vocab
+and kiwi RAG entirely.
+
+**Per-turn tool injection:** The `[Tool Use]` block is no longer baked into every chat system prompt.
+`ChatViewModel` injects it only when the current turn is considered tool-like:
+
+- `QuickIntentRouter.RouteResult.FallThrough` has a non-null `bestGuess`, or
+- `looksLikeToolQuery(text)` matches explicit tool-oriented phrasing such as "search Wikipedia",
+  "look up", "set alarm", "remember", or "add to my list"
+
+This keeps ordinary chat lean while preserving tool guidance for explicit tool requests. When adding a
+new skill whose user phrasing is not obviously tool-like, the corresponding router coverage or
+`looksLikeToolQuery(...)` patterns should be updated so the skill remains reachable.
 
 All sections are conditionally included — omitted entirely if no results meet their distance threshold. Token budget is allocated sequentially: Core → Episodic → Message History.
 
@@ -444,7 +460,7 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 > non-null (#262). Without this, the guard always triggers "No clock app found" regardless of
 > whether a clock app is installed.
 
-> **Alarm hallucination guard:** The system prompt `[Tool Use]` section includes an explicit
+> **Alarm hallucination guard:** The per-turn `[Tool Use]` section includes an explicit
 > "Alarm rule" forcing `run_intent` for alarm requests (#263), matching the pattern used for
 > `save_memory`. The model's Siri/Google training bias would otherwise cause it to verbally
 > confirm alarms without ever calling the tool.
@@ -495,6 +511,7 @@ and awaits the result with a 15s timeout.
 | Skill name | Description | Status |
 |------------|-------------|--------|
 | `get_system_info` | Device/model/backend/battery stats | ✅ |
+| `query_wikipedia` | Public Wikipedia lookup skill; loads focused instructions, then calls `run_js` with `skill_name="query-wikipedia"` | ✅ |
 | `save_memory` | Persist a note/fact to `core_memories_vec` | ✅ (explicit trigger only — see memory rule below) |
 | `search_memory` | Semantic search across core memories, episodic memories, and `message_embeddings` | ✅ |
 | `get_weather_gps` / `get_weather` | Weather retrieval with GPS, explicit locations, and indirect-location resolution | ✅ |
@@ -502,8 +519,8 @@ and awaits the result with a 15s timeout.
 > **save_memory trigger:** Works reliably when the user explicitly says "remember", "save",
 > "don't forget", "can you remember", or "make a note of". Does not activate proactively from
 > implicit personal facts shared in conversation — small model limitation. The trigger is
-> enforced as a hard `[Tool Use]` rule in `ChatViewModel.buildSystemPrompt()`, not via the
-> skill description.
+> enforced via the per-turn tool-instruction context assembled in `ChatViewModel`, not via the
+> skill description alone.
 
 > **search_memory:** Exposed to the model via `KernelAIToolSet.searchMemory()` and backed by
 > `SearchMemorySkill`. It merges explicit memories (`MemoryRepository.searchMemories()`) with
@@ -513,11 +530,17 @@ and awaits the result with a 15s timeout.
 > (`CORE_MAX_DISTANCE=1.25`, `EPISODIC_MAX_DISTANCE=1.10`). Results are returned as a numbered
 > direct reply with dates and conversation prefixes, bypassing LLM rephrasing to preserve detail.
 
-**System prompt `[Tool Use]` rules (enforced in `ChatViewModel.buildSystemPrompt()`):**
+**Per-turn `[Tool Use]` rules (injected only for tool-like turns by `ChatViewModel`):**
+- Injection gate: `QuickIntentRouter` fall-through with non-null `bestGuess`, or `looksLikeToolQuery(...)`
 - Memory rule: user says "remember", "save", "don't forget", "can you remember", or "make a note of" → MUST call `save_memory`
 - Alarm rule: user asks to set an alarm → MUST call `run_intent{intent_name: set_alarm}`
 - Weather rule: `GetWeatherSkill` description includes "ALWAYS call this tool, never use memory" to prevent Gemma-4 from serving stale weather from episodic memory instead of fetching fresh data (#322)
-- JS tool rule: `RunJsSkill` description similarly includes "ALWAYS call this tool, never use memory" (#322)
+- Wikipedia rule: `query_wikipedia` is the public skill surface for encyclopedia lookups; it loads focused instructions and then executes the internal `run_js` gateway with `skill_name="query-wikipedia"`
+
+> **Adding new skills:** Registering a skill automatically makes it available in the dynamically
+> generated tool list. If the skill serves requests that do not already look obviously tool-like,
+> update `looksLikeToolQuery(...)` and/or `QuickIntentRouter` best-guess coverage so the per-turn
+> `[Tool Use]` block is injected for those requests.
 
 ### 4.4 Extensible Skills (WebAssembly — Phase 5)
 

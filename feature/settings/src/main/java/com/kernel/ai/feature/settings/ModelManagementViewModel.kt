@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.StatFs
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.JandalPersona
+import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
@@ -33,6 +35,7 @@ data class ModelManagementUiState(
     val hfAuthenticated: Boolean = false,
     val hfUsername: String? = null,
     val preferredModel: KernelModel? = null,
+    val personaMode: PersonaMode = PersonaMode.HALF,
 )
 
 @HiltViewModel
@@ -40,6 +43,7 @@ class ModelManagementViewModel @Inject constructor(
     private val modelDownloadManager: ModelDownloadManager,
     private val modelPreferences: ModelPreferences,
     private val authRepository: HuggingFaceAuthRepository,
+    private val jandalPersona: JandalPersona,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -48,7 +52,8 @@ class ModelManagementViewModel @Inject constructor(
         authRepository.isAuthenticated,
         authRepository.username,
         modelPreferences.preferredConversationModel,
-    ) { downloadStates, hfAuthenticated, hfUsername, preferredModel ->
+        jandalPersona.personaMode,
+    ) { downloadStates, hfAuthenticated, hfUsername, preferredModel, personaMode ->
         ModelManagementUiState(
             models = KernelModel.entries.map { model ->
                 ModelRowState(
@@ -61,6 +66,7 @@ class ModelManagementViewModel @Inject constructor(
             hfAuthenticated = hfAuthenticated,
             hfUsername = hfUsername,
             preferredModel = preferredModel,
+            personaMode = personaMode,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -95,6 +101,10 @@ class ModelManagementViewModel @Inject constructor(
                 modelPreferences.setPreferredModel(model)
             } catch (_: IOException) { /* best-effort */ }
         }
+    }
+
+    fun setPersonaMode(mode: PersonaMode) {
+        jandalPersona.setPersonaMode(mode)
     }
 
     fun startAuth() = authRepository.startAuthFlow()

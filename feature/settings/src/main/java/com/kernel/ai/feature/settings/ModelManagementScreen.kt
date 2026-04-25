@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 
@@ -243,8 +244,55 @@ fun ModelManagementScreen(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(16.dp))
             }
+
+            item {
+                Text(
+                    text = "Personality mode",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+
+            items(PersonaMode.entries) { mode ->
+                ListItem(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.setPersonaMode(mode) },
+                    headlineContent = { Text(modeTitle(mode)) },
+                    supportingContent = { Text(modeDescription(mode)) },
+                    leadingContent = {
+                        RadioButton(
+                            selected = uiState.personaMode == mode,
+                            onClick = { viewModel.setPersonaMode(mode) },
+                        )
+                    },
+                )
+                HorizontalDivider()
+            }
+
+            item {
+                Text(
+                    text = "Half a Jandal is the default: still Kiwi, but less likely to force slang or extra NZ context into ordinary chat.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
         }
     }
+}
+
+private fun modeTitle(mode: PersonaMode): String = when (mode) {
+    PersonaMode.FULL -> "Full Jandal"
+    PersonaMode.HALF -> "Half a Jandal"
+    PersonaMode.BORING -> "Boring AI Mode"
+}
+
+private fun modeDescription(mode: PersonaMode): String = when (mode) {
+    PersonaMode.FULL -> "Maximum Kiwi flavour, slang, and cultural references."
+    PersonaMode.HALF -> "Default. Keep the Kiwi tone, but only when it naturally fits."
+    PersonaMode.BORING -> "Neutral, practical replies with no extra Kiwi flavour."
 }
 
 @Composable

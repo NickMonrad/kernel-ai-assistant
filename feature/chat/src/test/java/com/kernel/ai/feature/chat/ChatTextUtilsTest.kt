@@ -202,6 +202,9 @@ class ChatTextUtilsTest {
                 "send sms to mum",
                 "call dad",
                 "look up quantum physics",
+                "plan my meals for the week",
+                "make me a meal plan",
+                "save this meal plan to my shopping list",
                 "open app settings",
                 "toggle flashlight",
                 "note that my password is 1234",
@@ -213,6 +216,12 @@ class ChatTextUtilsTest {
                 "create a grocery list",
                 "remove from my list",
                 "delete from shopping list",
+                "meal plan for 5 days",
+                "plan my meals",
+                "meal planner",
+                "plan meals vegetarian",
+                "plan a meal",
+                "sort dinners for this week",
             ],
         )
         fun `returns true for tool-related queries`(query: String) {
@@ -231,6 +240,94 @@ class ChatTextUtilsTest {
         )
         fun `returns false for non-tool queries`(query: String) {
             assertFalse(looksLikeToolQuery(query), "Expected false for '$query'")
+        }
+    }
+
+    @Nested
+    @DisplayName("looksLikeToolFollowUp")
+    inner class ToolFollowUpTests {
+
+        @Test
+        fun `returns true for meal planner continuation after meal planner exchange`() {
+            assertTrue(
+                looksLikeToolFollowUp(
+                    text = "Continue",
+                    previousUser = "Plan a meal",
+                    previousAssistant = "Ready for the full recipes with cooking steps?",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns true for yes after meal planner preference question`() {
+            assertTrue(
+                looksLikeToolFollowUp(
+                    text = "Ok let's do it",
+                    previousUser = "Plan a meal",
+                    previousAssistant = "How many people, and any dietary restrictions?",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns true for discussing preferences during meal planner flow`() {
+            assertTrue(
+                looksLikeToolFollowUp(
+                    text = "Let's discuss preferences",
+                    previousUser = "Meal planning",
+                    previousAssistant = "Would you like to proceed with the plan for the first day, or would you like to change the preferences first?",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns true for asking what the meals are during meal planner flow`() {
+            assertTrue(
+                looksLikeToolFollowUp(
+                    text = "What are the meals",
+                    previousUser = "Let's discuss preferences",
+                    previousAssistant = "How many people are you planning for, and any dietary restrictions?",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns false for generic yes without tool context`() {
+            assertFalse(
+                looksLikeToolFollowUp(
+                    text = "Yes",
+                    previousUser = "Tell me a joke",
+                    previousAssistant = "Do you want another one?",
+                ),
+            )
+        }
+    }
+
+    @Nested
+    @DisplayName("looksLikeRawToolCall")
+    inner class RawToolCallTests {
+
+        @Test
+        fun `returns true for leaked native tool call token`() {
+            assertTrue(
+                looksLikeRawToolCall(
+                    "<|tool_call>call:run_intent{intent_name:<|\"|>meal_planner<|\"|>}",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns true for leaked json tool call`() {
+            assertTrue(
+                looksLikeRawToolCall(
+                    """{"name":"load_skill","arguments":{"skill_name":"meal_planner"}}""",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns false for normal assistant reply`() {
+            assertFalse(looksLikeRawToolCall("Here are the three meals I came up with."))
         }
     }
 }

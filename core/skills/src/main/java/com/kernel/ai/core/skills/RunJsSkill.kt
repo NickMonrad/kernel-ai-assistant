@@ -29,11 +29,8 @@ class RunJsSkill @Inject constructor(
 
     override val name = "run_js"
     override val description =
-        "Run a built-in JavaScript skill by name. Use skill_name='get-weather-city' for weather " +
-            "with a known city name or forecast by city. " +
-            "For current GPS location weather or GPS-based forecast, use get_weather_gps instead. " +
-            "For forecast, pass forecast_days (1–7). " +
-            "ALWAYS call this tool for weather — never use weather data from memory, it is stale."
+        "Internal JavaScript execution gateway. Prefer loading a specific JS-backed skill " +
+            "such as query_wikipedia instead of loading run_js directly."
 
     override val schema = SkillSchema(
         parameters = mapOf(
@@ -62,6 +59,24 @@ class RunJsSkill @Inject constructor(
         "Weather 3-day forecast → runJs(skillName=\"get-weather-city\", query=\"Auckland\", forecastDays=\"3\")",
         "Weather tomorrow → runJs(skillName=\"get-weather-city\", query=\"London\", forecastDays=\"1\")",
     )
+
+    override val fullInstructions: String = buildString {
+        appendLine("$name: $description")
+        appendLine()
+        appendLine("Instructions:")
+        appendLine("- This is a low-level execution gateway for JS-backed skills.")
+        appendLine("- Prefer loading a specific skill such as query_wikipedia or get_weather before calling this tool.")
+        appendLine("- If you do call run_js directly, set skill_name to the exact bundled JS skill name.")
+        appendLine("- forecast_days applies only to get-weather-city. Never use it for Wikipedia lookups.")
+        appendLine()
+        appendLine("Parameters:")
+        appendLine("- skill_name (required) (string [query-wikipedia, get-weather-city]): The bundled JS skill to run.")
+        appendLine("- query (required) (string): The search query or input for the skill.")
+        appendLine("- forecast_days (integer): For get-weather-city only: number of forecast days (1–7). Omit for current weather and all non-weather skills.")
+        appendLine()
+        appendLine("Examples:")
+        examples.forEach { appendLine("  $it") }
+    }
 
     // Success: JS skill output requires LLM synthesis (e.g. Wikipedia summaries)
     override suspend fun execute(call: SkillCall): SkillResult {
