@@ -47,4 +47,31 @@ class ChatViewModelCopyTest {
         val messages = listOf(buildMessage(ChatMessage.Role.ASSISTANT, "Hello!"))
         assertEquals("Jandal: Hello!", formatMessages(messages))
     }
+
+    @Test
+    fun correctGroundedFacts_repairsGroundedYears() {
+        val grounding = """
+            [NZ Context: Flight of the Conchords] Their HBO television series ran from 2007 to 2009.
+        """.trimIndent()
+
+        val corrected = correctGroundedFacts(
+            response = "The HBO series for Flight of the Conchords ran from 200007 to 209.",
+            groundingContext = grounding,
+        )
+
+        assertEquals(
+            "The HBO series for Flight of the Conchords ran from 2007 to 2009.",
+            corrected,
+        )
+    }
+
+    @Test
+    fun correctGroundedFacts_repairsGroundedPercentages() {
+        val corrected = correctGroundedFacts(
+            response = "Battery is at 9%.",
+            groundingContext = "[System: get_battery — Battery is at 92%.]",
+        )
+
+        assertEquals("Battery is at 92%.", corrected)
+    }
 }

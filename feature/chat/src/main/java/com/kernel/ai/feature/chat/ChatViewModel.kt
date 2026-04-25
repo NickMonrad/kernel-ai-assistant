@@ -9,15 +9,18 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.ContextWindowManager
-import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
+import com.kernel.ai.core.inference.BORING_AI_SYSTEM_PROMPT
+import com.kernel.ai.core.inference.BORING_MINIMAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.GenerationResult
+import com.kernel.ai.core.inference.HALF_JANDAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.IdentityTier
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.LlmDispatcher
 import com.kernel.ai.core.inference.MINIMAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.ModelConfig
+import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -56,6 +59,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -297,6 +301,13 @@ class ChatViewModel @Inject constructor(
                 initEngineWhenReady()
             }
         }
+        viewModelScope.launch {
+            jandalPersona.personaMode.collect {
+                if (inferenceEngine.isReady.value) {
+                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                }
+            }
+        }
     }
 
     private suspend fun buildSystemPrompt(
@@ -305,6 +316,7 @@ class ChatViewModel @Inject constructor(
         identityTier: IdentityTier = IdentityTier.FULL,
     ): String {
         val profile = userProfileRepository.get()
+        val personaMode = jandalPersona.currentPersonaMode
         val now = LocalDateTime.now()
         val dateTime = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))
         // ISO date injected alongside the human-readable date so the model can copy it directly
@@ -313,15 +325,29 @@ class ChatViewModel @Inject constructor(
         return buildString {
             when (identityTier) {
                 IdentityTier.FULL -> {
-                    append(DEFAULT_SYSTEM_PROMPT)
+                    append(
+                        when (personaMode) {
+                            PersonaMode.FULL -> com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
+                            PersonaMode.HALF -> HALF_JANDAL_SYSTEM_PROMPT
+                            PersonaMode.BORING -> BORING_AI_SYSTEM_PROMPT
+                        }
+                    )
                     // Session vocab is stable per conversation — safe to bake into system prompt.
                     // Greeting instruction is injected per-turn (in the user prompt context)
                     // so it can change from "Kia ora" on turn 1 to "no greeting" on turn 2+
                     // without needing an expensive system prompt reset that clears the KV cache.
-                    append("\n\n${jandalPersona.buildSessionVocab()}")
+                    jandalPersona.buildSessionVocab(personaMode)
+                        .takeIf { it.isNotBlank() }
+                        ?.let { append("\n\n$it") }
                 }
                 IdentityTier.MINIMAL -> {
-                    append(MINIMAL_SYSTEM_PROMPT)
+                    append(
+                        if (personaMode == PersonaMode.BORING) {
+                            BORING_MINIMAL_SYSTEM_PROMPT
+                        } else {
+                            MINIMAL_SYSTEM_PROMPT
+                        }
+                    )
                 }
             }
             append("\n\n[Current date and time]\n$dateTime (ISO: $isoDate)")
@@ -329,14 +355,14 @@ class ChatViewModel @Inject constructor(
             if (identityTier == IdentityTier.FULL) {
                 // Prefer structured YAML injection (compact, ~200 tokens) over raw text (~750 tokens).
                 val structured = userProfileRepository.getStructured()
+                val contextWindowSize = activeModel?.let { model ->
+                    modelSettingsRepository.getSettings(model.modelId).contextWindowSize
+                } ?: 4096
+                val maxProfileChars = modelSettingsRepository.getMaxUserProfileChars(contextWindowSize)
                 if (structured != null && !structured.isEmpty()) {
-                    append("\n\n[User Profile]\n${structured.toYaml()}")
+                    append("\n\n[User Profile]\n${structured.toYaml().take(maxProfileChars)}")
                 } else if (profile.isNotBlank()) {
                     // Fallback to raw text if no structured data yet
-                    val contextWindowSize = activeModel?.let { model ->
-                        modelSettingsRepository.getSettings(model.modelId).contextWindowSize
-                    } ?: 4096
-                    val maxProfileChars = modelSettingsRepository.getMaxUserProfileChars(contextWindowSize)
                     val injectedProfile = profile.take(maxProfileChars)
                     append("\n\n[User Profile]\n$injectedProfile")
                 }
@@ -348,27 +374,28 @@ class ChatViewModel @Inject constructor(
                     append("[End of previous conversation context]")
                 }
             }
-            // Native tool calling pipeline (Google Gallery pattern).
-            // Tool declarations are auto-generated by the SDK from @Tool annotations — no need
-            // to list parameters or format rules. Only the 3-step pipeline enforcement and skill
-            // names are needed here.
-            val skillNames = skillRegistry.allSkills()
-                .filter { it.name != "load_skill" }
-                .sortedBy { it.name }
-                .joinToString("\n") { "  - ${it.name}: ${it.description.take(80)}" }
-            if (skillNames.isNotBlank()) {
-                append(
-                    "\n\n[Tool Use]\n" +
-                        "For EVERY task that requires a tool, you MUST execute these steps in exact order.\n" +
-                        "You MUST NOT skip any steps.\n\n" +
-                        "1. Find the most relevant skill from this list:\n" +
-                        skillNames + "\n\n" +
-                        "2. Call load_skill with the skill name to get its full instructions.\n\n" +
-                        "3. Follow the skill's instructions exactly to complete the task. " +
-                        "Output ONLY the final result to the user.\n\n" +
-                        "CRITICAL: Execute all steps silently. Do NOT output intermediate reasoning or tool call text."
-                )
-            }
+        }
+    }
+
+    private fun buildToolUsePrompt(): String {
+        val skillNames = skillRegistry.buildNativeDeclarations()
+        if (skillNames.isBlank()) return ""
+        return buildString {
+            append("[Tool Use]\n")
+            append("You are an AI assistant that helps users by answering questions and completes tasks using skills.\n")
+            append("For EVERY new task, request, or question that needs a tool, you MUST execute these steps in exact order.\n")
+            append("You MUST NOT skip any steps.\n\n")
+            append("1. First, find the most relevant skill from this list:\n")
+            append(skillNames)
+            append("\n\n")
+            append("After this step you MUST go to the next step. ")
+            append("You MUST NOT use run_intent under any circumstances at this step.\n\n")
+            append("2. If a relevant skill exists, call load_skill with the skill name to get its full instructions.\n\n")
+            append("You MUST NOT use run_intent under any circumstances at this step.\n\n")
+            append("3. Follow the skill's instructions exactly to complete the task. ")
+            append("Only use run_intent after steps 1 and 2 are complete and only when the loaded skill tells you to. ")
+            append("Output ONLY the final result to the user when successful.\n\n")
+            append("CRITICAL: Execute all steps silently. Do NOT output intermediate reasoning, status updates, or tool call text.")
         }
     }
 
@@ -625,6 +652,8 @@ class ChatViewModel @Inject constructor(
             // Set by the Tier 2 intercept when a skill executes successfully; injected into
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
+            var groundingContext: String? = null
+            var isToolQueryForTurn = false
             // Set true when QIR routes to a device action, OR when the LLM calls a non-indexable
             // tool (run_intent, get_weather, etc.) — suppresses RAG indexing for both the user
             // message and the LLM response to prevent stale device state in future RAG (#614).
@@ -900,9 +929,15 @@ class ChatViewModel @Inject constructor(
             // or the query matches known tool-trigger keywords, strip the Jandal personality
             // and RAG context to free ~1000 tokens for tool-call reasoning. These queries
             // don't benefit from episodic memory or cultural tone — they need clear headspace.
+            val priorMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
+            val previousAssistant = priorMessages.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
+            val previousUser = priorMessages.lastOrNull { it.role == ChatMessage.Role.USER }?.content
+            val isToolFollowUp = looksLikeToolFollowUp(text, previousUser, previousAssistant)
             val isToolQuery = (routeResult is QuickIntentRouter.RouteResult.FallThrough &&
                 routeResult.bestGuess != null) ||
-                looksLikeToolQuery(text)
+                looksLikeToolQuery(text) ||
+                isToolFollowUp
+            isToolQueryForTurn = isToolQuery
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
             val effectiveRagContext = if (isToolQuery) "" else ragContext
             val effectiveRagTokenCost = if (isToolQuery) 0 else ragTokenCost
@@ -910,8 +945,7 @@ class ChatViewModel @Inject constructor(
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
             // the previous turn to resolve what "that/it/this" refers to. Inject the last
             // user+assistant pair as a lightweight context block — still no RAG or personality.
-            val anaphoraContext: String = if (isToolQuery && looksLikeAnaphora(text)) {
-                val priorMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
+            val anaphoraContext: String = if (isToolQuery && (looksLikeAnaphora(text) || isToolFollowUp)) {
                 val lastPair = priorMessages.takeLast(2)
                 if (lastPair.isEmpty()) "" else buildString {
                     append("[Context: previous exchange]\n")
@@ -950,14 +984,29 @@ class ChatViewModel @Inject constructor(
                 if (effectiveRagContext.isNotBlank()) append("$effectiveRagContext\n\n")
                 if (anaphoraContext.isNotBlank()) append("$anaphoraContext\n\n")
                 if (systemContext != null) append("$systemContext\n\n")
+                if (effectiveRagContext.isNotBlank() || systemContext != null) {
+                    append("[System: If the answer depends on provided context, memory, or tool output, copy exact dates, numbers, names, titles, and quoted phrases exactly as written. You may still explain or analyse them when the user asks, but do not mutate literal facts. If the exact detail is not present, say you are not sure.]\n\n")
+                }
+                if (isToolQuery) {
+                    buildToolUsePrompt()
+                        .takeIf { it.isNotBlank() }
+                        ?.let { append("$it\n\n") }
+                }
                 // Greeting instruction injected per-turn so turn 1 says "Kia ora" and
                 // subsequent turns explicitly suppress greetings — without invalidating the KV cache.
                 // Suppressed entirely for tool queries to keep the prompt focused.
                 if (!isToolQuery) {
-                    append("[System: ${jandalPersona.buildGreetingInstruction(isFirstReply)}]\n\n")
+                    append("[System: ${jandalPersona.buildGreetingInstruction(isFirstReply, jandalPersona.currentPersonaMode)}]\n\n")
                 }
                 append(text)
             }
+            groundingContext = buildString {
+                if (effectiveRagContext.isNotBlank()) append(effectiveRagContext)
+                if (systemContext != null) {
+                    if (isNotBlank()) append('\n')
+                    append(systemContext)
+                }
+            }.ifBlank { null }
 
             } finally {
                 // Reset the loading spinner on every exit path from the pre-inference block —
@@ -968,6 +1017,7 @@ class ChatViewModel @Inject constructor(
             try {
                 kernelAIToolSet.resetTurnState()
                 hallucinationRetryAttempted = false
+                var rawToolCallRetryAttempted = false
                 var currentPrompt = prompt
                 var needsHallucinationRetry: Boolean
 
@@ -999,7 +1049,7 @@ class ChatViewModel @Inject constructor(
                         }
 
                         is GenerationResult.Complete -> {
-                            val fullContent = correctSkillNumbers(accumulatedContent.toString(), systemContext)
+                            val fullContent = correctGroundedFacts(accumulatedContent.toString(), groundingContext)
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
 
                             // With native SDK tool calling, tool execution happens
@@ -1069,18 +1119,32 @@ class ChatViewModel @Inject constructor(
                                 // tight history budget, causing context amnesia (#446).
                             } else {
                                 val isHallucination = looksLikeToolConfirmation(fullContent)
+                                val isRawToolCall = isToolQueryForTurn && looksLikeRawToolCall(fullContent)
 
                                 // C2 (#487): Single automatic retry before falling to C1 failure.
                                 // If the model hallucinated a tool confirmation and we haven't
                                 // retried yet, prepend a correction and re-run inference — unless
                                 // the context window is already >75% full.
-                                if (isHallucination && !hallucinationRetryAttempted) {
-                                    hallucinationRetryAttempted = true
+                                if ((isHallucination && !hallucinationRetryAttempted) ||
+                                    (isRawToolCall && !rawToolCallRetryAttempted)
+                                ) {
+                                    if (isHallucination) {
+                                        hallucinationRetryAttempted = true
+                                    } else {
+                                        rawToolCallRetryAttempted = true
+                                    }
                                     val budgetOk = estimatedTokensUsed <= (activeContextWindowSize * 0.75).toInt()
                                     if (budgetOk) {
-                                        Log.w("KernelAI", "hallucination_retry_attempted")
+                                        Log.w(
+                                            "KernelAI",
+                                            if (isHallucination) "hallucination_retry_attempted" else "raw_tool_call_retry_attempted",
+                                        )
                                         needsHallucinationRetry = true
-                                        currentPrompt = HALLUCINATION_RETRY_CORRECTION + "\n\n" + prompt
+                                        currentPrompt = if (isHallucination) {
+                                            HALLUCINATION_RETRY_CORRECTION + "\n\n" + prompt
+                                        } else {
+                                            RAW_TOOL_CALL_RETRY_CORRECTION + "\n\n" + prompt
+                                        }
                                         // Reset streaming state for the retry pass
                                         accumulatedContent = StringBuilder()
                                         accumulatedThinking = StringBuilder()
@@ -1095,12 +1159,29 @@ class ChatViewModel @Inject constructor(
                                 }
 
                                 // Normal text or C1 hallucination failure
-                                val displayContent = if (isHallucination) {
-                                    if (currentPrompt !== prompt) Log.w("KernelAI", "hallucination_retry_failed")
-                                    Log.w("KernelAI", "Hallucination guard triggered — model confirmed action without tool call")
+                                val displayContent = if (isHallucination || isRawToolCall) {
+                                    if (currentPrompt !== prompt) {
+                                        Log.w(
+                                            "KernelAI",
+                                            if (isHallucination) "hallucination_retry_failed" else "raw_tool_call_retry_failed",
+                                        )
+                                    }
+                                    Log.w(
+                                        "KernelAI",
+                                        if (isHallucination) {
+                                            "Hallucination guard triggered — model confirmed action without tool call"
+                                        } else {
+                                            "Raw tool-call guard triggered — model leaked tool syntax instead of executing it"
+                                        },
+                                    )
                                     "I wasn't able to complete that action — please try again, or try phrasing it differently."
                                 } else {
-                                    if (currentPrompt !== prompt) Log.d("KernelAI", "hallucination_retry_succeeded")
+                                    when {
+                                        currentPrompt !== prompt && rawToolCallRetryAttempted ->
+                                            Log.d("KernelAI", "raw_tool_call_retry_succeeded")
+                                        currentPrompt !== prompt && hallucinationRetryAttempted ->
+                                            Log.d("KernelAI", "hallucination_retry_succeeded")
+                                    }
                                     fullContent
                                 }
                                 _messages.update { msgs ->
@@ -1112,7 +1193,7 @@ class ChatViewModel @Inject constructor(
                                 // ("The light's on!") poisons future RAG retrievals (#614).
                                 // Also index the user message here (deferred from sendMessage entry)
                                 // so we can skip it too if a device tool was called during inference.
-                                if (!isHallucination && !isDeviceActionExchange) {
+                                if (!isHallucination && !isRawToolCall && !isDeviceActionExchange) {
                                     if (savedUserMsgId.isNotBlank()) {
                                         ragRepository.indexMessage(savedUserMsgId, convId, text)
                                     }
@@ -1409,43 +1490,30 @@ class ChatViewModel @Inject constructor(
     private fun looksLikeToolQuery(query: String): Boolean = com.kernel.ai.feature.chat.looksLikeToolQuery(query)
 
     private fun looksLikeAnaphora(text: String): Boolean = com.kernel.ai.feature.chat.looksLikeAnaphora(text)
-
-    /**
-     * Corrects digit-truncated numbers in a model response when a [System:] skill context was
-     * injected. E.g. model reads "Battery is at 92%" from context but outputs "9%" — a known
-     * Gemma-4 generation artefact. Only corrects percentage values to avoid false positives.
-     */
-    private fun correctSkillNumbers(response: String, systemContext: String?): String {
-        if (systemContext == null) return response
-        // Snapshot original percentage tokens so later loop iterations can't re-correct
-        // a token that was already fixed by a prior iteration (chain-correction guard).
-        val originalPctTokens = Regex("""(\d+)%""").findAll(response).map { it.groupValues[1] }.toSet()
-        val expectedNumbers = Regex("""\d+""").findAll(systemContext).map { it.value }
-            .filter { it.length >= 2 }
-            .toList()
-        var corrected = response
-        expectedNumbers.forEach { expected ->
-            if (corrected.contains("$expected%")) return@forEach // full percentage already present
-            corrected = corrected.replace(Regex("""(\d+)%""")) { pctMatch ->
-                val found = pctMatch.groupValues[1]
-                // Only repair tokens that existed in the original response (not already corrected)
-                // and where the model's output is a strict prefix of the expected value.
-                if (found in originalPctTokens && expected.startsWith(found) && found.length < expected.length) "$expected%"
-                else pctMatch.value
-            }
-        }
-        return corrected
-    }
+    private fun looksLikeToolFollowUp(
+        text: String,
+        previousUser: String?,
+        previousAssistant: String?,
+    ): Boolean = com.kernel.ai.feature.chat.looksLikeToolFollowUp(text, previousUser, previousAssistant)
 
     private fun looksLikeToolConfirmation(response: String): Boolean =
         com.kernel.ai.feature.chat.looksLikeToolConfirmation(response)
+
+    private fun looksLikeRawToolCall(response: String): Boolean =
+        com.kernel.ai.feature.chat.looksLikeRawToolCall(response)
 }
 
 /** C2 correction prepended to the prompt when a hallucination retry is attempted (#487). */
 private const val HALLUCINATION_RETRY_CORRECTION =
     "[System: Your previous response was blocked. It appeared to describe performing an action " +
-    "without actually calling the required tool function. You MUST call the appropriate tool — " +
-    "do not narrate results. If the tool is unavailable, say so honestly.]"
+        "without actually calling the required tool function. You MUST call the appropriate tool — " +
+        "do not narrate results. If the tool is unavailable, say so honestly.]"
+
+private const val RAW_TOOL_CALL_RETRY_CORRECTION =
+    "[System: Your previous response was blocked. It emitted raw tool-call syntax into chat " +
+        "instead of executing the tool. Do NOT print <|tool_call> tokens, JSON tool calls, or " +
+        "function text. Silently call the appropriate native tool function and then answer with " +
+        "the final user-facing result only.]"
 
 /**
  * Returns true if a tool call result should be indexed in episodic RAG memory.
@@ -1463,6 +1531,81 @@ private fun shouldIndexToolCallResult(skillName: String): Boolean = when (skillN
     "search_memory",    // read-only, no new content
     -> false
     else -> true        // run_js (wikipedia etc.) — knowledge worth recalling
+}
+
+/**
+ * Repairs a small set of known literal-copy failures when the model was given grounding context.
+ *
+ * The repair is intentionally narrow:
+ * - percentage truncation from [System:] tool context, e.g. 92% -> 9%
+ * - malformed standalone year tokens, e.g. 200007 -> 2007 or 209 -> 2009
+ *
+ * Broader paraphrasing is left untouched so analytical answers still read naturally.
+ */
+internal fun correctGroundedFacts(response: String, groundingContext: String?): String {
+    if (groundingContext.isNullOrBlank()) return response
+
+    val expectedNumbers = Regex("""\d+""").findAll(groundingContext)
+        .map { it.value }
+        .filter { it.length >= 2 }
+        .distinct()
+        .toList()
+
+    // Snapshot original percentage tokens so later loop iterations can't re-correct
+    // a token that was already fixed by a prior iteration (chain-correction guard).
+    val originalPctTokens = Regex("""(\d+)%""").findAll(response).map { it.groupValues[1] }.toSet()
+    var corrected = response
+    expectedNumbers.forEach { expected ->
+        if (corrected.contains("$expected%")) return@forEach
+        corrected = corrected.replace(Regex("""(\d+)%""")) { pctMatch ->
+            val found = pctMatch.groupValues[1]
+            if (found in originalPctTokens && expected.startsWith(found) && found.length < expected.length) "$expected%"
+            else pctMatch.value
+        }
+    }
+
+    val expectedYears = Regex("""(?<!\d)(?:1[6-9]\d{2}|20\d{2}|21\d{2})(?!\d)""")
+        .findAll(groundingContext)
+        .map { it.value }
+        .distinct()
+        .toList()
+    if (expectedYears.isEmpty()) return corrected
+
+    return Regex("""(?<![\d%])\d{3,6}(?![\d%])""").replace(corrected) { match ->
+        val found = match.value
+        if (found.length == 4 && found in expectedYears) return@replace found
+
+        val candidates = expectedYears.filter { expected ->
+            expected != found &&
+                found.firstOrNull() == expected.firstOrNull() &&
+                levenshteinDistance(found, expected) <= if (found.length <= 4) 1 else 2
+        }
+        if (candidates.size == 1) candidates.first() else found
+    }
+}
+
+private fun levenshteinDistance(left: String, right: String): Int {
+    if (left == right) return 0
+    if (left.isEmpty()) return right.length
+    if (right.isEmpty()) return left.length
+
+    val prev = IntArray(right.length + 1) { it }
+    val curr = IntArray(right.length + 1)
+
+    for (i in 1..left.length) {
+        curr[0] = i
+        for (j in 1..right.length) {
+            val cost = if (left[i - 1] == right[j - 1]) 0 else 1
+            curr[j] = minOf(
+                curr[j - 1] + 1,
+                prev[j] + 1,
+                prev[j - 1] + cost,
+            )
+        }
+        for (j in prev.indices) prev[j] = curr[j]
+    }
+
+    return prev[right.length]
 }
 
 private fun formatBytes(bytes: Long): String = when {

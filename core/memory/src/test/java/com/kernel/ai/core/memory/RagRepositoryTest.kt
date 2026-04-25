@@ -1,6 +1,8 @@
 package com.kernel.ai.core.memory
 
 import com.kernel.ai.core.inference.EmbeddingEngine
+import com.kernel.ai.core.inference.JandalPersona
+import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
@@ -35,12 +37,22 @@ class RagRepositoryTest {
     private val embeddingDao: MessageEmbeddingDao = mockk()
     private val memoryRepository: MemoryRepository = mockk()
     private val episodicMemoryDao: EpisodicMemoryDao = mockk()
+    private val jandalPersona: JandalPersona = mockk()
 
     private lateinit var ragRepository: RagRepository
 
     @BeforeEach
     fun setUp() {
-        ragRepository = RagRepository(embeddingEngine, vectorStore, messageDao, embeddingDao, memoryRepository, episodicMemoryDao)
+        every { jandalPersona.currentPersonaMode } returns PersonaMode.HALF
+        ragRepository = RagRepository(
+            embeddingEngine = embeddingEngine,
+            vectorStore = vectorStore,
+            messageDao = messageDao,
+            embeddingDao = embeddingDao,
+            memoryRepository = memoryRepository,
+            episodicMemoryDao = episodicMemoryDao,
+            jandalPersona = jandalPersona,
+        )
     }
 
     /**
@@ -93,7 +105,7 @@ class RagRepositoryTest {
 
         // Verify the retrieval caps stay tight to avoid over-injecting long-term memories.
         coVerify(exactly = 1) {
-            memoryRepository.searchMemories(any(), coreTopK = 6, episodicTopK = 3, kiwiTopK = 6)
+            memoryRepository.searchMemories(any(), coreTopK = 6, episodicTopK = 3, kiwiTopK = 2)
         }
     }
 
@@ -286,5 +298,36 @@ class RagRepositoryTest {
         assertTrue(result.contains("Memory 1"), "Top-ranked core memories should still be included")
         assertTrue(result.contains("[NZ Context: Kiwi 5]"), "Top-ranked kiwi memories should be eligible for inclusion")
         assertFalse(result.contains("Definition 8"), "Long-term memory injection must be capped to protect context budget")
+    }
+
+    @Test
+    fun `getRelevantContext — boring mode excludes kiwi memories entirely`() = runTest {
+        every { jandalPersona.currentPersonaMode } returns PersonaMode.BORING
+        val queryVector = floatArrayOf(1.0f, 0.0f, 0.0f)
+        coEvery { embeddingEngine.embed(any()) } returns queryVector
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
+            MemorySearchResult(
+                id = "core-1",
+                content = "User prefers concise answers",
+                source = "core",
+                score = 0.95f,
+            ),
+            MemorySearchResult(
+                id = "kiwi-1",
+                content = "Nek Minnit",
+                source = "kiwi",
+                score = 0.99f,
+                term = "Nek Minnit",
+                definition = "A classic Kiwi meme phrase.",
+            ),
+        )
+
+        val result = ragRepository.getRelevantContext("be concise", conversationId = "test-conv")
+
+        assertTrue(result.contains("User prefers concise answers"))
+        assertFalse(result.contains("[NZ Context: Nek Minnit]"))
+        coVerify(exactly = 1) {
+            memoryRepository.searchMemories(any(), coreTopK = 6, episodicTopK = 3, kiwiTopK = 0)
+        }
     }
 }

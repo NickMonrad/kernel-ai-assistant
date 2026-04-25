@@ -28,7 +28,7 @@ class SkillRegistry @Inject constructor(
     fun buildNativeDeclarations(): String {
         if (registry.isEmpty()) return ""
         val others = registry.values
-            .filter { it.name != "load_skill" }
+            .filter { it.name !in HIDDEN_FROM_PUBLIC_SKILL_LIST }
             .sortedBy { it.name }
 
         return buildString {
@@ -36,5 +36,9 @@ class SkillRegistry @Inject constructor(
                 appendLine("  - ${skill.name}: ${skill.description.take(80)}")
             }
         }.trimEnd()
+    }
+
+    private companion object {
+        val HIDDEN_FROM_PUBLIC_SKILL_LIST = setOf("load_skill", "run_js", "get_weather_gps")
     }
 }
