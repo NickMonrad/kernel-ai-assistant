@@ -987,9 +987,6 @@ class ChatViewModel @Inject constructor(
                 if (effectiveRagContext.isNotBlank()) append("$effectiveRagContext\n\n")
                 if (anaphoraContext.isNotBlank()) append("$anaphoraContext\n\n")
                 if (systemContext != null) append("$systemContext\n\n")
-                if (effectiveRagContext.isNotBlank() || systemContext != null) {
-                    append("[System: If the answer depends on provided context, memory, or tool output, copy exact dates, numbers, names, titles, and quoted phrases exactly as written. You may still explain or analyse them when the user asks, but do not mutate literal facts. If the exact detail is not present, say you are not sure.]\n\n")
-                }
                 if (isToolQuery) {
                     buildToolUsePrompt()
                         .takeIf { it.isNotBlank() }
