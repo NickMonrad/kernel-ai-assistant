@@ -171,6 +171,7 @@ class ChatViewModel @Inject constructor(
      */
     val isConversationReady: StateFlow<Boolean> = _conversationInitialized.asStateFlow()
     private val _showThinkingProcess = MutableStateFlow(true)
+    private val _correctGroundedFactsEnabled = MutableStateFlow(false)
 
     /** Ensures at most one concurrent Gemma-4 initialisation attempt. */
     private val gemma4InitMutex = Mutex()
@@ -468,7 +469,7 @@ class ChatViewModel @Inject constructor(
             .filter { states -> downloadManager.areRequiredModelsDownloaded() }
             .first()
 
-        gemma4InitMutex.withLock {
+       gemma4InitMutex.withLock {
             if (inferenceEngine.isReady.value) return
 
             val preferred = downloadManager.preferredConversationModel()
@@ -481,6 +482,7 @@ class ChatViewModel @Inject constructor(
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
                 activeContextWindowSize = settings.contextWindowSize
                 _showThinkingProcess.value = settings.showThinkingProcess
+                _correctGroundedFactsEnabled.value = settings.correctGroundedFactsEnabled
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
                     systemPrompt = buildSystemPrompt(),
@@ -525,7 +527,7 @@ class ChatViewModel @Inject constructor(
 
             val preferred = downloadManager.preferredConversationModel()
             val modelPath = downloadManager.getModelPath(preferred) ?: return
-            activeModel = preferred
+         activeModel = preferred
             try {
                 // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
                 // embeddingEngine.close() removed — it silently broke search_memory (#445)
@@ -533,6 +535,7 @@ class ChatViewModel @Inject constructor(
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
                 activeContextWindowSize = settings.contextWindowSize
                 _showThinkingProcess.value = settings.showThinkingProcess
+                _correctGroundedFactsEnabled.value = settings.correctGroundedFactsEnabled
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
                     systemPrompt = buildSystemPrompt(),
@@ -1048,8 +1051,13 @@ class ChatViewModel @Inject constructor(
                             }
                         }
 
-                        is GenerationResult.Complete -> {
-                            val fullContent = correctGroundedFacts(accumulatedContent.toString(), groundingContext)
+                      is GenerationResult.Complete -> {
+                            val rawContent = accumulatedContent.toString()
+                            val fullContent = if (_correctGroundedFactsEnabled.value) {
+                                correctGroundedFacts(rawContent, groundingContext)
+                            } else {
+                                rawContent
+                            }
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
 
                             // With native SDK tool calling, tool execution happens
