@@ -1,6 +1,7 @@
 package com.kernel.ai.core.memory.usecase
 
 import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.pm.ApplicationInfo
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
