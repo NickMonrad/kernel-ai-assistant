@@ -1,12 +1,12 @@
 package com.kernel.ai.core.memory.usecase
 
 import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.pm.ApplicationInfo
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import com.kernel.ai.core.memory.rag.RagRepository
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Named
@@ -14,6 +14,9 @@ import javax.inject.Named
 /**
  * Loads and applies the verbose logging preference from DataStore.
  * Called once at app startup to initialize RagRepository's verbose logging flag.
+ *
+ * Injects the DataStore from AboutPreferencesModule to avoid multiple active
+ * DataStore instances on the same file (which causes IllegalStateException).
  */
 class VerboseLoggingPreferenceUseCase @Inject constructor(
     @ApplicationContext private val context: Context,

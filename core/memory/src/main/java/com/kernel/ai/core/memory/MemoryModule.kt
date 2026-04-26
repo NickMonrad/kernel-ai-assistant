@@ -19,6 +19,8 @@ import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.MemoryRepositoryImpl
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepositoryImpl
+import com.kernel.ai.core.memory.dao.MealPlanSessionDao
+import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.vector.SqliteVecStore
 import com.kernel.ai.core.memory.vector.VectorStore
 import dagger.Binds
@@ -71,6 +73,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_20_21,
                     KernelDatabase.MIGRATION_21_22,
                     KernelDatabase.MIGRATION_22_23,
+                    KernelDatabase.MIGRATION_23_24,
                 )
                 .build()
 
@@ -118,5 +121,13 @@ abstract class MemoryModule {
         @Singleton
         fun provideContactAliasRepository(dao: ContactAliasDao): ContactAliasRepository =
             ContactAliasRepository(dao)
+
+        @Provides
+        fun provideMealPlanSessionDao(db: KernelDatabase): MealPlanSessionDao = db.mealPlanSessionDao()
+
+        @Provides
+        @Singleton
+        fun provideMealPlanSessionRepository(dao: MealPlanSessionDao): MealPlanSessionRepository =
+            MealPlanSessionRepository(dao)
     }
 }

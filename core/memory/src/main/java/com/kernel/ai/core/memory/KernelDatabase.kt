@@ -7,6 +7,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.kernel.ai.core.memory.dao.ContactAliasDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
+import com.kernel.ai.core.memory.dao.MealPlanSessionDao
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.ConversationDao
@@ -20,6 +21,7 @@ import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.entity.ContactAliasEntity
 import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
+import com.kernel.ai.core.memory.entity.MealPlanSessionEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.ConversationEntity
@@ -47,8 +49,9 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ContactAliasEntity::class,
         ListItemEntity::class,
         ListNameEntity::class,
+        MealPlanSessionEntity::class,
     ],
-    version = 23,
+    version = 24,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -68,6 +71,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun listItemDao(): ListItemDao
     abstract fun listNameDao(): ListNameDao
     abstract fun kiwiMemoryDao(): KiwiMemoryDao
+    abstract fun mealPlanSessionDao(): MealPlanSessionDao
 
     companion object {
         /** Adds lastDistilledAt to conversations (#165) and lastAccessedAt to episodic_memories (#167). */
@@ -275,6 +279,27 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_22_23 = object : Migration(22, 23) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE quick_actions ADD COLUMN presentationJson TEXT DEFAULT NULL")
+            }
+        }
+
+        /** Creates meal_plan_sessions table for conversation-scoped meal planning state (#689). */
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS meal_plan_sessions (
+                        conversationId TEXT NOT NULL PRIMARY KEY,
+                        status TEXT NOT NULL DEFAULT 'collecting_preferences',
+                        peopleCount INTEGER DEFAULT NULL,
+                        days INTEGER DEFAULT NULL,
+                        dietaryRestrictionsJson TEXT NOT NULL DEFAULT '[]',
+                        proteinPreferencesJson TEXT NOT NULL DEFAULT '[]',
+                        highLevelPlanJson TEXT DEFAULT NULL,
+                        currentDayIndex INTEGER DEFAULT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
             }
         }
     }
