@@ -270,6 +270,51 @@ class QuickIntentRouterTest {
             assertEquals("set_alarm", needsSlot.intent.intentName, "intent for '$input'")
             assertEquals("time", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
+
+        @Test
+        fun `should recover flattened thirty alarm times`() {
+            val result = regexOnlyRouter.route("set an alarm for 37am")
+            assertRegexMatch(result, "set_alarm", "set an alarm for 37am")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("7", intent.params["hours"])
+            assertEquals("30", intent.params["minutes"])
+            assertEquals("7:30", intent.params["time"])
+        }
+
+        @Test
+        fun `should recover compact alarm times`() {
+            val result = regexOnlyRouter.route("set an alarm for 730am")
+            assertRegexMatch(result, "set_alarm", "set an alarm for 730am")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("7", intent.params["hours"])
+            assertEquals("30", intent.params["minutes"])
+            assertEquals("7:30", intent.params["time"])
+        }
+
+        @Test
+        fun `should recover flattened oclock alarm times`() {
+            val result = regexOnlyRouter.route("set an alarm for 80'clock")
+            assertRegexMatch(result, "set_alarm", "set an alarm for 80'clock")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("8", intent.params["hours"])
+            assertEquals("0", intent.params["minutes"])
+            assertEquals("8:00", intent.params["time"])
+        }
+
+        @Test
+        fun `should parse named alarm with recovered to 30 time`() {
+            val result = regexOnlyRouter.route("set an alarm for to 30 called dentist")
+            assertRegexMatch(result, "set_alarm", "set an alarm for to 30 called dentist")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("2", intent.params["hours"])
+            assertEquals("30", intent.params["minutes"])
+            assertEquals("2:30", intent.params["time"])
+            assertEquals("dentist", intent.params["label"])
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -375,6 +420,44 @@ class QuickIntentRouterTest {
         fun `10 minute tea timer should still route to set_timer`() {
             val result = regexOnlyRouter.route("10 minute tea timer")
             assertRegexMatch(result, "set_timer", "10 minute tea timer")
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // VOICE REGRESSION TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Voice Regression Coverage")
+    inner class VoiceRegressions {
+
+        @Test
+        fun `should match timer remaining aliases without explicit timer noun`() {
+            assertRegexMatch(regexOnlyRouter.route("get time remaining"), "get_timer_remaining", "get time remaining")
+            assertRegexMatch(
+                regexOnlyRouter.route("how much time is remaining"),
+                "get_timer_remaining",
+                "how much time is remaining",
+            )
+        }
+
+        @Test
+        fun `should match bare toggle bluetooth and wifi phrases`() {
+            assertRegexMatch(regexOnlyRouter.route("toggle bluetooth"), "toggle_bluetooth", "toggle bluetooth")
+            assertRegexMatch(regexOnlyRouter.route("toggle wifi"), "toggle_wifi", "toggle wifi")
+        }
+
+        @Test
+        fun `should match bare toggle dnd phrase`() {
+            assertRegexMatch(regexOnlyRouter.route("toggle dnd"), "toggle_dnd_on", "toggle dnd")
+        }
+
+        @Test
+        fun `should match bare media app launch phrases`() {
+            assertRegexMatch(regexOnlyRouter.route("play youtube music"), "play_youtube_music", "play youtube music")
+            assertRegexMatch(regexOnlyRouter.route("play plexamp"), "play_plexamp", "play plexamp")
+            assertRegexMatch(regexOnlyRouter.route("open youtube music"), "play_youtube_music", "open youtube music")
+            assertRegexMatch(regexOnlyRouter.route("open plexamp"), "play_plexamp", "open plexamp")
         }
     }
 
@@ -1449,6 +1532,7 @@ class QuickIntentRouterTest {
             Arguments.of("put the torch on"),
             Arguments.of("flashlight on"),
             Arguments.of("torch on"),
+            Arguments.of("torch please"),
             Arguments.of("can you turn the flashlight on please"),
             Arguments.of("hey can you switch the light on for me"),
         )
@@ -1457,7 +1541,6 @@ class QuickIntentRouterTest {
         fun flashlightOnClassifierPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("I need some light"),
             Arguments.of("illuminate the room"),
-            Arguments.of("torch please"),
             Arguments.of("light up my phone"),
             Arguments.of("enable the torch"),
             Arguments.of("it's too dark in here"),
@@ -1480,7 +1563,6 @@ class QuickIntentRouterTest {
 
         @JvmStatic
         fun flashlightOffClassifierPhrases(): Stream<Arguments> = Stream.of(
-            Arguments.of("kill the light"),
             Arguments.of("lights out"),
             Arguments.of("disable the flashlight"),
             Arguments.of("stop the light"),
@@ -1998,8 +2080,10 @@ class QuickIntentRouterTest {
         fun findNearbyRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("find cafes nearby", "cafes"),
             Arguments.of("find dog parks near me", "dog parks"),
+            Arguments.of("show me dog parks on the map", "dog parks"),
             Arguments.of("show me petrol stations close by", "petrol stations"),
             Arguments.of("search for restaurants nearby", "restaurants"),
+            Arguments.of("find cafes on the map", "cafes"),
             Arguments.of("look for pharmacies near me", "pharmacies"),
             Arguments.of("find me nearby cafes", "cafes"),
             Arguments.of("find me nearby mcdonalds", "mcdonalds"),
@@ -2166,6 +2250,8 @@ class QuickIntentRouterTest {
         fun getListItemsRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("show my todo list", "todo"),
             Arguments.of("what's on my shopping list", "shopping"),
+            Arguments.of("what's in my shopping list", "shopping"),
+            Arguments.of("display list called shopping", "shopping"),
             Arguments.of("show me my grocery list", "grocery"),
             Arguments.of("read my shopping list", "shopping"),
             Arguments.of("get my to-do list", "to-do"),

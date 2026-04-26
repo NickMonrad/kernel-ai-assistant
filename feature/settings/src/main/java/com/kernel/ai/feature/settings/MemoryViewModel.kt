@@ -8,6 +8,7 @@ import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
+import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,7 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
-enum class MemorySection { CORE, EPISODIC, EMBEDDING_STATS }
+enum class MemorySection { CORE, EPISODIC, EMBEDDING_STATS, KIWI }
 
 private data class SearchExpandState(
     val expandedSections: Set<MemorySection>,
@@ -74,6 +75,8 @@ class MemoryViewModel @Inject constructor(
         // #179 — detail views
         val selectedCoreMemoryDetail: CoreMemoryEntity? = null,
         val selectedEpisodicMemoryDetail: EpisodicMemoryEntity? = null,
+        // #500 — Cultural Memories (kiwi corpus)
+        val kiwiMemories: List<KiwiMemoryEntity> = emptyList(),
     )
 
     private val _dialogState = MutableStateFlow(
@@ -226,6 +229,10 @@ class MemoryViewModel @Inject constructor(
                 selectedCoreMemoryDetail = coreDetail,
                 selectedEpisodicMemoryDetail = episodicDetail,
             )
+        }
+        // Step 8: + kiwi (Cultural Memories) — #500
+        .combine(memoryRepository.observeAllKiwiMemories()) { base, kiwiList ->
+            base.copy(kiwiMemories = kiwiList)
         }
         .stateIn(
             scope = viewModelScope,

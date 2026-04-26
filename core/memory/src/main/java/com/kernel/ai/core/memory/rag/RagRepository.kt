@@ -3,6 +3,8 @@ package com.kernel.ai.core.memory.rag
 import android.util.Log
 import com.kernel.ai.core.inference.ContextWindowManager
 import com.kernel.ai.core.inference.EmbeddingEngine
+import com.kernel.ai.core.inference.JandalPersona
+import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
@@ -36,11 +38,18 @@ class RagRepository @Inject constructor(
     private val embeddingDao: MessageEmbeddingDao,
     private val memoryRepository: MemoryRepository,
     private val episodicMemoryDao: EpisodicMemoryDao,
+    private val jandalPersona: JandalPersona,
 ) {
     companion object {
         private const val TAG = "RagRepository"
         private const val TABLE = "message_embeddings"
         private const val DEFAULT_TOP_K = 3
+        private const val LONG_TERM_MEMORY_TOP_K = 6
+        private const val FULL_KIWI_MEMORY_TOP_K = 6
+        private const val HALF_KIWI_MEMORY_TOP_K = 2
+        private const val FULL_MAX_LONG_TERM_MEMORY_LINES = 6
+        private const val HALF_MAX_LONG_TERM_MEMORY_LINES = 5
+        private const val BORING_MAX_LONG_TERM_MEMORY_LINES = 4
         /** Minimum message content length to surface in search results.
          *  Prevents short conversational acknowledgements ("Choice bro", "The above")
          *  from polluting search_memory responses. */
@@ -130,14 +139,32 @@ class RagRepository @Inject constructor(
             "Use it to inform your response where relevant — do not repeat it verbatim.\n\n"
         val framingTokenCost = (framingHeader.length + charsPerToken - 1) / charsPerToken
         var tokenBudgetRemaining = maxTokens - framingTokenCost
+        val personaMode = jandalPersona.currentPersonaMode
+        val kiwiTopK = when (personaMode) {
+            PersonaMode.FULL -> FULL_KIWI_MEMORY_TOP_K
+            PersonaMode.HALF -> HALF_KIWI_MEMORY_TOP_K
+            PersonaMode.BORING -> 0
+        }
+        val maxLongTermMemoryLines = when (personaMode) {
+            PersonaMode.FULL -> FULL_MAX_LONG_TERM_MEMORY_LINES
+            PersonaMode.HALF -> HALF_MAX_LONG_TERM_MEMORY_LINES
+            PersonaMode.BORING -> BORING_MAX_LONG_TERM_MEMORY_LINES
+        }
 
         // --- Core + Distilled Episodic Memories ---
         val coreMemoryLines = mutableListOf<String>()
         val distilledMemoryLines = mutableListOf<String>()
         runCatching {
-            val allMemoryResults = memoryRepository.searchMemories(queryVector, coreTopK = 10, episodicTopK = 3)
+            val allMemoryResults = memoryRepository.searchMemories(
+                queryVector,
+                coreTopK = LONG_TERM_MEMORY_TOP_K,
+                episodicTopK = 3,
+                kiwiTopK = kiwiTopK,
+            )
             val coreResults = allMemoryResults
-                .filter { it.source == "core" }
+                .filter { result ->
+                    result.source == "core" || (personaMode != PersonaMode.BORING && result.source == "kiwi")
+                }
                 // Primary: semantic relevance. Secondary: recency (recently-accessed facts win ties).
                 .sortedWith(compareByDescending<MemorySearchResult> { it.score }.thenByDescending { it.lastAccessedAt })
             val distilledResults = allMemoryResults
@@ -150,7 +177,7 @@ class RagRepository @Inject constructor(
                     val snippet = if (r.term.isNotEmpty()) "[${r.term}] ${r.definition}" else r.content
                     "rank=$i term=${r.term} src=${r.source} score=${r.score} dist=${String.format("%.3f", 1f - r.score)} access=${r.lastAccessedAt} snippet=${snippet.take(60)}"
                 }.joinToString(" | ")
-                logVerbose("Core candidates (${coreResults.size}): $coreLog")
+                logVerbose("Long-term candidates (${coreResults.size}): $coreLog")
             }
             if (distilledResults.isNotEmpty()) {
                 val distilledLog = distilledResults.mapIndexed { i, r ->
@@ -164,7 +191,7 @@ class RagRepository @Inject constructor(
             val coreFooter = "[End of core memories]"
             val coreOverhead = (coreHeader.length + coreFooter.length + charsPerToken - 1) / charsPerToken
             var coreBudget = tokenBudgetRemaining - coreOverhead
-            for (result in coreResults) {
+            for (result in coreResults.take(maxLongTermMemoryLines)) {
                 val line = if (result.term.isNotEmpty() && result.definition.isNotEmpty()) {
                     Log.d(TAG, "NZ truth injected: [${result.term}] vibe=${result.source} dist=~${String.format("%.3f", 1f - result.score)}")
                     "[NZ Context: ${result.term}] ${result.definition}".take(400)

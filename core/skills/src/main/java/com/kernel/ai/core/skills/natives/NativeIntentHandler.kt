@@ -30,6 +30,7 @@ import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.DayOfWeek
 import java.time.Instant
@@ -51,6 +52,11 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.runBlocking
 
 private const val TAG = "KernelAI"
+private const val ALARM_RECEIVER_CLASS = "com.kernel.ai.alarm.AlarmBroadcastReceiver"
+private const val EXTRA_ALARM_LABEL = "alarm_label"
+private const val EXTRA_ALARM_ID = "alarm_id"
+private const val EXTRA_ALARM_TITLE = "alarm_title"
+private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
 
 /**
  * Central dispatcher for all native Android operations triggered via the [run_intent][RunIntentSkill] gateway.
@@ -64,7 +70,7 @@ private const val TAG = "KernelAI"
  *   send_email              — ACTION_SENDTO mailto: URI (params: subject, body)
  *   send_sms                — ACTION_SENDTO SMS composer (params: message)
  *   set_alarm               — AlarmClock.ACTION_SET_ALARM (params: hours, minutes, label)
- *   set_timer               — AlarmClock.ACTION_SET_TIMER (params: duration_seconds, label)
+ *   set_timer               — Built-in timer via AlarmManager (params: duration_seconds, label)
  *   create_calendar_event   — CalendarContract ACTION_INSERT edit screen (params: title, date, time?, duration_minutes?, description?)
  *   get_battery             — BatteryManager capacity + charging state
  *   get_time / get_date     — LocalDateTime formatted display
@@ -193,6 +199,7 @@ class NativeIntentHandler @Inject constructor(
      */
     private fun normalizeIntentName(raw: String): String {
         val trimmed = raw.trim().lowercase()
+        INTENT_ALIASES[trimmed]?.let { return it }
         if (trimmed in KNOWN_INTENTS) return trimmed
         // Strip all word separators and compare canonically
         val stripped = trimmed.replace(Regex("[_\\s]+"), "")
@@ -200,6 +207,10 @@ class NativeIntentHandler @Inject constructor(
     }
 
     companion object {
+        private val INTENT_ALIASES = mapOf(
+            "get_list" to "get_list_items",
+        )
+
         private val KNOWN_INTENTS = setOf(
             "toggle_flashlight_on", "toggle_flashlight_off",
             "send_email", "send_sms", "make_call",
@@ -220,6 +231,14 @@ class NativeIntentHandler @Inject constructor(
             "smart_home_on", "smart_home_off",
             "get_weather", "get_date_diff", "get_system_info",
             "save_memory",
+        )
+
+        private val GENERIC_MEDIA_QUERY_KEYS = setOf(
+            "music",
+            "somemusic",
+            "songs",
+            "asong",
+            "some songs".replace(" ", ""),
         )
     }
 
@@ -393,32 +412,21 @@ class NativeIntentHandler @Inject constructor(
     private fun setTimer(params: Map<String, String>): SkillResult {
         val seconds = params["duration_seconds"]?.toIntOrNull()
             ?: return SkillResult.Failure("run_intent", "duration_seconds is required and must be an integer.")
-        val intent = Intent(AlarmClock.ACTION_SET_TIMER).apply {
-            putExtra(AlarmClock.EXTRA_LENGTH, seconds)
-            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
-            params["label"]?.takeIf { it.isNotBlank() }?.let {
-                putExtra(AlarmClock.EXTRA_MESSAGE, it)
-            }
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        if (context.packageManager.resolveActivity(intent, 0) == null) {
-            return SkillResult.Failure("run_intent", "No clock app found to set a timer.")
-        }
+        val durationMs = seconds * 1000L
+        val label = params["label"]?.takeIf { it.isNotBlank() }
+        val now = System.currentTimeMillis()
+        val timer = ScheduledAlarmEntity(
+            id = UUID.randomUUID().toString(),
+            entryType = "TIMER",
+            label = label,
+            durationMs = durationMs,
+            startedAtMs = now,
+            triggerAtMillis = now + durationMs,
+            createdAt = now,
+        )
         return try {
-            context.startActivity(intent)
-            val durationMs = seconds * 1000L
-            val label = params["label"]?.takeIf { it.isNotBlank() }
-            runBlocking {
-                scheduledAlarmDao.insert(ScheduledAlarmEntity(
-                    id = UUID.randomUUID().toString(),
-                    entryType = "TIMER",
-                    label = label,
-                    durationMs = durationMs,
-                    startedAtMs = System.currentTimeMillis(),
-                    triggerAtMillis = System.currentTimeMillis() + durationMs,
-                    createdAt = System.currentTimeMillis(),
-                ))
-            }
+            runBlocking { scheduledAlarmDao.insert(timer) }
+            scheduleTimerBroadcast(timer)
             val mins = seconds / 60
             val secs = seconds % 60
             val labelStr = when {
@@ -427,23 +435,22 @@ class NativeIntentHandler @Inject constructor(
                 else -> "$seconds seconds"
             }
             SkillResult.Success("Timer set for $labelStr.")
-        } catch (e: ActivityNotFoundException) {
-            SkillResult.Failure("run_intent", "No clock app found to set a timer.")
+        } catch (e: Exception) {
+            SkillResult.Failure("run_intent", "Could not set the timer.")
         }
     }
 
     private fun cancelTimer(): SkillResult {
-        // ACTION_DISMISS_TIMER (API 26+) stops any ringing timer and cancels
-        // all running timers — covers both "stop that noise" and "cancel timer".
-        val intent = Intent(AlarmClock.ACTION_DISMISS_TIMER).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        val timers = runBlocking { scheduledAlarmDao.getAllTimers() }
+        if (timers.isEmpty()) return SkillResult.DirectReply("No timers running.")
+        runBlocking {
+            timers.forEach { timer ->
+                cancelTimerBroadcast(timer)
+                scheduledAlarmDao.delete(timer.id)
+            }
         }
-        return try {
-            context.startActivity(intent)
-            SkillResult.Success("Timer cancelled.")
-        } catch (e: ActivityNotFoundException) {
-            SkillResult.Failure("run_intent", "No clock app found to cancel the timer.")
-        }
+        val count = timers.size
+        return SkillResult.Success("Cancelled $count timer${if (count == 1) "" else "s"}.")
     }
 
     // ── Timer Registry ────────────────────────────────────────────────────────
@@ -467,22 +474,20 @@ class NativeIntentHandler @Inject constructor(
 
     private fun cancelTimerNamed(params: Map<String, String>): SkillResult {
         val name = params["name"] ?: return cancelTimer()
-        val deleted = runBlocking {
-            val byName = scheduledAlarmDao.deleteTimerByName(name)
-            if (byName > 0) byName
-            else parseDurationToMs(name)?.let { scheduledAlarmDao.deleteTimerByDuration(it) } ?: 0
+        val durationMs = parseDurationToMs(name)
+        val timers = runBlocking { scheduledAlarmDao.getAllTimers() }
+        val matches = timers.filter { timer ->
+            timer.label?.equals(name, ignoreCase = true) == true ||
+                (durationMs != null && timer.durationMs == durationMs)
         }
-        if (deleted == 0) return SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
-        // Also dismiss via clock app so any ringing/running timer actually stops
-        return try {
-            context.startActivity(Intent(AlarmClock.ACTION_DISMISS_TIMER).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            })
-            SkillResult.Success("Cancelled the $name timer")
-        } catch (e: ActivityNotFoundException) {
-            // DB entry removed — partial success
-            SkillResult.Success("Cancelled the $name timer (clock app unavailable to stop it)")
+        if (matches.isEmpty()) return SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
+        runBlocking {
+            matches.forEach { timer ->
+                cancelTimerBroadcast(timer)
+                scheduledAlarmDao.delete(timer.id)
+            }
         }
+        return SkillResult.Success("Cancelled the $name timer")
     }
 
     private fun getTimerRemaining(params: Map<String, String>): SkillResult {
@@ -499,7 +504,7 @@ class NativeIntentHandler @Inject constructor(
         }
         return if (remMs != null && remMs > 0) {
             val label = timer.label ?: "Timer"
-            SkillResult.DirectReply("$label — ${formatDuration(remMs / 1000)} remaining")
+            SkillResult.DirectReply("$label — ${formatSpokenDuration(remMs / 1000)} remaining")
         } else {
             SkillResult.DirectReply("Timer has finished.")
         }
@@ -518,6 +523,18 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
+    private fun formatSpokenDuration(seconds: Long): String {
+        val hrs = seconds / 3600
+        val mins = (seconds % 3600) / 60
+        val secs = seconds % 60
+        val parts = buildList {
+            if (hrs > 0) add("$hrs hour${if (hrs != 1L) "s" else ""}")
+            if (mins > 0) add("$mins minute${if (mins != 1L) "s" else ""}")
+            if (secs > 0 || isEmpty()) add("$secs second${if (secs != 1L) "s" else ""}")
+        }
+        return parts.joinToString(" ")
+    }
+
     private fun parseDurationToMs(text: String): Long? {
         val match = Regex("""(\d+)\s*(minute|min|hour|hr|second|sec)""", RegexOption.IGNORE_CASE).find(text)
             ?: return null
@@ -527,6 +544,46 @@ class NativeIntentHandler @Inject constructor(
             "minute", "min" -> amount * 60_000L
             else -> amount * 1_000L
         }
+    }
+
+    private fun scheduleTimerBroadcast(timer: ScheduledAlarmEntity) {
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        val broadcastIntent = Intent().apply {
+            component = android.content.ComponentName(
+                context.packageName,
+                ALARM_RECEIVER_CLASS,
+            )
+            putExtra(EXTRA_ALARM_LABEL, timer.label ?: "Timer")
+            putExtra(EXTRA_ALARM_ID, timer.id)
+            putExtra(EXTRA_ALARM_TITLE, "Timer")
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            timer.id.hashCode(),
+            broadcastIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, timer.triggerAtMillis, pendingIntent)
+    }
+
+    private fun cancelTimerBroadcast(timer: ScheduledAlarmEntity) {
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        val broadcastIntent = Intent().apply {
+            component = android.content.ComponentName(
+                context.packageName,
+                ALARM_RECEIVER_CLASS,
+            )
+            putExtra(EXTRA_ALARM_LABEL, timer.label ?: "Timer")
+            putExtra(EXTRA_ALARM_ID, timer.id)
+            putExtra(EXTRA_ALARM_TITLE, "Timer")
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            timer.id.hashCode(),
+            broadcastIntent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        )
+        pendingIntent?.let { alarmManager.cancel(it) }
     }
 
     // ── Calendar ──────────────────────────────────────────────────────────────
@@ -767,9 +824,10 @@ class NativeIntentHandler @Inject constructor(
         am.dispatchMediaKeyEvent(down)
         am.dispatchMediaKeyEvent(up)
         val label = when (keyCode) {
-            KeyEvent.KEYCODE_MEDIA_PAUSE    -> "Paused"
-            KeyEvent.KEYCODE_MEDIA_STOP     -> "Stopped"
-            KeyEvent.KEYCODE_MEDIA_NEXT     -> "Skipped to next track"
+            KeyEvent.KEYCODE_MEDIA_PLAY -> "Started playback"
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> "Paused"
+            KeyEvent.KEYCODE_MEDIA_STOP -> "Stopped"
+            KeyEvent.KEYCODE_MEDIA_NEXT -> "Skipped to next track"
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "Previous track"
             else -> "Done"
         }
@@ -844,15 +902,20 @@ class NativeIntentHandler @Inject constructor(
     // ── Plexamp ──
 
     private fun playPlexamp(params: Map<String, String>): SkillResult {
-        val query = params["query"] ?: return SkillResult.Failure("play_plexamp", "No search query provided")
-        // Plexamp doesn't register a searchable activity, so ACTION_SEARCH throws
-        // ActivityNotFoundException even when the app is installed. Fall back to launching
-        // the app directly via its launcher intent.
-        val launchIntent = context.packageManager.getLaunchIntentForPackage("tv.plex.labs.plexamp")
+        val query = normalizeMediaAppQuery(params["query"])
+        val launchIntent = findLaunchIntent(
+            appName = "plexamp",
+            preferredPackage = "tv.plex.labs.plexamp",
+        )
         return if (launchIntent != null) {
             launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
             context.startActivity(launchIntent)
-            SkillResult.Success("Opening Plexamp — search for: $query")
+            if (query != null) {
+                SkillResult.Success("Opening Plexamp for: $query")
+            } else {
+                dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY)
+                SkillResult.Success("Opening Plexamp and starting playback")
+            }
         } else {
             SkillResult.Failure("play_plexamp", "Plexamp app not installed")
         }
@@ -861,7 +924,21 @@ class NativeIntentHandler @Inject constructor(
     // ── YouTube Music ──
 
     private fun playYoutubeMusic(params: Map<String, String>): SkillResult {
-        val query = params["query"] ?: return SkillResult.Failure("play_youtube_music", "No search query provided")
+        val query = normalizeMediaAppQuery(params["query"])
+        if (query == null) {
+            val launchIntent = findLaunchIntent(
+                appName = "youtube music",
+                preferredPackage = "com.google.android.apps.youtube.music",
+            )
+            return if (launchIntent != null) {
+                launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                context.startActivity(launchIntent)
+                dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY)
+                SkillResult.Success("Opening YouTube Music and starting playback")
+            } else {
+                SkillResult.Failure("play_youtube_music", "YouTube Music app not installed")
+            }
+        }
         return try {
             // ACTION_VIEW with a music.youtube.com URL navigates directly to search results
             // in the app, which is a better UX than ACTION_SEARCH (which only opens the search bar).
@@ -943,12 +1020,7 @@ class NativeIntentHandler @Inject constructor(
 
     private fun openApp(params: Map<String, String>): SkillResult {
         val appName = params["app_name"] ?: return SkillResult.Failure("open_app", "No app name provided")
-        val pm = context.packageManager
-        // Try to find a matching app by label
-        val matchingApp = pm.getInstalledApplications(0).firstOrNull { appInfo ->
-            pm.getApplicationLabel(appInfo).toString().equals(appName, ignoreCase = true)
-        }
-        val launchIntent = matchingApp?.let { pm.getLaunchIntentForPackage(it.packageName) }
+        val launchIntent = findLaunchIntent(appName)
         return if (launchIntent != null) {
             launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
             context.startActivity(launchIntent)
@@ -956,6 +1028,35 @@ class NativeIntentHandler @Inject constructor(
         } else {
             SkillResult.Failure("open_app", "Could not find app: $appName")
         }
+    }
+
+    private fun findLaunchIntent(appName: String, preferredPackage: String? = null): Intent? {
+        val pm = context.packageManager
+        preferredPackage?.let { preferred ->
+            pm.getLaunchIntentForPackage(preferred)?.let { return it }
+        }
+        val requestedKey = normalizeAppLookupKey(appName)
+        val matchingApp = pm.getInstalledApplications(0).firstOrNull { appInfo ->
+            val labelKey = normalizeAppLookupKey(pm.getApplicationLabel(appInfo).toString())
+            val packageKey = normalizeAppLookupKey(appInfo.packageName)
+            labelKey == requestedKey || packageKey.endsWith(requestedKey)
+        } ?: pm.getInstalledApplications(0).firstOrNull { appInfo ->
+            val labelKey = normalizeAppLookupKey(pm.getApplicationLabel(appInfo).toString())
+            val packageKey = normalizeAppLookupKey(appInfo.packageName)
+            labelKey.contains(requestedKey) || packageKey.contains(requestedKey)
+        }
+        return matchingApp?.let { pm.getLaunchIntentForPackage(it.packageName) }
+    }
+
+    private fun normalizeAppLookupKey(raw: String): String {
+        return raw.lowercase()
+            .replace(Regex("[^a-z0-9]+"), "")
+    }
+
+    private fun normalizeMediaAppQuery(raw: String?): String? {
+        val query = raw?.trim()?.trimEnd('.', ',', '!', '?')?.takeIf { it.isNotBlank() } ?: return null
+        val normalizedKey = normalizeAppLookupKey(query)
+        return if (normalizedKey in GENERIC_MEDIA_QUERY_KEYS) null else query
     }
 
     // ── Navigation ────────────────────────────────────────────────────────────
@@ -999,6 +1100,9 @@ class NativeIntentHandler @Inject constructor(
 
     private fun makeCall(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: return SkillResult.Failure("make_call", "No contact specified")
+        if (isVoicemailTarget(contact)) {
+            return openVoicemail(contact)
+        }
 
         // If the input looks like a phone number (digits, +, spaces, dashes), dial it directly.
         val looksLikeNumber = contact.replace(Regex("[\\s\\-().+]"), "").all { it.isDigit() } &&
@@ -1011,19 +1115,52 @@ class NativeIntentHandler @Inject constructor(
             )
         return try {
             // Use ACTION_CALL to auto-dial (hands-free use case — e.g. driving).
-            // Falls back to ACTION_DIAL if CALL_PHONE permission not yet granted.
             val canCall = context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
-            val action = if (canCall) Intent.ACTION_CALL else Intent.ACTION_DIAL
-            val intent = Intent(action, Uri.parse("tel:${Uri.encode(phoneNumber)}")).apply {
+            if (!canCall) {
+                return SkillResult.Failure("make_call", PHONE_PERMISSION_REQUIRED_ERROR)
+            }
+            val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(phoneNumber)}")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
-            SkillResult.Success(if (canCall) "Calling $contact" else "Opening dialer for $contact (grant Phone permission for auto-dial)")
+            SkillResult.Success("Calling $contact")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("make_call", "No phone app available")
         }
     }
+
+    private fun openVoicemail(label: String): SkillResult {
+        return try {
+            val canCall = context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!canCall) {
+                return SkillResult.Failure("make_call", PHONE_PERMISSION_REQUIRED_ERROR)
+            }
+            val intent = Intent(Intent.ACTION_CALL, Uri.parse("voicemail:")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            SkillResult.Success("Calling $label")
+        } catch (e: ActivityNotFoundException) {
+            SkillResult.Failure("make_call", "No phone app available")
+        }
+    }
+
+    private fun isVoicemailTarget(raw: String): Boolean {
+        val normalized = raw.trim().lowercase()
+            .replace(Regex("[^a-z0-9]+"), "")
+        return normalized == "voicemail"
+    }
+
+    private data class ContactPhoneCandidate(
+        val contactId: String,
+        val displayName: String,
+        val phoneNumber: String,
+        val isPrimary: Boolean,
+        val isSuperPrimary: Boolean,
+        val phoneType: Int,
+    )
 
     private fun resolveContactNumber(name: String): String? {
         // 0. Self-referential aliases — resolve to device's own phone number
@@ -1051,24 +1188,66 @@ class NativeIntentHandler @Inject constructor(
             return aliasMatch.phoneNumber
         }
 
-        // 2. ContactsContract fuzzy search — only pre-populate if unique match
+        val requestedKey = normalizeContactLookupKey(name)
+        val requestedTokens = tokenizeContactLookupTerms(name)
+
+        // 2. ContactsContract search — tokenize the request so direct contact names still
+        // resolve even when spacing/punctuation differ, and only auto-select when the best
+        // match points to a single contact.
         return try {
-            val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
-            val projection = arrayOf(
-                ContactsContract.CommonDataKinds.Phone.NUMBER,
-                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            val exactMatches = queryContactPhoneCandidates(
+                selection = requestedTokens.joinToString(" AND ") {
+                    "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
+                },
+                selectionArgs = requestedTokens.map { "%$it%" }.toTypedArray(),
             )
-            val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
-            val selectionArgs = arrayOf("%$name%")
-            context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-                val matches = mutableListOf<String>()
-                while (cursor.moveToNext()) {
-                    matches += cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER))
+            val matches = if (exactMatches.isNotEmpty() || requestedTokens.size <= 1) {
+                exactMatches
+            } else {
+                queryContactPhoneCandidates(
+                    selection = requestedTokens.joinToString(" OR ") {
+                        "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
+                    },
+                    selectionArgs = requestedTokens.map { "%$it%" }.toTypedArray(),
+                )
+            }
+            val rankedMatches = matches
+                .distinctBy { "${it.contactId}:${it.phoneNumber}" }
+                .mapNotNull { candidate ->
+                    scoreContactPhoneCandidate(
+                        requestedKey = requestedKey,
+                        requestedTokens = requestedTokens,
+                        candidate = candidate,
+                    )?.let { score -> candidate to score }
                 }
-                when (matches.size) {
-                    0 -> { Log.d(TAG, "Contact not found for '$name'"); null }
-                    1 -> { Log.d(TAG, "Contact resolved: '$name' → ${matches[0]}"); matches[0] }
-                    else -> { Log.d(TAG, "Multiple contacts match '$name' — not pre-populating"); null }
+            when {
+                rankedMatches.isEmpty() -> {
+                    Log.d(TAG, "Contact not found for '$name'")
+                    null
+                }
+                else -> {
+                    val bestScore = rankedMatches.maxOf { it.second }
+                    val topMatches = rankedMatches.filter { it.second == bestScore }
+                    val topContactIds = topMatches
+                        .map { it.first.contactId }
+                        .toSet()
+                    if (topContactIds.size != 1) {
+                        Log.d(TAG, "Multiple contacts match '$name' at top score — not pre-populating")
+                        null
+                    } else {
+                        val selected = topMatches
+                            .map { it.first }
+                            .sortedWith(
+                                compareByDescending<ContactPhoneCandidate> { it.isSuperPrimary }
+                                    .thenByDescending { it.isPrimary }
+                                    .thenByDescending {
+                                        it.phoneType == ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE
+                                    }
+                            )
+                            .first()
+                        Log.d(TAG, "Contact resolved: '$name' → ${selected.phoneNumber}")
+                        selected.phoneNumber
+                    }
                 }
             }
         } catch (e: SecurityException) {
@@ -1078,6 +1257,176 @@ class NativeIntentHandler @Inject constructor(
             Log.w(TAG, "Contact lookup failed for '$name'", e)
             null
         }
+    }
+
+    private fun queryContactPhoneCandidates(
+        selection: String,
+        selectionArgs: Array<String>,
+    ): List<ContactPhoneCandidate> {
+        val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+        val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Phone.NUMBER,
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
+            ContactsContract.CommonDataKinds.Phone.IS_PRIMARY,
+            ContactsContract.CommonDataKinds.Phone.IS_SUPER_PRIMARY,
+            ContactsContract.CommonDataKinds.Phone.TYPE,
+        )
+        return context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+            val matches = mutableListOf<ContactPhoneCandidate>()
+            while (cursor.moveToNext()) {
+                val phoneNumber = cursor.getString(
+                    cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                )
+                if (phoneNumber.isNullOrBlank()) continue
+                matches += ContactPhoneCandidate(
+                    contactId = cursor.getString(
+                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
+                    ) ?: "",
+                    displayName = cursor.getString(
+                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                    ) ?: "",
+                    phoneNumber = phoneNumber,
+                    isPrimary = cursor.getInt(
+                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.IS_PRIMARY)
+                    ) == 1,
+                    isSuperPrimary = cursor.getInt(
+                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.IS_SUPER_PRIMARY)
+                    ) == 1,
+                    phoneType = cursor.getInt(
+                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.TYPE)
+                    ),
+                )
+            }
+            matches
+        }.orEmpty()
+    }
+
+    private fun normalizeContactLookupKey(raw: String): String {
+        return raw.lowercase()
+            .replace(Regex("[^a-z0-9]+"), " ")
+            .trim()
+            .replace(Regex("\\s+"), " ")
+    }
+
+    private fun tokenizeContactLookupTerms(raw: String): List<String> {
+        return normalizeContactLookupKey(raw)
+            .split(" ")
+            .filter { it.isNotBlank() }
+            .ifEmpty { listOf(raw.trim()) }
+    }
+
+    private fun scoreContactPhoneCandidate(
+        requestedKey: String,
+        requestedTokens: List<String>,
+        candidate: ContactPhoneCandidate,
+    ): Int? {
+        val candidateKey = normalizeContactLookupKey(candidate.displayName)
+        if (candidateKey.isBlank()) return null
+        val candidateTokens = candidateKey.split(" ").filter { it.isNotBlank() }
+        val requestedPhrase = requestedTokens.joinToString(" ")
+        val fuzzyTokenScore = scoreFuzzyContactTokens(requestedTokens, candidateTokens)
+        return when {
+            candidateKey == requestedKey -> 500
+            candidateKey.startsWith("$requestedPhrase ") -> 420
+            candidateTokens.any { it == requestedKey } -> 380
+            requestedTokens.all { token -> candidateTokens.contains(token) } -> 320
+            candidateKey.contains(requestedPhrase) -> 260
+            candidateKey.contains(requestedKey.replace(" ", "")) -> 220
+            fuzzyTokenScore != null -> fuzzyTokenScore
+            else -> null
+        }
+    }
+
+    private fun scoreFuzzyContactTokens(
+        requestedTokens: List<String>,
+        candidateTokens: List<String>,
+    ): Int? {
+        if (requestedTokens.isEmpty() || candidateTokens.isEmpty()) return null
+        val unusedCandidateIndexes = candidateTokens.indices.toMutableSet()
+        var exactMatches = 0
+        var fuzzyMatches = 0
+        var totalScore = 0
+
+        for (requestedToken in requestedTokens) {
+            val exactIndex = unusedCandidateIndexes.firstOrNull { candidateTokens[it] == requestedToken }
+            if (exactIndex != null) {
+                unusedCandidateIndexes.remove(exactIndex)
+                exactMatches += 1
+                totalScore += 80
+                continue
+            }
+
+            val fuzzyMatch = unusedCandidateIndexes
+                .mapNotNull { index ->
+                    scoreSimilarContactToken(requestedToken, candidateTokens[index])?.let { score ->
+                        index to score
+                    }
+                }
+                .maxByOrNull { it.second }
+                ?: return null
+
+            unusedCandidateIndexes.remove(fuzzyMatch.first)
+            fuzzyMatches += 1
+            totalScore += fuzzyMatch.second
+        }
+
+        if (fuzzyMatches == 0) return null
+        if (requestedTokens.size > 1 && exactMatches == 0) return null
+        return 180 + totalScore
+    }
+
+    private fun scoreSimilarContactToken(requestedToken: String, candidateToken: String): Int? {
+        if (requestedToken.length < 4 || candidateToken.length < 4) return null
+        val normalizedRequested = normalizePhoneticContactToken(requestedToken)
+        val normalizedCandidate = normalizePhoneticContactToken(candidateToken)
+        val maxLength = maxOf(normalizedRequested.length, normalizedCandidate.length)
+        if (maxLength == 0 || kotlin.math.abs(normalizedRequested.length - normalizedCandidate.length) > 2) {
+            return null
+        }
+        val distance = levenshteinDistance(normalizedRequested, normalizedCandidate)
+        return when {
+            distance == 0 -> 74
+            distance == 1 -> 68
+            distance == 2 && maxLength >= 6 -> 56
+            else -> null
+        }
+    }
+
+    private fun normalizePhoneticContactToken(raw: String): String {
+        return raw.lowercase()
+            .replace(Regex("[^a-z0-9]"), "")
+            .replace("ph", "f")
+            .replace("ck", "k")
+            .replace("qu", "kw")
+            .replace('q', 'k')
+            .replace('x', 's')
+            .replace('z', 's')
+            .replace('v', 'f')
+            .replace('y', 'i')
+    }
+
+    private fun levenshteinDistance(left: String, right: String): Int {
+        if (left == right) return 0
+        if (left.isEmpty()) return right.length
+        if (right.isEmpty()) return left.length
+
+        val previous = IntArray(right.length + 1) { it }
+        val current = IntArray(right.length + 1)
+
+        left.forEachIndexed { leftIndex, leftChar ->
+            current[0] = leftIndex + 1
+            right.forEachIndexed { rightIndex, rightChar ->
+                val substitutionCost = if (leftChar == rightChar) 0 else 1
+                current[rightIndex + 1] = minOf(
+                    current[rightIndex] + 1,
+                    previous[rightIndex + 1] + 1,
+                    previous[rightIndex] + substitutionCost,
+                )
+            }
+            current.copyInto(previous)
+        }
+        return previous[right.length]
     }
 
     /** Resolves a contact name to an email address. Only pre-populates on unique match. */
@@ -1125,11 +1474,15 @@ class NativeIntentHandler @Inject constructor(
         val item = params["item"] ?: return SkillResult.Failure("add_to_list", "No item specified")
         val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
         val listName = normalizeListName(raw)
-        runBlocking {
+        val items = runBlocking {
             listNameDao.insert(ListNameEntity(name = listName))
             listItemDao.insert(ListItemEntity(listName = listName, item = item))
+            listItemDao.getByList(listName)
         }
-        return SkillResult.DirectReply("Added \"$item\" to your $listName.")
+        return SkillResult.DirectReply(
+            "Added \"$item\" to your $listName.",
+            presentation = buildListPreview(listName, items),
+        )
     }
 
     private fun bulkAddToList(params: Map<String, String>): SkillResult {
@@ -1144,13 +1497,15 @@ class NativeIntentHandler @Inject constructor(
             itemsParam.split(",").map { it.trim() }.filter { it.isNotBlank() }
         }
         if (items.isEmpty()) return SkillResult.Failure("bulk_add_to_list", "No valid items to add")
-        runBlocking {
+        val currentItems = runBlocking {
             listNameDao.insert(ListNameEntity(name = listName))
             items.forEach { listItemDao.insert(ListItemEntity(listName = listName, item = it)) }
+            listItemDao.getByList(listName)
         }
         return SkillResult.DirectReply(
             "Added ${items.size} item${if (items.size == 1) "" else "s"} to your $listName:\n" +
-                items.joinToString(", ")
+                items.joinToString(", "),
+            presentation = buildListPreview(listName, currentItems),
         )
     }
 
@@ -1158,7 +1513,10 @@ class NativeIntentHandler @Inject constructor(
         val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
         val name = raw.lowercase().trim()
         runBlocking { listNameDao.insert(ListNameEntity(name = name)) }
-        return SkillResult.DirectReply("Created list \"$name\".")
+        return SkillResult.DirectReply(
+            "Created list \"$name\".",
+            presentation = buildListPreview(name, emptyList(), "No items yet."),
+        )
     }
 
     private fun getListItems(params: Map<String, String>): SkillResult {
@@ -1166,10 +1524,16 @@ class NativeIntentHandler @Inject constructor(
         val listName = normalizeListName(raw)
         val items = runBlocking { listItemDao.getByList(listName) }
         return if (items.isEmpty()) {
-            SkillResult.DirectReply("Your $listName is empty.")
+            SkillResult.DirectReply(
+                "Your $listName is empty.",
+                presentation = buildListPreview(listName, emptyList(), "No items yet."),
+            )
         } else {
             val bullets = items.joinToString("\n") { "• ${it.item}" }
-            SkillResult.DirectReply("$listName (${items.size} item${if (items.size == 1) "" else "s"}):\n$bullets")
+            SkillResult.DirectReply(
+                "$listName (${items.size} item${if (items.size == 1) "" else "s"}):\n$bullets",
+                presentation = buildListPreview(listName, items),
+            )
         }
     }
 
@@ -1181,8 +1545,14 @@ class NativeIntentHandler @Inject constructor(
         val match = all.firstOrNull { it.item.equals(item, ignoreCase = true) }
             ?: all.firstOrNull { it.item.contains(item, ignoreCase = true) }
             ?: return SkillResult.DirectReply("\"$item\" not found in $listName.")
-        runBlocking { listItemDao.deleteItem(match.id) }
-        return SkillResult.DirectReply("Removed \"${match.item}\" from $listName.")
+        val remaining = runBlocking {
+            listItemDao.deleteItem(match.id)
+            listItemDao.getByList(listName)
+        }
+        return SkillResult.DirectReply(
+            "Removed \"${match.item}\" from $listName.",
+            presentation = buildListPreview(listName, remaining, "No items left."),
+        )
     }
 
     // ── Smart Home (stub — pending #311 / #312) ───────────────────────────────
@@ -1273,8 +1643,44 @@ class NativeIntentHandler @Inject constructor(
                 append(" — $targetFormatted.")
             }
         }
-        return SkillResult.DirectReply(reply)
+        val primaryText = when {
+            days == 0L -> "Today"
+            days > 0 -> "$absDays day${if (absDays != 1L) "s" else ""}"
+            else -> "$absDays day${if (absDays != 1L) "s" else ""} ago"
+        }
+        val contextText = when {
+            days == 0L -> targetFormatted
+            days > 0 -> "Until $targetFormatted"
+            else -> "Since $targetFormatted"
+        }
+        val breakdownText = if (weeks > 0) {
+            buildString {
+                append("$weeks week${if (weeks != 1L) "s" else ""}")
+                if (remainderDays > 0) {
+                    append(", $remainderDays day${if (remainderDays != 1L) "s" else ""}")
+                }
+            }
+        } else null
+        return SkillResult.DirectReply(
+            reply,
+            presentation = ToolPresentation.ComputedResult(
+                primaryText = primaryText,
+                contextText = contextText,
+                breakdownText = breakdownText,
+            ),
+        )
     }
+
+    private fun buildListPreview(
+        listName: String,
+        items: List<ListItemEntity>,
+        emptyMessage: String? = null,
+    ): ToolPresentation.ListPreview = ToolPresentation.ListPreview(
+        title = listName,
+        items = items.sortedByDescending { it.addedAt }.map { it.item },
+        totalCount = items.size,
+        emptyMessage = emptyMessage,
+    )
 
     /**
      * Parses a date string in various natural formats, including named NZ/common holidays.
@@ -1539,8 +1945,12 @@ class NativeIntentHandler @Inject constructor(
             "${m.groupValues[1]}:${m.groupValues[2]}${meridiem}"
         }
 
+        // 0b. Recover malformed time strings produced by upstream number flattening.
+        //     "36:00" -> "6:30", "37:00" -> "7:30", "80:00" -> "8:00"
+        val recovered = recoverMalformedTime(expanded)
+
         // 1. Strip extra trailing digits after a valid HH:mm prefix (e.g. "18:0000" → "18:00").
-        val stripped = Regex("""^(\d{1,2}:\d{2})\d+(.*)$""").replace(expanded) { m ->
+        val stripped = Regex("""^(\d{1,2}:\d{2})\d+(.*)$""").replace(recovered) { m ->
             m.groupValues[1] + m.groupValues[2]
         }
 
@@ -1570,7 +1980,28 @@ class NativeIntentHandler @Inject constructor(
                 return LocalTime.parse(input, fmt)
             } catch (_: DateTimeParseException) { /* try next */ }
         }
-        Log.w(TAG, "resolveTime: could not parse '$raw' (expanded='$expanded', normalized='$input')")
+        Log.w(TAG, "resolveTime: could not parse '$raw' (expanded='$expanded', recovered='$recovered', normalized='$input')")
         return null
+    }
+
+    private fun recoverMalformedTime(input: String): String {
+        val flattenedThirty = Regex("""^(3[1-9]|4[0-2]):00(\s*(?:am|pm|AM|PM))?$""")
+        flattenedThirty.matchEntire(input)?.let { match ->
+            val rawHour = match.groupValues[1].toIntOrNull() ?: return@let
+            val meridiem = match.groupValues[2]
+            val hour = rawHour - 30
+            if (hour in 1..12) {
+                return "$hour:30$meridiem"
+            }
+        }
+
+        val flattenedOclock = Regex("""^([1-9]|1[0-2])0:00(\s*(?:am|pm|AM|PM))?$""")
+        flattenedOclock.matchEntire(input)?.let { match ->
+            val hour = match.groupValues[1].toIntOrNull() ?: return@let
+            val meridiem = match.groupValues[2]
+            return "$hour:00$meridiem"
+        }
+
+        return input
     }
 }

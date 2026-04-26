@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-04-19 (revised post-PR #646, closes #637)
+> **Last updated:** 2026-04-22 (docs refresh for #523 / PR #682; prompt/tool-routing docs updated)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -119,19 +119,35 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 ### 3.2 Prompt Assembly Order
 
 ```
-[System Prompt]          ← persona (FULL ~200t / MINIMAL ~25t), date/time
+[System Prompt]          ← persona (FULL / HALF / BORING; MINIMAL for tool turns), date/time
 [User Profile]           ← structured YAML injection (name, role, environment, context, rules)
 [Core Memories]          ← permanent facts split by category:
-                           user (coreTopK=10), agent_identity (identityTopK=5)
+                            user (coreTopK=10), agent_identity (identityTopK=5)
                            CORE_MAX_DISTANCE=1.25; NZ truths further filtered by vibe level
 [Episodic Memories]      ← distilled conversation summaries (EPISODIC_MAX_DISTANCE=1.10, episodicTopK=3)
 [Message History]        ← semantically relevant messages from current conversation (MAX_DISTANCE=0.90, topK=5)
 [Conversation Window]    ← selected recent turns (75% token budget)
-[Current User Message]   ← with RAG context prepended
+[Current User Message]   ← with RAG context prepended; tool instructions prepended only for tool-like turns
 ```
 
 **Identity tiers:** `IdentityTier.FULL` (Chat) includes greeting, vocab phrases, profile, and history.
-`IdentityTier.MINIMAL` (Actions tab) uses a slim ~25-token prompt with no profile/history.
+`IdentityTier.MINIMAL` (Actions tab / tool-like turns) uses a slim prompt with no profile/history.
+
+**Persona modes:** `PersonaMode.FULL`, `HALF`, and `BORING` are user-selectable from Model Management.
+New installs default to **Half a Jandal**. Full mode keeps the strongest Kiwi flavour, Half mode keeps
+the tone but reduces random slang and trims kiwi-memory injection, and Boring mode disables Kiwi vocab
+and kiwi RAG entirely.
+
+**Per-turn tool injection:** The `[Tool Use]` block is no longer baked into every chat system prompt.
+`ChatViewModel` injects it only when the current turn is considered tool-like:
+
+- `QuickIntentRouter.RouteResult.FallThrough` has a non-null `bestGuess`, or
+- `looksLikeToolQuery(text)` matches explicit tool-oriented phrasing such as "search Wikipedia",
+  "look up", "set alarm", "remember", or "add to my list"
+
+This keeps ordinary chat lean while preserving tool guidance for explicit tool requests. When adding a
+new skill whose user phrasing is not obviously tool-like, the corresponding router coverage or
+`looksLikeToolQuery(...)` patterns should be updated so the skill remains reachable.
 
 All sections are conditionally included — omitted entirely if no results meet their distance threshold. Token budget is allocated sequentially: Core → Episodic → Message History.
 
@@ -254,7 +270,7 @@ surfacing in `search_memory` responses (#323).
 
 #### What to verify on first launch after install
 
-1. **Seeding triggered:** Check logcat for `JandalPersona` tag — should log `"Seeding X NZ truth memories"`. Triggered by absence of `truths_seeded_v27` SharedPrefs key.
+1. **Seeding triggered:** Check logcat for `JandalPersona` tag — should log `"Seeding X NZ truth memories"`. Triggered by absence of the current `truths_seeded_v29` SharedPrefs key.
 2. **138 entries seeded:** Settings → Core Memories should show ~138 entries with category `agent_identity`.
 3. **Correct vector text embedded:** Each entry's `content` is the `vector_text` from the JSON (dense keywords), not the definition.
 
@@ -385,13 +401,14 @@ ExperimentalFlags.enableConversationConstrainedDecoding = false
 > calls `loadSkill()` to retrieve full parameter docs, examples, and enforcement rules
 > on demand. This keeps the baseline prompt compact and improves tool call accuracy.
 
-**KernelAIToolSet gateway (5 tools):**
+**KernelAIToolSet gateway tools:**
 
 | Gateway | Tool method | Dispatcher | Use for |
 |---------|------------|-----------|---------|
 | Meta | `loadSkill(skillName)` | `LoadSkillSkill` | Load full instructions before using any tool |
-| Native | `runIntent(intentName, parameters)` | `NativeIntentHandler.kt` | Android OS intents (alarm, timer, email, SMS, torch, calendar) |
-| WebView JS | `runJs(skillName, query, forecastDays)` | `JsSkillRunner.kt` | JS skills in `assets/skills/` (weather, Wikipedia) |
+| Native | `runIntent(intentName, parameters)` | `NativeIntentHandler.kt` | Android OS intents and deterministic local actions (alarm, timer, DND, media, navigation, date diff, lists, etc.) |
+| WebView JS | `runJs(skillName, query, forecastDays)` | `JsSkillRunner.kt` | JS skills in `assets/skills/` (currently Wikipedia and a legacy city-weather path) |
+| Native | `getWeather(location, forecastDays)` | `GetWeatherUnifiedSkill.kt` | Unified weather entry point (GPS + explicit city + indirect-location resolution) |
 | Memory | `saveMemory(content)` | `SaveMemorySkill` | Store facts to long-term memory |
 | Memory | `searchMemory(query)` | `SearchMemorySkill` | Semantic search across memories |
 
@@ -424,16 +441,26 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 | `toggle_flashlight_off` | Torch off | `CameraManager.setTorchMode(false)` | ✅ |
 | `send_email` | Email composer | `ACTION_SEND` + `message/rfc822` | ✅ |
 | `send_sms` | SMS composer | `ACTION_SENDTO` + `smsto:` | ✅ |
+| `make_call` | Dialer / call handoff | `ACTION_DIAL` | ✅ |
 | `set_alarm` | Set alarm | `AlarmClock.ACTION_SET_ALARM` | ✅ |
 | `set_timer` | Countdown timer | `AlarmClock.ACTION_SET_TIMER` | ✅ |
 | `create_calendar_event` | Add calendar event | `ACTION_INSERT` + `CONTENT_URI` | ✅ |
+| `toggle_dnd_on/off` | Do Not Disturb | `NotificationManager.setInterruptionFilter()` | ✅ |
+| `toggle_wifi` / `toggle_bluetooth` | Connectivity toggles | Settings / adapter bridge | ✅ |
+| `toggle_airplane_mode` / `toggle_hotspot` | Settings handoff | Settings intent / guarded flow | ✅ |
+| `set_volume` | Media volume | `AudioManager` | ✅ |
+| `play_media` family | Media playback / app-specific launches | Media session + explicit app intents | ✅ |
+| `navigate_to` / `find_nearby` / `open_app` | Navigation / nearby / launcher intents | Explicit Android intents | ✅ |
+| `get_battery` / `get_time` / `get_date` | Deterministic device info | Android APIs / `LocalDateTime` | ✅ |
+| `get_date_diff` | Deterministic date arithmetic | `LocalDate` calculation | ✅ |
+| `add_to_list` / `bulk_add_to_list` / `create_list` / `get_list_items` / `remove_from_list` | Room-backed list management | `NativeIntentHandler` + Room DAOs | ✅ |
 
 > **Package visibility (Android 11+):** `ACTION_SET_ALARM` and `ACTION_SET_TIMER` are declared
 > in a `<queries>` block in `AndroidManifest.xml` so `PackageManager.resolveActivity()` returns
 > non-null (#262). Without this, the guard always triggers "No clock app found" regardless of
 > whether a clock app is installed.
 
-> **Alarm hallucination guard:** The system prompt `[Tool Use]` section includes an explicit
+> **Alarm hallucination guard:** The per-turn `[Tool Use]` section includes an explicit
 > "Alarm rule" forcing `run_intent` for alarm requests (#263), matching the pattern used for
 > `save_memory`. The model's Siri/Google training bias would otherwise cause it to verbally
 > confirm alarms without ever calling the tool.
@@ -461,8 +488,8 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 
 | `skill_name` | Location | Status |
 |-------------|----------|--------|
-| `get-weather-city` | `assets/skills/get-weather-city/index.html` | ✅ (current + forecast) |
-| `query_wikipedia` | `assets/skills/query-wikipedia/index.html` | ✅ |
+| `get-weather-city` | `assets/skills/get-weather-city/index.html` | ✅ (legacy city-weather path; unified `getWeather()` is preferred) |
+| `query-wikipedia` | `assets/skills/query-wikipedia/index.html` | ✅ |
 
 > **`get-weather-city` forecast support (PR #269):** Pass `forecast_days` (integer 1–7) for a
 > day-by-day forecast instead of current conditions. When `forecast_days > 0` or
@@ -479,35 +506,41 @@ async function ai_edge_gallery_get_result(args) { /* ... */ return resultString;
 `JsSkillRunner` injects args as a JSON string, evaluates the function in a hidden WebView,
 and awaits the result with a 15s timeout.
 
-**Non-gateway skills (direct Skill implementations):**
+**Backing `Skill` implementations:**
 
 | Skill name | Description | Status |
 |------------|-------------|--------|
 | `get_system_info` | Device/model/backend/battery stats | ✅ |
+| `query_wikipedia` | Public Wikipedia lookup skill; loads focused instructions, then calls `run_js` with `skill_name="query-wikipedia"` | ✅ |
 | `save_memory` | Persist a note/fact to `core_memories_vec` | ✅ (explicit trigger only — see memory rule below) |
-| `search_memory` | Semantic search across `message_embeddings` — cross-conversation by default, or scoped to one conversation | ✅ |
+| `search_memory` | Semantic search across core memories, episodic memories, and `message_embeddings` | ✅ |
+| `get_weather_gps` / `get_weather` | Weather retrieval with GPS, explicit locations, and indirect-location resolution | ✅ |
 
 > **save_memory trigger:** Works reliably when the user explicitly says "remember", "save",
 > "don't forget", "can you remember", or "make a note of". Does not activate proactively from
 > implicit personal facts shared in conversation — small model limitation. The trigger is
-> enforced as a hard `[Tool Use]` rule in `ChatViewModel.buildSystemPrompt()`, not via the
-> skill description.
+> enforced via the per-turn tool-instruction context assembled in `ChatViewModel`, not via the
+> skill description alone.
 
-> **search_memory:** A direct `Skill` implementation (not a gateway skill) registered in
-> `SkillsModule.kt` via Hilt `@Binds @IntoSet`. Accepts a required `query` string,
-> optional `conversationId` (scopes search to one conversation for summary-to-detail
-> drill-down), and optional `topK` (default 5). Wraps `RagRepository.searchMessages()`,
-> which embeds the query and performs L2 distance search on `message_embeddings` at
-> `MAX_DISTANCE=1.10` (≈ cos_sim ≥ 0.40). Results are formatted as a numbered list with date, role, and
-> `conversation:ID` prefix. Uses a batch `MessageDao.getByIds()` call — single DB query
-> regardless of result count (avoids N+1). The system prompt injects its description as a
-> tool example so Gemma-4 knows when to invoke it.
+> **search_memory:** Exposed to the model via `KernelAIToolSet.searchMemory()` and backed by
+> `SearchMemorySkill`. It merges explicit memories (`MemoryRepository.searchMemories()`) with
+> raw message-history retrieval (`RagRepository.searchMessages()`). Message-history lookups use
+> sqlite-vec L2 distance on `message_embeddings` at `MAX_DISTANCE=0.90`, while core/episodic
+> memory retrieval uses the wider calibrated thresholds in `MemoryRepositoryImpl`
+> (`CORE_MAX_DISTANCE=1.25`, `EPISODIC_MAX_DISTANCE=1.10`). Results are returned as a numbered
+> direct reply with dates and conversation prefixes, bypassing LLM rephrasing to preserve detail.
 
-**System prompt `[Tool Use]` rules (enforced in `ChatViewModel.buildSystemPrompt()`):**
+**Per-turn `[Tool Use]` rules (injected only for tool-like turns by `ChatViewModel`):**
+- Injection gate: `QuickIntentRouter` fall-through with non-null `bestGuess`, or `looksLikeToolQuery(...)`
 - Memory rule: user says "remember", "save", "don't forget", "can you remember", or "make a note of" → MUST call `save_memory`
 - Alarm rule: user asks to set an alarm → MUST call `run_intent{intent_name: set_alarm}`
 - Weather rule: `GetWeatherSkill` description includes "ALWAYS call this tool, never use memory" to prevent Gemma-4 from serving stale weather from episodic memory instead of fetching fresh data (#322)
-- JS tool rule: `RunJsSkill` description similarly includes "ALWAYS call this tool, never use memory" (#322)
+- Wikipedia rule: `query_wikipedia` is the public skill surface for encyclopedia lookups; it loads focused instructions and then executes the internal `run_js` gateway with `skill_name="query-wikipedia"`
+
+> **Adding new skills:** Registering a skill automatically makes it available in the dynamically
+> generated tool list. If the skill serves requests that do not already look obviously tool-like,
+> update `looksLikeToolQuery(...)` and/or `QuickIntentRouter` best-guess coverage so the per-turn
+> `[Tool Use]` block is injected for those requests.
 
 ### 4.4 Extensible Skills (WebAssembly — Phase 5)
 
@@ -543,7 +576,7 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 - **Chat:** Streaming token display, thinking mode indicator, markdown rendering, multi-conversation
 - **Actions tab:** History list, FAB (⚡) for new commands, bottom sheet input, Room-persisted history
 - **Voice:** Tap-to-toggle with auto-stop on silence (future: "Hey Jandal" wake word)
-- **Skill results:** Inline rich cards in the conversation stream
+- **Skill results:** Inline rich cards in the conversation stream, with expandable list previews and link surfacing for fallback/plain-text results
 - **Persona:** Friendly, concise, dry-humoured Kiwi — see §7 for full identity details
 
 **Tool call debugging chip (`ToolCallChip`):** Tool calls appear as collapsible chips in the
@@ -620,7 +653,7 @@ Session vocab hint injected into prompt:
 
 `JandalPersona` seeds a structured corpus of 138 NZ cultural knowledge entries into the core memory store on first launch. These are loaded from `nz_truth_memories.json` in the `core/inference` assets.
 
-**Seed guard:** The key `truths_seeded_v27` in SharedPreferences (`jandal_persona` prefs file) prevents repeated seeding. If this key is absent (new install or key was bumped), all 138 entries are seeded. **Convention: bump the version suffix every time the corpus is reseeded** (e.g. `truths_seeded_v27` → `truths_seeded_v28`). This forces a full re-seed on all existing installs the next time the app launches, without requiring a DB wipe. The current key is `truths_seeded_v27`.
+**Seed guard:** The key `truths_seeded_v29` in SharedPreferences (`jandal_persona` prefs file) prevents repeated seeding. If this key is absent (new install or key was bumped), all 138 entries are seeded. **Convention: bump the version suffix every time the corpus changes materially** (e.g. `truths_seeded_v28` → `truths_seeded_v29`). This forces a full re-seed on existing installs the next time the app launches, without requiring a DB wipe. The current key is `truths_seeded_v29`.
 
 **JSON entry structure:**
 ```json
@@ -705,21 +738,21 @@ viewModelScope.launch {
 
 ---
 
-## 10. Development Prerequisites
+## 8. Development Prerequisites
 
 | Requirement | Detail |
 |-------------|--------|
 | Machine RAM | 32GB minimum (LiteRT builds + Android Emulator) |
 | Android Studio | Ladybug (2024.2.1) or newer |
 | Android NDK | Required for sqlite-vec JNI bridge |
-| JDK | 21 (Homebrew OpenJDK) |
+| JDK | 17 |
 | Min SDK | API 35 (Android 15) |
 | Target SDK | 36 |
 | Test device | Samsung Galaxy S23 Ultra (Snapdragon 8 Gen 2, 12GB RAM, Android 16) |
 
-**Backend note:** `Build.SOC_MANUFACTURER` on S23 Ultra returns `"QTI"` (not `"Qualcomm"`),
-so `hasQualcommNpu = false` and the backend falls through to GPU (OpenCL / Adreno 740).
-The NPU path requires `"Qualcomm"` string match — this is a known device quirk.
+**Backend note:** Current dev/test guidance assumes the Samsung Galaxy S23 Ultra uses the
+Hexagon NPU path when the required delegate and models are present, with GPU fallback still
+supported for first-run delegate warm-up or unsupported devices.
 
 ---
 
@@ -753,20 +786,26 @@ When adding dependencies or features that span multiple modules (especially feat
 ./gradlew lint                       # Android lint
 ./gradlew installDebug               # Build + install on connected device
 ./gradlew :core:inference:test       # Single-module test
+python3 scripts/adb_skill_test.py    # Device routing/profile regression harness
 ```
 
 **CI:** Runs lint + unit tests + debug build. No real model inference in CI — `InferenceEngine`
 is behind an interface and mocked in all tests. Models (~3GB) are never downloaded in CI.
 
+See [`docs/automated-testing.md`](./automated-testing.md) for the current automation overview,
+[`docs/adb-testing.md`](./adb-testing.md) for device bring-up/logcat workflows, and
+[`docs/testing/automated-test-specification.md`](./testing/automated-test-specification.md)
+for the larger planned coverage matrix.
+
 ---
 
-## 11. Roadmap Summary
+## 10. Roadmap Summary
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM chat + GPU/NPU + GPU alignment fixes + OOM protection | ✅ Complete |
 | 2 | sqlite-vec RAG + EmbeddingGemma + episodic distillation + memory UI | ✅ Complete |
-| 3 | Resident Agent Architecture: two-gateway skills (run_intent + run_js), E4B tool calling, alarm/timer/torch/email/SMS, Wikipedia, weather GPS | 🔄 In Progress |
+| 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, weather/list/date/media skills, and broader multi-turn support | 🔄 In Progress |
 | 4 | Dreaming Engine (overnight distillation) + Semantic Cache + Self-Healing Identity | ⬜ Planned |
 | 5 | Chicory Wasm Runtime + GitHub Skill Store | ⬜ Planned |
 | 6 | 8GB device optimisation (dynamic weight loading, E2B auto-select) + wake word | ⬜ Planned |

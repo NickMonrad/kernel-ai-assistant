@@ -1,6 +1,8 @@
 package com.kernel.ai.core.memory
 
 import com.kernel.ai.core.inference.EmbeddingEngine
+import com.kernel.ai.core.inference.JandalPersona
+import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
@@ -35,12 +37,22 @@ class RagRepositoryTest {
     private val embeddingDao: MessageEmbeddingDao = mockk()
     private val memoryRepository: MemoryRepository = mockk()
     private val episodicMemoryDao: EpisodicMemoryDao = mockk()
+    private val jandalPersona: JandalPersona = mockk()
 
     private lateinit var ragRepository: RagRepository
 
     @BeforeEach
     fun setUp() {
-        ragRepository = RagRepository(embeddingEngine, vectorStore, messageDao, embeddingDao, memoryRepository, episodicMemoryDao)
+        every { jandalPersona.currentPersonaMode } returns PersonaMode.HALF
+        ragRepository = RagRepository(
+            embeddingEngine = embeddingEngine,
+            vectorStore = vectorStore,
+            messageDao = messageDao,
+            embeddingDao = embeddingDao,
+            memoryRepository = memoryRepository,
+            episodicMemoryDao = episodicMemoryDao,
+            jandalPersona = jandalPersona,
+        )
     }
 
     /**
@@ -75,7 +87,7 @@ class RagRepositoryTest {
         coEvery { embeddingEngine.embed(any()) } returns queryVector
 
         // Memory tier: one core result — episodic table NOT created so no [Episodic Memories]
-        coEvery { memoryRepository.searchMemories(any(), any(), any(), any()) } returns listOf(
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
             MemorySearchResult(
                 id = "core-1",
                 content = "User prefers dark mode",
@@ -91,10 +103,32 @@ class RagRepositoryTest {
         assertTrue(!result.contains("[Episodic Memories"), "Output must NOT contain [Episodic Memories] when table not initialised")
         assertTrue(result.startsWith("The following context has been retrieved from memory."), "Output must start with framing instruction")
 
-        // Verify the correct topK contract — core gets 10 slots, episodic is suppressed (0)
+        // Verify the retrieval caps stay tight to avoid over-injecting long-term memories.
         coVerify(exactly = 1) {
-            memoryRepository.searchMemories(any(), coreTopK = 10, episodicTopK = 3)
+            memoryRepository.searchMemories(any(), coreTopK = 6, episodicTopK = 3, kiwiTopK = 2)
         }
+    }
+
+    @Test
+    fun `getRelevantContext — includes kiwi memories in long-term memory section`() = runTest {
+        val queryVector = floatArrayOf(1.0f, 0.0f, 0.0f)
+        coEvery { embeddingEngine.embed(any()) } returns queryVector
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
+            MemorySearchResult(
+                id = "kiwi-1",
+                content = "Flight of the Conchords are a New Zealand comedy duo",
+                source = "kiwi",
+                score = 0.96f,
+                term = "Flight of the Conchords",
+                definition = "A New Zealand musical comedy duo consisting of Bret McKenzie and Jemaine Clement.",
+            )
+        )
+
+        val result = ragRepository.getRelevantContext("who are flight of the conchords", conversationId = "test-conv")
+
+        assertTrue(result.contains("[Core Memories"), "Output must contain the long-term memory section")
+        assertTrue(result.contains("[NZ Context: Flight of the Conchords]"), "Kiwi memory should be formatted as NZ context")
+        assertTrue(result.contains("musical comedy duo"), "Kiwi definition should be injected into the prompt")
     }
 
     @Test
@@ -108,7 +142,7 @@ class RagRepositoryTest {
         coEvery { embeddingEngine.embed(any()) } returns sharedVector
 
         // Memory tier: core only (episodic from searchMemories is NOT rendered)
-        coEvery { memoryRepository.searchMemories(any(), any(), any(), any()) } returns listOf(
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
             MemorySearchResult(id = "core-1", content = "Core preference fact", source = "core", score = 0.9f),
         )
 
@@ -146,7 +180,7 @@ class RagRepositoryTest {
         coEvery { embeddingEngine.embed(any()) } returns queryVector
 
         // No memory results from either tier
-        coEvery { memoryRepository.searchMemories(any(), any(), any(), any()) } returns emptyList()
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns emptyList()
 
         // Note: tableCreated is false so vectorStore.search is NOT called;
         // both sections are empty → result is ""
@@ -164,7 +198,7 @@ class RagRepositoryTest {
         primeEpisodicTable(sharedVector)
 
         coEvery { embeddingEngine.embed(any()) } returns sharedVector
-        coEvery { memoryRepository.searchMemories(any(), any(), any(), any()) } returns emptyList()
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns emptyList()
 
         // Vector search returns two candidates — one from each conversation
         every { vectorStore.search(any(), any(), any()) } returns listOf(
@@ -202,7 +236,7 @@ class RagRepositoryTest {
         coEvery { embeddingEngine.embed(any()) } returns sharedVector
 
         // Memory tier throws — should be caught, not propagated
-        coEvery { memoryRepository.searchMemories(any(), any(), any(), any()) } throws RuntimeException("Memory DB failure")
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } throws RuntimeException("Memory DB failure")
 
         // Message history is still available
         val embeddingEntity = MessageEmbeddingEntity(rowId = 2L, messageId = "msg-2", conversationId = "conv-2")
@@ -232,7 +266,7 @@ class RagRepositoryTest {
 
         // Two memories with identical score — stale predates recent by access time.
         // Budget is deliberately tight (≈30 tokens) so only one fits.
-        coEvery { memoryRepository.searchMemories(any(), any(), any(), any()) } returns listOf(
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
             MemorySearchResult(id = "stale",  content = "Stale fact",  source = "core", score = 0.9f, lastAccessedAt = 1_000L),
             MemorySearchResult(id = "recent", content = "Recent fact", source = "core", score = 0.9f, lastAccessedAt = 9_000L),
         )
@@ -241,5 +275,59 @@ class RagRepositoryTest {
 
         assertTrue(result.contains("Recent fact"), "Higher lastAccessedAt must win the tiebreak and appear in output")
         assertFalse(result.contains("Stale fact"), "Lower lastAccessedAt must be truncated when budget is tight")
+    }
+
+    @Test
+    fun `getRelevantContext — caps long-term memory lines across core and kiwi`() = runTest {
+        val queryVector = floatArrayOf(1.0f, 0.0f, 0.0f)
+        coEvery { embeddingEngine.embed(any()) } returns queryVector
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns (1..8).map { index ->
+            MemorySearchResult(
+                id = "memory-$index",
+                content = "Memory $index",
+                source = if (index <= 4) "core" else "kiwi",
+                score = 1.0f - (index * 0.01f),
+                lastAccessedAt = (10_000 - index).toLong(),
+                term = if (index > 4) "Kiwi $index" else "",
+                definition = if (index > 4) "Definition $index" else "",
+            )
+        }
+
+        val result = ragRepository.getRelevantContext("query", conversationId = "c", maxTokens = 500)
+
+        assertTrue(result.contains("Memory 1"), "Top-ranked core memories should still be included")
+        assertTrue(result.contains("[NZ Context: Kiwi 5]"), "Top-ranked kiwi memories should be eligible for inclusion")
+        assertFalse(result.contains("Definition 8"), "Long-term memory injection must be capped to protect context budget")
+    }
+
+    @Test
+    fun `getRelevantContext — boring mode excludes kiwi memories entirely`() = runTest {
+        every { jandalPersona.currentPersonaMode } returns PersonaMode.BORING
+        val queryVector = floatArrayOf(1.0f, 0.0f, 0.0f)
+        coEvery { embeddingEngine.embed(any()) } returns queryVector
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
+            MemorySearchResult(
+                id = "core-1",
+                content = "User prefers concise answers",
+                source = "core",
+                score = 0.95f,
+            ),
+            MemorySearchResult(
+                id = "kiwi-1",
+                content = "Nek Minnit",
+                source = "kiwi",
+                score = 0.99f,
+                term = "Nek Minnit",
+                definition = "A classic Kiwi meme phrase.",
+            ),
+        )
+
+        val result = ragRepository.getRelevantContext("be concise", conversationId = "test-conv")
+
+        assertTrue(result.contains("User prefers concise answers"))
+        assertFalse(result.contains("[NZ Context: Nek Minnit]"))
+        coVerify(exactly = 1) {
+            memoryRepository.searchMemories(any(), coreTopK = 6, episodicTopK = 3, kiwiTopK = 0)
+        }
     }
 }

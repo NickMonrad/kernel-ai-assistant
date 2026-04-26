@@ -24,6 +24,10 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    companion object {
+        private const val PREFS_RUNTIME_PERMISSIONS = "runtime_permissions"
+        private const val KEY_ONBOARDING_PERMISSIONS_REQUESTED = "onboarding_permissions_requested"
+    }
 
     @Inject lateinit var authRepository: HuggingFaceAuthRepository
 
@@ -39,14 +43,8 @@ class MainActivity : ComponentActivity() {
     /** Bridges ADB `--es slot_reply_input` extras into ActionsViewModel.onSlotReply(). */
     private val adbSlotReplyInput = mutableStateOf<String?>(null)
 
-    private val requestNotificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
-
-    private val requestLocationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
-
-    private val requestContactsPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
+    private val requestOnboardingPermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* no-op */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,17 +53,7 @@ class MainActivity : ComponentActivity() {
         adbQuickActionInput.value = intent.getStringExtra("quick_action_input")
         adbSlotReplyInput.value = intent.getStringExtra("slot_reply_input")
         handleAdbProfileText(intent)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED) {
-            requestLocationPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-        }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
-                != PackageManager.PERMISSION_GRANTED) {
-            requestContactsPermission.launch(Manifest.permission.READ_CONTACTS)
-        }
+        requestStartupPermissionsIfNeeded()
         setContent {
             KernelAITheme {
                 KernelNavHost(
@@ -109,5 +97,36 @@ class MainActivity : ComponentActivity() {
             val normalized = text.replace("\\n", "\n")
             lifecycleScope.launch { userProfileRepository.save(normalized) }
         }
+    }
+
+    private fun requestStartupPermissionsIfNeeded() {
+        val prefs = getSharedPreferences(PREFS_RUNTIME_PERMISSIONS, MODE_PRIVATE)
+        val forcePromptForTests = intent?.getBooleanExtra("force_permission_prompt", false) == true
+        if (!forcePromptForTests && prefs.getBoolean(KEY_ONBOARDING_PERMISSIONS_REQUESTED, false)) return
+
+        val missingPermissions = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
+            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                add(Manifest.permission.READ_CONTACTS)
+            }
+        }
+
+        if (missingPermissions.isEmpty()) {
+            prefs.edit().putBoolean(KEY_ONBOARDING_PERMISSIONS_REQUESTED, true).apply()
+            return
+        }
+
+        // Mark before launch so a config change / activity restart doesn't re-trigger a staggered
+        // sequence of permission prompts across multiple app opens.
+        if (!forcePromptForTests) {
+            prefs.edit().putBoolean(KEY_ONBOARDING_PERMISSIONS_REQUESTED, true).apply()
+        }
+        requestOnboardingPermissions.launch(missingPermissions.toTypedArray())
     }
 }

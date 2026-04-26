@@ -6,6 +6,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.kernel.ai.core.memory.dao.ContactAliasDao
+import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.ConversationDao
@@ -18,6 +19,7 @@ import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.entity.ContactAliasEntity
+import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.ConversationEntity
@@ -38,6 +40,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         UserProfileEntity::class,
         EpisodicMemoryEntity::class,
         CoreMemoryEntity::class,
+        KiwiMemoryEntity::class,
         ModelSettingsEntity::class,
         QuickActionEntity::class,
         ScheduledAlarmEntity::class,
@@ -45,7 +48,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 21,
+    version = 23,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -64,6 +67,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun contactAliasDao(): ContactAliasDao
     abstract fun listItemDao(): ListItemDao
     abstract fun listNameDao(): ListNameDao
+    abstract fun kiwiMemoryDao(): KiwiMemoryDao
 
     companion object {
         /** Adds lastDistilledAt to conversations (#165) and lastAccessedAt to episodic_memories (#167). */
@@ -237,6 +241,40 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE core_memories ADD COLUMN triggerContext TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE core_memories ADD COLUMN vibeLevel INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE core_memories ADD COLUMN metadataJson TEXT NOT NULL DEFAULT '{}'")
+            }
+        }
+
+        /** Creates kiwi_memories table for NZ/Jandal corpus entries (#500). */
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `kiwi_memories` (
+                        `rowId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `id` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `lastAccessedAt` INTEGER NOT NULL,
+                        `accessCount` INTEGER NOT NULL DEFAULT 0,
+                        `source` TEXT NOT NULL,
+                        `vectorized` INTEGER NOT NULL DEFAULT 0,
+                        `category` TEXT NOT NULL DEFAULT 'agent_identity',
+                        `term` TEXT NOT NULL DEFAULT '',
+                        `definition` TEXT NOT NULL DEFAULT '',
+                        `triggerContext` TEXT NOT NULL DEFAULT '',
+                        `vibeLevel` INTEGER NOT NULL DEFAULT 1,
+                        `metadataJson` TEXT NOT NULL DEFAULT '{}'
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_kiwi_memories_id ON kiwi_memories (id)")
+            }
+        }
+
+        /** Adds presentationJson to quick_actions for rich tool result UI (#222). */
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE quick_actions ADD COLUMN presentationJson TEXT DEFAULT NULL")
             }
         }
     }

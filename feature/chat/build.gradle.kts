@@ -40,6 +40,7 @@ dependencies {
     implementation(project(":core:ui"))
     implementation(project(":core:inference"))
     implementation(project(":core:memory"))
+    implementation(project(":core:voice"))
     implementation(project(":core:skills"))
 
     // LiteRT-LM — needed to resolve ToolProvider / ToolSet types at compile time

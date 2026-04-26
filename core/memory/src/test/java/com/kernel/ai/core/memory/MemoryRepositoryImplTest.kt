@@ -2,6 +2,7 @@ package com.kernel.ai.core.memory
 
 import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
+import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.repository.MemoryRepositoryImpl
 import com.kernel.ai.core.memory.vector.VectorStore
 import io.mockk.Runs
@@ -24,13 +25,14 @@ class MemoryRepositoryImplTest {
 
     private val episodicDao: EpisodicMemoryDao = mockk()
     private val coreDao: CoreMemoryDao = mockk()
+    private val kiwiMemoryDao: KiwiMemoryDao = mockk()
     private val vectorStore: VectorStore = mockk()
 
     private lateinit var repository: MemoryRepositoryImpl
 
     @BeforeEach
     fun setUp() {
-        repository = MemoryRepositoryImpl(episodicDao, coreDao, vectorStore)
+        repository = MemoryRepositoryImpl(episodicDao, coreDao, kiwiMemoryDao, vectorStore)
     }
 
     /**

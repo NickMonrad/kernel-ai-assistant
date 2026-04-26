@@ -19,6 +19,7 @@ rootProject.name = "KernelAI"
 include(":app")
 include(":core:inference")
 include(":core:memory")
+include(":core:voice")
 include(":core:wasm")
 include(":core:ui")
 include(":core:skills")
