@@ -120,15 +120,18 @@ class KernelAIToolSet @Inject constructor(
     fun runJs(
         @ToolParam(description = "The JS skill name. Call loadSkill first to learn available skills.") skillName: String,
         @ToolParam(description = "The search query or input for the skill.") query: String,
-        @ToolParam(description = "Optional parameter — call loadSkill to learn what this skill needs.") forecastDays: String,
+        @ToolParam(description = "Additional parameters as key:value pairs in JSON. Call loadSkill first to learn required parameters.") parameters: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "run_js"
-        Log.d(TAG, "ToolSet: runJs($skillName, $query, forecastDays=$forecastDays)")
+        Log.d(TAG, "ToolSet: runJs($skillName, $query, params=$parameters)")
 
         val args = mutableMapOf("skill_name" to skillName, "query" to query)
-        if (forecastDays.isNotBlank() && forecastDays != "0") {
-            args["forecast_days"] = forecastDays
+        try {
+            val json = org.json.JSONObject(parameters.ifBlank { "{}" })
+            json.keys().forEach { key -> args[key] = json.optString(key) }
+        } catch (e: Exception) {
+            Log.w(TAG, "ToolSet: runJs params parse failed, treating as empty: ${e.message}")
         }
 
         val result = executeSkill("run_js", args)
