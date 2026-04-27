@@ -1063,10 +1063,11 @@ class ChatViewModel @Inject constructor(
                             // tool was invoked this turn for UI metadata.
                             val nativeToolCall = if (kernelAIToolSet.wasToolCalled()) {
                                 val name = kernelAIToolSet.lastToolName() ?: "unknown"
+                                val request = kernelAIToolSet.lastToolRequest() ?: ""
                                 val result = kernelAIToolSet.lastToolResult() ?: ""
                                 ToolCallInfo(
                                     skillName = name,
-                                    requestJson = "",
+                                    requestJson = request,
                                     resultText = result,
                                     isSuccess = !result.startsWith("error"),
                                     presentation = kernelAIToolSet.lastToolPresentation(),

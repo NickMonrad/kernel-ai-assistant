@@ -45,20 +45,28 @@ class KernelAIToolSet @Inject constructor(
 
     @Volatile private var toolCalledInThisTurn = false
     @Volatile private var lastToolName: String? = null
+    @Volatile private var lastToolRequest: String? = null
     @Volatile private var lastToolResult: String? = null
     @Volatile private var lastToolPresentation: ToolPresentation? = null
 
     fun resetTurnState() {
         toolCalledInThisTurn = false
         lastToolName = null
+        lastToolRequest = null
         lastToolResult = null
         lastToolPresentation = null
     }
 
     fun wasToolCalled(): Boolean = toolCalledInThisTurn
     fun lastToolName(): String? = lastToolName
+    fun lastToolRequest(): String? = lastToolRequest
     fun lastToolResult(): String? = lastToolResult
     fun lastToolPresentation(): ToolPresentation? = lastToolPresentation
+
+    private fun setLastToolCall(name: String, request: String) {
+        lastToolName = name
+        lastToolRequest = request
+    }
 
     // -------------------------------------------------------------------------
     // Gateway tools — each delegates to the matching Skill.execute()
@@ -69,7 +77,7 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "The skill name to load.") skillName: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
-        lastToolName = "load_skill"
+        setLastToolCall("load_skill", "{\"skill_name\":\"$skillName\"}")
         Log.d(TAG, "ToolSet: loadSkill($skillName)")
         val result = executeSkill("load_skill", mapOf("skill_name" to skillName))
         lastToolResult = result["result"] ?: result["error"]
@@ -82,7 +90,7 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "Additional parameters as key:value pairs in JSON. Call loadSkill first to learn required parameters.") parameters: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
-        lastToolName = "run_intent"
+        setLastToolCall("run_intent", "{\"intent_name\":\"$intentName\",\"parameters\":$parameters}")
         Log.d(TAG, "ToolSet: runIntent($intentName, $parameters)")
 
         val reservedSkillNames = setOf(
@@ -121,7 +129,7 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "A JSON object with skill_name (the JS skill to run) and data (a JSON object with the skill's parameters). Call loadSkill to learn the exact format.") parameters: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
-        lastToolName = "run_js"
+        setLastToolCall("run_js", parameters)
         Log.d(TAG, "ToolSet: runJs(params=$parameters)")
 
         val args = mutableMapOf<String, String>()
@@ -148,7 +156,7 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "Optional number of forecast days (1-7). Omit for current conditions only.") forecastDays: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
-        lastToolName = "get_weather"
+        setLastToolCall("get_weather", "{\"location\":\"$location\",\"forecast_days\":\"$forecastDays\"}")
         Log.d(TAG, "ToolSet: getWeather(location=$location, forecastDays=$forecastDays)")
 
         val args = mutableMapOf<String, String>()
@@ -169,7 +177,8 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "The exact fact or preference to save, verbatim as the user stated it.") content: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
-        lastToolName = "save_memory"
+        val safeContent = content.replace("\"", "\\\"").take(200)
+        setLastToolCall("save_memory", "{\"content\":\"$safeContent\"}")
         Log.d(TAG, "ToolSet: saveMemory(${content.take(60)})")
         val result = executeSkill("save_memory", mapOf("content" to content))
         lastToolResult = result["result"] ?: result["error"]
@@ -181,7 +190,7 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "What to search for in saved memories and past messages.") query: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
-        lastToolName = "search_memory"
+        setLastToolCall("search_memory", "{\"query\":\"$query\"}")
         Log.d(TAG, "ToolSet: searchMemory($query)")
         val result = executeSkill("search_memory", mapOf("query" to query))
         lastToolResult = result["result"] ?: result["error"]
