@@ -116,20 +116,23 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Execute JS-backed skills. First call loadSkill for the specific skill you want. DO NOT use when a dedicated skill exists.")
+    @Tool(description = "Run a JS-backed skill. Call loadSkill first to learn which skills are available and what parameters each needs.")
     fun runJs(
-        @ToolParam(description = "The JS skill name. Call loadSkill first to learn available skills.") skillName: String,
-        @ToolParam(description = "The search query or input for the skill.") query: String,
-        @ToolParam(description = "Additional parameters as key:value pairs in JSON. Call loadSkill first to learn required parameters.") parameters: String,
+        @ToolParam(description = "A JSON object with skill_name (the JS skill to run) and data (a JSON object with the skill's parameters). Call loadSkill to learn the exact format.") parameters: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "run_js"
-        Log.d(TAG, "ToolSet: runJs($skillName, $query, params=$parameters)")
+        Log.d(TAG, "ToolSet: runJs(params=$parameters)")
 
-        val args = mutableMapOf("skill_name" to skillName, "query" to query)
+        val args = mutableMapOf<String, String>()
         try {
             val json = org.json.JSONObject(parameters.ifBlank { "{}" })
-            json.keys().forEach { key -> args[key] = json.optString(key) }
+            val skillName = json.optString("skill_name", "")
+            val dataJson = json.opt("data")
+            if (dataJson is org.json.JSONObject) {
+                dataJson.keys().forEach { key -> args[key] = dataJson.optString(key) }
+            }
+            args["skill_name"] = skillName
         } catch (e: Exception) {
             Log.w(TAG, "ToolSet: runJs params parse failed, treating as empty: ${e.message}")
         }

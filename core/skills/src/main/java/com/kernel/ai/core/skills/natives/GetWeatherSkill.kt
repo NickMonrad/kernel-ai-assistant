@@ -164,8 +164,7 @@ class GetWeatherSkill @Inject constructor(
         ) {
             return SkillResult.Failure(
                 name,
-                "Location permission not granted. Try asking about weather in a specific city " +
-                    "using run_js with skill_name='get-weather-city'.",
+                "Location permission not granted. Try asking about weather in a specific city.",
             )
         }
         val loc = getLastKnownLocation()
