@@ -54,7 +54,7 @@ class RunJsSkill @Inject constructor(
     )
 
     override val examples: List<String> = listOf(
-        "Wikipedia search → runJs(skillName=\"query-wikipedia\", query=\"New Zealand\", forecastDays=\"\")",
+        "Wikipedia search → runJs(skillName=\"query-wikipedia\", query=\"New Zealand\")",
         "Weather current → runJs(skillName=\"get-weather-city\", query=\"Auckland\", forecastDays=\"\")",
         "Weather 3-day forecast → runJs(skillName=\"get-weather-city\", query=\"Auckland\", forecastDays=\"3\")",
         "Weather tomorrow → runJs(skillName=\"get-weather-city\", query=\"London\", forecastDays=\"1\")",

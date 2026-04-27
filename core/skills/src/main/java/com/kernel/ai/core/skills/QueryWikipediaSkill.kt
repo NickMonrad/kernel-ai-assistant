@@ -40,7 +40,7 @@ class QueryWikipediaSkill @Inject constructor(
         appendLine("$name: $description")
         appendLine()
         appendLine("Instructions:")
-        appendLine("- Call the run_js tool with skill_name=\"query-wikipedia\".")
+        appendLine("- Call the runJs tool with skill_name=\"query-wikipedia\".")
         appendLine("- Pass the lookup topic in the query parameter.")
         appendLine("- Do NOT pass forecast_days; that is only for the legacy city-weather JS skill.")
         appendLine("- For factual questions phrased as a sentence, search for the core topic/entity when possible.")
@@ -51,8 +51,8 @@ class QueryWikipediaSkill @Inject constructor(
         appendLine("- query (required) (string): The topic, entity, or article title to look up on Wikipedia.")
         appendLine()
         appendLine("Examples:")
-        appendLine("  Wikipedia search → runJs(skillName=\"query-wikipedia\", query=\"New Zealand\", forecastDays=\"\")")
-        appendLine("  Founding date lookup → runJs(skillName=\"query-wikipedia\", query=\"Constantinople\", forecastDays=\"\")")
+        appendLine("  Wikipedia search → runJs(skillName=\"query-wikipedia\", query=\"New Zealand\")")
+        appendLine("  Founding date lookup → runJs(skillName=\"query-wikipedia\", query=\"Constantinople\")")
     }
 
     override suspend fun execute(call: SkillCall): SkillResult {
