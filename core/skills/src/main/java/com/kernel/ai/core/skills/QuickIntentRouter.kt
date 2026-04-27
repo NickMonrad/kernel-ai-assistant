@@ -897,7 +897,7 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> mapOf("day" to "tomorrow") },
         ),
-        // Tomorrow weather with location: "what's the weather in Brisbane tomorrow"
+        // Tomorrow weather with location: "what's the weather in Brisbane tomorrow" / "tomorrow weather in Auckland"
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
@@ -911,11 +911,11 @@ class QuickIntentRouter(
                 else mapOf("day" to "tomorrow")
             },
         ),
-        // Tomorrow weather: "what's the weather tomorrow", "tomorrow weather"
+        // Tomorrow weather: "what's the weather tomorrow", "tomorrow weather", "how's the weather looking tomorrow"
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:what(?:'s| is)\s+(?:the\s+)?weather\s+tomorrow\s*$|tomorrow(?:'s)?\s+(?:weather|temperature)\s*$|how(?:'s|\s+is)\s+(?:the\s+)?weather\s+tomorrow\s*$)""",
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather\s+(?:looking\s+)?tomorrow\s*$|tomorrow(?:'s)?\s+(?:weather|temperature)\s*$|how(?:'s|\s+is)\s+(?:the\s+)?weather\s+(?:looking\s+)?tomorrow\s*$)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> mapOf("day" to "tomorrow") },
