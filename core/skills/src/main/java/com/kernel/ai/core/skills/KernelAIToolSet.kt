@@ -64,9 +64,9 @@ class KernelAIToolSet @Inject constructor(
     // Gateway tools — each delegates to the matching Skill.execute()
     // -------------------------------------------------------------------------
 
-    @Tool(description = "Load full instructions for a skill before calling it. You MUST call this first before using any other tool for a new task. Do not use run_intent before load_skill.")
+    @Tool(description = "Loads a skill's full instructions before calling it. Call this first for any new task before using other tools.")
     fun loadSkill(
-        @ToolParam(description = "The skill name to load: run_intent, get_weather, query_wikipedia, meal_planner, save_memory, search_memory, get_system_info, or run_js") skillName: String,
+        @ToolParam(description = "The skill name to load.") skillName: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "load_skill"
@@ -76,10 +76,10 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Execute a native Android device action: flashlight, alarms, timers, calendar events, email, SMS, phone calls, Do Not Disturb, volume, Wi-Fi, Bluetooth, airplane mode, hotspot, media playback (local/YouTube/Spotify/Netflix/Plex), navigation, app launching, battery status, current time, current date, date arithmetic, and list management (shopping lists, grocery lists, to-do lists). NOT for weather, web search, memory recall, or general knowledge questions. Never use this to start a skill. Do not pass skill names like meal_planner or query_wikipedia as intent names.")
+    @Tool(description = "Execute native Android device actions like alarms, calendar, media, navigation, contacts, and system toggles. NOT for weather, web search, or memory — use other tools for those. Call loadSkill first before using this to learn available intents.")
     fun runIntent(
-        @ToolParam(description = "The intent action: toggle_flashlight_on, toggle_flashlight_off, send_email, send_sms, make_call, set_alarm, set_timer, create_calendar_event, toggle_dnd_on, toggle_dnd_off, toggle_wifi, toggle_bluetooth, toggle_airplane_mode, toggle_hotspot, set_volume, play_media, play_media_album, play_media_playlist, play_youtube, play_spotify, play_plexamp, play_youtube_music, play_netflix, play_plex, navigate_to, find_nearby, open_app, get_battery, get_time, get_date, get_date_diff, add_to_list (ONE item only), bulk_add_to_list (TWO OR MORE items — always use this when adding multiple items at once), create_list, get_list_items, remove_from_list") intentName: String,
-        @ToolParam(description = "Additional parameters as key:value pairs in JSON. For set_alarm: {\"time\":\"10pm\"} or {\"time\":\"7:30am\",\"day\":\"monday\",\"label\":\"Wake up\"}. For set_timer: {\"duration_seconds\":\"180\"}. For send_email: {\"subject\":\"Hi\",\"body\":\"Text\"}. For send_sms: {\"contact\":\"Mom\",\"message\":\"Text\"}. For make_call: {\"contact\":\"Dad\"}. For create_calendar_event: {\"title\":\"Meeting\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}. For set_volume: {\"value\":\"50\",\"is_percent\":\"true\"}. For play_media: {\"query\":\"Song Name\",\"artist\":\"Artist\"}. For play_plex: {\"title\":\"Movie Name\"}. For navigate_to: {\"destination\":\"airport\"}. For toggle_wifi/bluetooth/airplane_mode/hotspot: {\"state\":\"on\"}. For open_app: {\"app_name\":\"Spotify\"}. For toggle_dnd/flashlight/get_battery/get_time/get_date: {}. For get_date_diff: {\"target_date\":\"2026-08-22\"} or {\"target_date\":\"Christmas\"} — ALWAYS use this for date arithmetic, never calculate days yourself. For add_to_list (single item): {\"item\":\"milk\",\"list_name\":\"shopping list\"}. For bulk_add_to_list (multiple items — use whenever 2+ items are mentioned, JSON array preferred): {\"items\":[\"500 g beef mince\",\"1 onion\",\"2 carrots\"],\"list_name\":\"shopping list\"}. For create_list: {\"list_name\":\"monday pasta carbonara\"}. For get_list_items: {\"list_name\":\"shopping list\"}. For remove_from_list: {\"item\":\"milk\",\"list_name\":\"shopping list\"}") parameters: String,
+        @ToolParam(description = "The intent action name. Call loadSkill first to learn available intents for the skill you need.") intentName: String,
+        @ToolParam(description = "Additional parameters as key:value pairs in JSON. Call loadSkill first to learn required parameters.") parameters: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "run_intent"
@@ -116,11 +116,11 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Execute the internal JavaScript gateway for JS-backed skills. First call loadSkill for the specific skill you want, such as query_wikipedia. DO NOT load run_js when a specific skill exists.")
+    @Tool(description = "Execute JS-backed skills. First call loadSkill for the specific skill you want. DO NOT use when a dedicated skill exists.")
     fun runJs(
-        @ToolParam(description = "The bundled JS skill to run: 'get-weather-city' or 'query-wikipedia'. Use 'query-wikipedia' for Wikipedia lookups.") skillName: String,
-        @ToolParam(description = "The search query or input (topic for Wikipedia, city name for the legacy city-weather JS skill)") query: String,
-        @ToolParam(description = "For get-weather-city only: number of forecast days 1-7. Leave blank for query-wikipedia and all non-weather uses.") forecastDays: String,
+        @ToolParam(description = "The JS skill name. Call loadSkill first to learn available skills.") skillName: String,
+        @ToolParam(description = "The search query or input for the skill.") query: String,
+        @ToolParam(description = "Optional parameter — call loadSkill to learn what this skill needs.") forecastDays: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "run_js"
@@ -136,10 +136,10 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Get current weather conditions or a multi-day weather forecast for a location. ONLY for weather, temperature, precipitation, wind, or climate queries. NOT for date, time, day-of-week, calendar, or general knowledge questions.")
+    @Tool(description = "Get current weather or a multi-day forecast. ONLY for weather queries. NOT for date, time, or general knowledge.")
     fun getWeather(
-        @ToolParam(description = "Optional location/city name. ONLY provide if the user explicitly names a place (e.g. 'in Brisbane') or says 'at home'. Leave blank for all other weather queries — device GPS will be used automatically and is more accurate than profile location.") location: String,
-        @ToolParam(description = "Optional number of forecast days (1-7). Omit for current conditions only") forecastDays: String,
+        @ToolParam(description = "Optional location/city name. Leave blank for device GPS location.") location: String,
+        @ToolParam(description = "Optional number of forecast days (1-7). Omit for current conditions only.") forecastDays: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "get_weather"
@@ -158,9 +158,9 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Save an important fact or preference to the user's long-term memory. Use when the user says 'remember', 'note that', 'don't forget', or 'keep that in mind'. NOT for adding items to a shopping list, grocery list, to-do list, or any named list — use runIntent with bulk_add_to_list for that. NOT for calendar events, alarms, reminders, or timers — use runIntent for those.")
+    @Tool(description = "Save an important fact or preference to long-term memory. NOT for list items, calendar events, or alarms — use runIntent for those.")
     fun saveMemory(
-        @ToolParam(description = "The exact fact or preference to save, verbatim as the user stated it — NOT a meta-summary or description of what they said. Example: 'Nick prefers dark mode' or 'Nick\\'s dog is called Biscuit'. Never write 'The user wants to remember X'.") content: String,
+        @ToolParam(description = "The exact fact or preference to save, verbatim as the user stated it.") content: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "save_memory"
@@ -170,9 +170,9 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Search saved memories and past conversation history for information about a topic. Use when the user asks what you remember, wants to recall a fact, or asks about past conversations. NOT for web search, Wikipedia, weather, or any real-time information.")
+   @Tool(description = "Search saved memories and past conversations for information. NOT for web search, Wikipedia, or weather.")
     fun searchMemory(
-        @ToolParam(description = "What to search for in saved memories and past messages") query: String,
+        @ToolParam(description = "What to search for in saved memories and past messages.") query: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         lastToolName = "search_memory"
