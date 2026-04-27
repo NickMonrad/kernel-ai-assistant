@@ -1801,7 +1801,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "find_nearby",
             regex = Regex(
-                """(?:find|search\s+for|look\s+for|locate)\s+nearby\s+(.+)""",
+                """(?:find|search\s+for|look\s+for|locate|show)\s+nearby\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
