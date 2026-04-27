@@ -784,6 +784,26 @@ class QuickIntentRouter(
         ),
 
         // ── Weather ──
+        // Multi-day forecast: "what's the weather forecast for the next 7 days" /
+        // "7 day weather forecast for Brisbane" — captures days and optional city.
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+the\s+weather\s+forecast\s+for\s+the\s+next\s+(\d+)\s+days|(\d+)\s+day\s+(?:weather\s+)?forecast\s+(?:in|for|at)\s+([\w\s,]+?)\s*$|(?:what(?:'s| is)\s+the\s+weather\s+forecast\s+for\s+)([\w\s,]+?)\s+(?:the\s+)?next\s+(\d+)\s+days""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                    ?: match.groupValues[2].takeIf { it != "1" }
+                    ?: match.groupValues[5].takeIf { it != "1" }
+                val location = match.groupValues[3].trim().takeIf { it.isNotEmpty() }
+                    ?: match.groupValues[4].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
         // City-named weather: "weather in Auckland" / "what's the weather in London" /
         // "weather forecast for Paris" — captures city into `location` param.
         IntentPattern(

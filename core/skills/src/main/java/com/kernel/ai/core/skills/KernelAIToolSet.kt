@@ -150,10 +150,10 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Get current weather or a multi-day forecast. ONLY for weather queries. NOT for date, time, or general knowledge.")
+    @Tool(description = "Get current weather or a multi-day forecast (pass forecastDays=1-7 for forecast). ONLY for weather queries. NOT for date, time, or general knowledge.")
     fun getWeather(
         @ToolParam(description = "Optional location/city name. Leave blank for device GPS location.") location: String,
-        @ToolParam(description = "Optional number of forecast days (1-7). Omit for current conditions only.") forecastDays: String,
+        @ToolParam(description = "Number of forecast days (1-7). Omit or pass 0 for current conditions only.") forecastDays: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
         setLastToolCall("get_weather", "{\"location\":\"$location\",\"forecast_days\":\"$forecastDays\"}")
