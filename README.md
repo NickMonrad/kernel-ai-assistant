@@ -8,7 +8,7 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 
 * **The Brain:** **Gemma-4 E-4B/E-2B** runs resident on GPU via LiteRT. A lightweight **`QuickIntentRouter`** (regex + MiniLM fallback) handles instant device actions and slot-filling fast paths. Complex queries go straight to Gemma-4 for full reasoning with native tool calling.
 * **The Memory:** A local **RAG (Retrieval-Augmented Generation)** system using **sqlite-vec** and **EmbeddingGemma-300M**. The assistant remembers personal facts, preferences, and conversation history across sessions with zero data leaving the device. Episodic distillation consolidates each conversation into long-term memories.
-* **The Action:** A modular skill framework. **Tier 2** native Kotlin actions execute instantly (torch, timer, DND, bluetooth, lists, date arithmetic). **Tier 3** complex skills (weather, calendar, memory recall, Wikipedia) are handled by the resident Gemma-4 model via LiteRT-LM's native `@Tool` annotations with SDK constrained decoding and rich inline result cards. Community-extensible **WebAssembly** skills run sandboxed via **Chicory** for safe extensibility.
+* **The Action:** A modular skill framework. **Tier 2** native Kotlin actions execute instantly (torch, timer, DND, bluetooth, lists, date arithmetic). **Tier 3** complex skills (weather, calendar, memory recall, Wikipedia) are handled by the resident Gemma-4 model via LiteRT-LM's native `@Tool` annotations with SDK constrained decoding and rich inline result cards. Tool instructions are injected **per turn** only when a request looks tool-oriented, which keeps normal chat prompts slim as the skill set grows. Community-extensible **WebAssembly** skills run sandboxed via **Chicory** for safe extensibility.
 
 ## Tech Stack
 
@@ -39,6 +39,7 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 🧠 **Core memories** — add and manage permanent facts the assistant always recalls
 - 📂 **Memory Management screen** — view, add and delete core memories and episodic memory browser
 - ⚙️ **Model selection** — switch between E-2B and E-4B in Settings
+- 🩴 **Persona modes** — choose Full Jandal, Half a Jandal (default), or Boring AI Mode in Model Management
 - 🎬 **Fun loading screens** — 13 themed animated narratives
 - 🖼️ **Context window management** — structured prompt assembly with KV cache management and recursive summarisation
 - 📊 **Runtime info** — shows active model, backend (GPU/NPU/CPU), and device tier in chat
