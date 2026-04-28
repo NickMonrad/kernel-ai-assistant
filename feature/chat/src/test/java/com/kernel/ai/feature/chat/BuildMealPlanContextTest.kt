@@ -202,12 +202,12 @@ class BuildMealPlanContextTest {
     }
 
     @Test
-    fun `buildMealPlanContext output contains session block and stage instructions`() {
+    fun `buildMealPlanContext output is session block only`() {
         val session = MealPlanSessionEntity(conversationId = "conv-block")
         val result = buildMealPlanContext(session, null)
 
         assertTrue(result.contains("[Meal Planner Session]"))
         assertTrue(result.contains("[End Meal Planner Session]"))
-        assertTrue(result.contains("[Current Task —"))
+        // Stage instructions are loaded via load_skill, not injected in the context block.
     }
 }

@@ -8,18 +8,15 @@ class MealPlannerSkillTest {
     private val skill = MealPlannerSkill()
 
     @Test
-    fun `fullInstructions enforce staged flow and bulk list saves`() {
+    fun `fullInstructions redirect to stage-specific skills based on session status`() {
         val instructions = skill.fullInstructions
 
-        assertTrue(instructions.contains("IMPORTANT START RULE"))
-        assertTrue(instructions.contains("Do NOT call run_intent to start meal planning"))
-        assertTrue(instructions.contains("Stage 1"))
-        assertTrue(instructions.contains("Stage 3"))
-        assertTrue(instructions.contains("shopping list"))
-        assertTrue(instructions.contains("bulk_add_to_list"))
-        assertTrue(instructions.contains("CRITICAL SAVE RULE"))
-        assertTrue(instructions.contains("Do NOT create a high-level \"meal plan\" list"))
-        assertTrue(instructions.contains("METRIC / NZ-friendly units only"))
-        assertTrue(instructions.contains("runIntent("))
+        // MealPlannerSkill is now a redirect — it tells the model which stage skill to load.
+        assertTrue(instructions.contains("load_skill(skill_name=\"meal_planner_collect\")"))
+        assertTrue(instructions.contains("load_skill(skill_name=\"meal_planner_plan\")"))
+        assertTrue(instructions.contains("load_skill(skill_name=\"meal_planner_recipe\")"))
+        assertTrue(instructions.contains("status == \"collecting_preferences\""))
+        assertTrue(instructions.contains("status == \"generating_recipes\""))
+        assertTrue(instructions.contains("status == \"completed\""))
     }
 }
