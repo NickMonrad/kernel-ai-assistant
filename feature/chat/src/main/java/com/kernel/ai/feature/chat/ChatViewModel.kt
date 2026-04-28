@@ -1683,32 +1683,33 @@ internal fun buildMealPlanContext(
     val stageInstructions = when (status) {
         "collecting_preferences" -> """
 [Current Task]
-Collect meal planning preferences from the user. You MUST save preferences to the session after the user provides them.
+You are planning meals. Follow ALL steps below in order.
 
-STEP 1: Ask the user for:
-  - Number of people
-  - Number of days
-  - Dietary restrictions (e.g. vegetarian, gluten-free, low lactose)
-  - Protein preferences (e.g. chicken, fish, beef)
+STEP 1 — Ask for preferences (if not already provided):
+  Number of people, days, dietary restrictions, protein preferences.
+  Wait for user to answer before proceeding.
 
-STEP 2: After the user provides preferences, call saveMealPlanState IMMEDIATELY:
+STEP 2 — Save preferences:
   saveMealPlanState(
     conversationId="<cid from session block>",
     status="collecting_preferences",
     peopleCount="<number>",
     days="<number>",
-    dietaryRestrictions="[\"restriction1\", \"restriction2\"]",
-    proteinPreferences="[\"protein1\", \"protein2\"]"
+    dietaryRestrictions="[\"low lactose\"]",
+    proteinPreferences="[\"beef\", \"chicken\"]"
   )
 
-STEP 3: After saving, generate a high-level meal plan for the specified days.
+STEP 3 — Generate a high-level meal plan for the specified days.
 
-STEP 4: Call saveMealPlanState again with status="high_level_plan_ready" and the plan as JSON:
+STEP 4 — Save the plan:
   saveMealPlanState(
-    conversationId="<cid>",
+    conversationId="<cid from session block>",
     status="high_level_plan_ready",
-    highLevelPlan="{\"day1\":\"Meal 1\", \"day2\":\"Meal 2\"}"
+    highLevelPlan="{\"day1\":\"Chicken Curry\", \"day2\":\"Beef Tacos\"}"
   )
+
+IMPORTANT: Do NOT call run_intent with skill names. Use saveMealPlanState.
+Execute all 4 steps in order. Do not skip.
 
 conversation_id is in the [Meal Planner Session] block above.
 """.trimIndent()
