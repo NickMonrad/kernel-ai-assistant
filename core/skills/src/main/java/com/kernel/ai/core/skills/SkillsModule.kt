@@ -7,6 +7,11 @@ import com.kernel.ai.core.skills.natives.GetWeatherSkill
 import com.kernel.ai.core.skills.natives.GetWeatherUnifiedSkill
 import com.kernel.ai.core.skills.natives.SaveMemorySkill
 import com.kernel.ai.core.skills.natives.SearchMemorySkill
+import com.kernel.ai.core.skills.MealPlannerCollectSkill
+import com.kernel.ai.core.skills.MealPlannerCompleteSkill
+import com.kernel.ai.core.skills.MealPlannerPlanSkill
+import com.kernel.ai.core.skills.MealPlannerRecipeSkill
+import com.kernel.ai.core.skills.MealPlannerSkill
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -58,6 +63,26 @@ abstract class SkillsModule {
     @Binds
     @IntoSet
     abstract fun bindMealPlannerSkill(skill: MealPlannerSkill): Skill
+    @Binds
+    @IntoSet
+    abstract fun bindMealPlannerCollectSkill(skill: MealPlannerCollectSkill): Skill
+
+    @Binds
+    @IntoSet
+    abstract fun bindMealPlannerPlanSkill(skill: MealPlannerPlanSkill): Skill
+
+    @Binds
+    @IntoSet
+    abstract fun bindMealPlannerRecipeSkill(skill: MealPlannerRecipeSkill): Skill
+
+    @Binds
+    @IntoSet
+    abstract fun bindMealPlannerCompleteSkill(skill: MealPlannerCompleteSkill): Skill
+
+
+    @Binds
+    @IntoSet
+    abstract fun bindSaveMealPlanStateSkill(skill: SaveMealPlanStateSkill): Skill
 
     /** Bind MiniLMIntentClassifier as the IntentClassifier for QuickIntentRouter. */
     @Binds

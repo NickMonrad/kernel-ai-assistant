@@ -956,7 +956,7 @@ class ChatViewModel @Inject constructor(
                 mealPlanSessionRepository.getSession(cid)?.let { it.status != "completed" } == true
             val mealPlanContext = if (isActiveMealPlannerTurn && cid != null) {
                 val session = mealPlanSessionRepository.getSession(cid)
-                buildMealPlanContext(session)
+                buildMealPlanContext(session, cid)
             } else ""
             // Suppress RAG for active meal-planner turns — session state is the source of truth.
             val effectiveRagContextForPrompt = if (isActiveMealPlannerTurn) "" else effectiveRagContext
@@ -1649,10 +1649,14 @@ private fun formatBytes(bytes: Long): String = when {
  * state (preferences, plan, current day) so it can continue deterministically
  * across follow-up turns without re-asking already-known information.
  */
-private fun buildMealPlanContext(session: com.kernel.ai.core.memory.entity.MealPlanSessionEntity?): String {
+internal fun buildMealPlanContext(
+    session: com.kernel.ai.core.memory.entity.MealPlanSessionEntity?,
+    conversationId: String?,
+): String {
     if (session == null) return ""
     return buildString {
         append("[Meal Planner Session]\n")
+        conversationId?.let { append("conversation_id: $it\n") }
         append("Status: ${session.status}\n")
         session.peopleCount?.let { append("People: $it\n") }
         session.days?.let { append("Days: $it\n") }
@@ -1672,3 +1676,4 @@ private fun buildMealPlanContext(session: com.kernel.ai.core.memory.entity.MealP
         append("[End Meal Planner Session]")
     }
 }
+

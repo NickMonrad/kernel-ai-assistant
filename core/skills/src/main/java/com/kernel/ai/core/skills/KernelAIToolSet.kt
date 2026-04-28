@@ -101,6 +101,12 @@ class KernelAIToolSet @Inject constructor(
             "get_weather_gps",
             "query_wikipedia",
             "meal_planner",
+            "meal_planner_collect",
+            "meal_planner_plan",
+            "meal_planner_recipe",
+            "meal_planner_complete",
+            "meal_plan_transition",
+            "save_meal_plan_state",
             "save_memory",
             "search_memory",
             "get_system_info",
@@ -193,6 +199,34 @@ class KernelAIToolSet @Inject constructor(
         setLastToolCall("search_memory", "{\"query\":\"$query\"}")
         Log.d(TAG, "ToolSet: searchMemory($query)")
         val result = executeSkill("search_memory", mapOf("query" to query))
+        lastToolResult = result["result"] ?: result["error"]
+        return result
+    }
+
+    @Tool(description = "Save meal-planner session state to the database. Call after each stage transition (preferences collected, plan generated, each day's recipes saved) so the model can resume after context truncation. Requires conversation_id.")
+    fun saveMealPlanState(
+        @ToolParam(description = "The conversation ID for this meal plan.") conversationId: String,
+        @ToolParam(description = "Flow stage: collecting_preferences, high_level_plan_ready, generating_recipes, or completed.") status: String,
+        @ToolParam(description = "Number of people the plan is for.") peopleCount: String,
+        @ToolParam(description = "Number of days in the plan.") days: String,
+        @ToolParam(description = "JSON array of dietary restrictions, e.g. '[\"vegetarian\"]'.") dietaryRestrictions: String,
+        @ToolParam(description = "JSON array of protein preferences, e.g. '[\"chicken\",\"fish\"]'.") proteinPreferences: String,
+        @ToolParam(description = "JSON object mapping day keys to meals, e.g. '{\"day1\":\"Pasta Carbonara\"}'.") highLevelPlan: String,
+        @ToolParam(description = "0-based index of the current day being generated. Increment after each day's recipes are saved.") currentDayIndex: String,
+    ): Map<String, String> {
+        toolCalledInThisTurn = true
+        val args = mutableMapOf("conversation_id" to conversationId)
+        if (status.isNotBlank()) args["status"] = status
+        if (peopleCount.isNotBlank()) args["people_count"] = peopleCount
+        if (days.isNotBlank()) args["days"] = days
+        if (dietaryRestrictions.isNotBlank()) args["dietary_restrictions"] = dietaryRestrictions
+        if (proteinPreferences.isNotBlank()) args["protein_preferences"] = proteinPreferences
+        if (highLevelPlan.isNotBlank()) args["high_level_plan"] = highLevelPlan
+        if (currentDayIndex.isNotBlank()) args["current_day_index"] = currentDayIndex
+
+        setLastToolCall("save_meal_plan_state", args.entries.joinToString(",") { "\"${it.key}\":\"${it.value}\"" })
+        Log.d(TAG, "ToolSet: saveMealPlanState($args)")
+        val result = executeSkill("save_meal_plan_state", args)
         lastToolResult = result["result"] ?: result["error"]
         return result
     }

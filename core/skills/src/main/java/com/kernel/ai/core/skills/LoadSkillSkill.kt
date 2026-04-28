@@ -28,8 +28,9 @@ class LoadSkillSkill @Inject constructor(
     override val description =
         "Load full instructions for a skill before calling it. " +
             "Call this first whenever you need to use run_intent, get_weather, " +
-            "query_wikipedia, meal_planner, save_memory, search_memory, or get_system_info."
-
+            "query_wikipedia, meal_planner, meal_planner_collect, meal_planner_plan, " +
+            "meal_planner_recipe, meal_planner_complete, meal_plan_transition, " +
+            "save_meal_plan_state, save_memory, search_memory, or get_system_info."
     override val schema = SkillSchema(
         parameters = mapOf(
             "skill_name" to SkillParameter(
@@ -40,6 +41,12 @@ class LoadSkillSkill @Inject constructor(
                     "get_weather",
                     "query_wikipedia",
                     "meal_planner",
+                    "meal_planner_collect",
+                    "meal_planner_plan",
+                    "meal_planner_recipe",
+                    "meal_planner_complete",
+                    "meal_plan_transition",
+                    "save_meal_plan_state",
                     "save_memory",
                     "search_memory",
                     "get_system_info",
@@ -67,7 +74,7 @@ class LoadSkillSkill @Inject constructor(
         val skill = skillRegistry.get().get(skillName)
             ?: return SkillResult.Failure(
                 name,
-                "Unknown skill: '$skillName'. Available: run_intent, get_weather, query_wikipedia, meal_planner, save_memory, search_memory, get_system_info, run_js",
+                "Unknown skill: '$skillName'. Available: run_intent, get_weather, query_wikipedia, meal_planner, meal_planner_collect, meal_planner_plan, meal_planner_recipe, meal_planner_complete, meal_plan_transition, save_meal_plan_state, save_memory, search_memory, get_system_info, run_js",
             )
         return SkillResult.Success(skill.fullInstructions)
     }
