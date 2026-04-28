@@ -209,6 +209,9 @@ class BuildMealPlanContextTest {
         assertTrue(result.contains("[Meal Planner Session]"))
         assertTrue(result.contains("[End Meal Planner Session]"))
         assertTrue(result.contains("[Current Task]"))
-        assertTrue(result.contains("save_meal_plan_state"))
+        assertTrue(result.contains("saveMealPlanState"))
+        assertTrue(result.contains("run_intent"))
+        assertTrue(result.contains("create_list"))
+        assertTrue(result.contains("bulk_add_to_list"))
     }
 }

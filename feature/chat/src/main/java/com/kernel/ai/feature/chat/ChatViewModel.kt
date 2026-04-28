@@ -1699,14 +1699,35 @@ conversation_id is in the [Meal Planner Session] block above.
 
         "generating_recipes" -> """
 [Current Task]
-You are generating the recipe for the current day.
+You are generating the recipe for the current day. Follow ALL steps in order.
 
-STEP 1: Generate recipe title, ingredients (METRIC units: g, kg, ml, l, tsp, tbsp), and method steps
-STEP 2: call save_meal_plan_state(conversation_id="<cid from session block>", status="generating_recipes", current_day_index=<current_day_index + 1>)
-  - current_day_index is 0-based. Add 1 to advance to the next day.
+STEP 1 — Generate recipe:
+  Create a recipe title, ingredients list (METRIC units: g, kg, ml, l, tsp, tbsp), and method steps.
+  Show the recipe to the user.
+
+STEP 2 — Create a list for this day's recipe:
+  Call run_intent with intentName="create_list", list_name="Day {N} {dish}"
+  where N is the current day number (1-based) and {dish} is the recipe title.
+
+STEP 3 — Add method steps to the recipe list:
+  Call run_intent with intentName="bulk_add_to_list", list_name="Day {N} {dish}",
+  items=["step 1 text", "step 2 text", ...]
+
+STEP 4 — Add ingredients to the combined shopping list:
+  Call run_intent with intentName="bulk_add_to_list", list_name="shopping list",
+  items=["ingredient 1", "ingredient 2", ...]
+
+STEP 5 — ADVANCE STATE (REQUIRED):
+  Call the saveMealPlanState tool with parameters:
+    conversationId="<cid from session block>", status="generating_recipes",
+    currentDayIndex=<current_day_index + 1>
+  - currentDayIndex is 0-based. Add 1 to advance to the next day.
   - This is REQUIRED. Without it, you will loop on the same day.
 
-If currentDayIndex >= days, the plan is complete — call save_meal_plan_state with status="completed".
+If currentDayIndex >= days, the plan is complete:
+  Call saveMealPlanState with status="completed",
+  then say: "Your meal plan is complete! All recipes are saved to lists."
+
 conversation_id is in the [Meal Planner Session] block above.
 """.trimIndent()
 
