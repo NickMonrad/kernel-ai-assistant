@@ -235,6 +235,29 @@ private fun ModelCard(
                     onCheckedChange = { onSettingsChanged(settings.copy(showThinkingProcess = it)) },
                 )
             }
+
+            // Grounded facts correction toggle (#681)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Repair grounded facts",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = "Attempt to fix truncated percentages (9% → 92%) and malformed years in model output. Disabled by default — the repair was replacing correct numbers with years from RAG context.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = settings.correctGroundedFactsEnabled,
+                    onCheckedChange = { onSettingsChanged(settings.copy(correctGroundedFactsEnabled = it)) },
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -353,6 +376,7 @@ private fun ModelSettingsScreenPreview() {
             contextWindowSize = 4000,
             temperature = 1.0f,
             topP = 0.95f,
+            correctGroundedFactsEnabled = false,
         )
         ModelCard(
             modelName = "Gemma 4 E-2B",

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 23,
-    "identityHash": "5b1fac6a8df1e8982ef9b3012ec360f8",
+    "identityHash": "c204b894a40e6a1238d1122c145bc2da",
     "entities": [
       {
         "tableName": "conversations",
@@ -505,7 +505,7 @@
       },
       {
         "tableName": "model_settings",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`modelId` TEXT NOT NULL, `contextWindowSize` INTEGER NOT NULL, `temperature` REAL NOT NULL, `topP` REAL NOT NULL, `topK` INTEGER NOT NULL, `showThinkingProcess` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`modelId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`modelId` TEXT NOT NULL, `contextWindowSize` INTEGER NOT NULL, `temperature` REAL NOT NULL, `topP` REAL NOT NULL, `topK` INTEGER NOT NULL, `showThinkingProcess` INTEGER NOT NULL, `correctGroundedFactsEnabled` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`modelId`))",
         "fields": [
           {
             "fieldPath": "modelId",
@@ -540,6 +540,12 @@
           {
             "fieldPath": "showThinkingProcess",
             "columnName": "showThinkingProcess",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "correctGroundedFactsEnabled",
+            "columnName": "correctGroundedFactsEnabled",
             "affinity": "INTEGER",
             "notNull": true
           },
@@ -794,7 +800,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5b1fac6a8df1e8982ef9b3012ec360f8')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c204b894a40e6a1238d1122c145bc2da')"
     ]
   }
 }

@@ -522,6 +522,37 @@
         "what month are we in",
         "what week is it"
       ]
+    },
+    "get_weather": {
+      "phrases": [
+        "what's the weather",
+        "what's the weather today",
+        "what's the weather like",
+        "how's the weather",
+        "weather forecast for the next 7 days",
+        "what's the weather forecast for the next seven days",
+        "7 day weather forecast",
+        "three day weather forecast",
+        "weather forecast for the next three days",
+        "what's the temperature outside",
+        "is it going to rain",
+        "will it rain today",
+        "what's the UV index",
+        "what's the air quality",
+        "how hot is it outside",
+        "what's it like outside",
+        "weather in Auckland",
+        "what's the weather in Wellington",
+        "temperature in Christchurch",
+        "is it raining",
+        "chance of rain today",
+        "what's the weather right now",
+        "how's the weather at home",
+        "weather forecast for Paris",
+        "what's the weather looking like",
+        "what's the weather like today",
+        "what's the weather forecast for the next five days"
+      ]
     }
   }
 }

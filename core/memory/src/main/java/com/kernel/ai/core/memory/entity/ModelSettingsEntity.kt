@@ -20,5 +20,9 @@ data class ModelSettingsEntity(
     val topK: Int = 64,
     /** Whether to display the model's internal reasoning (thinking tokens) in the chat UI. */
     val showThinkingProcess: Boolean = true,
+    /** Whether to post-process LLM output to repair truncated percentages and malformed years
+     *  from grounding context. Disabled by default (#681) — the Levenshtein-based year repair
+     *  was replacing correct numbers that happened to be close to years in RAG context. */
+    val correctGroundedFactsEnabled: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis(),
 )

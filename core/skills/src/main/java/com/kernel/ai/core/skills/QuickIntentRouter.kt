@@ -784,6 +784,151 @@ class QuickIntentRouter(
         ),
 
         // ── Weather ──
+        // Multi-day forecast (digit): "what's the weather forecast for the next 7 days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+forecast\s+for\s+the\s+next\s+(\d+)\s+days""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                buildMap<String, String> {
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // Multi-day forecast (digit): "7 day weather forecast for Brisbane"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(\d+)\s+day\s+(?:weather\s+)?forecast\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // Multi-day forecast (digit): "what's the weather forecast for Paris next 4 days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+forecast\s+for\s+([\w\s,]+?)\s+next\s+(\d+)\s+days""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[2].takeIf { it != "1" }
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // Multi-day forecast (word): "what's the weather forecast for the next seven days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+forecast\s+for\s+the\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                val daysWord = match.groupValues[1].takeIf { it != "one" }
+                buildMap<String, String> {
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord] ?: daysWord)
+                }
+            },
+        ),
+        // Multi-day forecast (word): "three day weather forecast for Auckland"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(one|two|three|four|five|six|seven|eight|nine|ten)\s+day\s+(?:weather\s+)?forecast\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                val daysWord = match.groupValues[1].takeIf { it != "one" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord] ?: daysWord)
+                }
+            },
+        ),
+        // Multi-day forecast (word): "what's the weather forecast for Paris next seven days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+forecast\s+for\s+([\w\s,]+?)\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                val daysWord = match.groupValues[2].takeIf { it != "one" }
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord] ?: daysWord)
+                }
+            },
+        ),
+        // Tomorrow weather: "is it going to rain tomorrow", "will it rain tomorrow"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:will\s+it\s+rain\s+tomorrow\s*$|is\s+it\s+(?:going\s+to|gonna)\s+rain\s+tomorrow\s*$)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("day" to "tomorrow") },
+        ),
+        // Tomorrow weather with location: "what's the weather in Brisbane tomorrow" / "tomorrow weather in Auckland"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather\s+in\s+([\w\s,]+?)\s+tomorrow\s*$|tomorrow(?:'s)?\s+(?:weather|temperature)\s+in\s+([\w\s,]+?)\s*$)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].takeIf { it.isNotEmpty() }
+                    ?: match.groupValues[2].takeIf { it.isNotEmpty() }
+                if (location != null) mapOf("location" to location.trim(), "day" to "tomorrow")
+                else mapOf("day" to "tomorrow")
+            },
+        ),
+        // Tomorrow weather: "what's the weather tomorrow", "tomorrow weather", "how's the weather looking tomorrow"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather\s+(?:looking\s+)?tomorrow\s*$|tomorrow(?:'s)?\s+(?:weather|temperature)\s*$|how(?:'s|\s+is)\s+(?:the\s+)?weather\s+(?:looking\s+)?tomorrow\s*$)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("day" to "tomorrow") },
+        ),
+        // Tomorrow weather with condition: "will it be sunny tomorrow", "is it going to be cloudy tomorrow"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:will\s+it\s+be\s+(?:sunny|cloudy|rainy|snowy|stormy|foggy|windy|clear|overcast|dry)\s+tomorrow\s*$|is\s+it\s+(?:going\s+to\s+(?:be\s+)?)?(?:sunny|cloudy|rainy|snowy|stormy|foggy|windy|clear|overcast|dry)\s+tomorrow\s*$)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("day" to "tomorrow") },
+        ),
         // City-named weather: "weather in Auckland" / "what's the weather in London" /
         // "weather forecast for Paris" — captures city into `location` param.
         IntentPattern(
@@ -804,7 +949,6 @@ class QuickIntentRouter(
             paramExtractor = { _, _ -> emptyMap() },
         ),
         // Precipitation: current state only — "will it rain", "is it raining", "do I need an umbrella"
-        // "is it going to rain tomorrow" → fallthrough (future forecast, needs E4B for context)
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
@@ -867,7 +1011,6 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-
         // ── Volume ──
         // Numeric-level forms must come BEFORE direction-only patterns to win the match
         // "turn the volume up to 8" / "volume up to 5" / "volume down to 3"

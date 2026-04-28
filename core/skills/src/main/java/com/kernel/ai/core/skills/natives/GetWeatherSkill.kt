@@ -60,9 +60,17 @@ class GetWeatherSkill @Inject constructor(
     override suspend fun execute(call: SkillCall): SkillResult {
         val location = call.arguments["location"]?.trim()
         val forecastDays = call.arguments["forecast_days"]?.trim()?.toIntOrNull()?.coerceIn(1, 7) ?: 0
+        val dayParam = call.arguments["day"]?.trim()?.lowercase()
 
         return try {
-            if (!location.isNullOrBlank()) {
+            if (dayParam == "tomorrow") {
+                val targetDays = forecastDays.coerceAtLeast(2)
+                if (!location.isNullOrBlank()) {
+                    fetchByLocationName(location, targetDays, targetDay = true)
+                } else {
+                    fetchByDeviceLocation(targetDays, targetDay = true)
+                }
+            } else if (!location.isNullOrBlank()) {
                 fetchByLocationName(location, forecastDays)
             } else {
                 fetchByDeviceLocation(forecastDays)
@@ -75,21 +83,35 @@ class GetWeatherSkill @Inject constructor(
 
     // ── Location ──────────────────────────────────────────────────────────────
 
-    private suspend fun fetchByLocationName(locationName: String, forecastDays: Int = 0): SkillResult {
+    private suspend fun fetchByLocationName(
+        locationName: String,
+        forecastDays: Int = 0,
+        targetDay: Boolean = false,
+    ): SkillResult {
         val resolvedLocationName = resolveIndirectLocationReference(locationName) ?: locationName
         val coordinates = geocodeLocation(resolvedLocationName)
             ?: return SkillResult.Failure(
                 name,
                 "Couldn't find location: $resolvedLocationName. Please try a different city or location name.",
             )
-        
+
         return if (forecastDays > 0) {
-            fetchForecast(
-                lat = coordinates.first,
-                lon = coordinates.second,
-                displayName = resolvedLocationName,
-                days = forecastDays
-            )
+            if (targetDay) {
+                fetchForecastForDay(
+                    lat = coordinates.first,
+                    lon = coordinates.second,
+                    displayName = resolvedLocationName,
+                    days = forecastDays,
+                    dayIndex = 1,
+                )
+            } else {
+                fetchForecast(
+                    lat = coordinates.first,
+                    lon = coordinates.second,
+                    displayName = resolvedLocationName,
+                    days = forecastDays
+                )
+            }
         } else {
             fetchWeather(
                 lat = coordinates.first,
@@ -158,14 +180,13 @@ class GetWeatherSkill @Inject constructor(
 
     // ── Location ──────────────────────────────────────────────────────────────
 
-    private suspend fun fetchByDeviceLocation(forecastDays: Int = 0): SkillResult {
+    private suspend fun fetchByDeviceLocation(forecastDays: Int = 0, targetDay: Boolean = false): SkillResult {
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
             return SkillResult.Failure(
                 name,
-                "Location permission not granted. Try asking about weather in a specific city " +
-                    "using run_js with skill_name='get-weather-city'.",
+                "Location permission not granted. Try asking about weather in a specific city.",
             )
         }
         val loc = getLastKnownLocation()
@@ -175,7 +196,17 @@ class GetWeatherSkill @Inject constructor(
             )
         val displayName = reverseGeocode(loc.latitude, loc.longitude)
         return if (forecastDays > 0) {
-            fetchForecast(lat = loc.latitude, lon = loc.longitude, displayName = displayName, days = forecastDays)
+            if (targetDay) {
+                fetchForecastForDay(
+                    lat = loc.latitude,
+                    lon = loc.longitude,
+                    displayName = displayName,
+                    days = forecastDays,
+                    dayIndex = 1,
+                )
+            } else {
+                fetchForecast(lat = loc.latitude, lon = loc.longitude, displayName = displayName, days = forecastDays)
+            }
         } else {
             fetchWeather(lat = loc.latitude, lon = loc.longitude, displayName = displayName)
         }
@@ -337,6 +368,114 @@ class GetWeatherSkill @Inject constructor(
                 windText = null,
                 precipText = if (!firstRain.isNaN()) "%.0fmm rain".format(firstRain) else null,
                 uvText = firstUv?.let { "UV max %.0f (%s)".format(it, uvIndexLabel(it)) },
+                airQualityText = null,
+                sunText = sunText,
+            ),
+        )
+    }
+
+    private suspend fun fetchForecastForDay(
+        lat: Double,
+        lon: Double,
+        displayName: String?,
+        days: Int,
+        dayIndex: Int,
+    ): SkillResult = withContext(Dispatchers.IO) {
+        val url = "https://api.open-meteo.com/v1/forecast" +
+            "?latitude=$lat&longitude=$lon" +
+            "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
+            "&timezone=auto&forecast_days=$days&wind_speed_unit=ms"
+        val request = Request.Builder().url(url).build()
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                return@withContext SkillResult.Failure(
+                    name,
+                    "Forecast API returned ${response.code}.",
+                )
+            }
+            val body = response.body?.string()
+                ?: return@withContext SkillResult.Failure(name, "Empty forecast response.")
+            parseForecastDayResponse(body, displayName, dayIndex)
+        }
+    }
+
+    private fun parseForecastDayResponse(json: String, displayName: String?, dayIndex: Int): SkillResult {
+        val obj = JSONObject(json)
+        val daily = obj.getJSONObject("daily")
+        val dates = daily.getJSONArray("time")
+        val maxTemps = daily.getJSONArray("temperature_2m_max")
+        val minTemps = daily.getJSONArray("temperature_2m_min")
+        val precip = daily.getJSONArray("precipitation_sum")
+        val codes = daily.getJSONArray("weather_code")
+        val uvMaxArr = daily.optJSONArray("uv_index_max")
+        val sunriseArr = daily.optJSONArray("sunrise")
+        val sunsetArr = daily.optJSONArray("sunset")
+
+        if (dayIndex >= dates.length()) {
+            return SkillResult.Failure(name, "Forecast data not available for the requested day.")
+        }
+
+        val dateStr = dates.getString(dayIndex)
+        val formattedDate = formatForecastDate(dateStr)
+        val code = codes.optInt(dayIndex, -1)
+        val emoji = wmoEmoji(code)
+        val desc = wmoDescription(code)
+        val high = maxTemps.optDouble(dayIndex, Double.NaN)
+        val low = minTemps.optDouble(dayIndex, Double.NaN)
+        val rain = precip.optDouble(dayIndex, 0.0)
+        val highStr = if (!high.isNaN()) "%.0f°C".format(high) else "?°C"
+        val lowStr = if (!low.isNaN()) "%.0f°C".format(low) else "?°C"
+        val rainStr = "%.0fmm rain".format(rain)
+        val uvMax = uvMaxArr?.let { if (dayIndex < it.length() && !it.isNull(dayIndex)) it.getDouble(dayIndex) else null }
+        val uvStr = uvMax?.let { " | UV max: %.0f (%s)".format(it, uvIndexLabel(it)) } ?: ""
+        val sunrise = sunriseArr?.let { if (dayIndex < it.length() && !it.isNull(dayIndex)) it.getString(dayIndex).substringAfterLast("T") else null }
+        val sunset = sunsetArr?.let { if (dayIndex < it.length() && !it.isNull(dayIndex)) it.getString(dayIndex).substringAfterLast("T") else null }
+        val sunStr = when {
+            sunrise != null && sunset != null -> " | 🌅 $sunrise / $sunset"
+            sunrise != null -> " | 🌅 $sunrise"
+            sunset != null -> " | 🌇 $sunset"
+            else -> ""
+        }
+
+        val locationLabel = displayName ?: "GPS location"
+        val text = "$formattedDate: $emoji $desc $highStr / $lowStr, $rainStr$uvStr$sunStr"
+
+        Log.d(TAG, "GetWeatherSkill: fetched forecast for day $dayIndex ($formattedDate) for $locationLabel")
+
+        val temperatureText = buildString {
+            if (!high.isNaN()) append("%.0f°C".format(high))
+            if (!low.isNaN()) {
+                if (isNotEmpty()) append(" / ")
+                append("%.0f°C".format(low))
+            }
+        }.ifBlank { "Forecast unavailable" }
+        val highLowText = buildString {
+            if (!high.isNaN()) append("High %.0f°C".format(high))
+            if (!low.isNaN()) {
+                if (isNotEmpty()) append(" • ")
+                append("Low %.0f°C".format(low))
+            }
+        }.takeIf { it.isNotBlank() }
+        val sunText = when {
+            sunrise != null && sunset != null -> "Sunrise $sunrise • Sunset $sunset"
+            sunrise != null -> "Sunrise $sunrise"
+            sunset != null -> "Sunset $sunset"
+            else -> null
+        }
+
+        return SkillResult.DirectReply(
+            text,
+            presentation = ToolPresentation.Weather(
+                locationName = locationLabel,
+                temperatureText = temperatureText,
+                feelsLikeText = null,
+                description = desc,
+                emoji = emoji,
+                highLowText = highLowText,
+                humidityText = null,
+                windText = null,
+                precipText = if (!rain.isNaN()) "%.0fmm rain".format(rain) else null,
+                uvText = uvMax?.let { "UV max %.0f (%s)".format(it, uvIndexLabel(it)) },
                 airQualityText = null,
                 sunText = sunText,
             ),

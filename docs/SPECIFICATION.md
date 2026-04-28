@@ -407,7 +407,7 @@ ExperimentalFlags.enableConversationConstrainedDecoding = false
 |---------|------------|-----------|---------|
 | Meta | `loadSkill(skillName)` | `LoadSkillSkill` | Load full instructions before using any tool |
 | Native | `runIntent(intentName, parameters)` | `NativeIntentHandler.kt` | Android OS intents and deterministic local actions (alarm, timer, DND, media, navigation, date diff, lists, etc.) |
-| WebView JS | `runJs(skillName, query, forecastDays)` | `JsSkillRunner.kt` | JS skills in `assets/skills/` (currently Wikipedia and a legacy city-weather path) |
+| WebView JS | `runJs(parameters)` | `JsSkillRunner.kt` | JS skills in `assets/skills/` (currently Wikipedia and get-weather-city); parameters is a JSON string with `skill_name` and `data` |
 | Native | `getWeather(location, forecastDays)` | `GetWeatherUnifiedSkill.kt` | Unified weather entry point (GPS + explicit city + indirect-location resolution) |
 | Memory | `saveMemory(content)` | `SaveMemorySkill` | Store facts to long-term memory |
 | Memory | `searchMemory(query)` | `SearchMemorySkill` | Semantic search across memories |

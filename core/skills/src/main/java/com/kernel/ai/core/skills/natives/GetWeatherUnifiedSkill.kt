@@ -22,6 +22,7 @@ import javax.inject.Singleton
  * Parameter semantics (mirrors [GetWeatherSkill]):
  * - `location`     — optional city/place name; omit to use device GPS.
  * - `forecast_days` — optional 1–7 day forecast; omit for current conditions only.
+ * - `day`          — optional "today" or "tomorrow"; when "tomorrow", returns tomorrow's forecast only.
  *
  * Always returns [SkillResult.DirectReply] — the formatted weather string is shown verbatim
  * and never sent to the LLM for wrapping, preventing number/unit corruption.
@@ -53,6 +54,10 @@ class GetWeatherUnifiedSkill @Inject constructor(
             "forecast_days" to SkillParameter(
                 type = "integer",
                 description = "Number of forecast days (1–7). Omit for current conditions only.",
+            ),
+            "day" to SkillParameter(
+                type = "string",
+                description = "Optional day to get weather for: \"today\" or \"tomorrow\". When \"tomorrow\", returns tomorrow's forecast only.",
             ),
         ),
         required = emptyList(),
