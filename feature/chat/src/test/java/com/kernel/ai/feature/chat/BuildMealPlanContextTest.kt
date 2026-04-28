@@ -202,13 +202,12 @@ class BuildMealPlanContextTest {
     }
 
     @Test
-    fun `buildMealPlanContext output is single block with delimiters`() {
+    fun `buildMealPlanContext output contains session block and stage instructions`() {
         val session = MealPlanSessionEntity(conversationId = "conv-block")
         val result = buildMealPlanContext(session, null)
 
-        assertTrue(result.startsWith("[Meal Planner Session]"))
-        assertTrue(result.endsWith("[End Meal Planner Session]"))
-        assertEquals(2, result.count { c -> c == '[' })
-        assertEquals(2, result.count { c -> c == ']' })
+        assertTrue(result.contains("[Meal Planner Session]"))
+        assertTrue(result.contains("[End Meal Planner Session]"))
+        assertTrue(result.contains("[Current Task —"))
     }
 }

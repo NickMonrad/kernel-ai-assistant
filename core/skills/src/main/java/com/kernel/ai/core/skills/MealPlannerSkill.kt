@@ -124,12 +124,9 @@ DATABASE STATE PERSISTENCE (critical — prevents losing progress):
   - Do NOT skip this step — without it, context truncation will lose your progress.
 
 CRITICAL SAVE RULE (non-negotiable):
-  After generating each day's recipe:
-    → FIRST: Call runIntent(intentName="bulk_add_to_list", parameters="{...}") with ALL ingredients for that day to "shopping list"
-    → SECOND: Call runIntent(intentName="bulk_add_to_list", parameters="{...}") with ALL method steps to the recipe-specific list
-  BOTH calls must happen. If you only call once, the recipe list or ingredients will be missed.
-  Do NOT create a high-level "meal plan" list with only dish names.
-
+  After generating each day's recipe, you MUST call save_meal_plan_state to advance.
+  Without this call, you will loop on the same day forever.
+  → saveMealPlanState(conversation_id="<conv-id>", status="generating_recipes", current_day_index=<incremented 0-based>)
 EXAMPLE TWO-STEP SAVE:
   Day 1 ingredients: ["500 g pasta", "3 eggs", "100 g bacon", "80 g parmesan cheese"]
   Day 1 method: ["1. Boil pasta in salted water", "2. Fry bacon until crispy", "3. Mix eggs with cheese", ...]

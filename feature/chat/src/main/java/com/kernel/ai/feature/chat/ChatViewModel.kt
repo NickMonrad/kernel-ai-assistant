@@ -1654,10 +1654,12 @@ internal fun buildMealPlanContext(
     conversationId: String?,
 ): String {
     if (session == null) return ""
-    return buildString {
+    val cid = conversationId
+    val status = session.status
+    val sb = buildString {
         append("[Meal Planner Session]\n")
-        conversationId?.let { append("conversation_id: $it\n") }
-        append("Status: ${session.status}\n")
+        cid?.let { append("conversation_id: $it\n") }
+        append("Status: $status\n")
         session.peopleCount?.let { append("People: $it\n") }
         session.days?.let { append("Days: $it\n") }
         if (session.dietaryRestrictionsJson != "[]") {
@@ -1673,7 +1675,61 @@ internal fun buildMealPlanContext(
             val dayLabel = idx + 1
             append("Current day: $dayLabel\n")
         }
-        append("[End Meal Planner Session]")
+        append("[End Meal Planner Session]\n\n")
     }
+
+    // Inject stage-specific instructions — only the relevant instructions for the current stage.
+    // This prevents the model from seeing all 4 stages at once and getting confused.
+    val stageInstructions = when (status) {
+        "collecting_preferences" -> """
+[Current Task — Stage 1: Collect Preferences]
+You are in Stage 1 of meal planning. Ask the user for:
+1. How many people
+2. Dietary restrictions
+3. How many days
+4. Protein preferences
+Ask in 2-3 grouped batches, not one-at-one.
+After collecting all preferences, call save_meal_plan_state with status="collecting_preferences" and all gathered values.
+conversation_id is in the [Meal Planner Session] block above.
+""".trimIndent()
+
+        "high_level_plan_ready" -> """
+[Current Task — Stage 2: High-Level Plan]
+You are in Stage 2. Generate a high-level plan (one dish per day, no recipes yet).
+Show the plan to the user and ask if they're ready for detailed recipes.
+After showing the plan, call save_meal_plan_state with status="high_level_plan_ready" and the plan as JSON.
+conversation_id is in the [Meal Planner Session] block above.
+""".trimIndent()
+
+        "generating_recipes" -> """
+[Current Task — Stage 3: Generate Recipes]
+You are in Stage 3. Generate recipe details for the current day only.
+
+STEP 1: Generate recipe title, ingredients (METRIC units: g, kg, ml, l, tsp, tbsp), and method steps
+STEP 2: runIntent(intentName="bulk_add_to_list", parameters={"items":[...ingredients...],"list_name":"shopping list"})
+STEP 3: runIntent(intentName="bulk_add_to_list", parameters={"items":[...steps...],"list_name":"{day} {dish}"})
+STEP 4: Call save_meal_plan_state(conversation_id="<cid>", status="generating_recipes", current_day_index=<incremented>)
+  - current_day_index is 0-based. Increment it after each day.
+  - This is REQUIRED to advance to the next day. Without it, you will loop.
+  - conversation_id is in the [Meal Planner Session] block above.
+
+CRITICAL: You MUST call save_meal_plan_state in STEP 4. Without it, you will be stuck on the same day.
+If currentDayIndex >= days, the plan is complete — call save_meal_plan_state with status="completed".
+""".trimIndent()
+
+        "completed" -> """
+[Current Task — Meal Plan Complete]
+The meal plan is complete. Do not generate any more recipes or ask more questions.
+Provide a brief summary of the completed plan.
+""".trimIndent()
+
+        else -> """
+[Current Task — Unknown Status]
+The session status is '$status'. Check the session block for available information.
+""".trimIndent()
+    }
+
+    return sb.toString() + stageInstructions
 }
+
 

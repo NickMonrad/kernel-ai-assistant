@@ -52,6 +52,13 @@ When available, `android init` should be used to install the official `android-c
 - Prefer physical-device validation for GPU/NPU and permission flows
 - Use explicit activities/services when testing Android launches
 
+## Testing expectations
+
+- Treat tests as part of the feature, not a follow-up. If a change adds behaviour, fixes a bug, or changes a contract, add or update automated tests in the same PR unless the change is docs-only.
+- Prefer the narrowest useful test surface: unit tests for Kotlin logic, Compose/instrumented tests for UI behaviour, device/manual testing for hardware, permission, and inference flows.
+- Test observable behaviour and public contracts rather than implementation details.
+- When a scenario cannot be covered well in CI, include explicit manual test steps and expected results in the PR description.
+
 ## GitHub issue standards
 
 When creating or reshaping a GitHub issue, normalize metadata immediately.

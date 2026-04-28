@@ -192,8 +192,15 @@ What this PR does and why.
 
 ## Testing
 - [ ] Builds clean (`./gradlew :app:assembleDebug`)
-- [ ] Manual testing on device
 - [ ] Unit tests pass
+- [ ] Manual testing on device (or explicitly note `Not run` / `Not applicable`)
+
+## Manual testing
+- Device / environment:
+- Steps:
+  1. ...
+  2. ...
+- Result:
 
 ## Related issues
 Closes #NNN
@@ -256,6 +263,8 @@ See `docs/adb-testing.md` for full harness documentation.
 
 ### Writing tests for new features
 
+- Behaviour changes and bug fixes should include automated test coverage in the same PR unless the change is docs-only or cannot reasonably be automated.
+- Prefer tests for public contracts and regression scenarios over tests that mirror private implementation details.
 - New intent patterns in `QuickIntentRouter` → add to the regex test suite
 - New slot-fill paths → add `ActionsViewModelTest` cases
 - New skill implementations → add `SkillExecutorTest` cases
@@ -369,4 +378,3 @@ Three key docs — keep them in sync:
 - **No TODOs in merged code** — convert to a GitHub issue instead
 - **Imports** — no wildcard imports; organise with IDE auto-format before commit
 - **Module boundaries** — `feature/` modules must not depend on each other; go through `core/` interfaces
-

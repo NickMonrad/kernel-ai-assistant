@@ -51,45 +51,47 @@ class MealPlannerRecipeSkill @Inject constructor() : Skill {
     override val fullInstructions: String = """
 meal_planner_recipe: Generate and save recipe details for the current day.
 
-IMPORTANT: This skill handles ONLY Stage 3 — generating and saving recipes.
-Do NOT collect preferences (Stage 1) or generate the high-level plan (Stage 2).
+STEP-BY-STEP EXECUTION ORDER (follow exactly):
 
-SESSION CONTEXT BLOCK:
-  - At the start of each turn, the system may inject a [Meal Planner Session] block.
-  - ALWAYS read this block first. It contains: status, currentDayIndex, people count, days,
-    dietary restrictions, protein preferences, and the high-level plan.
-  - If status == "completed", do NOT generate recipes. Respond that the meal plan is done.
-  - conversation_id is in the [Meal Planner Session] context block. Use it for save_meal_plan_state.
+STEP 1 — Read session context:
+  - Read [Meal Planner Session] block for currentDayIndex (0-based)
+  - Convert to 1-based for user: "Day 1", "Day 2", etc.
+  - If status == "completed", reply: "Your meal plan is complete."
+  - conversation_id is in the [Meal Planner Session] context block.
 
-CURRENT DAY:
-  - Read currentDayIndex from the session block (0-based). Default to 0 if null.
-  - Convert to 1-based for user-facing output: "Day 1", "Day 2", etc.
-  - If the user says "skip this day" or similar, still advance to the next day.
+STEP 2 — Generate recipe:
+  - Generate recipe title, ingredients (METRIC units only), and method steps
+  - Show to the user
 
-RECIPE GENERATION:
-  1. Generate a recipe title (e.g. "Pasta Carbonara", "Lentil Soup")
-  2. Generate ingredients as bullet points with METRIC/NZ units only:
-     - Allowed units: g, kg, ml, l, tsp, tbsp, Celsius, whole-item counts
-     - NEVER use: lb, lbs, oz, Fahrenheit
-     - Each ingredient: single complete quantity (e.g. "500 g pasta", "3 eggs")
-     - Bad examples: "000 g", "50000 g" — these indicate concatenation errors
-     - Good examples: "500 g pasta", "300 g chicken", "200 g broccoli"
-  3. Generate cooking method as numbered steps for checkoff (imperative tone)
-  4. Do NOT regenerate previously written ingredients — only output the NEW day's ingredients
-  5. Each day's output is self-contained
+STEP 3 — Save ingredients to shopping list:
+  → runIntent(intentName="bulk_add_to_list", parameters={"items":[...ingredients...],"list_name":"shopping list"})
 
-CRITICAL SAVE RULE (call runIntent TWICE):
-  → FIRST:  runIntent(intentName="bulk_add_to_list", parameters={"items":[...all ingredients...],"list_name":"shopping list"})
-  → SECOND: runIntent(intentName="bulk_add_to_list", parameters={"items":[...all method steps...],"list_name":"{day} {dish}"})
-  Example list name: "monday pasta carbonara" (lowercase, space-separated)
+STEP 4 — Save method steps to recipe list:
+  → runIntent(intentName="bulk_add_to_list", parameters={"items":[...steps...],"list_name":"{day} {dish}"})
 
-SAVED CONFIRMATION:
-  Show: "✓ Added ingredients to Shopping | ✓ Created Monday Pasta Carbonara list with 5 steps"
+STEP 5 — Show saved confirmation:
+  "✓ Added ingredients to Shopping | ✓ Created {day} {dish} list with N steps"
 
-STATE PERSISTENCE:
-  - AFTER saving: call save_meal_plan_state(conversation_id="<conv-id>", status="generating_recipes", current_day_index=<incremented>)
-  - current_day_index is 0-based and must be incremented after each day's recipes are saved
+STEP 6 — ADVANCE STATE (REQUIRED):
+  → save_meal_plan_state(conversation_id="<conv-id>", status="generating_recipes", current_day_index=<incremented>)
+  - current_day_index is 0-based and MUST be incremented
+  - This is the ONLY way to advance to the next day
+  - If you skip this step, you will be stuck on the same day
+
+CRITICAL:
+  - You MUST call save_meal_plan_state in STEP 6. Without it, the model cannot
+    know which day to generate next and will loop on the current day.
+  - current_day_index is 0-based: Day 1 = 0, Day 2 = 1, Day 3 = 2
   - conversation_id comes from the [Meal Planner Session] context block
-  - Do NOT skip this step — without it, progress is lost on context truncation
+  - Do NOT generate recipes for a day you have already saved
+  - If currentDayIndex >= days, the plan is complete — acknowledge and close
+
+FORMATTING RULES:
+  - Ingredients: bullet points, METRIC/NZ units only (g, kg, ml, l, tsp, tbsp, Celsius, counts)
+  - NEVER use: lb, lbs, oz, Fahrenheit
+  - Each ingredient: single complete quantity (e.g. "500 g pasta", "3 eggs")
+  - Bad examples: "000 g", "50000 g" — these indicate concatenation errors
+  - Method: numbered steps, imperative tone
+  - Do NOT regenerate previously written ingredients
 """.trimIndent()
 }
