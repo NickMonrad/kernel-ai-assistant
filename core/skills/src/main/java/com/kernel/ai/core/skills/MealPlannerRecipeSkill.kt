@@ -57,32 +57,37 @@ STEP 1 — Read session context:
   - Read [Meal Planner Session] block for currentDayIndex (0-based)
   - Convert to 1-based for user: "Day 1", "Day 2", etc.
   - If status == "completed", reply: "Your meal plan is complete."
-  - conversation_id is in the [Meal Planner Session] context block.
+  - conversationId is in the [Meal Planner Session] context block.
 
 STEP 2 — Generate recipe:
   - Generate recipe title, ingredients (METRIC units only), and method steps
   - Show to the user
 
 STEP 3 — Save ingredients to shopping list:
-  → runIntent(intentName="bulk_add_to_list", parameters={"items":[...ingredients...],"list_name":"shopping list"})
+  Call run_intent with intentName="bulk_add_to_list", list_name="shopping list", items=[...ingredients...]
 
 STEP 4 — Save method steps to recipe list:
-  → runIntent(intentName="bulk_add_to_list", parameters={"items":[...steps...],"list_name":"{day} {dish}"})
+  Call run_intent with intentName="bulk_add_to_list", list_name="{day} {dish}", items=[...steps...]
 
 STEP 5 — Show saved confirmation:
-  "✓ Added ingredients to Shopping | ✓ Created {day} {dish} list with N steps"
+  "Added ingredients to Shopping | Created {day} {dish} list with N steps"
 
 STEP 6 — ADVANCE STATE (REQUIRED):
-  → save_meal_plan_state(conversation_id="<conv-id>", status="generating_recipes", current_day_index=<incremented>)
-  - current_day_index is 0-based and MUST be incremented
+  Call the saveMealPlanState tool with EXACT parameters:
+    saveMealPlanState(
+      conversationId="<conv-id from session block>",
+      status="generating_recipes",
+      currentDayIndex=<incremented>
+    )
+  - currentDayIndex is 0-based and MUST be incremented
   - This is the ONLY way to advance to the next day
   - If you skip this step, you will be stuck on the same day
 
 CRITICAL:
-  - You MUST call save_meal_plan_state in STEP 6. Without it, the model cannot
+  - You MUST call saveMealPlanState in STEP 6. Without it, the model cannot
     know which day to generate next and will loop on the current day.
-  - current_day_index is 0-based: Day 1 = 0, Day 2 = 1, Day 3 = 2
-  - conversation_id comes from the [Meal Planner Session] context block
+  - currentDayIndex is 0-based: Day 1 = 0, Day 2 = 1, Day 3 = 2
+  - conversationId comes from the [Meal Planner Session] context block
   - Do NOT generate recipes for a day you have already saved
   - If currentDayIndex >= days, the plan is complete — acknowledge and close
 

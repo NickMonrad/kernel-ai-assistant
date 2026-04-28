@@ -49,6 +49,6 @@ class MealPlannerSkill @Inject constructor() : Skill {
 meal_planner: Multi-stage meal planning with state persistence.
 
 The system injects a [Meal Planner Session] context block with your current status and session data.
-Follow the instructions in that block. Use save_meal_plan_state to persist progress after each stage.
+Follow the instructions in that block. Use saveMealPlanState to persist progress after each stage.
 """.trimIndent()
 }

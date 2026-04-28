@@ -26,7 +26,11 @@ class MealPlannerCompleteSkill @Inject constructor() : Skill {
 meal_planner_complete: Confirm the meal plan is finished, save final state, and provide a brief summary.
 
 Rules:
-  - Call save_meal_plan_state with status="completed" and conversation_id from the [Meal Planner Session] context block.
+  - Call the saveMealPlanState tool with status="completed" and conversationId from the [Meal Planner Session] context block:
+      saveMealPlanState(
+        conversationId="<conv-id>",
+        status="completed"
+      )
   - If the session status is already "completed", just confirm: "Your meal plan is already complete."
   - If no active session exists, reply: "No active meal plan found. Would you like to start a new one?"
   - Provide a short summary: number of people, days, and a quick recap of the plan.

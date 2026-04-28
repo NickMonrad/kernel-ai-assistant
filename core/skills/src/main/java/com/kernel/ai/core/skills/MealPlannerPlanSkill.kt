@@ -42,7 +42,7 @@ class MealPlannerPlanSkill @Inject constructor() : Skill {
     override val fullInstructions: String = """
 meal_planner_plan: Generate a high-level meal plan for the specified days and preferences.
 
-IMPORTANT: Load with load_skill first. Do NOT call run_intent. Only call save_meal_plan_state after showing the plan.
+IMPORTANT: Load with load_skill first. Do NOT call run_intent. Only call saveMealPlanState after showing the plan.
 
 SESSION CONTEXT BLOCK: At the start of each turn, the system may inject a [Meal Planner Session] block.
 ALWAYS read this first. It contains: status, people_count, days, dietary_restrictions, protein_preferences, high_level_plan.
@@ -63,11 +63,14 @@ GENERATE THE PLAN (when preferences are available):
   6. Ask: "Ready for the full recipes with cooking steps?"
 
 SAVE STATE (critical):
-  After showing the plan, call save_meal_plan_state with status="high_level_plan_ready".
-  conversation_id is in the [Meal Planner Session] block - use it as the conversation_id parameter.
-  Pass the plan as JSON: high_level_plan='{"day1":"Pasta Carbonara","day2":"Lentil Soup"}'
-  Example: saveMealPlanState(conversation_id="<conv-id>", status="high_level_plan_ready", high_level_plan='{"day1":"Pasta Carbonara","day2":"Lentil Soup"}')
+  After showing the plan, call the saveMealPlanState tool:
+    saveMealPlanState(
+      conversationId="<conv-id from session block>",
+      status="high_level_plan_ready",
+      highLevelPlan="{\"day1\":\"Pasta Carbonara\", \"day2\":\"Lentil Soup\"}"
+    )
+  Use EXACT parameter names (camelCase). Do NOT use snake_case.
   Do NOT skip this - without it, context truncation loses the plan.
 
-FORMATTING: Use METRIC / NZ units only (g, kg, ml, l, tsp, tbsp, Celsius, counts). NEVER use lb, oz, Fahrenheit."""
+FORMATTING: Use METRIC / NZ units only (g, kg, ml, l, tsp, tbsp, Celsius, counts). NEVER use lb, oz, Fahrenheit.""".trimIndent()
 }

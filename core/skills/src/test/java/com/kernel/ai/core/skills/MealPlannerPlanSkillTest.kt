@@ -26,13 +26,13 @@ class MealPlannerPlanSkillTest {
     }
 
     @Test
-    fun `fullInstructions mentions save_meal_plan_state`() {
-        assertTrue(skill.fullInstructions.contains("save_meal_plan_state"))
+    fun `fullInstructions mentions saveMealPlanState`() {
+        assertTrue(skill.fullInstructions.contains("saveMealPlanState"))
     }
 
     @Test
-    fun `fullInstructions mentions conversation_id from session block`() {
-        assertTrue(skill.fullInstructions.contains("conversation_id"))
+    fun `fullInstructions mentions conversationId from session block`() {
+        assertTrue(skill.fullInstructions.contains("conversationId"))
         assertTrue(skill.fullInstructions.contains("Meal Planner Session"))
     }
 

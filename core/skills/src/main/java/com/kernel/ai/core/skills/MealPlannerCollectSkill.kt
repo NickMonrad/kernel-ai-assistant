@@ -63,29 +63,30 @@ class MealPlannerCollectSkill @Inject constructor() : Skill {
     }
 
     override val fullInstructions: String = """
-meal_planner_collect: Collect meal plan preferences in 2-3 grouped batches, then persist via save_meal_plan_state.
+meal_planner_collect: Collect meal plan preferences in 2-3 grouped batches, then persist via saveMealPlanState.
 
 RULES:
   - Ask questions in grouped batches, not one-at-one.
   - Batch 1: "How many people, and any dietary restrictions?"
   - Batch 2: "How many days and protein preferences (e.g. chicken, fish, vegetarian)?"
   - Reference prior answers to show state persistence (e.g. "So for 4 vegetarians over 5 days...").
-  - If the user provides all preferences in one message, collect them all and call save_meal_plan_state immediately.
+  - If the user provides all preferences in one message, collect them all and call saveMealPlanState immediately.
   - Do NOT generate the plan yet — only collect preferences.
   - Use METRIC/NZ units only: g, kg, ml, l, tsp, tbsp, Celsius, and whole-item counts.
-  - conversation_id comes from the [Meal Planner Session] context block injected by the system.
+  - conversationId comes from the [Meal Planner Session] context block injected by the system.
 
 STATE PERSISTENCE (critical):
-  - After collecting preferences, call save_meal_plan_state to persist them:
+  - After collecting preferences, call the saveMealPlanState tool with these EXACT parameters:
       saveMealPlanState(
-        conversation_id="<conv-id from session block>",
+        conversationId="<conv-id from session block>",
         status="collecting_preferences",
-        people_count=<N>,
-        days=<N>,
-        dietary_restrictions='["..."]',
-        protein_preferences='["..."]'
+        peopleCount="<N>",
+        days="<N>",
+        dietaryRestrictions="[\"restriction1\", \"restriction2\"]",
+        proteinPreferences="[\"protein1\", \"protein2\"]"
       )
-  - If peopleCount or days is missing/null, still call save_meal_plan_state with whatever you have.
+  - Use the EXACT parameter names above (camelCase). Do NOT use snake_case.
+  - If peopleCount or days is missing/null, still call saveMealPlanState with whatever you have.
   - Pass only the fields that have changed — the database merges with existing state.
 
 SESSION CONTEXT BLOCK:
@@ -95,6 +96,6 @@ SESSION CONTEXT BLOCK:
   - If status is already "collecting_preferences" and preferences exist, do NOT re-ask — proceed to Stage 2.
 
 AFTER SAVE:
-  - Once save_meal_plan_state succeeds, tell the user: "Great! I've saved your preferences. I'll put together a high-level plan now."
+  - Once saveMealPlanState succeeds, tell the user: "Great! I've saved your preferences. I'll put together a high-level plan now."
 """.trimIndent()
 }

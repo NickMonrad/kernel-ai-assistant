@@ -13,7 +13,7 @@ class MealPlannerSkillTest {
 
         // MealPlannerSkill is now concise — it delegates to the session context block.
         assertTrue(instructions.contains("[Meal Planner Session]"))
-        assertTrue(instructions.contains("save_meal_plan_state"))
+        assertTrue(instructions.contains("saveMealPlanState"))
         assertTrue(instructions.contains("Follow the instructions in that block"))
     }
 }
