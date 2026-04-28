@@ -30,6 +30,7 @@ import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
+import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
@@ -96,6 +97,7 @@ class ChatViewModel @Inject constructor(
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
     private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
+    private val mealPlanSessionRepository: MealPlanSessionRepository,
 ) : ViewModel() {
 
     val isSeeding: StateFlow<Boolean> = nzTruthSeedingService.isSeeding
@@ -945,6 +947,25 @@ class ChatViewModel @Inject constructor(
             val effectiveRagContext = if (isToolQuery) "" else ragContext
             val effectiveRagTokenCost = if (isToolQuery) 0 else ragTokenCost
 
+            // Meal-planner session context (#689): when an active session exists, inject
+            // structured session state so the model can continue deterministically across
+            // follow-up turns. Also suppress episodic/RAG injection for these turns to
+            // prevent stale memory leakage (#687).
+            val cid = conversationId
+            val isActiveMealPlannerTurn = cid != null &&
+                mealPlanSessionRepository.getSession(cid)?.let { it.status != "completed" } == true
+            val mealPlanContext = if (isActiveMealPlannerTurn && cid != null) {
+                val session = mealPlanSessionRepository.getSession(cid)
+                buildMealPlanContext(session)
+            } else ""
+            // Suppress RAG for active meal-planner turns — session state is the source of truth.
+            val effectiveRagContextForPrompt = if (isActiveMealPlannerTurn) "" else effectiveRagContext
+            // Force history replay when meal-planner session is active — clears stale episodic
+            // context from the KV cache so old meal-plan memories cannot leak into the continuation.
+            if (isActiveMealPlannerTurn) {
+                needsHistoryReplay = true
+            }
+
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
             // the previous turn to resolve what "that/it/this" refers to. Inject the last
             // user+assistant pair as a lightweight context block — still no RAG or personality.
@@ -984,7 +1005,8 @@ class ChatViewModel @Inject constructor(
             }
 
             prompt = buildString {
-                if (effectiveRagContext.isNotBlank()) append("$effectiveRagContext\n\n")
+                if (effectiveRagContextForPrompt.isNotBlank()) append("$effectiveRagContextForPrompt\n\n")
+                if (mealPlanContext.isNotBlank()) append("$mealPlanContext\n\n")
                 if (anaphoraContext.isNotBlank()) append("$anaphoraContext\n\n")
                 if (systemContext != null) append("$systemContext\n\n")
                 if (isToolQuery) {
@@ -1001,7 +1023,7 @@ class ChatViewModel @Inject constructor(
                 append(text)
             }
             groundingContext = buildString {
-                if (effectiveRagContext.isNotBlank()) append(effectiveRagContext)
+                if (effectiveRagContextForPrompt.isNotBlank()) append(effectiveRagContextForPrompt)
                 if (systemContext != null) {
                     if (isNotBlank()) append('\n')
                     append(systemContext)
@@ -1618,4 +1640,35 @@ private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
     bytes >= 1_048_576L -> "%.0f MB".format(bytes / 1_048_576.0)
     else -> "$bytes B"
+}
+
+/**
+ * Builds a compact meal-planner session context block for injection into prompts.
+ *
+ * When an active meal-plan session exists, this provides the model with structured
+ * state (preferences, plan, current day) so it can continue deterministically
+ * across follow-up turns without re-asking already-known information.
+ */
+private fun buildMealPlanContext(session: com.kernel.ai.core.memory.entity.MealPlanSessionEntity?): String {
+    if (session == null) return ""
+    return buildString {
+        append("[Meal Planner Session]\n")
+        append("Status: ${session.status}\n")
+        session.peopleCount?.let { append("People: $it\n") }
+        session.days?.let { append("Days: $it\n") }
+        if (session.dietaryRestrictionsJson != "[]") {
+            append("Dietary: ${session.dietaryRestrictionsJson}\n")
+        }
+        if (session.proteinPreferencesJson != "[]") {
+            append("Proteins: ${session.proteinPreferencesJson}\n")
+        }
+        session.highLevelPlanJson?.let { plan ->
+            append("Plan: $plan\n")
+        }
+        session.currentDayIndex?.let { idx ->
+            val dayLabel = idx + 1
+            append("Current day: $dayLabel\n")
+        }
+        append("[End Meal Planner Session]")
+    }
 }
