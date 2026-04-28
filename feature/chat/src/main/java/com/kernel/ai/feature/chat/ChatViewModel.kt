@@ -1679,21 +1679,50 @@ internal fun buildMealPlanContext(
     }
 
     // Stage-specific instructions — the model follows these directly.
-    // No load_skill needed. The model uses save_meal_plan_state to persist progress.
+    // Each stage MUST call saveMealPlanState to persist progress and transition.
     val stageInstructions = when (status) {
         "collecting_preferences" -> """
 [Current Task]
-You are planning meals. Ask the user for preferences in 2-3 grouped batches:
-1. "How many people, and any dietary restrictions?"
-2. "How many days and protein preferences (e.g. chicken, fish, vegetarian)?"
-If the user provides all preferences in one message, collect them all and call save_meal_plan_state immediately with status="collecting_preferences", people_count, days, dietary_restrictions, and protein_preferences.
+Collect meal planning preferences from the user. You MUST save preferences to the session after the user provides them.
+
+STEP 1: Ask the user for:
+  - Number of people
+  - Number of days
+  - Dietary restrictions (e.g. vegetarian, gluten-free, low lactose)
+  - Protein preferences (e.g. chicken, fish, beef)
+
+STEP 2: After the user provides preferences, call saveMealPlanState IMMEDIATELY:
+  saveMealPlanState(
+    conversationId="<cid from session block>",
+    status="collecting_preferences",
+    peopleCount="<number>",
+    days="<number>",
+    dietaryRestrictions="[\"restriction1\", \"restriction2\"]",
+    proteinPreferences="[\"protein1\", \"protein2\"]"
+  )
+
+STEP 3: After saving, generate a high-level meal plan for the specified days.
+
+STEP 4: Call saveMealPlanState again with status="high_level_plan_ready" and the plan as JSON:
+  saveMealPlanState(
+    conversationId="<cid>",
+    status="high_level_plan_ready",
+    highLevelPlan="{\"day1\":\"Meal 1\", \"day2\":\"Meal 2\"}"
+  )
+
 conversation_id is in the [Meal Planner Session] block above.
 """.trimIndent()
-
         "high_level_plan_ready" -> """
 [Current Task]
-You have a meal plan. Show it to the user and ask if they are ready for detailed recipes.
-After showing the plan, call save_meal_plan_state with status="high_level_plan_ready" and the plan as JSON.
+You have a meal plan ready. Show the plan to the user and ask: "Are you ready for detailed recipes?"
+
+After showing the plan, call saveMealPlanState to confirm the plan:
+  saveMealPlanState(
+    conversationId="<cid from session block>",
+    status="high_level_plan_ready",
+    highLevelPlan="{\"day1\":\"Meal 1\", \"day2\":\"Meal 2\"}"
+  )
+
 conversation_id is in the [Meal Planner Session] block above.
 """.trimIndent()
 
