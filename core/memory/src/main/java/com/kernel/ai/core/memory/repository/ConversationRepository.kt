@@ -6,6 +6,7 @@ import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.MessageEntity
+import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.vector.VectorStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -20,6 +21,7 @@ class ConversationRepository @Inject constructor(
     private val messageDao: MessageDao,
     private val embeddingDao: MessageEmbeddingDao,
     private val vectorStore: VectorStore,
+    private val mealPlanSessionRepository: MealPlanSessionRepository,
 ) {
 
     companion object {
@@ -82,6 +84,7 @@ class ConversationRepository @Inject constructor(
                 runCatching { vectorStore.delete(MESSAGE_VEC_TABLE, rowId) }
                     .onFailure { Log.w(TAG, "Failed to delete vec entry rowId=$rowId: ${it.message}") }
             }
+            mealPlanSessionRepository.deleteByConversationId(conversation.id)
         }
         conversationDao.delete(conversation)
     }
