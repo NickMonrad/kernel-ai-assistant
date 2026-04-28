@@ -46,14 +46,9 @@ class MealPlannerSkill @Inject constructor() : Skill {
     }
 
     override val fullInstructions: String = """
-meal_planner: Multi-stage meal planning — load the appropriate stage skill below based on session status.
+meal_planner: Multi-stage meal planning with state persistence.
 
-Do NOT follow these instructions directly. Instead, check the [Meal Planner Session] context block:
-  - status == "collecting_preferences" → load_skill(skill_name="meal_planner_collect")
-  - status == "high_level_plan_ready" → load_skill(skill_name="meal_planner_plan")
-  - status == "generating_recipes" → load_skill(skill_name="meal_planner_recipe")
-  - status == "completed" → tell the user the plan is done, do not generate more recipes
-
-If no session block is present, start by loading meal_planner_collect.
+The system injects a [Meal Planner Session] context block with your current status and session data.
+Follow the instructions in that block. Use save_meal_plan_state to persist progress after each stage.
 """.trimIndent()
 }

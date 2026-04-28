@@ -8,15 +8,12 @@ class MealPlannerSkillTest {
     private val skill = MealPlannerSkill()
 
     @Test
-    fun `fullInstructions redirect to stage-specific skills based on session status`() {
+    fun `fullInstructions is concise and delegates to session block`() {
         val instructions = skill.fullInstructions
 
-        // MealPlannerSkill is now a redirect — it tells the model which stage skill to load.
-        assertTrue(instructions.contains("load_skill(skill_name=\"meal_planner_collect\")"))
-        assertTrue(instructions.contains("load_skill(skill_name=\"meal_planner_plan\")"))
-        assertTrue(instructions.contains("load_skill(skill_name=\"meal_planner_recipe\")"))
-        assertTrue(instructions.contains("status == \"collecting_preferences\""))
-        assertTrue(instructions.contains("status == \"generating_recipes\""))
-        assertTrue(instructions.contains("status == \"completed\""))
+        // MealPlannerSkill is now concise — it delegates to the session context block.
+        assertTrue(instructions.contains("[Meal Planner Session]"))
+        assertTrue(instructions.contains("save_meal_plan_state"))
+        assertTrue(instructions.contains("Follow the instructions in that block"))
     }
 }

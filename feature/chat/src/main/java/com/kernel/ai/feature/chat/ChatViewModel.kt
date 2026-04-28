@@ -1677,7 +1677,52 @@ internal fun buildMealPlanContext(
         }
         append("[End Meal Planner Session]\n\n")
     }
-    return sb.toString()
+
+    // Stage-specific instructions — the model follows these directly.
+    // No load_skill needed. The model uses save_meal_plan_state to persist progress.
+    val stageInstructions = when (status) {
+        "collecting_preferences" -> """
+[Current Task]
+You are planning meals. Ask the user for preferences in 2-3 grouped batches:
+1. "How many people, and any dietary restrictions?"
+2. "How many days and protein preferences (e.g. chicken, fish, vegetarian)?"
+If the user provides all preferences in one message, collect them all and call save_meal_plan_state immediately with status="collecting_preferences", people_count, days, dietary_restrictions, and protein_preferences.
+conversation_id is in the [Meal Planner Session] block above.
+""".trimIndent()
+
+        "high_level_plan_ready" -> """
+[Current Task]
+You have a meal plan. Show it to the user and ask if they are ready for detailed recipes.
+After showing the plan, call save_meal_plan_state with status="high_level_plan_ready" and the plan as JSON.
+conversation_id is in the [Meal Planner Session] block above.
+""".trimIndent()
+
+        "generating_recipes" -> """
+[Current Task]
+You are generating the recipe for the current day.
+
+STEP 1: Generate recipe title, ingredients (METRIC units: g, kg, ml, l, tsp, tbsp), and method steps
+STEP 2: call save_meal_plan_state(conversation_id="<cid from session block>", status="generating_recipes", current_day_index=<current_day_index + 1>)
+  - current_day_index is 0-based. Add 1 to advance to the next day.
+  - This is REQUIRED. Without it, you will loop on the same day.
+
+If currentDayIndex >= days, the plan is complete — call save_meal_plan_state with status="completed".
+conversation_id is in the [Meal Planner Session] block above.
+""".trimIndent()
+
+        "completed" -> """
+[Current Task]
+The meal plan is complete. Do not generate any more recipes or ask more questions.
+Provide a brief summary of the completed plan.
+""".trimIndent()
+
+        else -> """
+[Current Task]
+The session status is '$status'. Check the session block for available information.
+""".trimIndent()
+    }
+
+    return sb.toString() + stageInstructions
 }
 
 
