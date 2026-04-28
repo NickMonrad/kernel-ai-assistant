@@ -18,7 +18,6 @@ private const val TAG = "KernelAI"
  *   - query-wikipedia  Search Wikipedia and return a plain-text summary
  *   - get-weather-city Fetch current weather or multi-day forecast for a named city
  *                      via Open-Meteo (no GPS needed).
- *                      Pass forecast_days (1–7) for a daily forecast instead of current.
  *
  * Phase 3 (future): user-loadable skills from URLs — prerequisite for #177.
  */
@@ -32,50 +31,24 @@ class RunJsSkill @Inject constructor(
         "Internal JavaScript execution gateway. Prefer loading a specific JS-backed skill " +
             "such as query_wikipedia instead of loading run_js directly."
 
-    override val schema = SkillSchema(
-        parameters = mapOf(
-            "skill_name" to SkillParameter(
-                type = "string",
-                description = "The JS skill to run.",
-                enum = listOf("query-wikipedia", "get-weather-city"),
-            ),
-            "query" to SkillParameter(
-                type = "string",
-                description = "The search query or input for the skill (city name for weather).",
-            ),
-            "forecast_days" to SkillParameter(
-                type = "integer",
-                description = "For get-weather-city only: number of forecast days (1–7). " +
-                    "Omit for current weather. When the user asks for a forecast without " +
-                    "specifying a number of days, use 3.",
-            ),
-        ),
-        required = listOf("skill_name", "query"),
-    )
-
-    override val examples: List<String> = listOf(
-        "Wikipedia search → runJs(skillName=\"query-wikipedia\", query=\"New Zealand\", forecastDays=\"\")",
-        "Weather current → runJs(skillName=\"get-weather-city\", query=\"Auckland\", forecastDays=\"\")",
-        "Weather 3-day forecast → runJs(skillName=\"get-weather-city\", query=\"Auckland\", forecastDays=\"3\")",
-        "Weather tomorrow → runJs(skillName=\"get-weather-city\", query=\"London\", forecastDays=\"1\")",
-    )
+    override val schema = SkillSchema()
 
     override val fullInstructions: String = buildString {
-        appendLine("$name: $description")
+        appendLine("run_js: Gateway for executing JS-backed skills.")
         appendLine()
         appendLine("Instructions:")
         appendLine("- This is a low-level execution gateway for JS-backed skills.")
         appendLine("- Prefer loading a specific skill such as query_wikipedia or get_weather before calling this tool.")
-        appendLine("- If you do call run_js directly, set skill_name to the exact bundled JS skill name.")
-        appendLine("- forecast_days applies only to get-weather-city. Never use it for Wikipedia lookups.")
+        appendLine("- If you do call run_js directly, use the format below.")
         appendLine()
-        appendLine("Parameters:")
-        appendLine("- skill_name (required) (string [query-wikipedia, get-weather-city]): The bundled JS skill to run.")
-        appendLine("- query (required) (string): The search query or input for the skill.")
-        appendLine("- forecast_days (integer): For get-weather-city only: number of forecast days (1–7). Omit for current weather and all non-weather skills.")
+        appendLine("Tool format:")
+        appendLine("- Call runJs with a single 'parameters' argument: a JSON string containing")
+        appendLine("  'skill_name' (the JS skill to run) and 'data' (a JSON object with the skill's parameters).")
         appendLine()
         appendLine("Examples:")
-        examples.forEach { appendLine("  $it") }
+        appendLine("  Wikipedia search → runJs(parameters='{\"skill_name\":\"query-wikipedia\",\"data\":{\"query\":\"New Zealand\"}}')")
+        appendLine("  Weather current → runJs(parameters='{\"skill_name\":\"get-weather-city\",\"data\":{\"query\":\"Auckland\"}}')")
+        appendLine("  Weather 3-day forecast → runJs(parameters='{\"skill_name\":\"get-weather-city\",\"data\":{\"query\":\"Auckland\",\"forecast_days\":\"3\"}}')")
     }
 
     // Success: JS skill output requires LLM synthesis (e.g. Wikipedia summaries)

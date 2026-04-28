@@ -34,7 +34,8 @@ class QueryWikipediaSkillTest {
     fun `fullInstructions stay focused on wikipedia and omit forecast guidance`() {
         val instructions = skill.fullInstructions
 
-        assertTrue(instructions.contains("run_js tool with skill_name=\"query-wikipedia\""))
+        assertTrue(instructions.contains("runJs(parameters="))
+        assertTrue(instructions.contains("skill_name\":\"query-wikipedia\""))
         assertTrue(instructions.contains("query=\"Constantinople\""))
         assertFalse(instructions.contains("forecast_days (1–7)"))
         assertFalse(instructions.contains("ALWAYS call this tool for weather"))
