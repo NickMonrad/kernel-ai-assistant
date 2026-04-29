@@ -1,9 +1,11 @@
 package com.kernel.ai.core.skills
 
+import javax.inject.Inject
+import dagger.Lazy
+
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import org.json.JSONArray
 import org.json.JSONObject
-import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
@@ -25,8 +27,13 @@ import javax.inject.Singleton
  */
 @Singleton
 class SaveMealPlanStateSkill @Inject constructor(
+
     private val repository: MealPlanSessionRepository,
+
+    private val skillRegistry: Lazy<SkillRegistry>,
+
 ) : Skill {
+
 
     override val name = "save_meal_plan_state"
     override val description =
@@ -198,18 +205,42 @@ Rules:
                 )
             }
 
-            return SkillResult.Success(
-                buildString {
-                    append("Meal planner state saved for conversation $conversationId.\n")
-                    if (status != null) append("Status: $status\n")
-                    if (peopleCount != null) append("People: $peopleCount\n")
-                    if (days != null) append("Days: $days\n")
-                    if (dietaryRestrictions != null) append("Dietary: $dietaryRestrictions\n")
-                    if (proteinPreferences != null) append("Proteins: $proteinPreferences\n")
-                    if (highLevelPlan != null) append("Plan saved.\n")
-                    if (currentDayIndex != null) append("Current day index: $currentDayIndex\n")
-                }.trimEnd(),
-            )
+            // After saving, return the next stage skill's instructions as a DirectReply.
+            // This bypasses E4B for stage transitions — the model never needs to
+            // figure out which skill to load. We just give it the next instructions.
+            val nextInstructions = when (status) {
+                "high_level_plan_ready" -> {
+                    val planSkill = skillRegistry.get().get("meal_planner_plan")
+
+                    planSkill?.fullInstructions ?: "Meal plan saved. Ready for recipes."
+                }
+                "generating_recipes" -> {
+                    val recipeSkill = skillRegistry.get().get("meal_planner_recipe")
+
+                    recipeSkill?.fullInstructions ?: "Ready to generate recipes."
+                }
+                "completed" -> {
+                    "Your meal plan is complete."
+                }
+                else -> null
+            }
+
+            return if (nextInstructions != null) {
+                SkillResult.DirectReply(nextInstructions)
+            } else {
+                SkillResult.Success(
+                    buildString {
+                        append("Meal planner state saved for conversation $conversationId.\n")
+                        if (status != null) append("Status: $status\n")
+                        if (peopleCount != null) append("People: $peopleCount\n")
+                        if (days != null) append("Days: $days\n")
+                        if (dietaryRestrictions != null) append("Dietary: $dietaryRestrictions\n")
+                        if (proteinPreferences != null) append("Proteins: $proteinPreferences\n")
+                        if (highLevelPlan != null) append("Plan saved.\n")
+                        if (currentDayIndex != null) append("Current day index: $currentDayIndex\n")
+                    }.trimEnd(),
+                )
+            }
         } catch (e: Exception) {
             return SkillResult.Failure(
                 name,

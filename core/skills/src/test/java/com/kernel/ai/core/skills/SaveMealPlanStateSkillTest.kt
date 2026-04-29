@@ -1,6 +1,8 @@
 package com.kernel.ai.core.skills
 
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
+import dagger.Lazy
+import io.mockk.every
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -18,13 +20,19 @@ import org.junit.jupiter.api.extension.ExtendWith
 class SaveMealPlanStateSkillTest {
 
     private val repository: MealPlanSessionRepository = mockk()
+    private val skillRegistry: SkillRegistry = mockk()
+    private val lazyRegistry: dagger.Lazy<SkillRegistry> = mockk {
+
+        every { get() } returns skillRegistry
+    }
 
     private lateinit var skill: SaveMealPlanStateSkill
 
     @BeforeEach
     fun setUp() {
-        skill = SaveMealPlanStateSkill(repository)
+        skill = SaveMealPlanStateSkill(repository, lazyRegistry)
     }
+
 
     @Test
     fun `skill name is save_meal_plan_state`() {
@@ -216,9 +224,10 @@ class SaveMealPlanStateSkillTest {
             ),
         )
 
-        assertEquals(true, result is SkillResult.Success, "Expected Success but got: $result")
-        val success = result as SkillResult.Success
-        assertEquals(true, success.content.contains("Plan saved"))
+        assertEquals(true, result is SkillResult.DirectReply, "Expected DirectReply but got: $result")
+        val directReply = result as SkillResult.DirectReply
+        // DirectReply contains the meal_planner_plan skill instructions
+        assertEquals(true, directReply.content.contains("high_level_plan_ready") || directReply.content.contains("meal_planner_plan") || directReply.content.contains("Generate a high-level meal plan"))
         coVerify(exactly = 1) {
             repository.saveHighLevelPlan(
                 "conv-2",
@@ -226,6 +235,7 @@ class SaveMealPlanStateSkillTest {
             )
         }
     }
+
 
     @Test
     fun `execute advances day index after Stage 3`() = runTest {
@@ -248,9 +258,9 @@ class SaveMealPlanStateSkillTest {
             ),
         )
 
-        assertEquals(true, result is SkillResult.Success)
-        val success = result as SkillResult.Success
-        assertEquals(true, success.content.contains("Current day index: 1"))
+        assertEquals(true, result is SkillResult.DirectReply, "Expected DirectReply but got: $result")
+        val directReply = result as SkillResult.DirectReply
+        assertEquals(true, directReply.content.contains("meal_planner_recipe") || directReply.content.contains("Generate and save recipe"))
         coVerify(exactly = 1) {
             repository.upsert(
                 match {
@@ -277,11 +287,12 @@ class SaveMealPlanStateSkillTest {
             ),
         )
 
-        assertEquals(true, result is SkillResult.Success, "Expected Success but got: $result")
-        val success = result as SkillResult.Success
-        assertEquals(true, success.content.contains("Status: completed"))
+        assertEquals(true, result is SkillResult.DirectReply, "Expected DirectReply but got: $result")
+        val directReply = result as SkillResult.DirectReply
+        assertEquals(true, directReply.content.contains("meal plan is complete"))
         coVerify(exactly = 1) { repository.updateStatus("conv-4", "completed") }
     }
+
 
     @Test
     fun `execute returns success content with all saved fields`() = runTest {
@@ -324,7 +335,7 @@ class SaveMealPlanStateSkillTest {
             ),
         )
 
-        assertEquals(true, result is SkillResult.Success, "Expected Success but got: $result")
+        assertEquals(true, result is SkillResult.DirectReply, "Expected DirectReply but got: $result")
         coVerify(exactly = 1) { repository.updateStatus("conv-6", "high_level_plan_ready") }
     }
 
@@ -345,7 +356,7 @@ class SaveMealPlanStateSkillTest {
             ),
         )
 
-        assertEquals(true, result is SkillResult.Success)
+        assertEquals(true, result is SkillResult.DirectReply, "Expected DirectReply but got: $result")
         coVerify(exactly = 1) {
             repository.upsert(
                 match {
@@ -355,6 +366,7 @@ class SaveMealPlanStateSkillTest {
             )
         }
     }
+
 
     @Test
     fun `execute handles non-existent session gracefully for status update`() = runTest {
