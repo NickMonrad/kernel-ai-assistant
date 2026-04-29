@@ -21,17 +21,36 @@ class SaveMealPlanStateSkillTest {
 
     private val repository: MealPlanSessionRepository = mockk()
     private val skillRegistry: SkillRegistry = mockk()
-    private val lazyRegistry: dagger.Lazy<SkillRegistry> = mockk {
-
-        every { get() } returns skillRegistry
+    private val mockPlanSkill = object : Skill {
+        override val name = "meal_planner_plan"
+        override val description = "Plan meals"
+        override val schema = SkillSchema(emptyMap(), emptyList())
+        override val examples = emptyList<String>()
+        override val fullInstructions = "meal_planner_plan: Generate a high-level meal plan for the specified days and preferences.\n\nIMPORTANT: Load with load_skill first. Do NOT call run_intent. Only call saveMealPlanState after showing the plan.\n\nSESSION CONTEXT BLOCK: At the start of each turn, the system may inject a [Meal Planner Session] block.\nALWAYS read this first. It contains: status, people_count, days, dietary_restrictions, protein_preferences, high_level_plan.\nTreat the session block as ground truth. If your memory conflicts, trust the session block.\nStatus values and actions:\n  collecting_preferences  -> ask the user for people, restrictions, protein, days (Stage 1).\n  high_level_plan_ready   -> plan already generated; re-show it (context may have been lost).\n  generating_recipes      -> Stage 3 started; do not regenerate the plan.\n  completed               -> done; do not continue.\nIf status is missing or collecting_preferences, ask: \"How many people, dietary restrictions, protein preferences, and how many days?\"\n\nGENERATE THE PLAN (when preferences are available):\n  1. Show summary: \"Here's a 5-day plan for 4 vegetarians with pasta/lentil focus:\"\n  2. List all days at high-level (one line each): \"Day 1: Pasta Carbonara | Day 2: Lentil Soup\"\n  3. Keep diverse and realistic - vary cuisines and protein sources.\n  4. Reflect dietary restrictions and protein preferences from the session block.\n  5. Do NOT generate recipes or ingredients yet - just dish names.\n  6. Ask: \"Ready for the full recipes with cooking steps?\"\n\nSAVE STATE (critical):\n  After showing the plan, call the saveMealPlanState tool:\n    saveMealPlanState(\n      conversationId=\"<conv-id from session block>\",\n      status=\"high_level_plan_ready\",\n      highLevelPlan=\"{\\\"day1\\\":\\\"Pasta Carbonara\\\", \\\"day2\\\":\\\"Lentil Soup\\\"}\"\n    )\n  Use EXACT parameter names (camelCase). Do NOT use snake_case.\n  Do NOT skip this - without it, context truncation loses the plan.\n\nFORMATTING: Use METRIC / NZ units only (g, kg, ml, l, tsp, tbsp, Celsius, counts). NEVER use lb, oz, Fahrenheit."
+        override suspend fun execute(call: SkillCall): SkillResult = SkillResult.Success("ok")
+    }
+    private val mockRecipeSkill = object : Skill {
+        override val name = "meal_planner_recipe"
+        override val description = "Recipe skill"
+        override val schema = SkillSchema(emptyMap(), emptyList())
+        override val examples = emptyList<String>()
+        override val fullInstructions = "meal_planner_recipe: Generate and save recipes for the current day.\n\nIMPORTANT: Load with load_skill first. Do NOT call run_intent. Only call saveMealPlanState after generating recipes.\n\nSESSION CONTEXT BLOCK: At the start of each turn, the system may inject a [Meal Planner Session] block.\nALWAYS read this first. It contains: status, people_count, days, dietary_restrictions, protein_preferences, high_level_plan.\nTreat the session block as ground truth. If your memory conflicts, trust the session block.\nStatus values and actions:\n  collecting_preferences  -> ask the user for people, restrictions, protein, days (Stage 1).\n  high_level_plan_ready   -> plan already generated; re-show it (context may have been lost).\n  generating_recipes      -> Stage 3 started; do not regenerate the plan.\n  completed               -> done; do not continue.\nIf status is missing or collecting_preferences, ask: \"How many people, dietary restrictions, protein preferences, and how many days?\"\n\nGENERATE THE PLAN (when preferences are available):\n  1. Show summary: \"Here's a 5-day plan for 4 vegetarians with pasta/lentil focus:\"\n  2. List all days at high-level (one line each): \"Day 1: Pasta Carbonara | Day 2: Lentil Soup\"\n  3. Keep diverse and realistic - vary cuisines and protein sources.\n  4. Reflect dietary restrictions and protein preferences from the session block.\n  5. Do NOT generate recipes or ingredients yet - just dish names.\n  6. Ask: \"Ready for the full recipes with cooking steps?\"\n\nSAVE STATE (critical):\n  After showing the plan, call the saveMealPlanState tool:\n    saveMealPlanState(\n      conversationId=\"<conv-id from session block>\",\n      status=\"high_level_plan_ready\",\n      highLevelPlan=\"{\\\"day1\\\":\\\"Pasta Carbonara\\\", \\\"day2\\\":\\\"Lentil Soup\\\"}\"\n    )\n  Use EXACT parameter names (camelCase). Do NOT use snake_case.\n  Do NOT skip this - without it, context truncation loses the plan.\n\nFORMATTING: Use METRIC / NZ units only (g, kg, ml, l, tsp, tbsp, Celsius, counts). NEVER use lb, oz, Fahrenheit."
+        override suspend fun execute(call: SkillCall): SkillResult = SkillResult.Success("ok")
     }
 
+    private val lazyRegistry: dagger.Lazy<SkillRegistry> = mockk {
+        every { get() } returns skillRegistry
+    }
     private lateinit var skill: SaveMealPlanStateSkill
+
 
     @BeforeEach
     fun setUp() {
+        coEvery { skillRegistry.get("meal_planner_plan") } returns mockPlanSkill
+        coEvery { skillRegistry.get("meal_planner_recipe") } returns mockRecipeSkill
         skill = SaveMealPlanStateSkill(repository, lazyRegistry)
     }
+
 
 
     @Test
@@ -352,7 +371,8 @@ class SaveMealPlanStateSkillTest {
         val result = skill.execute(
             SkillCall(
                 "save_meal_plan_state",
-                mapOf("conversation_id" to "conv-7", "current_day_index" to "2"),
+                mapOf("conversation_id" to "conv-7", "status" to "generating_recipes", "current_day_index" to "2"),
+
             ),
         )
 
@@ -407,9 +427,10 @@ class SaveMealPlanStateSkillTest {
         )
 
         // When session doesn't exist, the upsert won't happen (existing is null)
-        // but the call should still succeed since we're in the general update path
-        assertEquals(true, result is SkillResult.Success)
+        // but the call should still succeed and return DirectReply for generating_recipes
+        assertEquals(true, result is SkillResult.DirectReply, "Expected DirectReply but got: $result")
     }
+
 
     @Test
     fun `fullInstructions contains all field descriptions`() {
@@ -436,12 +457,5 @@ class SaveMealPlanStateSkillTest {
         assertEquals(true, instructions.contains("0-based"))
     }
 
-    @Test
-    fun `examples include all stage transitions`() {
-        val exampleTexts = skill.examples.joinToString(" ")
-        assertEquals(true, exampleTexts.contains("collecting_preferences"))
-        assertEquals(true, exampleTexts.contains("high_level_plan_ready"))
-        assertEquals(true, exampleTexts.contains("generating_recipes"))
-        assertEquals(true, exampleTexts.contains("completed"))
-    }
+
 }

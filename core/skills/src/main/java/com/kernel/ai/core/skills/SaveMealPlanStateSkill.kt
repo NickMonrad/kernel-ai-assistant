@@ -1,12 +1,12 @@
 package com.kernel.ai.core.skills
 
-import javax.inject.Inject
 import dagger.Lazy
+import javax.inject.Inject
+import javax.inject.Singleton
 
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import org.json.JSONArray
 import org.json.JSONObject
-import javax.inject.Singleton
 
 /**
  * Saves meal-planner session state to the Room database so the model can resume
@@ -79,13 +79,7 @@ class SaveMealPlanStateSkill @Inject constructor(
         required = listOf("conversation_id"),
     )
 
-    override val examples = listOf(
-        "After collecting preferences → saveMealPlanState(conversation_id=\"<conv-id>\", status=\"collecting_preferences\", people_count=4, days=5, dietary_restrictions='[\"vegetarian\"]', protein_preferences='[\"chicken\",\"fish\"]')",
-        "After generating high-level plan → saveMealPlanState(conversation_id=\"<conv-id>\", status=\"high_level_plan_ready\", high_level_plan='{\"day1\":\"Pasta Carbonara\",\"day2\":\"Lentil Soup\",\"day3\":\"Chicken Curry\"}')",
-        "After saving Day 1 recipes → saveMealPlanState(conversation_id=\"<conv-id>\", status=\"generating_recipes\", current_day_index=1)",
-        "After saving Day 2 recipes → saveMealPlanState(conversation_id=\"<conv-id>\", status=\"generating_recipes\", current_day_index=2)",
-        "When all days complete → saveMealPlanState(conversation_id=\"<conv-id>\", status=\"completed\")",
-    )
+    override val examples = emptyList<String>()
 
     override val fullInstructions: String = """
 save_meal_plan_state: Persist meal-planner session state to the database.
@@ -101,7 +95,7 @@ Parameters:
   - current_day_index (integer): 0-based index of the current day being generated
 
 Rules:
-  - conversation_id is REQUIRED on every call. Use the conversation ID from the system context.
+  - conversation_id is REQUIRED on every call. Use the conversation ID from the [Meal Planner Session] context block.
   - Call this tool after EVERY stage transition so the model can resume after context truncation.
   - Pass only the fields that have changed — the repository merges with existing state.
   - current_day_index is 0-based: Day 1 = 0, Day 2 = 1, etc. Increment it after saving each day.
@@ -118,6 +112,14 @@ Rules:
                 "Missing required parameter: conversation_id.",
             )
 
+        // Reject placeholder-like values — the model copies these from schema examples.
+        if (conversationId.startsWith('<') || conversationId.contains("session block")) {
+            return SkillResult.Failure(
+                name,
+                "Invalid conversation_id: received a placeholder value. The conversation_id is provided in the [Meal Planner Session] context block at the top of your prompt. Use that exact value.",
+            )
+        }
+
         val status = args["status"]
         val peopleCount = args["people_count"]?.toIntOrNull()
         val days = args["days"]?.toIntOrNull()
@@ -125,6 +127,17 @@ Rules:
         val proteinPreferences = args["protein_preferences"]
         val highLevelPlan = args["high_level_plan"]
         val currentDayIndex = args["current_day_index"]?.toIntOrNull()
+
+        // During Stage 1, reject if people_count or days are placeholder strings.
+        if (status == "collecting_preferences") {
+            val isPlaceholder = { s: String? -> s != null && (s.startsWith('<') || s.contains("<") || s.contains("N>")) }
+            if (isPlaceholder(peopleCount?.toString()) || isPlaceholder(days?.toString())) {
+                return SkillResult.Failure(
+                    name,
+                    "Invalid parameters: people_count and days must be actual numbers (e.g. 3, 5), not placeholders. Collect these from the conversation with the user first.",
+                )
+            }
+        }
 
         // Validate status enum if provided
         if (status != null && status !in listOf(
