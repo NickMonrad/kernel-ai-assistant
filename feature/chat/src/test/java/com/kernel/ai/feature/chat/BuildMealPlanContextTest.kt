@@ -202,16 +202,15 @@ class BuildMealPlanContextTest {
     }
 
     @Test
-    fun `buildMealPlanContext output contains session block and stage instructions`() {
+    fun `buildMealPlanContext output contains session block and save directive`() {
         val session = MealPlanSessionEntity(conversationId = "conv-block", status = "generating_recipes", currentDayIndex = 0)
         val result = buildMealPlanContext(session, "conv-block")
 
         assertTrue(result.contains("[Meal Planner Session]"))
         assertTrue(result.contains("[End Meal Planner Session]"))
-        assertTrue(result.contains("[Current Task]"))
         assertTrue(result.contains("saveMealPlanState"))
-        assertTrue(result.contains("run_intent"))
-        assertTrue(result.contains("create_list"))
-        assertTrue(result.contains("bulk_add_to_list"))
+        assertTrue(result.contains("conversationId"))
+        assertFalse(result.contains("[Current Task]"))
+        assertTrue(result.contains("load_skill meal_planner_recipe"))
     }
 }

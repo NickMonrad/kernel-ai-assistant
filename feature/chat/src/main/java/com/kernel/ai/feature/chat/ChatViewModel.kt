@@ -1676,104 +1676,16 @@ internal fun buildMealPlanContext(
             append("Current day: $dayLabel\n")
         }
         append("[End Meal Planner Session]\n\n")
+        append("You MUST call saveMealPlanState() after each stage to persist progress.\n")
+        append("Use the exact parameter names: conversationId, status, peopleCount, days,\n")
+        append("dietaryRestrictions, proteinPreferences, highLevelPlan, currentDayIndex.\n")
+        append("\n")
+        append("IMPORTANT: You MUST call load_skill to get detailed instructions for your current stage:\n")
+        append("  Status=collecting_preferences → load_skill meal_planner_collect\n")
+        append("  Status=high_level_plan_ready → load_skill meal_planner_plan\n")
+        append("  Status=generating_recipes → load_skill meal_planner_recipe\n")
     }
-
-    // Stage-specific instructions — the model follows these directly.
-    // Each stage MUST call saveMealPlanState to persist progress and transition.
-    val stageInstructions = when (status) {
-        "collecting_preferences" -> """
-[Current Task]
-You are planning meals. Follow ALL steps below in order.
-
-STEP 1 — Ask for preferences (if not already provided):
-  Number of people, days, dietary restrictions, protein preferences.
-  Wait for user to answer before proceeding.
-
-STEP 2 — Save preferences:
-  saveMealPlanState(
-    conversationId="<cid from session block>",
-    status="collecting_preferences",
-    peopleCount="<number>",
-    days="<number>",
-    dietaryRestrictions="[\"low lactose\"]",
-    proteinPreferences="[\"beef\", \"chicken\"]"
-  )
-
-STEP 3 — Generate a high-level meal plan for the specified days.
-
-STEP 4 — Save the plan:
-  saveMealPlanState(
-    conversationId="<cid from session block>",
-    status="high_level_plan_ready",
-    highLevelPlan="{\"day1\":\"Chicken Curry\", \"day2\":\"Beef Tacos\"}"
-  )
-
-IMPORTANT: Do NOT call run_intent with skill names. Use saveMealPlanState.
-Execute all 4 steps in order. Do not skip.
-
-conversation_id is in the [Meal Planner Session] block above.
-""".trimIndent()
-        "high_level_plan_ready" -> """
-[Current Task]
-You have a meal plan ready. Show the plan to the user and ask: "Are you ready for detailed recipes?"
-
-After showing the plan, call saveMealPlanState to confirm the plan:
-  saveMealPlanState(
-    conversationId="<cid from session block>",
-    status="high_level_plan_ready",
-    highLevelPlan="{\"day1\":\"Meal 1\", \"day2\":\"Meal 2\"}"
-  )
-
-conversation_id is in the [Meal Planner Session] block above.
-""".trimIndent()
-
-        "generating_recipes" -> """
-[Current Task]
-You are generating the recipe for the current day. Follow ALL steps in order.
-
-STEP 1 — Generate recipe:
-  Create a recipe title, ingredients list (METRIC units: g, kg, ml, l, tsp, tbsp), and method steps.
-  Show the recipe to the user.
-
-STEP 2 — Create a list for this day's recipe:
-  Call run_intent with intentName="create_list", list_name="Day {N} {dish}"
-  where N is the current day number (1-based) and {dish} is the recipe title.
-
-STEP 3 — Add method steps to the recipe list:
-  Call run_intent with intentName="bulk_add_to_list", list_name="Day {N} {dish}",
-  items=["step 1 text", "step 2 text", ...]
-
-STEP 4 — Add ingredients to the combined shopping list:
-  Call run_intent with intentName="bulk_add_to_list", list_name="shopping list",
-  items=["ingredient 1", "ingredient 2", ...]
-
-STEP 5 — ADVANCE STATE (REQUIRED):
-  Call the saveMealPlanState tool with parameters:
-    conversationId="<cid from session block>", status="generating_recipes",
-    currentDayIndex=<current_day_index + 1>
-  - currentDayIndex is 0-based. Add 1 to advance to the next day.
-  - This is REQUIRED. Without it, you will loop on the same day.
-
-If currentDayIndex >= days, the plan is complete:
-  Call saveMealPlanState with status="completed",
-  then say: "Your meal plan is complete! All recipes are saved to lists."
-
-conversation_id is in the [Meal Planner Session] block above.
-""".trimIndent()
-
-        "completed" -> """
-[Current Task]
-The meal plan is complete. Do not generate any more recipes or ask more questions.
-Provide a brief summary of the completed plan.
-""".trimIndent()
-
-        else -> """
-[Current Task]
-The session status is '$status'. Check the session block for available information.
-""".trimIndent()
-    }
-
-    return sb.toString() + stageInstructions
+    return sb.toString()
 }
 
 
