@@ -76,6 +76,6 @@ class LoadSkillSkill @Inject constructor(
                 name,
                 "Unknown skill: '$skillName'. Available: run_intent, get_weather, query_wikipedia, meal_planner, meal_planner_collect, meal_planner_plan, meal_planner_recipe, meal_planner_complete, meal_plan_transition, save_meal_plan_state, save_memory, search_memory, get_system_info, run_js",
             )
-        return SkillResult.Success(skill.fullInstructions)
+        return SkillResult.Success("Instructions loaded for '$skillName'. Follow them to complete the task.")
     }
 }
