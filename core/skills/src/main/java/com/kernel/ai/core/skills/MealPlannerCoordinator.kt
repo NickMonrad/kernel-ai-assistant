@@ -1,74 +1,37 @@
 package com.kernel.ai.core.skills
 
-
-
+import android.util.Log
 import com.kernel.ai.core.inference.MealPlannerStateMachine
-
 import com.kernel.ai.core.memory.entity.MealPlanSessionEntity
-
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
-
 import com.kernel.ai.core.skills.SkillCall
-
 import com.kernel.ai.core.skills.SkillResult
-
 import com.kernel.ai.core.skills.SkillRegistry
-
 import kotlinx.coroutines.flow.MutableStateFlow
-
 import kotlinx.coroutines.flow.StateFlow
-
 import kotlinx.coroutines.flow.asStateFlow
-
 import kotlinx.coroutines.sync.Mutex
-
 import kotlinx.coroutines.sync.withLock
 
-
-
 /**
-
  * Deterministic coordinator for the meal-planner workflow.
-
  *
-
  * The app owns flow control, persistence, artifact creation, and list generation.
-
  * The LLM only helps with natural-language interaction and bounded content generation
-
  * inside strict schemas.
-
  *
-
- * Responsibilities:
-
  * - Decide whether a message belongs to an active meal-planner session
-
  * - Interpret the message in the context of the active stage
-
  * - Update structured state via [MealPlanSessionRepository]
-
  * - Decide the next prompt / chips / action
-
  * - Delegate content generation to the appropriate stage skill
-
  * - Persist artifacts
-
- *
-
- * Thread-safe: all public methods acquire a mutex to prevent concurrent state mutations.
-
  */
 
 class MealPlannerCoordinator(
-
     private val sessionRepo: MealPlanSessionRepository,
-
     private val skillRegistry: dagger.Lazy<SkillRegistry>,
-
 ) {
-
-
 
     // ── Internal state ──────────────────────────────────────────────────
 
@@ -115,7 +78,6 @@ class MealPlannerCoordinator(
         return when (state) {
             MealPlannerStateMachine.State.COLLECTING_PREFERENCES -> handleCollecting(conversationId, userInput, session)
             MealPlannerStateMachine.State.PLAN_DRAFT_READY -> handlePlanDraftReady(conversationId, userInput, session)
-            MealPlannerStateMachine.State.PLAN_CONFIRMED -> handlePlanConfirmed(conversationId, userInput, session)
             MealPlannerStateMachine.State.GENERATING_RECIPE -> handleGeneratingRecipe(conversationId, userInput, session)
             MealPlannerStateMachine.State.RECIPE_REVIEW -> handleRecipeReview(conversationId, userInput, session)
             MealPlannerStateMachine.State.WRITING_ARTIFACTS -> handleWritingArtifacts(conversationId, userInput, session)
@@ -190,12 +152,6 @@ class MealPlannerCoordinator(
                     "Here's your high-level plan:\n${session.highLevelPlanJson ?: "No plan generated yet."}\n\n" +
                     "Would you like me to generate the full recipes with cooking steps? Reply 'yes' or 'confirm' to proceed."
                 )
-            }
-            MealPlannerStateMachine.State.PLAN_CONFIRMED -> {
-                // Start generating recipes
-                transitionTo(conversationId, MealPlannerStateMachine.State.GENERATING_RECIPE)
-                val dayLabel = session.currentDayIndex?.let { "Day ${it + 1}" } ?: "Day 1"
-                CoordinatorResult.Text("Generating the full recipe for $dayLabel...")
             }
             MealPlannerStateMachine.State.GENERATING_RECIPE -> {
                 // Already generating — wait for user to say "next" or "skip"
@@ -299,7 +255,8 @@ class MealPlannerCoordinator(
 
         return when {
             lowerInput in setOf("yes", "y", "confirm", "looks good", "go ahead", "proceed", "start") -> {
-                transitionTo(conversationId, MealPlannerStateMachine.State.PLAN_CONFIRMED)
+                transitionTo(conversationId, MealPlannerStateMachine.State.GENERATING_RECIPE)
+                sessionRepo.updatePreferences(conversationId, currentDayIndex = 0)
                 CoordinatorResult.Text("Generating the full recipes now...")
             }
             lowerInput in setOf("no", "nope", "change", "regenerate", "different", "try again") -> {
@@ -315,18 +272,6 @@ class MealPlannerCoordinator(
                 )
             }
         }
-    }
-
-    private suspend fun handlePlanConfirmed(
-        conversationId: String,
-        userInput: String,
-        session: MealPlanSessionEntity,
-    ): CoordinatorResult {
-        // Start generating recipes for the first day
-        transitionTo(conversationId, MealPlannerStateMachine.State.GENERATING_RECIPE)
-        sessionRepo.updatePreferences(conversationId, currentDayIndex = 0)
-        val dayLabel = "Day 1"
-        return CoordinatorResult.Text("Generating the full recipe for $dayLabel...")
     }
 
     private suspend fun handleGeneratingRecipe(
@@ -419,7 +364,7 @@ class MealPlannerCoordinator(
         val session = sessionRepo.getSession(conversationId) ?: return
         val current = session.statusAsState()
         if (target !in MealPlannerStateMachine.validTransitions(current)) return
-        val statusString = target.name.lowercase()
+        val statusString = target.statusString
         sessionRepo.updateStatus(conversationId, statusString)
     }
 
@@ -433,9 +378,7 @@ class MealPlannerCoordinator(
         }
 
         val result = try {
-            kotlinx.coroutines.runBlocking {
-                planSkill.execute(SkillCall("meal_planner_plan", emptyMap()))
-            }
+            planSkill.execute(SkillCall("meal_planner_plan", emptyMap()))
         } catch (e: Exception) {
             return CoordinatorResult.Text("Error generating plan: ${e.message}")
         }
@@ -454,13 +397,15 @@ class MealPlannerCoordinator(
         return when (status) {
             "collecting_preferences" -> MealPlannerStateMachine.State.COLLECTING_PREFERENCES
             "high_level_plan_ready" -> MealPlannerStateMachine.State.PLAN_DRAFT_READY
-            "plan_confirmed" -> MealPlannerStateMachine.State.PLAN_CONFIRMED
             "generating_recipes" -> MealPlannerStateMachine.State.GENERATING_RECIPE
             "recipe_review" -> MealPlannerStateMachine.State.RECIPE_REVIEW
             "writing_artifacts" -> MealPlannerStateMachine.State.WRITING_ARTIFACTS
             "completed" -> MealPlannerStateMachine.State.COMPLETED
             "cancelled" -> MealPlannerStateMachine.State.CANCELLED
-            else -> MealPlannerStateMachine.State.COLLECTING_PREFERENCES
+            else -> {
+                Log.w("MealPlannerCoordinator", "Unknown session status: $status, defaulting to COLLECTING_PREFERENCES")
+                MealPlannerStateMachine.State.COLLECTING_PREFERENCES
+            }
         }
     }
 

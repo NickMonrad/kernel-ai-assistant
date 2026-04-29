@@ -11,7 +11,6 @@ import com.kernel.ai.core.skills.MealPlannerCollectSkill
 import com.kernel.ai.core.skills.MealPlannerCompleteSkill
 import com.kernel.ai.core.skills.MealPlannerPlanSkill
 import com.kernel.ai.core.skills.MealPlannerRecipeSkill
-import com.kernel.ai.core.skills.MealPlannerSkill
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -62,9 +61,6 @@ abstract class SkillsModule {
 
     @Binds
     @IntoSet
-    abstract fun bindMealPlannerSkill(skill: MealPlannerSkill): Skill
-    @Binds
-    @IntoSet
     abstract fun bindMealPlannerCollectSkill(skill: MealPlannerCollectSkill): Skill
 
     @Binds
@@ -78,7 +74,6 @@ abstract class SkillsModule {
     @Binds
     @IntoSet
     abstract fun bindMealPlannerCompleteSkill(skill: MealPlannerCompleteSkill): Skill
-
 
     @Binds
     @IntoSet
@@ -97,29 +92,14 @@ abstract class SkillsModule {
             classifier: QuickIntentRouter.IntentClassifier,
         ): QuickIntentRouter = QuickIntentRouter(classifier = classifier)
 
-
         /** Provides the deterministic meal-planner coordinator. */
-
         @Provides
-
         @Singleton
-
         fun provideMealPlannerCoordinator(
-
             sessionRepo: com.kernel.ai.core.memory.repository.MealPlanSessionRepository,
+            skillRegistry: dagger.Lazy<SkillRegistry>,
+        ): MealPlannerCoordinator = MealPlannerCoordinator(sessionRepo, skillRegistry)
 
-            skillRegistry: dagger.Lazy<com.kernel.ai.core.skills.SkillRegistry>,
-
-        ): com.kernel.ai.core.skills.MealPlannerCoordinator =
-
-            com.kernel.ai.core.skills.MealPlannerCoordinator(sessionRepo, skillRegistry)
-
-
-
-
-
-
-        /** Wrap [KernelAIToolSet] into a [ToolProvider] for the LiteRT-LM SDK. */
         @Provides
         @Singleton
         fun provideToolProvider(toolSet: KernelAIToolSet): ToolProvider = tool(toolSet)

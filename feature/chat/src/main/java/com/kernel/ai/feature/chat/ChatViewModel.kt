@@ -1710,6 +1710,15 @@ private fun formatBytes(bytes: Long): String = when {
  * state (preferences, plan, current day) so it can continue deterministically
  * across follow-up turns without re-asking already-known information.
  */
+private fun isNotEmptyJsonArray(json: String?): Boolean {
+    if (json.isNullOrBlank()) return false
+    return try {
+        org.json.JSONArray(json).length() > 0
+    } catch (_: Exception) {
+        false
+    }
+}
+
 internal fun buildMealPlanContext(
     session: com.kernel.ai.core.memory.entity.MealPlanSessionEntity?,
     conversationId: String?,
@@ -1723,10 +1732,10 @@ internal fun buildMealPlanContext(
         append("Status: $status\n")
         session.peopleCount?.let { append("People: $it\n") }
         session.days?.let { append("Days: $it\n") }
-        if (session.dietaryRestrictionsJson != "[]") {
+        if (isNotEmptyJsonArray(session.dietaryRestrictionsJson)) {
             append("Dietary: ${session.dietaryRestrictionsJson}\n")
         }
-        if (session.proteinPreferencesJson != "[]") {
+        if (isNotEmptyJsonArray(session.proteinPreferencesJson)) {
             append("Proteins: ${session.proteinPreferencesJson}\n")
         }
         session.highLevelPlanJson?.let { plan ->
