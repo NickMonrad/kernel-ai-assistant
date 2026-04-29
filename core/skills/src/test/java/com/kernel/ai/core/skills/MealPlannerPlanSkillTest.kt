@@ -31,10 +31,12 @@ class MealPlannerPlanSkillTest {
     }
 
     @Test
-    fun `fullInstructions mentions conversationId from session block`() {
-        assertTrue(skill.fullInstructions.contains("conversationId"))
+    fun `fullInstructions mentions Meal Planner Session context block`() {
         assertTrue(skill.fullInstructions.contains("Meal Planner Session"))
+        assertTrue(skill.fullInstructions.contains("saveMealPlanState"))
     }
+
+
 
     @Test
     fun `fullInstructions mentions high_level_plan_ready status`() {

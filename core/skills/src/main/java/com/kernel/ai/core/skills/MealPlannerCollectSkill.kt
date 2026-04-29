@@ -76,18 +76,13 @@ RULES:
   - conversationId comes from the [Meal Planner Session] context block injected by the system.
 
 STATE PERSISTENCE (critical):
-  - After collecting preferences, call the saveMealPlanState tool with these EXACT parameters:
-      saveMealPlanState(
-        conversationId="<conv-id from session block>",
-        status="collecting_preferences",
-        peopleCount="<N>",
-        days="<N>",
-        dietaryRestrictions="[\"restriction1\", \"restriction2\"]",
-        proteinPreferences="[\"protein1\", \"protein2\"]"
-      )
-  - Use the EXACT parameter names above (camelCase). Do NOT use snake_case.
-  - If peopleCount or days is missing/null, still call saveMealPlanState with whatever you have.
+  - After collecting preferences, call saveMealPlanState with the EXACT parameter names below.
+  - conversationId comes from the [Meal Planner Session] context block.
+  - status="collecting_preferences"
+  - peopleCount, days, dietaryRestrictions, proteinPreferences: use the actual values from the conversation.
   - Pass only the fields that have changed — the database merges with existing state.
+  - If peopleCount or days is missing/null, still call saveMealPlanState with whatever you have.
+
 
 SESSION CONTEXT BLOCK:
   - At the start of each turn, the system may inject a [Meal Planner Session] block.

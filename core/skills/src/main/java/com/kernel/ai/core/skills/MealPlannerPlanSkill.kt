@@ -63,14 +63,12 @@ GENERATE THE PLAN (when preferences are available):
   6. Ask: "Ready for the full recipes with cooking steps?"
 
 SAVE STATE (critical):
-  After showing the plan, call the saveMealPlanState tool:
-    saveMealPlanState(
-      conversationId="<conv-id from session block>",
-      status="high_level_plan_ready",
-      highLevelPlan="{\"day1\":\"Pasta Carbonara\", \"day2\":\"Lentil Soup\"}"
-    )
-  Use EXACT parameter names (camelCase). Do NOT use snake_case.
-  Do NOT skip this - without it, context truncation loses the plan.
+  After showing the plan, call saveMealPlanState with status="high_level_plan_ready".
+  Use the EXACT parameter names (camelCase). Do NOT use snake_case.
+  Pass the highLevelPlan as a JSON object mapping day keys to meal names.
+  Do NOT skip this — without it, context truncation loses the plan.
+
+
 
 FORMATTING: Use METRIC / NZ units only (g, kg, ml, l, tsp, tbsp, Celsius, counts). NEVER use lb, oz, Fahrenheit.""".trimIndent()
 }

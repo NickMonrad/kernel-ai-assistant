@@ -73,15 +73,15 @@ STEP 5 — Show saved confirmation:
   "Added ingredients to Shopping | Created {day} {dish} list with N steps"
 
 STEP 6 — ADVANCE STATE (REQUIRED):
-  Call the saveMealPlanState tool with EXACT parameters:
-    saveMealPlanState(
-      conversationId="<conv-id from session block>",
-      status="generating_recipes",
-      currentDayIndex=<incremented>
-    )
+  Call saveMealPlanState with EXACT parameters:
+    - conversationId: from the [Meal Planner Session] context block
+    - status="generating_recipes"
+    - currentDayIndex: the 0-based index, MUST be incremented from the session value
   - currentDayIndex is 0-based and MUST be incremented
   - This is the ONLY way to advance to the next day
   - If you skip this step, you will be stuck on the same day
+
+
 
 CRITICAL:
   - You MUST call saveMealPlanState in STEP 6. Without it, the model cannot

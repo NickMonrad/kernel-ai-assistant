@@ -829,13 +829,10 @@ class ChatViewModel @Inject constructor(
                                 return@launch
                             }
                             is com.kernel.ai.core.skills.SkillResult.Success -> {
-                                // E4B not ready: show instructions directly
-                                if (!inferenceEngine.isReady.value) {
-                                    appendAssistantMessage(convId, result.content, shouldIndex = false)
-                                    return@launch
-                                }
-                                // E4B ready: inject instructions as systemContext for first turn
-                                systemContext = result.content
+                                // Always show instructions directly — E4B ignores systemContext hints
+                                // for long prompts, so we bypass it entirely for the first turn.
+                                appendAssistantMessage(convId, result.content, shouldIndex = false)
+                                return@launch
                             }
                             is com.kernel.ai.core.skills.SkillResult.Failure -> {
                                 appendAssistantMessage(convId, "Error loading meal planner: ${result.error}", shouldIndex = false)
@@ -845,6 +842,8 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                 }
+
+
                 // Calendar intent matched by classifier but params not extractable via regex —
                 // skip immediate execution and fall through to E4B with a structured hint.
                 if (matchedIntent.intentName == "create_calendar_event" &&
