@@ -816,12 +816,34 @@ class ChatViewModel @Inject constructor(
                 }
             }
             if (matchedIntent != null) {
-                // Meal planner: QIR matched 'plan meals' → tell E4B to call loadSkill.
-                // The model reliably ignores the [Tool Use] protocol when the prompt is long,
-                // so we inject a structured hint that the model follows reliably.
+                // Meal planner: QIR matched 'plan meals' → directly load the collect skill
+                // and return its instructions. The model ignores systemContext hints, so we
+                // execute load_skill and inject the result as a direct reply, bypassing E4B.
                 if (matchedIntent.intentName == "load_skill" && matchedIntent.params["skill_name"] == "meal_planner_collect") {
-                    systemContext = "[System: User wants to plan meals. Call loadSkill(skillName=\"meal_planner_collect\") to get the detailed instructions for collecting meal preferences.]"
-                    // fall through to E4B — do NOT execute now
+                    val loadSkill = skillRegistry.get("load_skill")
+                    if (loadSkill != null) {
+                        val result = loadSkill.execute(SkillCall("load_skill", mapOf("skill_name" to "meal_planner_collect")))
+                        when (result) {
+                            is com.kernel.ai.core.skills.SkillResult.DirectReply -> {
+                                appendAssistantMessage(convId, result.content, shouldIndex = false)
+                                return@launch
+                            }
+                            is com.kernel.ai.core.skills.SkillResult.Success -> {
+                                // E4B not ready: show instructions directly
+                                if (!inferenceEngine.isReady.value) {
+                                    appendAssistantMessage(convId, result.content, shouldIndex = false)
+                                    return@launch
+                                }
+                                // E4B ready: inject instructions as systemContext for first turn
+                                systemContext = result.content
+                            }
+                            is com.kernel.ai.core.skills.SkillResult.Failure -> {
+                                appendAssistantMessage(convId, "Error loading meal planner: ${result.error}", shouldIndex = false)
+                                return@launch
+                            }
+                            else -> { /* fall through to E4B unchanged */ }
+                        }
+                    }
                 }
                 // Calendar intent matched by classifier but params not extractable via regex —
                 // skip immediate execution and fall through to E4B with a structured hint.
