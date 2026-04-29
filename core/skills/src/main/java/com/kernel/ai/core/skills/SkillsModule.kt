@@ -108,9 +108,12 @@ abstract class SkillsModule {
 
             sessionRepo: com.kernel.ai.core.memory.repository.MealPlanSessionRepository,
 
-            skillRegistry: dagger.Lazy<SkillRegistry>,
+            skillRegistry: dagger.Lazy<com.kernel.ai.core.skills.SkillRegistry>,
 
-        ): MealPlannerCoordinator = MealPlannerCoordinator(sessionRepo, skillRegistry)
+        ): com.kernel.ai.core.skills.MealPlannerCoordinator =
+
+            com.kernel.ai.core.skills.MealPlannerCoordinator(sessionRepo, skillRegistry)
+
 
 
 

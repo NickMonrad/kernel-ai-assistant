@@ -37,6 +37,9 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.MealPlannerCoordinator.CoordinatorResult
+
+
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
@@ -97,6 +100,11 @@ class ChatViewModel @Inject constructor(
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
     private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
+    private val mealPlannerCoordinator: com.kernel.ai.core.skills.MealPlannerCoordinator,
+
+
+
+
     private val mealPlanSessionRepository: MealPlanSessionRepository,
 ) : ViewModel() {
 
@@ -695,6 +703,32 @@ class ChatViewModel @Inject constructor(
             // E4B generates a natural conversational wrapper around the action result.
             // On failure or UnknownSkill: fall through to E4B unchanged.
 
+
+            // Active meal-planner session: route through coordinator instead of QIR/LLM.
+
+            if (mealPlannerCoordinator.hasActiveSession(convId)) {
+
+                try {
+
+                    val result = mealPlannerCoordinator.processMessage(convId, text)
+
+                    appendAssistantMessage(convId, result.content, shouldIndex = false)
+
+                    return@launch
+
+                } catch (e: Exception) {
+
+                    appendAssistantMessage(convId, "Error processing meal plan: ${e.message}", shouldIndex = false)
+
+                    return@launch
+
+                }
+
+            }
+
+
+
+
             // Slot-fill shortcut: if the previous QIR match was paused awaiting a required
             // param, route the user's reply here before touching QIR or the LLM.
             if (slotFillerManager.hasPending) {
@@ -816,41 +850,29 @@ class ChatViewModel @Inject constructor(
                 }
             }
             if (matchedIntent != null) {
-                // Meal planner: QIR matched 'plan meals' → directly load the collect skill
-                // and return its instructions. The model ignores systemContext hints, so we
-                // execute load_skill and inject the result as a direct reply, bypassing E4B.
-                if (matchedIntent.intentName == "load_skill" && matchedIntent.params["skill_name"] == "meal_planner_collect") {
-                    val loadSkill = skillRegistry.get("load_skill")
-                    if (loadSkill != null) {
-                        // If the user already provided preferences in their message, skip
-                        // collect and go straight to plan generation.
-                        val userProvidedPrefs = Regex(
-                            "(?i)(?:\\b\\d+\\s*(?:people|persons|pax|folks|head)|\\b\\d+\\s*(?:day|week|night)s?|\\b(?:vegetarian|vegan|gluten.?free|dairy.?free|halal|kosher|low.?lactose|paleo|keto|pescatarian)\\b)",
-                        ).containsMatchIn(text)
 
+                // Meal planner: QIR matched 'plan meals' → route to coordinator
 
+                if (matchedIntent.intentName == "start_meal_planner") {
 
-                        val skillToLoad = if (userProvidedPrefs) "meal_planner_plan" else "meal_planner_collect"
-                        val result = loadSkill.execute(SkillCall("load_skill", mapOf("skill_name" to skillToLoad)))
-                        when (result) {
-                            is com.kernel.ai.core.skills.SkillResult.DirectReply -> {
-                                appendAssistantMessage(convId, result.content, shouldIndex = false)
-                                return@launch
-                            }
-                            is com.kernel.ai.core.skills.SkillResult.Success -> {
-                                // Always show instructions directly — E4B ignores systemContext hints
-                                // for long prompts, so we bypass it entirely for the first turn.
-                                appendAssistantMessage(convId, result.content, shouldIndex = false)
-                                return@launch
-                            }
-                            is com.kernel.ai.core.skills.SkillResult.Failure -> {
-                                appendAssistantMessage(convId, "Error loading meal planner: ${result.error}", shouldIndex = false)
-                                return@launch
-                            }
-                            else -> { /* fall through to E4B unchanged */ }
-                        }
+                    try {
+
+                        val result = mealPlannerCoordinator.startOrResume(convId)
+
+                        appendAssistantMessage(convId, result.content, shouldIndex = false)
+
+                        return@launch
+
+                    } catch (e: Exception) {
+
+                        appendAssistantMessage(convId, "Error starting meal plan: ${e.message}", shouldIndex = false)
+
+                        return@launch
+
                     }
+
                 }
+
 
 
 

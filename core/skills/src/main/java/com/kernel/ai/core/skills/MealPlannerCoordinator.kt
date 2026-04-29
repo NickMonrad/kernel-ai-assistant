@@ -4,45 +4,71 @@ package com.kernel.ai.core.skills
 
 import com.kernel.ai.core.inference.MealPlannerStateMachine
 
-
 import com.kernel.ai.core.memory.entity.MealPlanSessionEntity
+
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
-import com.kernel.ai.core.skills.Skill
+
 import com.kernel.ai.core.skills.SkillCall
+
 import com.kernel.ai.core.skills.SkillResult
+
 import com.kernel.ai.core.skills.SkillRegistry
+
 import kotlinx.coroutines.flow.MutableStateFlow
+
 import kotlinx.coroutines.flow.StateFlow
+
 import kotlinx.coroutines.flow.asStateFlow
+
 import kotlinx.coroutines.sync.Mutex
+
 import kotlinx.coroutines.sync.withLock
-import javax.inject.Inject
-import javax.inject.Singleton
+
+
 
 /**
+
  * Deterministic coordinator for the meal-planner workflow.
+
  *
+
  * The app owns flow control, persistence, artifact creation, and list generation.
+
  * The LLM only helps with natural-language interaction and bounded content generation
+
  * inside strict schemas.
+
  *
+
  * Responsibilities:
+
  * - Decide whether a message belongs to an active meal-planner session
+
  * - Interpret the message in the context of the active stage
+
  * - Update structured state via [MealPlanSessionRepository]
+
  * - Decide the next prompt / chips / action
+
  * - Delegate content generation to the appropriate stage skill
+
  * - Persist artifacts
+
  *
+
  * Thread-safe: all public methods acquire a mutex to prevent concurrent state mutations.
+
  */
-@Singleton
-class MealPlannerCoordinator @Inject constructor(
+
+class MealPlannerCoordinator(
+
     private val sessionRepo: MealPlanSessionRepository,
+
     private val skillRegistry: dagger.Lazy<SkillRegistry>,
 
-
 ) {
+
+
 
     // ── Internal state ──────────────────────────────────────────────────
 
@@ -441,6 +467,12 @@ class MealPlannerCoordinator @Inject constructor(
     // ── Result types ────────────────────────────────────────────────────
 
     sealed interface CoordinatorResult {
-        data class Text(val content: String) : CoordinatorResult
+
+        val content: String
+
+        data class Text(override val content: String) : CoordinatorResult
+
     }
+
+
 }
