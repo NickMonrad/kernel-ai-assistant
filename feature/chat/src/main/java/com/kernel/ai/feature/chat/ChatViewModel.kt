@@ -822,7 +822,16 @@ class ChatViewModel @Inject constructor(
                 if (matchedIntent.intentName == "load_skill" && matchedIntent.params["skill_name"] == "meal_planner_collect") {
                     val loadSkill = skillRegistry.get("load_skill")
                     if (loadSkill != null) {
-                        val result = loadSkill.execute(SkillCall("load_skill", mapOf("skill_name" to "meal_planner_collect")))
+                        // If the user already provided preferences in their message, skip
+                        // collect and go straight to plan generation.
+                        val userProvidedPrefs = Regex(
+                            "(?i)(?:\\b\\d+\\s*(?:people|persons|pax|folks|head)|\\b\\d+\\s*(?:day|week|night)s?|\\b(?:vegetarian|vegan|gluten.?free|dairy.?free|halal|kosher|low.?lactose|paleo|keto|pescatarian)\\b)",
+                        ).containsMatchIn(text)
+
+
+
+                        val skillToLoad = if (userProvidedPrefs) "meal_planner_plan" else "meal_planner_collect"
+                        val result = loadSkill.execute(SkillCall("load_skill", mapOf("skill_name" to skillToLoad)))
                         when (result) {
                             is com.kernel.ai.core.skills.SkillResult.DirectReply -> {
                                 appendAssistantMessage(convId, result.content, shouldIndex = false)
@@ -842,6 +851,9 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                 }
+
+
+
 
 
                 // Calendar intent matched by classifier but params not extractable via regex —

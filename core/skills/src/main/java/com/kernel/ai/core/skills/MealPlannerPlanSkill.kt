@@ -42,33 +42,34 @@ class MealPlannerPlanSkill @Inject constructor() : Skill {
     override val fullInstructions: String = """
 meal_planner_plan: Generate a high-level meal plan for the specified days and preferences.
 
-IMPORTANT: Load with load_skill first. Do NOT call run_intent. Only call saveMealPlanState after showing the plan.
-
 SESSION CONTEXT BLOCK: At the start of each turn, the system may inject a [Meal Planner Session] block.
 ALWAYS read this first. It contains: status, people_count, days, dietary_restrictions, protein_preferences, high_level_plan.
 Treat the session block as ground truth. If your memory conflicts, trust the session block.
+
 Status values and actions:
   collecting_preferences  -> ask the user for people, restrictions, protein, days (Stage 1).
   high_level_plan_ready   -> plan already generated; re-show it (context may have been lost).
   generating_recipes      -> Stage 3 started; do not regenerate the plan.
   completed               -> done; do not continue.
+
 If status is missing or collecting_preferences, ask: "How many people, dietary restrictions, protein preferences, and how many days?"
 
 GENERATE THE PLAN (when preferences are available):
-  1. Show summary: "Here's a 5-day plan for 4 vegetarians with pasta/lentil focus:"
-  2. List all days at high-level (one line each): "Day 1: Pasta Carbonara | Day 2: Lentil Soup"
+  1. Show summary: "Here's a 3-day plan for 2 vegetarians:"
+  2. List all days at high-level (one line each): "Day 1: Lentil Dahl | Day 2: Vegetable Curry"
   3. Keep diverse and realistic - vary cuisines and protein sources.
   4. Reflect dietary restrictions and protein preferences from the session block.
   5. Do NOT generate recipes or ingredients yet - just dish names.
   6. Ask: "Ready for the full recipes with cooking steps?"
 
-SAVE STATE (critical):
-  After showing the plan, call saveMealPlanState with status="high_level_plan_ready".
-  Use the EXACT parameter names (camelCase). Do NOT use snake_case.
-  Pass the highLevelPlan as a JSON object mapping day keys to meal names.
-  Do NOT skip this — without it, context truncation loses the plan.
-
-
+IMMEDIATELY AFTER SHOWING THE PLAN, call saveMealPlanState with status="high_level_plan_ready".
+  - conversationId: from the [Meal Planner Session] context block
+  - status: "high_level_plan_ready"
+  - highLevelPlan: JSON object mapping day keys to meal names, e.g. {"day1":"Lentil Dahl","day2":"Vegetable Curry","day3":"Quinoa Salad"}
+  - Use EXACT parameter names (camelCase). Do NOT use snake_case.
+  - Do NOT skip this step — without it, context truncation loses the plan.
 
 FORMATTING: Use METRIC / NZ units only (g, kg, ml, l, tsp, tbsp, Celsius, counts). NEVER use lb, oz, Fahrenheit.""".trimIndent()
+
+
 }
