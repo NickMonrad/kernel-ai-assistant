@@ -97,6 +97,25 @@ abstract class SkillsModule {
             classifier: QuickIntentRouter.IntentClassifier,
         ): QuickIntentRouter = QuickIntentRouter(classifier = classifier)
 
+
+        /** Provides the deterministic meal-planner coordinator. */
+
+        @Provides
+
+        @Singleton
+
+        fun provideMealPlannerCoordinator(
+
+            sessionRepo: com.kernel.ai.core.memory.repository.MealPlanSessionRepository,
+
+            skillRegistry: dagger.Lazy<SkillRegistry>,
+
+        ): MealPlannerCoordinator = MealPlannerCoordinator(sessionRepo, skillRegistry)
+
+
+
+
+
         /** Wrap [KernelAIToolSet] into a [ToolProvider] for the LiteRT-LM SDK. */
         @Provides
         @Singleton

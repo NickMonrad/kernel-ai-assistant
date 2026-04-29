@@ -101,6 +101,9 @@ class KernelAIToolSet @Inject constructor(
             "get_weather_gps",
             "query_wikipedia",
             "meal_planner",
+            "start_meal_planner",
+
+
             "meal_planner_collect",
             "meal_planner_plan",
             "meal_planner_recipe",
@@ -165,6 +168,9 @@ class KernelAIToolSet @Inject constructor(
             "get_weather_gps",
             "query_wikipedia",
             "meal_planner",
+            "start_meal_planner",
+
+
             "meal_planner_collect",
             "meal_planner_plan",
             "meal_planner_recipe",

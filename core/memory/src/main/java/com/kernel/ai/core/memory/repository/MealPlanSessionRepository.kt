@@ -64,6 +64,7 @@ class MealPlanSessionRepository @Inject constructor(
         days: Int? = null,
         dietaryRestrictionsJson: String? = null,
         proteinPreferencesJson: String? = null,
+        currentDayIndex: Int? = null,
     ) {
         val existing = dao.getByConversationId(conversationId)
             ?: return
@@ -73,6 +74,7 @@ class MealPlanSessionRepository @Inject constructor(
                 days = days ?: existing.days,
                 dietaryRestrictionsJson = dietaryRestrictionsJson ?: existing.dietaryRestrictionsJson,
                 proteinPreferencesJson = proteinPreferencesJson ?: existing.proteinPreferencesJson,
+                currentDayIndex = currentDayIndex ?: existing.currentDayIndex,
                 updatedAt = System.currentTimeMillis(),
             ),
         )
