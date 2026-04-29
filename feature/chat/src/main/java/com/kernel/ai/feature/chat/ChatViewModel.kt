@@ -816,6 +816,13 @@ class ChatViewModel @Inject constructor(
                 }
             }
             if (matchedIntent != null) {
+                // Meal planner: QIR matched 'plan meals' → tell E4B to call loadSkill.
+                // The model reliably ignores the [Tool Use] protocol when the prompt is long,
+                // so we inject a structured hint that the model follows reliably.
+                if (matchedIntent.intentName == "load_skill" && matchedIntent.params["skill_name"] == "meal_planner_collect") {
+                    systemContext = "[System: User wants to plan meals. Call loadSkill(skillName=\"meal_planner_collect\") to get the detailed instructions for collecting meal preferences.]"
+                    // fall through to E4B — do NOT execute now
+                }
                 // Calendar intent matched by classifier but params not extractable via regex —
                 // skip immediate execution and fall through to E4B with a structured hint.
                 if (matchedIntent.intentName == "create_calendar_event" &&
@@ -830,7 +837,6 @@ class ChatViewModel @Inject constructor(
                         "runIntent(intentName=\"create_calendar_event\", ...). " +
                         "Pass the date exactly as the user said it. Pass time as HH:MM 24h.]"
                     // fall through to E4B — do NOT execute now
-                } else {
                 // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
                 // handled by the run_intent skill — they aren't top-level skill names.
                 // Resolve: direct skill match first, then fall back to run_intent.

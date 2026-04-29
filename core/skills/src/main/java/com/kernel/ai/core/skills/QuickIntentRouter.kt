@@ -2324,6 +2324,17 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
         ),
+        // ── Meal Planner ──
+        // Pattern: 'plan meals' / 'make a meal plan' / 'plan my meals' → load meal_planner_collect
+        IntentPattern(
+            intentName = "load_skill",
+            regex = Regex(
+                """(?:plan|make|make a|plan my|create a|start a)\s+(?:meal|food|dinner|lunch|breakfast)(?:\s+plan)?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("skill_name" to "meal_planner_collect") },
+            isFallback = true,
+        ),
     )
 
     // ── Main routing ──────────────────────────────────────────────────────────
