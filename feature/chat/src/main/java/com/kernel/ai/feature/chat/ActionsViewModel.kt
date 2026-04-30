@@ -9,6 +9,8 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.MealPlannerCoordinator
+
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.voice.VoiceCaptureMode
@@ -22,6 +24,8 @@ import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import java.util.UUID
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -57,7 +61,11 @@ class ActionsViewModel @Inject constructor(
     private val quickActionDao: QuickActionDao,
     private val voiceInputController: VoiceInputController,
     private val voiceOutputController: VoiceOutputController,
+
+    private val mealPlannerCoordinator: MealPlannerCoordinator,
+
 ) : ViewModel() {
+
 
     // ── Action history ──────────────────────────────────────────────────────
 
@@ -451,37 +459,110 @@ class ActionsViewModel @Inject constructor(
      * intent_name param to run_intent — they are not skill names themselves.
      */
     private suspend fun executeIntent(
+
         query: String,
+
         intentName: String,
+
         params: Map<String, String>,
+
         inputMode: InputMode,
+
     ): QuickActionEntity {
-        val directSkill = skillRegistry.get(intentName)
-        val (skill, callParams) = when {
-            directSkill != null -> directSkill to params
-            else -> skillRegistry.get("run_intent") to (mapOf("intent_name" to intentName) + params)
-        }
-        return if (skill != null) {
-            val skillResult = skill.execute(SkillCall(skill.name, callParams))
-            if (shouldRequestPhonePermission(intentName, skillResult)) {
-                pendingPhonePermissionAction = PendingPhonePermissionAction(
-                    query = query,
-                    intentName = intentName,
-                    params = params,
-                    inputMode = inputMode,
+
+        // Meal planner: route to coordinator instead of run_intent
+
+        if (intentName == "start_meal_planner") {
+
+            return try {
+
+                val convId = UUID.randomUUID().toString()
+
+                val result = mealPlannerCoordinator.startOrResume(convId)
+
+
+                QuickActionEntity(
+
+                    userQuery = query,
+
+                    skillName = "meal_planner",
+
+                    resultText = result.content,
+
+                    isSuccess = true,
+
                 )
-                _events.emit(UiEvent.RequestPhonePermission)
+
+            } catch (e: Exception) {
+
+                QuickActionEntity(
+
+                    userQuery = query,
+
+                    skillName = "meal_planner",
+
+                    resultText = "Error starting meal plan: ${e.message}",
+
+                    isSuccess = false,
+
+                )
+
             }
-            buildEntityFromSkillResult(query, intentName, skillResult)
-        } else {
-            Log.w(TAG, "ActionsViewModel: intent '$intentName' has no registered skill")
-            QuickActionEntity(
-                userQuery = query,
-                skillName = intentName,
-                resultText = "Action recognised but not yet implemented.",
-                isSuccess = false,
-            )
+
         }
+
+        val directSkill = skillRegistry.get(intentName)
+
+        val (skill, callParams) = when {
+
+            directSkill != null -> directSkill to params
+
+            else -> skillRegistry.get("run_intent") to (mapOf("intent_name" to intentName) + params)
+
+        }
+
+        return if (skill != null) {
+
+            val skillResult = skill.execute(SkillCall(skill.name, callParams))
+
+            if (shouldRequestPhonePermission(intentName, skillResult)) {
+
+                pendingPhonePermissionAction = PendingPhonePermissionAction(
+
+                    query = query,
+
+                    intentName = intentName,
+
+                    params = params,
+
+                    inputMode = inputMode,
+
+                )
+
+                _events.emit(UiEvent.RequestPhonePermission)
+
+            }
+
+            buildEntityFromSkillResult(query, intentName, skillResult)
+
+        } else {
+
+            Log.w(TAG, "ActionsViewModel: intent '$intentName' has no registered skill")
+
+            QuickActionEntity(
+
+                userQuery = query,
+
+                skillName = intentName,
+
+                resultText = "Action recognised but not yet implemented.",
+
+                isSuccess = false,
+
+            )
+
+        }
+
     }
 
     private fun buildEntityFromSkillResult(
