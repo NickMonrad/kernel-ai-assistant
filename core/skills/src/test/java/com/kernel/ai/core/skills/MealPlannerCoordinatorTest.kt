@@ -122,16 +122,19 @@ class MealPlannerCoordinatorTest {
 
 
 
-        // "yes" path in handlePlanDraftReady returns Text (not LlmDraft)
+        // "yes" path in handlePlanDraftReady returns LlmDraft with session context for recipe generation
 
-        assertTrue(result is MealPlannerCoordinator.CoordinatorResult.Text)
+        assertTrue(result is MealPlannerCoordinator.CoordinatorResult.LlmDraft)
 
-        val text = result as MealPlannerCoordinator.CoordinatorResult.Text
+        val draft = result as MealPlannerCoordinator.CoordinatorResult.LlmDraft
 
-        assertTrue(text.content.contains("Generating the full recipes"))
+        assertTrue(draft.content.contains("Generating the full recipes"))
+
+        assertTrue(draft.systemHint.contains("Status: generating_recipes"))
+
+        assertTrue(draft.systemHint.contains("Current day: 1"))
 
         coVerify(exactly = 1) { repository.updateStatus("conv-5", "generating_recipes") }
-
     }
 
     @Test
@@ -160,22 +163,31 @@ class MealPlannerCoordinatorTest {
 
     @Test
     fun `processMessage in GENERATING_RECIPE advances day on next`() = runTest {
+
         val session = MealPlanSessionEntity(
+
             conversationId = "conv-7",
+
             status = "generating_recipes",
+
             currentDayIndex = 0,
+
             days = 3,
+
         )
+
+        val updatedSession = session.copy(currentDayIndex = 1)
+
         coEvery { repository.getSession("conv-7") } returns session
+
         coEvery { repository.advanceDay("conv-7") } answers { Unit }
-        coEvery { repository.updateStatus(any(), any()) } answers { Unit }
+
         every { mockSkillRegistry.get() } returns mockk()
 
+        // After advanceDay, getSession returns the updated session
+
+        coEvery { repository.getSession("conv-7") } returns updatedSession
         val result = coordinator.processMessage("conv-7", "next")
-
-
-
-        // handleGeneratingRecipe now returns LlmDraft to route through the LLM
 
         assertTrue(result is MealPlannerCoordinator.CoordinatorResult.LlmDraft)
 

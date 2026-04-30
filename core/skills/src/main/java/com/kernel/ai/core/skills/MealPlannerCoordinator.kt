@@ -336,9 +336,13 @@ class MealPlannerCoordinator(
 
         return when {
             lowerInput in setOf("yes", "y", "confirm", "looks good", "go ahead", "proceed", "start") -> {
+
                 transitionTo(conversationId, MealPlannerStateMachine.State.GENERATING_RECIPE)
+
                 sessionRepo.updatePreferences(conversationId, currentDayIndex = 0)
-                CoordinatorResult.Text("Generating the full recipes now...")
+
+                return generateFirstRecipe(conversationId, session)
+
             }
             lowerInput in setOf("no", "nope", "change", "regenerate", "different", "try again") -> {
                 // Regenerate the plan
@@ -380,9 +384,11 @@ class MealPlannerCoordinator(
 
                     MealPlannerStateMachine.State.RECIPE_REVIEW -> {
 
-                        // Last day reached — return LlmDraft for the user to review
+                        // Last day reached — use the fresh session for the correct day label
 
-                        val dayLabel = session.currentDayIndex?.let { it + 1 } ?: 1
+                        val freshSession = sessionRepo.getSession(conversationId)
+
+                        val dayLabel = freshSession?.currentDayIndex?.let { it + 1 } ?: 1
 
                         return CoordinatorResult.LlmDraft(
 
@@ -396,7 +402,9 @@ class MealPlannerCoordinator(
 
                     MealPlannerStateMachine.State.GENERATING_RECIPE -> {
 
-                        val nextDay = session.currentDayIndex?.let { it + 1 }?.plus(1) ?: 1
+                        val fresh = sessionRepo.getSession(conversationId)
+
+                        val nextDay = fresh?.currentDayIndex?.let { it + 1 } ?: 1
 
                         return CoordinatorResult.LlmDraft(
 
@@ -412,15 +420,15 @@ class MealPlannerCoordinator(
 
                                 appendLine("Current day: $nextDay")
 
-                                session.peopleCount?.let { appendLine("People: $it") }
+                                fresh?.peopleCount?.let { appendLine("People: $it") }
 
-                                session.days?.let { appendLine("Days: $it") }
+                                fresh?.days?.let { appendLine("Days: $it") }
 
-                                if (session.dietaryRestrictionsJson != "[]") appendLine("Dietary: ${session.dietaryRestrictionsJson}")
+                                if (fresh?.dietaryRestrictionsJson != "[]") appendLine("Dietary: ${fresh!!.dietaryRestrictionsJson}")
 
-                                if (session.proteinPreferencesJson != "[]") appendLine("Proteins: ${session.proteinPreferencesJson}")
+                                if (fresh?.proteinPreferencesJson != "[]") appendLine("Proteins: ${fresh!!.proteinPreferencesJson}")
 
-                                session.highLevelPlanJson?.let { appendLine("Plan: $it") }
+                                fresh?.highLevelPlanJson?.let { appendLine("Plan: $it") }
 
                                 appendLine("[End Meal Planner Session]")
 
@@ -441,7 +449,6 @@ class MealPlannerCoordinator(
                         )
 
                     }
-
                     else -> CoordinatorResult.Text("Proceeding to the next day...")
 
                 }
@@ -614,6 +621,35 @@ class MealPlannerCoordinator(
         )
 
     }
+
+    private suspend fun generateFirstRecipe(
+        conversationId: String,
+        session: MealPlanSessionEntity,
+    ): CoordinatorResult {
+        val sessionBlock = buildString {
+            appendLine("[Meal Planner Session]")
+            appendLine("conversation_id: $conversationId")
+            appendLine("Status: generating_recipes")
+            appendLine("Current day: 1")
+            session.peopleCount?.let { appendLine("People: $it") }
+            session.days?.let { appendLine("Days: $it") }
+            if (session.dietaryRestrictionsJson != "[]") appendLine("Dietary: ${session.dietaryRestrictionsJson}")
+            if (session.proteinPreferencesJson != "[]") appendLine("Proteins: ${session.proteinPreferencesJson}")
+            session.highLevelPlanJson?.let { appendLine("Plan: $it") }
+            appendLine("[End Meal Planner Session]")
+            appendLine()
+            appendLine("Generate a detailed recipe for Day 1 including:")
+            appendLine("  - Recipe title")
+            appendLine("  - Ingredients list (METRIC units: g, kg, ml, l, tsp, tbsp, Celsius)")
+            appendLine("  - Cooking method steps (numbered)")
+            appendLine("After generating, call saveMealPlanState with currentDayIndex=0 and status=\"generating_recipes\".")
+        }
+        return CoordinatorResult.LlmDraft(
+            content = "Generating the full recipes now...",
+            systemHint = sessionBlock,
+        )
+    }
+
 
     // ── Extension ───────────────────────────────────────────────────────
 
