@@ -1,6 +1,6 @@
 package com.kernel.ai.core.skills
 
-import com.kernel.ai.core.inference.MealPlannerStateMachine
+import com.kernel.ai.core.skills.MealPlannerStateMachine
 import com.kernel.ai.core.memory.entity.MealPlanSessionEntity
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import io.mockk.Runs
@@ -120,11 +120,18 @@ class MealPlannerCoordinatorTest {
 
         val result = coordinator.processMessage("conv-5", "yes")
 
+
+
+        // "yes" path in handlePlanDraftReady returns Text (not LlmDraft)
+
         assertTrue(result is MealPlannerCoordinator.CoordinatorResult.Text)
+
         val text = result as MealPlannerCoordinator.CoordinatorResult.Text
+
         assertTrue(text.content.contains("Generating the full recipes"))
+
         coVerify(exactly = 1) { repository.updateStatus("conv-5", "generating_recipes") }
-        coVerify(exactly = 1) { repository.updatePreferences(eq("conv-5"), any(), any(), any(), any(), eq(0)) }
+
     }
 
     @Test
@@ -141,8 +148,14 @@ class MealPlannerCoordinatorTest {
 
         val result = coordinator.processMessage("conv-6", "regenerate")
 
-        assertTrue(result is MealPlannerCoordinator.CoordinatorResult.Text)
-        coVerify(exactly = 1) { mockRegistry.get("meal_planner_plan") }
+
+
+        // generatePlan() now returns LlmDraft to route through the LLM
+
+        assertTrue(result is MealPlannerCoordinator.CoordinatorResult.LlmDraft)
+
+        // No skill is called — LlmDraft signals the chat layer to generate via the LLM
+
     }
 
     @Test
@@ -160,10 +173,18 @@ class MealPlannerCoordinatorTest {
 
         val result = coordinator.processMessage("conv-7", "next")
 
-        assertTrue(result is MealPlannerCoordinator.CoordinatorResult.Text)
-        val text = result as MealPlannerCoordinator.CoordinatorResult.Text
-        assertTrue(text.content.contains("Day 2"))
+
+
+        // handleGeneratingRecipe now returns LlmDraft to route through the LLM
+
+        assertTrue(result is MealPlannerCoordinator.CoordinatorResult.LlmDraft)
+
+        val draft = result as MealPlannerCoordinator.CoordinatorResult.LlmDraft
+
+        assertTrue(draft.systemHint.contains("Current day: 2"))
+
         coVerify(exactly = 1) { repository.advanceDay("conv-7") }
+
     }
 
     @Test
@@ -376,8 +397,14 @@ class MealPlannerCoordinatorTest {
 
         val result = coordinator.startOrResume("conv-14")
 
-        assertTrue(result is MealPlannerCoordinator.CoordinatorResult.Text)
+
+
+        // generatePlan() now returns LlmDraft to route through the LLM
+
+        assertTrue(result is MealPlannerCoordinator.CoordinatorResult.LlmDraft)
+
         coVerify(exactly = 1) { repository.updateStatus("conv-14", "high_level_plan_ready") }
+
     }
 
     @Test

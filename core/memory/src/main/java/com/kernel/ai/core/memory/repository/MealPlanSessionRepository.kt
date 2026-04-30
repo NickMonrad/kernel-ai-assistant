@@ -93,17 +93,35 @@ class MealPlanSessionRepository @Inject constructor(
     }
 
     suspend fun advanceDay(conversationId: String) {
+
         val existing = dao.getByConversationId(conversationId)
+
             ?: return
+
         val nextDay = (existing.currentDayIndex ?: 0) + 1
+
+        val totalDays = existing.days
+
+        val isLastDay = totalDays != null && nextDay >= totalDays
+
         upsert(
+
             existing.copy(
+
                 currentDayIndex = nextDay,
-                status = if (existing.days != null && nextDay >= existing.days) "completed"
-                else "generating_recipes",
+
+                // Only mark completed when the user has seen all recipes and says 'done'.
+
+                // The coordinator handles the final transition to WRITING_ARTIFACTS -> COMPLETED.
+
+                status = if (isLastDay) "recipe_review" else "generating_recipes",
+
                 updatedAt = System.currentTimeMillis(),
+
             ),
+
         )
+
     }
 
     suspend fun markCompleted(conversationId: String) {

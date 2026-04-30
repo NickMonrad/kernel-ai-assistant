@@ -670,6 +670,7 @@ class ChatViewModel @Inject constructor(
             // Set true when QIR routes to a device action, OR when the LLM calls a non-indexable
             // tool (run_intent, get_weather, etc.) — suppresses RAG indexing for both the user
             // message and the LLM response to prevent stale device state in future RAG (#614).
+            var isActiveMealPlannerTurn = false
             var isDeviceActionExchange = false
             // Hoisted so the Complete handler can index the user message after knowing whether
             // any device-action tools were called during LLM inference.
@@ -706,25 +707,92 @@ class ChatViewModel @Inject constructor(
 
             // Active meal-planner session: route through coordinator instead of QIR/LLM.
 
+            // Exception: if the user explicitly says 'start meal planner', route to startOrResume
+
+            // so the coordinator can present the resume summary.
+
             if (mealPlannerCoordinator.hasActiveSession(convId)) {
+
+
 
                 try {
 
+
+
                     val result = mealPlannerCoordinator.processMessage(convId, text)
 
-                    appendAssistantMessage(convId, result.content, shouldIndex = false)
 
-                    return@launch
+
+
+
+
+
+
+
+                    // If the coordinator needs LLM content generation, inject the system hint
+
+
+
+                    // and fall through to the LLM path instead of appending text directly.
+
+
+
+                    if (result is CoordinatorResult.LlmDraft) {
+
+
+
+                        appendAssistantMessage(convId, result.content, shouldIndex = false)
+
+
+
+                        systemContext = "[System: ${result.systemHint}]"
+
+
+
+                        isActiveMealPlannerTurn = true
+
+
+
+                        // Break out of the coordinator block and fall through to LLM inference
+
+
+
+                    } else {
+
+
+
+                        appendAssistantMessage(convId, result.content, shouldIndex = false)
+
+
+
+                        return@launch
+
+
+
+                    }
+
+
 
                 } catch (e: Exception) {
 
-                    appendAssistantMessage(convId, "Error processing meal plan: ${e.message}", shouldIndex = false)
+
+
+                    appendAssistantMessage(convId, "Error with meal planner: ${e.message}", shouldIndex = false)
+
+
 
                     return@launch
 
+
+
                 }
 
+
+
             }
+
+
+
 
 
 
@@ -892,6 +960,7 @@ class ChatViewModel @Inject constructor(
                         "runIntent(intentName=\"create_calendar_event\", ...). " +
                         "Pass the date exactly as the user said it. Pass time as HH:MM 24h.]"
                     // fall through to E4B — do NOT execute now
+                }
                 // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
                 // handled by the run_intent skill — they aren't top-level skill names.
                 // Resolve: direct skill match first, then fall back to run_intent.
@@ -937,7 +1006,6 @@ class ChatViewModel @Inject constructor(
                         else -> { /* UnknownSkill/ParseError — fall through to E4B unchanged */ }
                     }
                 }
-                } // end else (non-calendar or calendar with params)
             }
 
             // Lazy-init Gemma-4 if not yet loaded.
@@ -1013,7 +1081,7 @@ class ChatViewModel @Inject constructor(
             // follow-up turns. Also suppress episodic/RAG injection for these turns to
             // prevent stale memory leakage (#687).
             val cid = conversationId
-            val isActiveMealPlannerTurn = cid != null &&
+            isActiveMealPlannerTurn = cid != null &&
                 mealPlanSessionRepository.getSession(cid)?.let { it.status != "completed" } == true
             val mealPlanContext = if (isActiveMealPlannerTurn && cid != null) {
                 val session = mealPlanSessionRepository.getSession(cid)

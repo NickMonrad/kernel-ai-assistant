@@ -9,7 +9,42 @@ import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 import javax.inject.Singleton
 
+
 private const val TAG = "KernelAI"
+
+
+
+internal val ReservedSkillNames = setOf(
+
+    "load_skill",
+
+    "run_intent",
+
+    "run_js",
+
+    "get_weather",
+
+    "get_weather_gps",
+
+    "query_wikipedia",
+
+    "meal_planner_collect",
+
+    "meal_planner_plan",
+
+    "meal_planner_recipe",
+
+    "meal_planner_complete",
+
+    "save_meal_plan_state",
+
+    "save_memory",
+
+    "search_memory",
+
+    "get_system_info",
+
+)
 
 /**
  * Native LiteRT-LM tool set exposing 5 gateway functions to the SDK.
@@ -93,22 +128,7 @@ class KernelAIToolSet @Inject constructor(
         setLastToolCall("run_intent", "{\"intent_name\":\"$intentName\",\"parameters\":$parameters}")
         Log.d(TAG, "ToolSet: runIntent($intentName, $parameters)")
 
-        val reservedSkillNames = setOf(
-            "load_skill",
-            "run_intent",
-            "run_js",
-            "get_weather",
-            "get_weather_gps",
-            "query_wikipedia",
-            "meal_planner_collect",
-            "meal_planner_plan",
-            "meal_planner_recipe",
-            "meal_planner_complete",
-            "save_meal_plan_state",
-            "save_memory",
-            "search_memory",
-            "get_system_info",
-        )
+        val reservedSkillNames = ReservedSkillNames
         if (intentName in reservedSkillNames) {
             val skill = skillRegistry.get().get(intentName)
             val instructions = skill?.fullInstructions ?: ""
@@ -157,20 +177,7 @@ class KernelAIToolSet @Inject constructor(
             Log.w(TAG, "ToolSet: runJs params parse failed, treating as empty: ${e.message}")
         }
 
-        val reservedSkillNames = setOf(
-            "run_intent",
-            "get_weather",
-            "get_weather_gps",
-            "query_wikipedia",
-            "meal_planner_collect",
-            "meal_planner_plan",
-            "meal_planner_recipe",
-            "meal_planner_complete",
-            "save_meal_plan_state",
-            "save_memory",
-            "search_memory",
-            "get_system_info",
-        )
+        val reservedSkillNames = ReservedSkillNames
         if (skillName in reservedSkillNames) {
             val skill = skillRegistry.get().get(skillName)
             val instructions = skill?.fullInstructions ?: ""
@@ -241,30 +248,53 @@ class KernelAIToolSet @Inject constructor(
     @Tool(description = "Save meal-planner session state to the database. Call after each stage transition (preferences collected, plan generated, each day's recipes saved) so the model can resume after context truncation. Requires conversation_id.")
     fun saveMealPlanState(
         @ToolParam(description = "The conversation ID for this meal plan.") conversationId: String,
-        @ToolParam(description = "Flow stage: collecting_preferences, high_level_plan_ready, generating_recipes, or completed.") status: String,
-        @ToolParam(description = "Number of people the plan is for.") peopleCount: String,
-        @ToolParam(description = "Number of days in the plan.") days: String,
-        @ToolParam(description = "JSON array of dietary restrictions, e.g. '[\"vegetarian\"]'.") dietaryRestrictions: String,
-        @ToolParam(description = "JSON array of protein preferences, e.g. '[\"chicken\",\"fish\"]'.") proteinPreferences: String,
-        @ToolParam(description = "JSON object mapping day keys to meals, e.g. '{\"day1\":\"Pasta Carbonara\"}'.") highLevelPlan: String,
-        @ToolParam(description = "0-based index of the current day being generated. Increment after each day's recipes are saved.") currentDayIndex: String,
+
+        @ToolParam(description = "Flow stage: collecting_preferences, high_level_plan_ready, generating_recipes, or completed.") status: String? = null,
+
+        @ToolParam(description = "Number of people the plan is for.") peopleCount: String? = null,
+
+        @ToolParam(description = "Number of days in the plan.") days: String? = null,
+
+        @ToolParam(description = "JSON array of dietary restrictions, e.g. '[\"vegetarian\"]'.") dietaryRestrictions: String? = null,
+
+        @ToolParam(description = "JSON array of protein preferences, e.g. '[\"chicken\",\"fish\"]'.") proteinPreferences: String? = null,
+
+        @ToolParam(description = "JSON object mapping day keys to meals, e.g. '{\"day1\":\"Pasta Carbonara\"}'.") highLevelPlan: String? = null,
+
+        @ToolParam(description = "0-based index of the current day being generated. Increment after each day's recipes are saved.") currentDayIndex: String? = null,
+
     ): Map<String, String> {
+
         toolCalledInThisTurn = true
+
         val args = mutableMapOf("conversation_id" to conversationId)
-        if (status.isNotBlank()) args["status"] = status
-        if (peopleCount.isNotBlank()) args["people_count"] = peopleCount
-        if (days.isNotBlank()) args["days"] = days
-        if (dietaryRestrictions.isNotBlank()) args["dietary_restrictions"] = dietaryRestrictions
-        if (proteinPreferences.isNotBlank()) args["protein_preferences"] = proteinPreferences
-        if (highLevelPlan.isNotBlank()) args["high_level_plan"] = highLevelPlan
-        if (currentDayIndex.isNotBlank()) args["current_day_index"] = currentDayIndex
+
+        status?.takeIf { it.isNotBlank() }?.let { args["status"] = it }
+
+        peopleCount?.takeIf { it.isNotBlank() }?.let { args["people_count"] = it }
+
+        days?.takeIf { it.isNotBlank() }?.let { args["days"] = it }
+
+        dietaryRestrictions?.takeIf { it.isNotBlank() }?.let { args["dietary_restrictions"] = it }
+
+        proteinPreferences?.takeIf { it.isNotBlank() }?.let { args["protein_preferences"] = it }
+
+        highLevelPlan?.takeIf { it.isNotBlank() }?.let { args["high_level_plan"] = it }
+
+        currentDayIndex?.takeIf { it.isNotBlank() }?.let { args["current_day_index"] = it }
 
         setLastToolCall("save_meal_plan_state", args.entries.joinToString(",") { "\"${it.key}\":\"${it.value}\"" })
+
         Log.d(TAG, "ToolSet: saveMealPlanState($args)")
+
         val result = executeSkill("save_meal_plan_state", args)
+
         lastToolResult = result["result"] ?: result["error"]
+
         return result
+
     }
+
 
     // -------------------------------------------------------------------------
     // Internal dispatch

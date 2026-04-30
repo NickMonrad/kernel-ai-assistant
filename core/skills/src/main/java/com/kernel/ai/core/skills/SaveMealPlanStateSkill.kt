@@ -121,23 +121,52 @@ Rules:
         }
 
         val status = args["status"]
-        val peopleCount = args["people_count"]?.toIntOrNull()
-        val days = args["days"]?.toIntOrNull()
-        val dietaryRestrictions = args["dietary_restrictions"]
-        val proteinPreferences = args["protein_preferences"]
-        val highLevelPlan = args["high_level_plan"]
-        val currentDayIndex = args["current_day_index"]?.toIntOrNull()
 
-        // During Stage 1, reject if people_count or days are placeholder strings.
+        val rawPeopleCount = args["people_count"]
+
+        val rawDays = args["days"]
+
+        val dietaryRestrictions = args["dietary_restrictions"]
+
+        val proteinPreferences = args["protein_preferences"]
+
+        val highLevelPlan = args["high_level_plan"]
+
+        val rawCurrentDayIndex = args["current_day_index"]
+
+
+
+        // Reject placeholder-like values in numeric fields BEFORE parsing.
+
+        // The model copies these from schema examples (e.g. "<N>", "<number>").
+
+        val isPlaceholder = { s: String? -> s != null && (s.startsWith('<') || s.contains("<") || s.contains("N>")) }
+
         if (status == "collecting_preferences") {
-            val isPlaceholder = { s: String? -> s != null && (s.startsWith('<') || s.contains("<") || s.contains("N>")) }
-            if (isPlaceholder(peopleCount?.toString()) || isPlaceholder(days?.toString())) {
+
+            if (isPlaceholder(rawPeopleCount) || isPlaceholder(rawDays)) {
+
                 return SkillResult.Failure(
+
                     name,
+
                     "Invalid parameters: people_count and days must be actual numbers (e.g. 3, 5), not placeholders. Collect these from the conversation with the user first.",
+
                 )
+
             }
+
         }
+
+
+
+        val peopleCount = rawPeopleCount?.toIntOrNull()
+
+        val days = rawDays?.toIntOrNull()
+
+        val currentDayIndex = rawCurrentDayIndex?.toIntOrNull()
+
+
 
         // Validate status enum if provided
         if (status != null && status !in listOf(
@@ -218,47 +247,37 @@ Rules:
                 )
             }
 
-            // After saving, return the next stage skill's instructions as a DirectReply.
-            // This bypasses E4B for stage transitions — the model never needs to
-            // figure out which skill to load. We just give it the next instructions.
-            val nextInstructions = when (status) {
-                "high_level_plan_ready" -> {
-                    val planSkill = skillRegistry.get().get("meal_planner_plan")
+            // Return a confirmation of what was saved. Stage transitions are driven by the
 
-                    planSkill?.fullInstructions ?: "Meal plan saved. Ready for recipes."
-                }
-                "generating_recipes" -> {
-                    val recipeSkill = skillRegistry.get().get("meal_planner_recipe")
+            // coordinator, not by the persistence tool — the model should not receive
 
-                    recipeSkill?.fullInstructions ?: "Ready to generate recipes."
-                }
-                "completed" -> {
-                    "Your meal plan is complete."
-                }
-                else -> null
-            }
+            // internal prompt instructions as tool output.
 
-            return if (nextInstructions != null) {
-                SkillResult.DirectReply(nextInstructions)
-            } else {
-                SkillResult.Success(
-                    buildString {
-                        append("Meal planner state saved for conversation $conversationId.\n")
-                        if (status != null) append("Status: $status\n")
-                        if (peopleCount != null) append("People: $peopleCount\n")
-                        if (days != null) append("Days: $days\n")
-                        if (dietaryRestrictions != null) append("Dietary: $dietaryRestrictions\n")
-                        if (proteinPreferences != null) append("Proteins: $proteinPreferences\n")
-                        if (highLevelPlan != null) append("Plan saved.\n")
-                        if (currentDayIndex != null) append("Current day index: $currentDayIndex\n")
-                    }.trimEnd(),
-                )
-            }
-        } catch (e: Exception) {
-            return SkillResult.Failure(
-                name,
-                "Failed to save meal plan state: ${e.message}",
+            return SkillResult.Success(
+                buildString {
+                    append("Meal planner state saved for conversation $conversationId.\n")
+                    if (status != null) append("Status: $status\n")
+                    if (peopleCount != null) append("People: $peopleCount\n")
+                    if (days != null) append("Days: $days\n")
+                    if (dietaryRestrictions != null) append("Dietary: $dietaryRestrictions\n")
+                    if (proteinPreferences != null) append("Proteins: $proteinPreferences\n")
+                    if (highLevelPlan != null) append("Plan saved.\n")
+                    if (currentDayIndex != null) append("Current day index: $currentDayIndex\n")
+                }.trimEnd(),
             )
+
+        } catch (e: Exception) {
+
+            return SkillResult.Failure(
+
+                name,
+
+                "Failed to save meal plan state: ${e.message}",
+
+            )
+
         }
+
     }
+
 }

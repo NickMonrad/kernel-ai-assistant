@@ -1,7 +1,6 @@
 package com.kernel.ai.core.skills
-
 import android.util.Log
-import com.kernel.ai.core.inference.MealPlannerStateMachine
+import com.kernel.ai.core.skills.MealPlannerStateMachine
 import com.kernel.ai.core.memory.entity.MealPlanSessionEntity
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.skills.SkillCall
@@ -179,71 +178,153 @@ class MealPlannerCoordinator(
 
     private suspend fun handleCollecting(
         conversationId: String,
+
         userInput: String,
+
         session: MealPlanSessionEntity,
+
     ): CoordinatorResult {
+
         // Parse user input for preference keywords
+
         val peopleRegex = Regex("""\b(\d+)\s*(?:people|persons|pax|folks|head)\b""", RegexOption.IGNORE_CASE)
+
         val daysRegex = Regex("""(\d+)\s*(?:day|week|night)s?\b""", RegexOption.IGNORE_CASE)
+
         val restrictionKeywords = setOf(
+
             "vegetarian", "vegan", "gluten.?free", "dairy.?free", "halal", "kosher",
+
             "low.?lactose", "paleo", "keto", "pescatarian", "nut.?free",
+
         )
+
+
 
         var peopleCount = session.peopleCount
+
         var days = session.days
+
         var restrictions = session.dietaryRestrictionsJson
+
         var proteins = session.proteinPreferencesJson
 
-        // Extract people count
+
+
+        // Extract people count — also catch bare numbers like "4"
+
         peopleRegex.find(userInput)?.let {
+
             peopleCount = it.groupValues[1].toIntOrNull()
+
+        } ?: run {
+
+            // Try matching a bare number (e.g. "plan meals for 4")
+
+            Regex("""\b(\d{1,2})\b""", RegexOption.IGNORE_CASE).find(userInput)?.let {
+
+                val num = it.groupValues[1].toIntOrNull()
+
+                if (num != null && num in 1..50) peopleCount = num
+
+            }
+
         }
+
+
 
         // Extract days
+
         daysRegex.find(userInput)?.let {
+
             days = it.groupValues[1].toIntOrNull()
+
         }
+
+
 
         // Extract dietary restrictions
+
         val matchedRestrictions = restrictionKeywords.mapNotNull { keyword ->
+
             Regex(keyword, RegexOption.IGNORE_CASE).find(userInput)?.value
+
         }.distinct()
+
         if (matchedRestrictions.isNotEmpty()) {
+
             restrictions = matchedRestrictions.joinToString(",") { "\"$it\"" }.let { "[$it]" }
+
         }
+
+
 
         // Extract protein preferences
+
         val proteinKeywords = setOf("chicken", "beef", "fish", "pork", "tofu", "lamb", "shrimp", "prawn", "eggs", "turkey")
+
         val matchedProteins = proteinKeywords.mapNotNull { keyword ->
-            Regex("\\b$keyword\\b", RegexOption.IGNORE_CASE).find(userInput)?.value?.lowercase()
+
+            Regex("""\b$keyword\b""", RegexOption.IGNORE_CASE).find(userInput)?.value?.lowercase()
+
         }.distinct()
+
         if (matchedProteins.isNotEmpty()) {
+
             proteins = matchedProteins.joinToString(",") { "\"$it\"" }.let { "[$it]" }
+
         }
+
+
+
+        // Persist partial preferences on every turn so multi-turn collection doesn't lose data
+
+        sessionRepo.updatePreferences(conversationId, peopleCount, days, restrictions, proteins)
+
+
 
         // Check if we have enough info to proceed
+
         if (peopleCount != null && days != null && restrictions != "[]" && proteins != "[]") {
-            sessionRepo.updatePreferences(conversationId, peopleCount, days, restrictions, proteins)
+
             transitionTo(conversationId, MealPlannerStateMachine.State.PLAN_DRAFT_READY)
+
             return generatePlan(conversationId)
+
         }
 
+
+
         // Ask for missing info
+
         val missing = mutableListOf<String>()
+
         if (peopleCount == null) missing.add("number of people")
+
         if (days == null) missing.add("number of days")
+
         if (restrictions == "[]") missing.add("dietary restrictions")
+
         if (proteins == "[]") missing.add("protein preferences")
 
+
+
         return CoordinatorResult.Text(
+
             "Thanks! I have:\n" +
+
             "  People: ${peopleCount ?: "?"}\n" +
+
             "  Days: ${days ?: "?"}\n" +
+
             "  Dietary: ${if (restrictions != "[]") restrictions else "?"}\n" +
+
             "  Proteins: ${if (proteins != "[]") proteins else "?"}\n\n" +
+
             "I still need: ${missing.joinToString(", ")}. What else would you like?"
+
         )
+
     }
 
     private suspend fun handlePlanDraftReady(
@@ -276,43 +357,153 @@ class MealPlannerCoordinator(
 
     private suspend fun handleGeneratingRecipe(
         conversationId: String,
+
         userInput: String,
+
         session: MealPlanSessionEntity,
+
     ): CoordinatorResult {
+
         val lowerInput = userInput.lowercase()
 
+
+
         return when {
+
             lowerInput in setOf("next", "continue", "skip", "skip this", "move on") -> {
-                // Advance to next day
+
                 sessionRepo.advanceDay(conversationId)
+
                 val newState = sessionRepo.getSession(conversationId)?.statusAsState()
+
                 when (newState) {
-                    MealPlannerStateMachine.State.COMPLETED -> {
-                        transitionTo(conversationId, MealPlannerStateMachine.State.WRITING_ARTIFACTS)
-                        return CoordinatorResult.Text("All days complete! Consolidating your shopping list...")
+
+                    MealPlannerStateMachine.State.RECIPE_REVIEW -> {
+
+                        // Last day reached — return LlmDraft for the user to review
+
+                        val dayLabel = session.currentDayIndex?.let { it + 1 } ?: 1
+
+                        return CoordinatorResult.LlmDraft(
+
+                            content = "All days complete! Reviewing your final recipe...",
+
+                            systemHint = "The meal plan is complete. Confirm the plan and summarize the shopping list.",
+
+                        )
+
                     }
+
                     MealPlannerStateMachine.State.GENERATING_RECIPE -> {
+
                         val nextDay = session.currentDayIndex?.let { it + 1 }?.plus(1) ?: 1
-                        return CoordinatorResult.Text("Generating the full recipe for Day $nextDay...")
+
+                        return CoordinatorResult.LlmDraft(
+
+                            content = "Generating the full recipe for Day $nextDay...",
+
+                            systemHint = buildString {
+
+                                appendLine("[Meal Planner Session]")
+
+                                appendLine("conversation_id: $conversationId")
+
+                                appendLine("Status: generating_recipes")
+
+                                appendLine("Current day: $nextDay")
+
+                                session.peopleCount?.let { appendLine("People: $it") }
+
+                                session.days?.let { appendLine("Days: $it") }
+
+                                if (session.dietaryRestrictionsJson != "[]") appendLine("Dietary: ${session.dietaryRestrictionsJson}")
+
+                                if (session.proteinPreferencesJson != "[]") appendLine("Proteins: ${session.proteinPreferencesJson}")
+
+                                session.highLevelPlanJson?.let { appendLine("Plan: $it") }
+
+                                appendLine("[End Meal Planner Session]")
+
+                                appendLine()
+
+                                appendLine("Generate a detailed recipe for Day $nextDay including:")
+
+                                appendLine("  - Recipe title")
+
+                                appendLine("  - Ingredients list (METRIC units: g, kg, ml, l, tsp, tbsp, Celsius)")
+
+                                appendLine("  - Cooking method steps (numbered)")
+
+                                appendLine("After generating, call saveMealPlanState with currentDayIndex=$nextDay and status=\"generating_recipes\".")
+
+                            },
+
+                        )
+
                     }
+
                     else -> CoordinatorResult.Text("Proceeding to the next day...")
+
                 }
+
             }
+
             lowerInput in setOf("regenerate", "retry", "redo") -> {
-                // Regenerate current day (keep same day index)
-                val dayLabel = session.currentDayIndex?.let { it + 1 } ?: 1
-                return CoordinatorResult.Text("Regenerating Day $dayLabel...")
 
-
-            }
-            else -> {
-                // Parse feedback for recipe changes
                 val dayLabel = session.currentDayIndex?.let { it + 1 } ?: 1
-                CoordinatorResult.Text(
-                    "Day $dayLabel recipe generated. Say 'next' to continue, 'regenerate' to retry, or 'done' to finish."
+
+                return CoordinatorResult.LlmDraft(
+
+                    content = "Regenerating Day $dayLabel...",
+
+                    systemHint = buildString {
+
+                        appendLine("[Meal Planner Session]")
+
+                        appendLine("conversation_id: $conversationId")
+
+                        appendLine("Status: generating_recipes")
+
+                        appendLine("Current day: $dayLabel")
+
+                        session.peopleCount?.let { appendLine("People: $it") }
+
+                        session.days?.let { appendLine("Days: $it") }
+
+                        if (session.dietaryRestrictionsJson != "[]") appendLine("Dietary: ${session.dietaryRestrictionsJson}")
+
+                        if (session.proteinPreferencesJson != "[]") appendLine("Proteins: ${session.proteinPreferencesJson}")
+
+                        session.highLevelPlanJson?.let { appendLine("Plan: $it") }
+
+                        appendLine("[End Meal Planner Session]")
+
+                        appendLine()
+
+                        appendLine("Regenerate the Day $dayLabel recipe. Use different ingredients or a different dish.")
+
+                        appendLine("After generating, call saveMealPlanState with currentDayIndex=${dayLabel - 1} and status=\"generating_recipes\".")
+
+                    },
+
                 )
+
             }
+
+            else -> {
+
+                val dayLabel = session.currentDayIndex?.let { it + 1 } ?: 1
+
+                CoordinatorResult.Text(
+
+                    "Day $dayLabel recipe generated. Say 'next' to continue, 'regenerate' to retry, or 'done' to finish."
+
+                )
+
+            }
+
         }
+
     }
 
     private suspend fun handleRecipeReview(
@@ -369,26 +560,59 @@ class MealPlannerCoordinator(
     }
 
     private suspend fun generatePlan(conversationId: String): CoordinatorResult {
-        // Delegate to the plan skill for LLM content generation
-        val planSkill = skillRegistry.get().get("meal_planner_plan")
+
+        val session = sessionRepo.getSession(conversationId)
+
+            ?: return CoordinatorResult.Text("Unable to generate plan — no session found.")
 
 
-        if (planSkill == null) {
-            return CoordinatorResult.Text("Unable to generate plan — skill not found.")
+
+        // Build the session block as a system hint for the LLM.
+
+        // The chat layer will inject this into the prompt and route through the model.
+
+        val sessionBlock = buildString {
+
+            appendLine("[Meal Planner Session]")
+
+            appendLine("conversation_id: $conversationId")
+
+            appendLine("Status: high_level_plan_ready")
+
+            session.peopleCount?.let { appendLine("People: $it") }
+
+            session.days?.let { appendLine("Days: $it") }
+
+            if (session.dietaryRestrictionsJson != "[]") appendLine("Dietary: ${session.dietaryRestrictionsJson}")
+
+            if (session.proteinPreferencesJson != "[]") appendLine("Proteins: ${session.proteinPreferencesJson}")
+
+            appendLine("[End Meal Planner Session]")
+
+            appendLine()
+
+            appendLine("Generate a high-level meal plan for the specified days and preferences.")
+
+            appendLine("List all days at high-level (one line each). Keep diverse and realistic.")
+
+            appendLine("Reflect dietary restrictions and protein preferences.")
+
+            appendLine("Do NOT generate recipes or ingredients yet — just dish names.")
+
+            appendLine("After showing the plan, call saveMealPlanState with status=\"high_level_plan_ready\" and highLevelPlan as a JSON object.")
+
         }
 
-        val result = try {
-            planSkill.execute(SkillCall("meal_planner_plan", emptyMap()))
-        } catch (e: Exception) {
-            return CoordinatorResult.Text("Error generating plan: ${e.message}")
-        }
 
-        return when (result) {
-            is SkillResult.DirectReply -> CoordinatorResult.Text(result.content)
-            is SkillResult.Success -> CoordinatorResult.Text(result.content)
-            is SkillResult.Failure -> CoordinatorResult.Text("Error: ${result.error}")
-            else -> CoordinatorResult.Text("Unexpected result.")
-        }
+
+        return CoordinatorResult.LlmDraft(
+
+            content = "Generating your meal plan...",
+
+            systemHint = sessionBlock,
+
+        )
+
     }
 
     // ── Extension ───────────────────────────────────────────────────────
@@ -413,9 +637,35 @@ class MealPlannerCoordinator(
 
     sealed interface CoordinatorResult {
 
+
+
         val content: String
 
+
+
         data class Text(override val content: String) : CoordinatorResult
+
+
+
+        /**
+
+         * The coordinator needs the LLM to generate content (plan or recipe).
+
+         * The chat layer should build a prompt with the session block and
+
+         * route through the LLM instead of appending this text directly.
+
+         */
+
+        data class LlmDraft(
+
+            override val content: String,
+
+            val systemHint: String,
+
+        ) : CoordinatorResult
+
+
 
     }
 

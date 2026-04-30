@@ -11,6 +11,7 @@ import io.mockk.junit5.MockKExtension
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -243,16 +244,24 @@ class SaveMealPlanStateSkillTest {
             ),
         )
 
-        assertEquals(true, result is SkillResult.DirectReply, "Expected DirectReply but got: $result")
-        val directReply = result as SkillResult.DirectReply
-        // DirectReply contains the meal_planner_plan skill instructions
-        assertEquals(true, directReply.content.contains("high_level_plan_ready") || directReply.content.contains("meal_planner_plan") || directReply.content.contains("Generate a high-level meal plan"))
+        assertEquals(true, result is SkillResult.Success, "Expected Success but got: $result")
+
+        val success = result as SkillResult.Success
+
+        assertTrue(success.content.contains("high_level_plan_ready") || success.content.contains("Plan saved"))
+
         coVerify(exactly = 1) {
+
             repository.saveHighLevelPlan(
+
                 "conv-2",
+
                 """{"day1":"Pasta Carbonara","day2":"Lentil Soup"}""",
+
             )
+
         }
+
     }
 
 
@@ -277,18 +286,30 @@ class SaveMealPlanStateSkillTest {
             ),
         )
 
-        assertEquals(true, result is SkillResult.DirectReply, "Expected DirectReply but got: $result")
-        val directReply = result as SkillResult.DirectReply
-        assertEquals(true, directReply.content.contains("meal_planner_recipe") || directReply.content.contains("Generate and save recipe"))
+        assertEquals(true, result is SkillResult.Success, "Expected Success but got: $result")
+
+        val success = result as SkillResult.Success
+
+        assertTrue(success.content.contains("Current day index: 1"))
+
         coVerify(exactly = 1) {
+
             repository.upsert(
+
                 match {
+
                     it.conversationId == "conv-3" &&
+
                     it.currentDayIndex == 1 &&
+
                     it.status == "generating_recipes"
+
                 },
+
             )
+
         }
+
     }
 
     @Test
@@ -306,10 +327,14 @@ class SaveMealPlanStateSkillTest {
             ),
         )
 
-        assertEquals(true, result is SkillResult.DirectReply, "Expected DirectReply but got: $result")
-        val directReply = result as SkillResult.DirectReply
-        assertEquals(true, directReply.content.contains("meal plan is complete"))
+        assertEquals(true, result is SkillResult.Success, "Expected Success but got: $result")
+
+        val success = result as SkillResult.Success
+
+        assertTrue(success.content.contains("Status: completed"))
+
         coVerify(exactly = 1) { repository.updateStatus("conv-4", "completed") }
+
     }
 
 
@@ -354,8 +379,10 @@ class SaveMealPlanStateSkillTest {
             ),
         )
 
-        assertEquals(true, result is SkillResult.DirectReply, "Expected DirectReply but got: $result")
+        assertEquals(true, result is SkillResult.Success, "Expected Success but got: $result")
+
         coVerify(exactly = 1) { repository.updateStatus("conv-6", "high_level_plan_ready") }
+
     }
 
     @Test
@@ -376,15 +403,24 @@ class SaveMealPlanStateSkillTest {
             ),
         )
 
-        assertEquals(true, result is SkillResult.DirectReply, "Expected DirectReply but got: $result")
+        assertEquals(true, result is SkillResult.Success, "Expected Success but got: $result")
+
         coVerify(exactly = 1) {
+
             repository.upsert(
+
                 match {
+
                     it.conversationId == "conv-7" &&
+
                     it.currentDayIndex == 2
+
                 },
+
             )
+
         }
+
     }
 
 
@@ -427,8 +463,11 @@ class SaveMealPlanStateSkillTest {
         )
 
         // When session doesn't exist, the upsert won't happen (existing is null)
-        // but the call should still succeed and return DirectReply for generating_recipes
-        assertEquals(true, result is SkillResult.DirectReply, "Expected DirectReply but got: $result")
+
+        // but the call still returns Success with a confirmation.
+
+        assertEquals(true, result is SkillResult.Success, "Expected Success but got: $result")
+
     }
 
 

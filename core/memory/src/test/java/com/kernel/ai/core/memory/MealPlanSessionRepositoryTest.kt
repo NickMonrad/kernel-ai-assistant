@@ -260,21 +260,37 @@ class MealPlanSessionRepositoryTest {
     }
 
     @Test
-    fun `advanceDay sets completed when past last day`() = runTest {
+
+    fun `advanceDay sets recipe_review when past last day`() = runTest {
+
         val existing = MealPlanSessionEntity(
+
             conversationId = "conv-last",
+
             days = 3,
+
             currentDayIndex = 2,
+
         )
+
         coEvery { dao.getByConversationId("conv-last") } returns existing
+
         coEvery { dao.upsert(any()) } just Runs
+
+
 
         repository.advanceDay("conv-last")
 
+
+
         coVerify(exactly = 1) { dao.upsert(match {
+
             it.currentDayIndex == 3 &&
-            it.status == "completed"
+
+            it.status == "recipe_review"
+
         }) }
+
     }
 
     @Test
