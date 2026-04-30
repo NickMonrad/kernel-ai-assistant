@@ -17,8 +17,6 @@ import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
-import com.kernel.ai.core.skills.MealPlannerCoordinator
-
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -58,8 +56,6 @@ class ActionsViewModelVoiceTest {
     private val voiceInputController: VoiceInputController = mockk()
     private val voiceOutputController: VoiceOutputController = mockk()
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
-    private val mealPlannerCoordinator: MealPlannerCoordinator = mockk()
-
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
 
     private lateinit var viewModel: ActionsViewModel
@@ -84,8 +80,6 @@ class ActionsViewModelVoiceTest {
             quickActionDao = quickActionDao,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
-            mealPlannerCoordinator = mealPlannerCoordinator,
-
         )
     }
 

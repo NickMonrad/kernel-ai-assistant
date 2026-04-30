@@ -61,9 +61,6 @@ class ActionsViewModel @Inject constructor(
     private val quickActionDao: QuickActionDao,
     private val voiceInputController: VoiceInputController,
     private val voiceOutputController: VoiceOutputController,
-
-    private val mealPlannerCoordinator: MealPlannerCoordinator,
-
 ) : ViewModel() {
 
 
@@ -338,24 +335,108 @@ class ActionsViewModel @Inject constructor(
                         speakForVoice(inputMode, _pendingSlot.value?.request?.promptMessage.orEmpty())
                     }
                     is QuickIntentRouter.RouteResult.RegexMatch -> {
-                        val entity = executeIntent(
-                            query = normalizedQuery,
-                            intentName = routeResult.intent.intentName,
-                            params = routeResult.intent.params,
-                            inputMode = inputMode,
-                        )
-                        quickActionDao.insert(entity)
-                        speakForVoice(inputMode, entity.resultText)
+
+                        when (routeResult.intent.intentName) {
+
+                            "start_meal_planner" -> {
+
+                                // Meal planner needs multi-turn chat — fall through to LLM
+
+                                Log.d(TAG, "ActionsViewModel: start_meal_planner → navigating to chat")
+
+                                val entity = QuickActionEntity(
+
+                                    userQuery = normalizedQuery,
+
+                                    skillName = "meal_planner",
+
+                                    resultText = "Starting meal planner…",
+
+                                    isSuccess = true,
+
+                                )
+
+                                quickActionDao.insert(entity)
+
+                                speakForVoice(inputMode, entity.resultText)
+
+                                _events.emit(UiEvent.NavigateToChat("plan meals for me"))
+
+                            }
+
+                            else -> {
+
+                                val entity = executeIntent(
+
+                                    query = normalizedQuery,
+
+                                    intentName = routeResult.intent.intentName,
+
+                                    params = routeResult.intent.params,
+
+                                    inputMode = inputMode,
+
+                                )
+
+                                quickActionDao.insert(entity)
+
+                                speakForVoice(inputMode, entity.resultText)
+
+                            }
+
+                        }
+
                     }
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> {
-                        val entity = executeIntent(
-                            query = normalizedQuery,
-                            intentName = routeResult.intent.intentName,
-                            params = routeResult.intent.params,
-                            inputMode = inputMode,
-                        )
-                        quickActionDao.insert(entity)
-                        speakForVoice(inputMode, entity.resultText)
+
+                        when (routeResult.intent.intentName) {
+
+                            "start_meal_planner" -> {
+
+                                Log.d(TAG, "ActionsViewModel: start_meal_planner (classifier) → navigating to chat")
+
+                                val entity = QuickActionEntity(
+
+                                    userQuery = normalizedQuery,
+
+                                    skillName = "meal_planner",
+
+                                    resultText = "Starting meal planner…",
+
+                                    isSuccess = true,
+
+                                )
+
+                                quickActionDao.insert(entity)
+
+                                speakForVoice(inputMode, entity.resultText)
+
+                                _events.emit(UiEvent.NavigateToChat("plan meals for me"))
+
+                            }
+
+                            else -> {
+
+                                val entity = executeIntent(
+
+                                    query = normalizedQuery,
+
+                                    intentName = routeResult.intent.intentName,
+
+                                    params = routeResult.intent.params,
+
+                                    inputMode = inputMode,
+
+                                )
+
+                                quickActionDao.insert(entity)
+
+                                speakForVoice(inputMode, entity.resultText)
+
+                            }
+
+                        }
+
                     }
                 }
             } catch (e: Exception) {
@@ -469,47 +550,6 @@ class ActionsViewModel @Inject constructor(
         inputMode: InputMode,
 
     ): QuickActionEntity {
-
-        // Meal planner: route to coordinator instead of run_intent
-
-        if (intentName == "start_meal_planner") {
-
-            return try {
-
-                val convId = UUID.randomUUID().toString()
-
-                val result = mealPlannerCoordinator.startOrResume(convId)
-
-
-                QuickActionEntity(
-
-                    userQuery = query,
-
-                    skillName = "meal_planner",
-
-                    resultText = result.content,
-
-                    isSuccess = true,
-
-                )
-
-            } catch (e: Exception) {
-
-                QuickActionEntity(
-
-                    userQuery = query,
-
-                    skillName = "meal_planner",
-
-                    resultText = "Error starting meal plan: ${e.message}",
-
-                    isSuccess = false,
-
-                )
-
-            }
-
-        }
 
         val directSkill = skillRegistry.get(intentName)
 
