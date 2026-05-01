@@ -107,8 +107,13 @@ For community-driven and logic-heavy extensions, the system supports a **Wasm (W
 ---
 
 ## 8. Implementation Roadmap
-1. **Phase 1 ✅:** Core LiteRT-LM integration with GPU/NPU acceleration for Gemma-4. E4B loads on GPU (TTFT ~2.3s). GPU kernel cache, foreground service OOM protection, safe token-count alignment guard.
-2. **Phase 2 ✅:** sqlite-vec + EmbeddingGemma-300M for local semantic search and RAG. Episodic distillation, context window management.
-3. **Phase 3 (In Progress):** Resident Agent Architecture — deprecate FunctionGemma, build `QuickIntentRouter` for simple actions, enable Gemma-4 native tool calling for complex queries. Voice I/O (push-to-talk). Native skills: Flashlight, DND, Bluetooth, Alarm/Timer, Weather, Notes.
-4. **Phase 4:** Chicory Wasm Runtime + GitHub-based Skill Store. Community-extensible sandboxed skills.
-5. **Phase 5:** 8GB device optimisation (dynamic loading/unloading of weights, E2B fallback). **"Hey Jandal" wake word** (#65) — always-on local detection → `QuickIntentRouter` → E4B for complex follow-up.
+For the live roadmap and current GitHub issue structure, see **[docs/ROADMAP.md](docs/ROADMAP.md)**.
+
+Current phase summary:
+
+1. **Phase 1 ✅:** Core LiteRT-LM integration with GPU/NPU acceleration for Gemma-4.
+2. **Phase 2 ✅:** sqlite-vec + EmbeddingGemma-300M for local semantic search and RAG.
+3. **Phase 3 🔄:** Resident Agent Architecture + native skills + voice foundations + multi-turn dialog.
+4. **Phase 4 ⬜:** Dreaming Engine — overnight consolidation, semantic cache, and self-healing identity.
+5. **Phase 5 ⬜:** Chicory Wasm Runtime + GitHub-based Skill Store.
+6. **Phase 6 ⬜:** 8GB device optimisation and compatibility-tier loading strategy.
