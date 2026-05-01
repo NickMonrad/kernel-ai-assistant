@@ -30,6 +30,13 @@ Shared guidance for any agent working in this repository.
 - Validate the exact module(s) you changed instead of thrashing the whole repo when a narrower command exists.
 - If you need a scratch branch or isolated edits, prefer a worktree under `/tmp`.
 
+## Testing expectations
+
+- Treat tests as part of the feature, not a follow-up. If a change adds behaviour, fixes a bug, or changes a contract, add or update automated tests in the same PR unless the change is docs-only.
+- Prefer the narrowest useful test surface: unit tests for Kotlin logic, Compose/instrumented tests for UI behaviour, device/manual testing for hardware, permission, and inference flows.
+- Test observable behaviour and public contracts rather than implementation details.
+- When a scenario cannot be covered well in CI, include explicit manual test steps and expected results in the PR description.
+
 ## Android CLI policy
 
 The official Android CLI is useful here, but it is **optional** and may not be installed on every machine.

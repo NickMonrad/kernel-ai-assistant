@@ -44,6 +44,8 @@ You are the **test-writer** for the Kernel AI Assistant project.
 - Compose UI tests can use Android Emulator (API 35 system image)
 - CI runs unit tests + lint + debug build — no real model inference in CI
 - Test location: `src/test/` for JUnit 5, `src/androidTest/` for instrumented
+- When a feature PR changes observable behaviour or fixes a regression, add or update tests in that same PR unless the change is docs-only
+- Prefer behaviour-facing regression tests over assertions tied to private implementation details
 
 ## Build commands
 

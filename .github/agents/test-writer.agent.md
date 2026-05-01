@@ -115,6 +115,7 @@ coVerify(exactly = 1) { modelManager.unloadModel(ModelType.GEMMA_4_E2B) }
 - [ ] Edge cases covered (empty inputs, null results, timeouts)
 - [ ] Test names describe the expected behaviour in plain English
 - [ ] All tests pass: `./gradlew test`
+- [ ] Feature or bug-fix PRs include the necessary test additions or updates in the same PR
 
 ## Reporting format
 

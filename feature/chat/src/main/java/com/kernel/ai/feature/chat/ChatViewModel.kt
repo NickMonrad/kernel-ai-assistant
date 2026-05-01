@@ -30,12 +30,16 @@ import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
+import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.MealPlannerCoordinator.CoordinatorResult
+
+
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
@@ -96,6 +100,12 @@ class ChatViewModel @Inject constructor(
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
     private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
+    private val mealPlannerCoordinator: com.kernel.ai.core.skills.MealPlannerCoordinator,
+
+
+
+
+    private val mealPlanSessionRepository: MealPlanSessionRepository,
 ) : ViewModel() {
 
     val isSeeding: StateFlow<Boolean> = nzTruthSeedingService.isSeeding
@@ -660,6 +670,7 @@ class ChatViewModel @Inject constructor(
             // Set true when QIR routes to a device action, OR when the LLM calls a non-indexable
             // tool (run_intent, get_weather, etc.) — suppresses RAG indexing for both the user
             // message and the LLM response to prevent stale device state in future RAG (#614).
+            var isActiveMealPlannerTurn = false
             var isDeviceActionExchange = false
             // Hoisted so the Complete handler can index the user message after knowing whether
             // any device-action tools were called during LLM inference.
@@ -692,6 +703,79 @@ class ChatViewModel @Inject constructor(
             // On a match: execute the skill immediately, then inject [System: ...] context so
             // E4B generates a natural conversational wrapper around the action result.
             // On failure or UnknownSkill: fall through to E4B unchanged.
+
+
+            // Active meal-planner session: route through coordinator instead of QIR/LLM.
+
+            // Exception: if the user explicitly says 'start meal planner', route to startOrResume
+
+            // so the coordinator can present the resume summary instead of processMessage().
+
+            if (mealPlannerCoordinator.hasActiveSession(convId)) {
+
+                // Run QIR early to check if this is a start_meal_planner request.
+
+                val routeResult = quickIntentRouter.route(text)
+
+                val isMealPlannerStart = when (routeResult) {
+
+                    is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent.intentName == "start_meal_planner"
+
+                    is QuickIntentRouter.RouteResult.ClassifierMatch -> routeResult.intent.intentName == "start_meal_planner"
+
+                    else -> false
+
+                }
+
+                try {
+
+                    val result = if (isMealPlannerStart) {
+
+                        mealPlannerCoordinator.startOrResume(convId)
+
+                    } else {
+
+                        mealPlannerCoordinator.processMessage(convId, text)
+
+                    }
+
+                    // If the coordinator needs LLM content generation, inject the system hint
+
+                    // and fall through to the LLM path instead of appending text directly.
+
+                    if (result is CoordinatorResult.LlmDraft) {
+
+                        appendAssistantMessage(convId, result.content, shouldIndex = false)
+
+                        systemContext = "[System: ${result.systemHint}]"
+
+                        isActiveMealPlannerTurn = true
+
+                        // Break out of the coordinator block and fall through to LLM inference
+
+                    } else {
+
+                        appendAssistantMessage(convId, result.content, shouldIndex = false)
+
+                        return@launch
+
+                    }
+
+                } catch (e: Exception) {
+
+                    appendAssistantMessage(convId, "Error with meal planner: ${e.message}", shouldIndex = false)
+
+                    return@launch
+
+                }
+
+            }
+
+
+
+
+
+
 
             // Slot-fill shortcut: if the previous QIR match was paused awaiting a required
             // param, route the user's reply here before touching QIR or the LLM.
@@ -814,6 +898,34 @@ class ChatViewModel @Inject constructor(
                 }
             }
             if (matchedIntent != null) {
+
+                // Meal planner: QIR matched 'plan meals' → route to coordinator
+
+                if (matchedIntent.intentName == "start_meal_planner") {
+
+                    try {
+
+                        val result = mealPlannerCoordinator.startOrResume(convId)
+
+                        appendAssistantMessage(convId, result.content, shouldIndex = false)
+
+                        return@launch
+
+                    } catch (e: Exception) {
+
+                        appendAssistantMessage(convId, "Error starting meal plan: ${e.message}", shouldIndex = false)
+
+                        return@launch
+
+                    }
+
+                }
+
+
+
+
+
+
                 // Calendar intent matched by classifier but params not extractable via regex —
                 // skip immediate execution and fall through to E4B with a structured hint.
                 if (matchedIntent.intentName == "create_calendar_event" &&
@@ -828,7 +940,7 @@ class ChatViewModel @Inject constructor(
                         "runIntent(intentName=\"create_calendar_event\", ...). " +
                         "Pass the date exactly as the user said it. Pass time as HH:MM 24h.]"
                     // fall through to E4B — do NOT execute now
-                } else {
+                }
                 // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
                 // handled by the run_intent skill — they aren't top-level skill names.
                 // Resolve: direct skill match first, then fall back to run_intent.
@@ -874,7 +986,6 @@ class ChatViewModel @Inject constructor(
                         else -> { /* UnknownSkill/ParseError — fall through to E4B unchanged */ }
                     }
                 }
-                } // end else (non-calendar or calendar with params)
             }
 
             // Lazy-init Gemma-4 if not yet loaded.
@@ -945,6 +1056,25 @@ class ChatViewModel @Inject constructor(
             val effectiveRagContext = if (isToolQuery) "" else ragContext
             val effectiveRagTokenCost = if (isToolQuery) 0 else ragTokenCost
 
+            // Meal-planner session context (#689): when an active session exists, inject
+            // structured session state so the model can continue deterministically across
+            // follow-up turns. Also suppress episodic/RAG injection for these turns to
+            // prevent stale memory leakage (#687).
+            val cid = conversationId
+            isActiveMealPlannerTurn = cid != null &&
+                mealPlanSessionRepository.getSession(cid)?.let { it.status != "completed" } == true
+            val mealPlanContext = if (isActiveMealPlannerTurn && cid != null) {
+                val session = mealPlanSessionRepository.getSession(cid)
+                buildMealPlanContext(session, cid)
+            } else ""
+            // Suppress RAG for active meal-planner turns — session state is the source of truth.
+            val effectiveRagContextForPrompt = if (isActiveMealPlannerTurn) "" else effectiveRagContext
+            // Force history replay when meal-planner session is active — clears stale episodic
+            // context from the KV cache so old meal-plan memories cannot leak into the continuation.
+            if (isActiveMealPlannerTurn) {
+                needsHistoryReplay = true
+            }
+
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
             // the previous turn to resolve what "that/it/this" refers to. Inject the last
             // user+assistant pair as a lightweight context block — still no RAG or personality.
@@ -984,7 +1114,8 @@ class ChatViewModel @Inject constructor(
             }
 
             prompt = buildString {
-                if (effectiveRagContext.isNotBlank()) append("$effectiveRagContext\n\n")
+                if (effectiveRagContextForPrompt.isNotBlank()) append("$effectiveRagContextForPrompt\n\n")
+                if (mealPlanContext.isNotBlank()) append("$mealPlanContext\n\n")
                 if (anaphoraContext.isNotBlank()) append("$anaphoraContext\n\n")
                 if (systemContext != null) append("$systemContext\n\n")
                 if (isToolQuery) {
@@ -1001,7 +1132,7 @@ class ChatViewModel @Inject constructor(
                 append(text)
             }
             groundingContext = buildString {
-                if (effectiveRagContext.isNotBlank()) append(effectiveRagContext)
+                if (effectiveRagContextForPrompt.isNotBlank()) append(effectiveRagContextForPrompt)
                 if (systemContext != null) {
                     if (isNotBlank()) append('\n')
                     append(systemContext)
@@ -1619,3 +1750,61 @@ private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_048_576L -> "%.0f MB".format(bytes / 1_048_576.0)
     else -> "$bytes B"
 }
+
+/**
+ * Builds a compact meal-planner session context block for injection into prompts.
+ *
+ * When an active meal-plan session exists, this provides the model with structured
+ * state (preferences, plan, current day) so it can continue deterministically
+ * across follow-up turns without re-asking already-known information.
+ */
+private fun isNotEmptyJsonArray(json: String?): Boolean {
+    if (json.isNullOrBlank()) return false
+    return try {
+        org.json.JSONArray(json).length() > 0
+    } catch (_: Exception) {
+        false
+    }
+}
+
+internal fun buildMealPlanContext(
+    session: com.kernel.ai.core.memory.entity.MealPlanSessionEntity?,
+    conversationId: String?,
+): String {
+    if (session == null) return ""
+    val cid = conversationId
+    val status = session.status
+    val sb = buildString {
+        append("[Meal Planner Session]\n")
+        cid?.let { append("conversation_id: $it\n") }
+        append("Status: $status\n")
+        session.peopleCount?.let { append("People: $it\n") }
+        session.days?.let { append("Days: $it\n") }
+        if (isNotEmptyJsonArray(session.dietaryRestrictionsJson)) {
+            append("Dietary: ${session.dietaryRestrictionsJson}\n")
+        }
+        if (isNotEmptyJsonArray(session.proteinPreferencesJson)) {
+            append("Proteins: ${session.proteinPreferencesJson}\n")
+        }
+        session.highLevelPlanJson?.let { plan ->
+            append("Plan: $plan\n")
+        }
+        session.currentDayIndex?.let { idx ->
+            val dayLabel = idx + 1
+            append("Current day: $dayLabel\n")
+        }
+        append("[End Meal Planner Session]\n\n")
+        append("You MUST call saveMealPlanState() after each stage to persist progress.\n")
+        append("Use the exact parameter names: conversationId, status, peopleCount, days,\n")
+        append("dietaryRestrictions, proteinPreferences, highLevelPlan, currentDayIndex.\n")
+        append("\n")
+        append("IMPORTANT: You MUST call load_skill to get detailed instructions for your current stage:\n")
+        append("  Status=collecting_preferences → load_skill meal_planner_collect\n")
+        append("  Status=high_level_plan_ready → load_skill meal_planner_plan\n")
+        append("  Status=generating_recipes → load_skill meal_planner_recipe\n")
+    }
+    return sb.toString()
+}
+
+
+

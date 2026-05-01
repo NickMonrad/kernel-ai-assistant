@@ -125,17 +125,14 @@ User input
 
 ## Agent Working Model
 
-This project uses a **Sonnet-orchestrates, specialists-implement** pattern with 7 agents:
+This project uses a **local Qwen 3.6 35b model** for orchestration and specialist delegation.
 
-| Agent | Role | Domain |
-|-------|------|--------|
-| **coordinator** | Orchestrator | Decomposes multi-domain tasks, routes to specialists, synthesises results |
-| **android-developer** | Implementor | Kotlin/Compose/Gradle, native skills, UI, app plumbing |
-| **llm-engineer** | AI specialist | LiteRT integration, model cascade, RAG pipeline, prompt engineering |
-| **test-writer** | Test specialist | JUnit 5 + MockK unit tests, Compose UI tests (independent of implementation) |
-| **spec-writer** | Documentation | README, specification.md, copilot-instructions.md, skill schemas |
-| **code-reviewer** | Reviewer | Security, memory safety, LiteRT anti-patterns, correctness |
-| **wasm-skill-author** | Wasm specialist | Rust → Wasm skills, Chicory bridge, Skill Store (Phase 4+) |
+### Rules
+- **test-writer works independently** — never sees the implementation agent's prompt; tests based on interfaces and contracts only
+- **code-reviewer runs before every PR merge** — at minimum a quick pass
+- **Agents can run in parallel** when work is independent (e.g., android-developer + test-writer)
+- **Owner reviews and tests on S23 Ultra before merging** — every feature delivery includes manual testing steps and ADB commands
+- If an agent fails twice, escalate or attempt the task directly as a fallback
 
 ### Rules
 - **test-writer works independently** — never sees the implementation agent's prompt; tests based on interfaces and contracts only
@@ -146,13 +143,13 @@ This project uses a **Sonnet-orchestrates, specialists-implement** pattern with 
 
 ### Typical workflow for a feature
 ```
-1. Sonnet/coordinator: analyse issue, explore codebase, form plan
+1. Orchestrator: analyse issue, explore codebase, form plan
 2. Dispatch: android-developer or llm-engineer (implementation)
 3. Parallel: test-writer (tests based on interfaces)
 4. Parallel: spec-writer (update docs if needed)
-5. Sonnet: raise PR with Closes #N
+5. Orchestrator: raise PR with Closes #N
 6. Parallel: code-reviewer reviews the PR + CI runs
-7. Sonnet: push any fixes from code review to the PR branch
+7. Orchestrator: push any fixes from code review to the PR branch
 8. code-reviewer: re-review the fix commits (confirm issues resolved, no regressions introduced)
 9. Owner: manual test on S23 Ultra via ADB once CI passes
 10. Owner: final review and merge
@@ -167,6 +164,7 @@ This project uses a **Sonnet-orchestrates, specialists-implement** pattern with 
 - **Always branch from `main`**, never chain branches
 - **Copilot raises PRs, the repo owner merges** — never auto-merge
 - PR body must include `Closes #N` for the relevant GitHub issue
+- PR body must include both **Testing** and **Manual testing** sections; manual testing should record concrete steps and outcomes, or explicitly say `Not run` / `Not applicable`
 
 ## Commit Message Format
 
@@ -211,6 +209,10 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
 - **Compose UI tests:** `androidx.compose.ui:ui-test-junit4` for chat screen, conversation list, settings
 - **Test location:** `src/test/` for unit tests, `src/androidTest/` for Compose/instrumented tests
 - **Mocking LiteRT:** The inference engine is behind an interface (`InferenceEngine`) — mock it in tests, never load real models in CI
+- **Tests ship with the change:** if a PR changes behaviour, fixes a regression, or changes a contract, add or update automated tests in the same PR unless the change is docs-only or cannot reasonably be automated
+- **Test behaviour, not implementation:** prefer contract-level assertions, public API coverage, and regression cases over tests coupled to private internals
+- **Choose the narrowest useful layer:** use unit tests for pure Kotlin/domain logic, Compose/instrumented tests for UI behaviour, and manual/device tests for delegate selection, permissions, sensors, notifications, and other hardware-coupled flows
+- **Regression-first bug fixes:** when practical, add a reproducing automated test before or alongside the code change
 
 ### Model Files
 
@@ -254,6 +256,31 @@ The script verifies SHA256 hashes after download. Models directory: `models/` (g
 4. If UI changes: `./gradlew connectedDebugAndroidTest` passes
 5. Manual smoke test on device for inference-related changes
 6. Commit messages follow `type(#issue): description` format
+7. PR description includes `## Testing` and `## Manual testing` with commands, device/environment, steps, and results
+
+### PR Description Template
+
+```markdown
+## Summary
+- What changed
+- Why it changed
+
+## Testing
+- [ ] `./gradlew test`
+- [ ] `./gradlew lint`
+- [ ] `./gradlew assembleDebug`
+- [ ] `./gradlew connectedDebugAndroidTest` (if UI changes)
+
+## Manual testing
+- Device / environment:
+- Steps:
+  1. ...
+  2. ...
+- Result:
+
+## Related issues
+Closes #N
+```
 
 ### CI Notes
 
