@@ -1203,12 +1203,20 @@ class QuickIntentRouterTest {
             assertEquals(expectedLocation, intent.params["location"], "location for '$input'")
         }
 
-        @ParameterizedTest(name = "Regex (GPS): \"{0}\"")
-        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#weatherGpsRegexPhrases")
-        fun `should match GPS weather via regex`(input: String) {
+        @ParameterizedTest(name = "Regex (forecast): \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#weatherForecastRegexPhrases")
+        fun `should match multi-day forecast queries via regex`(
+            input: String,
+            expectedForecastDays: String,
+            expectedLocation: String?,
+        ) {
             val result = regexOnlyRouter.route(input)
             assertRegexMatch(result, "get_weather", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedForecastDays, intent.params["forecast_days"], "forecast_days for '$input'")
+            if (expectedLocation != null) assertEquals(expectedLocation, intent.params["location"], "location for '$input'")
         }
+
 
         @ParameterizedTest(name = "Regex (rain): \"{0}\"")
         @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#weatherRainRegexPhrases")
@@ -2300,6 +2308,16 @@ class QuickIntentRouterTest {
         )
 
         @JvmStatic
+        fun weatherForecastRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("what's the forecast for the next seven days", "7", null),
+            Arguments.of("what's the weather forecast for the next seven days", "7", null),
+            Arguments.of("how's the weather looking for the next 5 days", "5", null),
+            Arguments.of("how is the weather looking for the next five days", "5", null),
+            Arguments.of("7 day weather forecast for Brisbane", "7", "Brisbane"),
+            Arguments.of("what's the weather forecast for Paris next 4 days", "4", "Paris"),
+        )
+
+        @JvmStatic
         fun weatherRainRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("will it rain today"),
             Arguments.of("will it rain"),
@@ -2307,7 +2325,6 @@ class QuickIntentRouterTest {
             Arguments.of("do I need an umbrella"),
             Arguments.of("chance of rain"),
         )
-
         @JvmStatic
         fun weatherTomorrowRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("is it going to rain tomorrow", "tomorrow", null),

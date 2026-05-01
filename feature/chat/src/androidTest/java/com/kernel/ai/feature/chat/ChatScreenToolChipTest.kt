@@ -78,6 +78,62 @@ class ChatScreenToolChipTest {
     }
 
     @Test
+    fun forecastPresentationRenders_whenMultiDayForecastPresent() {
+        val message = ChatMessage(
+            id = "forecast",
+            role = ChatMessage.Role.ASSISTANT,
+            content = "7-day forecast",
+            toolCall = ToolCallInfo(
+                skillName = "get_weather",
+                requestJson = """{"location":"Wellington","days":7}""",
+                resultText = "Wellington forecast",
+                isSuccess = true,
+                presentation = ToolPresentation.Weather(
+                    locationName = "Wellington",
+                    temperatureText = "13°C / 12°C",
+                    feelsLikeText = null,
+                    description = "Rain",
+                    emoji = "🌧️",
+                    highLowText = "High 13°C • Low 12°C",
+                    humidityText = "82%",
+                    windText = "4 m/s",
+                    precipText = "5mm rain",
+                    uvText = "UV max 6 (High)",
+                    airQualityText = null,
+                    sunText = "Sunrise 07:10 • Sunset 17:31",
+                    forecast = listOf(
+                        ToolPresentation.ForecastDay(
+                            date = "Fri 2 May",
+                            emoji = "🌧️",
+                            description = "Rain",
+                            highText = "High 13°C",
+                            lowText = "Low 12°C",
+                            precipText = "5mm rain",
+                            uvText = null,
+                            sunText = null,
+                        ),
+                        ToolPresentation.ForecastDay(
+                            date = "Sat 3 May",
+                            emoji = "⛅",
+                            description = "Partly cloudy",
+                            highText = "High 16°C",
+                            lowText = "Low 11°C",
+                            precipText = null,
+                            uvText = null,
+                            sunText = null,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        setContent(message)
+
+        composeTestRule.onNodeWithText("Forecast").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Fri 2 May").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Sat 3 May").assertIsDisplayed()
+    }
+
+    @Test
     fun toolChipShowsSurfacedLink_whenExpandedToolResultContainsUrl() {
         val message = ChatMessage(
             id = "link",
