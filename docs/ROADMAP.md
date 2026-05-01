@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-04-21 (docs refresh for #513; recent shipped work includes PRs #661, #667, and #668 — rich tool result UI, indirect weather resolution, and list/fallback-link polish)
+> **Last updated:** 2026-05-01 (issue audit refresh; roadmap parent issues aligned with active GitHub structure, including new parents #704, #705, #706, #707, and #708)
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -112,8 +112,15 @@ tri-tiered memory architecture inspired by the
 > Gemma-4's GPU kernel compilation peak (~4–5GB transient). After exhaustive testing (#219),
 > the architecture was redesigned to a three-tier **Resident Agent** pattern.
 >
-> **Issue structure:** Phase 3 is broken into six tracked feature areas ([#345](#345)–[#350](#350)).
-> Each parent issue contains sub-issues. See [GitHub milestone](https://github.com/NickMonrad/kernel-ai-assistant/milestone/3).
+> **Issue structure:** Phase 3 now spans the original shipped architecture tranche plus live follow-on parent issues. The active GitHub parent issues are:
+> [#346](https://github.com/NickMonrad/kernel-ai-assistant/issues/346),
+> [#347](https://github.com/NickMonrad/kernel-ai-assistant/issues/347),
+> [#348](https://github.com/NickMonrad/kernel-ai-assistant/issues/348),
+> [#349](https://github.com/NickMonrad/kernel-ai-assistant/issues/349),
+> [#350](https://github.com/NickMonrad/kernel-ai-assistant/issues/350),
+> [#704](https://github.com/NickMonrad/kernel-ai-assistant/issues/704),
+> and [#708](https://github.com/NickMonrad/kernel-ai-assistant/issues/708).
+> See [GitHub milestone](https://github.com/NickMonrad/kernel-ai-assistant/milestone/3).
 
 ### Three-Tier Intent Architecture
 
@@ -144,9 +151,12 @@ User Input (voice/text)
 
 ---
 
-### 3A: Inference & Prompt Architecture ([#345](https://github.com/NickMonrad/kernel-ai-assistant/issues/345))
+### 3A: Inference & Prompt Architecture
 
-The architectural foundation that determines tool call accuracy and response quality.
+The original inference/prompt-architecture tranche shipped under
+[#345](https://github.com/NickMonrad/kernel-ai-assistant/issues/345).
+Active follow-on model/runtime investigations now live under
+[#704](https://github.com/NickMonrad/kernel-ai-assistant/issues/704).
 
 | Sub-Issue | Title | Status | Priority |
 |-----------|-------|--------|----------|
@@ -154,9 +164,15 @@ The architectural foundation that determines tool call accuracy and response qua
 | [#372](https://github.com/NickMonrad/kernel-ai-assistant/issues/372) | Native SDK tool calling — migrate from custom `<\|tool_call\>` tokens to LiteRT-LM `@Tool` annotations with constrained decoding | ✅ Done | 🔴 High |
 | [#342](https://github.com/NickMonrad/kernel-ai-assistant/issues/342) | Model settings — add topK, fix temp 1.0/0.7 conflict, task-aware presets | ✅ Done — PR #388 | 🟡 Medium |
 | [#343](https://github.com/NickMonrad/kernel-ai-assistant/issues/343) | Thinking budget configuration — toggle + budget for Gemma-4 think mode | ✅ Done — PR #413 (toggle wired to LiteRT-LM Channel API; E-4B defaults ON, E-2B hidden; persisted in Room DB) | 🟡 Medium |
-| [#231](https://github.com/NickMonrad/kernel-ai-assistant/issues/231) | NPU fallback — QTI Snapdragon device detection fix | ⬜ Pending | 🟡 Medium |
-| [#301](https://github.com/NickMonrad/kernel-ai-assistant/issues/301) | Switch vec0 tables to `distance_metric=cosine` | ⬜ Pending | 🟢 Low |
-| [#230](https://github.com/NickMonrad/kernel-ai-assistant/issues/230) | Review `safeTokenCount()` token alignment logic | ⬜ Pending | 🟢 Low |
+| [#231](https://github.com/NickMonrad/kernel-ai-assistant/issues/231) | NPU fallback — QTI Snapdragon device detection fix | ✅ Done | 🟡 Medium |
+| [#230](https://github.com/NickMonrad/kernel-ai-assistant/issues/230) | Review `safeTokenCount()` token alignment logic | ✅ Done | 🟢 Low |
+| [#690](https://github.com/NickMonrad/kernel-ai-assistant/issues/690) | Edge Gallery Gemma 4 E4B package comparison | ⬜ Pending | 🟢 Low |
+| [#691](https://github.com/NickMonrad/kernel-ai-assistant/issues/691) | Qwen 3.5 4B LiteRT investigation | ⬜ Pending | 🟡 Medium |
+| [#692](https://github.com/NickMonrad/kernel-ai-assistant/issues/692) | Inference stalls in Boring AI Mode | ⬜ Pending | 🟡 Medium |
+| [#694](https://github.com/NickMonrad/kernel-ai-assistant/issues/694) | Thinking-mode behavior review vs Edge Gallery | ⬜ Pending | 🟡 Medium |
+| [#699](https://github.com/NickMonrad/kernel-ai-assistant/issues/699) | Qwen 3.5 0.8B LiteRT evaluation | ⬜ Pending | 🟢 Low |
+| [#701](https://github.com/NickMonrad/kernel-ai-assistant/issues/701) | External local-AI Android app review umbrella | ⬜ Pending | 🟢 Low |
+| [#702](https://github.com/NickMonrad/kernel-ai-assistant/issues/702) | Box borrowings + optional `llama.cpp` backend | ⬜ Pending | 🟡 Medium |
 
 > **Key insight (from #340 analysis):** Phase 3A delivered the current prompt/tooling shape: concise system rules, `load_skill` for on-demand full instructions, LiteRT-LM native SDK tool calling with constrained decoding, and a legacy text-extraction fallback for the cases where the model emits raw JSON instead of going through the SDK path. PR #382 (#367 + #374) further reduced prompt pressure via a slim identity prompt, YAML structured profile, and NZ knowledge split. topK is now user-configurable via #342 (PR #388).
 
@@ -190,6 +206,13 @@ The architectural foundation that determines tool call accuracy and response qua
 | [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Maps & location — navigate, open, nearby search | ⬜ Pending | 🟡 Medium |
 | [#327](https://github.com/NickMonrad/kernel-ai-assistant/issues/327) | Full date-specific alarms via `AlarmManager.setExact()` | ⬜ Pending | 🟢 Low |
 | [#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407) | WebSearchSkill — LLM tool calling via Brave/Tavily API | ⬜ Pending | 🟡 Medium |
+| [#631](https://github.com/NickMonrad/kernel-ai-assistant/issues/631) | Important dates — taught dates + calendar birthday integration | ⬜ Pending | 🟡 Medium |
+| [#638](https://github.com/NickMonrad/kernel-ai-assistant/issues/638) | Messaging-app intents (WhatsApp, Signal, Telegram, etc.) | ⬜ Pending | 🟡 Medium |
+| [#658](https://github.com/NickMonrad/kernel-ai-assistant/issues/658) | Deterministic arithmetic / calculator tool | ⬜ Pending | 🔴 High |
+| [#662](https://github.com/NickMonrad/kernel-ai-assistant/issues/662) | Lists management upgrades (rename, pin, sort, edit items, favorites, due dates) | ⬜ Pending | 🟡 Medium |
+| [#676](https://github.com/NickMonrad/kernel-ai-assistant/issues/676) | Native unit conversion tool | ⬜ Pending | 🟡 Medium |
+| [#677](https://github.com/NickMonrad/kernel-ai-assistant/issues/677) | World clock and timezone lookup | ⬜ Pending | 🟢 Low |
+| [#697](https://github.com/NickMonrad/kernel-ai-assistant/issues/697) | Multi-day weather forecast card in chat | ⬜ Pending | 🟡 Medium |
 
 **Already completed skills:**
 - ✅ set_alarm (PR #257/#262, time param fix PR #339)
@@ -249,24 +272,29 @@ Lower-priority skill additions — third-party integrations and local utilities.
 
 | Sub-Issue | Title | Status | Priority |
 |-----------|-------|--------|----------|
+| [#671](https://github.com/NickMonrad/kernel-ai-assistant/issues/671) | Offline push-to-talk voice input foundation | ⬜ Pending | 🟡 Medium |
+| [#672](https://github.com/NickMonrad/kernel-ai-assistant/issues/672) | Generic spoken response / TTS foundation | ⬜ Pending | 🟡 Medium |
+| [#678](https://github.com/NickMonrad/kernel-ai-assistant/issues/678) | Optional native Android STT engine alongside Vosk | ⬜ Pending | 🟡 Medium |
+| [#700](https://github.com/NickMonrad/kernel-ai-assistant/issues/700) | Parakeet CTC STT evaluation | ⬜ Pending | 🟡 Medium |
+| [#703](https://github.com/NickMonrad/kernel-ai-assistant/issues/703) | Whisper.cpp vs Vosk + staged vision follow-up | ⬜ Pending | 🟡 Medium |
+| [#617](https://github.com/NickMonrad/kernel-ai-assistant/issues/617) | Homescreen widget for quick actions / voice | ⬜ Pending | 🟡 Medium |
+| [#659](https://github.com/NickMonrad/kernel-ai-assistant/issues/659) | Translator skill with multilingual TTS | ⬜ Pending | 🟡 Medium |
 | [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word — Picovoice Porcupine | ⬜ Pending | 🟡 Medium |
 | [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode — real-time streaming interaction | ⬜ Pending | 🟢 Low |
 
-**Not yet filed:** Push-to-talk voice input (SpeechRecognizer + TextToSpeech) — simplest voice feature.
-
 ---
 
-### 3G: Multi-turn Dialog Management
+### 3G: Multi-turn Dialog Management ([#708](https://github.com/NickMonrad/kernel-ai-assistant/issues/708))
 
 Slot filling, disambiguation, confirmation, and context-switching — transforms single-shot command routing into a true conversational state machine.
 
 | Sub-Issue | Title | Status | Priority |
 |-----------|-------|--------|----------|
 | [#493](https://github.com/NickMonrad/kernel-ai-assistant/issues/493) | Multi-turn spike — slot fill loop for `send_sms` | ✅ Done (spike) | 🔴 High |
-| [#518](https://github.com/NickMonrad/kernel-ai-assistant/issues/518) | Research: dialog state machine patterns (Gemini brainstorm) | ✅ Done (research) | — |
-| [#522](https://github.com/NickMonrad/kernel-ai-assistant/issues/522) | Phase 2: full dialog management — 7 conversational paths, session stack, slot schemas for 9 intents | ⬜ Pending | 🔴 High |
-| [#621](https://github.com/NickMonrad/kernel-ai-assistant/issues/621) | Dispatch pending intent on user confirmation (multi-turn QIR) | ⬜ Pending | 🔴 High |
-| [#620](https://github.com/NickMonrad/kernel-ai-assistant/issues/620) | Bypass `needsConfirmation` for no-param MiniLM matches | ⬜ Pending | 🔴 High |
+| [#518](https://github.com/NickMonrad/kernel-ai-assistant/issues/518) | Research: dialog state machine patterns (Gemini brainstorm) | ⬜ Pending | 🟡 Medium |
+| [#522](https://github.com/NickMonrad/kernel-ai-assistant/issues/522) | Phase 2: full dialog management — 7 conversational paths, session stack, slot schemas for 9 intents | ✅ Done | 🔴 High |
+| [#621](https://github.com/NickMonrad/kernel-ai-assistant/issues/621) | Dispatch pending intent on user confirmation (multi-turn QIR) | ✅ Done | 🔴 High |
+| [#620](https://github.com/NickMonrad/kernel-ai-assistant/issues/620) | Bypass `needsConfirmation` for no-param MiniLM matches | ✅ Done | 🔴 High |
 | [#591](https://github.com/NickMonrad/kernel-ai-assistant/issues/591) | NeedsSlot for remaining bare-query intents (`make_call`, `create_calendar_event`, etc.) | ⬜ Pending | 🟡 Medium |
 | [#601](https://github.com/NickMonrad/kernel-ai-assistant/issues/601) | Multi-slot: re-check for missing slots after each slot reply | ⬜ Pending | 🟡 Medium |
 | [#600](https://github.com/NickMonrad/kernel-ai-assistant/issues/600) | Slot fill spec: document expected multi-step interactions per intent | ⬜ Pending | 🟡 Medium |
@@ -308,7 +336,7 @@ Slot filling, disambiguation, confirmation, and context-switching — transforms
 
 ---
 
-## Phase 4: Dreaming Engine
+## Phase 4: Dreaming Engine ([#705](https://github.com/NickMonrad/kernel-ai-assistant/issues/705))
 
 Overnight WorkManager consolidation cycle + Semantic Cache + Self-Healing Identity System.
 
@@ -326,8 +354,8 @@ WorkManager runs three sequential phases while the device is charging and idle:
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Semantic Cache (#49) | ⬜ Pending | `semantic_cache` vec table; bypass Gemma-4 for repeated knowledge queries (≥0.95 cosine similarity); parallel FunctionGemma intent check + cache lookup; 7-day LRU pruning in Light Sleep |
-| Self-Healing Identity System (#47) | ⬜ Pending | Replace free-text profile with structured fields (name, role, env, rules, sandbox). Gemma-4 promotes sandbox → core identity or core memories in Deep Sleep. |
+| Semantic Cache ([#49](https://github.com/NickMonrad/kernel-ai-assistant/issues/49)) | ⬜ Pending | `semantic_cache` vec table; bypass Gemma-4 for repeated knowledge queries (≥0.95 cosine similarity); parallel FunctionGemma intent check + cache lookup; 7-day LRU pruning in Light Sleep |
+| Self-Healing Identity System ([#47](https://github.com/NickMonrad/kernel-ai-assistant/issues/47)) | ⬜ Pending | Replace free-text profile with structured fields (name, role, env, rules, sandbox). Gemma-4 promotes sandbox → core identity or core memories in Deep Sleep. |
 | WorkManager chain scaffold | ⬜ Pending | Light Sleep → REM Sleep → Deep Sleep chained workers, runs on CHARGING + IDLE |
 | Episodic distillation (overnight batch) | ⬜ Pending | Move Phase 3's inline distillation to REM Sleep batch |
 | Profile maintenance LLM routing | ⬜ Pending | Gemma-4 E-2B classifies candidate memories: permanent facts → structured profile, specific → `vector_promotion` array |
@@ -337,7 +365,7 @@ WorkManager runs three sequential phases while the device is charging and idle:
 
 ---
 
-## Phase 5: WebAssembly Runtime + Skill Store
+## Phase 5: WebAssembly Runtime + Skill Store ([#706](https://github.com/NickMonrad/kernel-ai-assistant/issues/706))
 
 Community-extensible skills running in sandboxed Wasm via Chicory.
 
@@ -347,28 +375,28 @@ Community-extensible skills running in sandboxed Wasm via Chicory.
 | **Design constraint ([#232](https://github.com/NickMonrad/kernel-ai-assistant/issues/232)):** Chicory is a pure-JVM interpreter — significantly slower than JIT engines (Wasmtime/Wasmer). Community skills must stay lightweight (API glue + data formatting). Avoid complex computation (image processing, heavy parsing) to stay within 5s timeout. |  |  |
 | Host bridge functions | ⬜ Pending | `host_log`, `host_get_input`, `host_set_output`, `host_http_get` |
 | Resource limiting | ⬜ Pending | Wall-clock timeout, memory cap, output/network limits |
-| GitHub skill store | ⬜ Pending | `NickMonrad/kernel-ai-skills` repo with manifest |
+| GitHub skill store ([#29](https://github.com/NickMonrad/kernel-ai-assistant/issues/29)) | ⬜ Pending | `NickMonrad/kernel-ai-skills` repo with manifest |
 | Example Wasm skills | ⬜ Pending | Recipe parser, unit converter |
 | Sideloading + permission audit | ⬜ Pending | Import from local storage or URL, risk dialog |
 | Skill management UI | ⬜ Pending | Install/update/uninstall, per-skill permissions |
-| Skill building & baseline skills ([#34](https://github.com/NickMonrad/kernel-ai-assistant/issues/34)) | ⬜ Pending | Home Assistant, common tasks inspired by Google Edge Gallery |
+| Skill building & baseline skills ([#177](https://github.com/NickMonrad/kernel-ai-assistant/issues/177)) | ⬜ Pending | User-facing skill builder and management ecosystem |
 | Recipe skill + regional produce data ([#43](https://github.com/NickMonrad/kernel-ai-assistant/issues/43)) | ⬜ Pending | Recipe Wasm skill with regional/seasonal produce datasources |
 | Multimodal capabilities ([#32](https://github.com/NickMonrad/kernel-ai-assistant/issues/32)) | ⬜ Pending | Image/camera input using a multimodal model variant |
 | LiteRT-LM auto-update mechanism ([#31](https://github.com/NickMonrad/kernel-ai-assistant/issues/31)) | ⬜ Pending | App picks up new LiteRT-LM library releases automatically |
 
 ---
 
-## Phase 6: 8GB Device Optimization
+## Phase 6: 8GB Device Optimization ([#707](https://github.com/NickMonrad/kernel-ai-assistant/issues/707))
 
 Dynamic weight loading/unloading so the app runs smoothly on 8GB RAM devices.
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Memory profiling | ⬜ Pending | Peak RAM states, concurrent model usage |
-| Dynamic model loading state machine | ⬜ Pending | Never hold Gemma-4 + EmbeddingGemma simultaneously on low RAM |
-| Embedding dimension reduction | ⬜ Pending | Matryoshka reduction to 256-dim on 8GB devices |
-| Compatibility tier model swap | ⬜ Pending | Auto-select E-2B on 8GB, smaller KV cache |
-| Battery optimization | ⬜ Pending | Defer background work in low battery |
+| Memory profiling ([#428](https://github.com/NickMonrad/kernel-ai-assistant/issues/428)) | ⬜ Pending | Peak RAM states, concurrent model usage |
+| Dynamic model loading state machine ([#430](https://github.com/NickMonrad/kernel-ai-assistant/issues/430)) | ⬜ Pending | Never hold Gemma-4 + EmbeddingGemma simultaneously on low RAM |
+| Embedding dimension reduction ([#429](https://github.com/NickMonrad/kernel-ai-assistant/issues/429)) | ⬜ Pending | Matryoshka reduction to 256-dim on 8GB devices |
+| Compatibility tier model swap ([#432](https://github.com/NickMonrad/kernel-ai-assistant/issues/432)) | ⬜ Pending | Auto-select E-2B on 8GB, smaller KV cache |
+| Battery optimization ([#431](https://github.com/NickMonrad/kernel-ai-assistant/issues/431)) | ⬜ Pending | Defer background work in low battery |
 
 ---
 
@@ -474,24 +502,24 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#405](https://github.com/NickMonrad/kernel-ai-assistant/issues/405) | FallThrough bridge drops query — Chat opens blank | Phase 3 (bug) | ✅ Fixed — PR #410 (race condition fix) |
 | [#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407) | WebSearchSkill — Brave/Tavily API for LLM tool calling | Phase 3C | ⬜ Pending |
 | [#493](https://github.com/NickMonrad/kernel-ai-assistant/issues/493) | Multi-turn spike — slot fill loop, disambig chips | Phase 3G | ✅ Done (spike) |
-| [#518](https://github.com/NickMonrad/kernel-ai-assistant/issues/518) | Research: multi-turn dialog state machine patterns | Phase 3G | ✅ Done (research) |
+| [#518](https://github.com/NickMonrad/kernel-ai-assistant/issues/518) | Research: multi-turn dialog state machine patterns | Phase 3G | ⬜ Pending |
 | [#519](https://github.com/NickMonrad/kernel-ai-assistant/issues/519) | User profile parser bugs + Phase 2b LLM extraction | Phase 3D | ✅ Done — PR #520 |
 | [#521](https://github.com/NickMonrad/kernel-ai-assistant/issues/521) | Media control intents: pause, stop, skip, previous | Phase 3H | ✅ Done — PR #520 |
-| [#522](https://github.com/NickMonrad/kernel-ai-assistant/issues/522) | Multi-turn dialog management — Phase 2 full implementation | Phase 3G | ⬜ Pending |
+| [#522](https://github.com/NickMonrad/kernel-ai-assistant/issues/522) | Multi-turn dialog management — Phase 2 full implementation | Phase 3G | ✅ Done |
 | [#524](https://github.com/NickMonrad/kernel-ai-assistant/issues/524) | Add podcast patterns to QIR | Phase 3H | ✅ Done — PR #520 |
 | [#525](https://github.com/NickMonrad/kernel-ai-assistant/issues/525) | Timer management — list, pause, cancel individual timers | Phase 3H | ✅ Done — PR #520 |
 | [#526](https://github.com/NickMonrad/kernel-ai-assistant/issues/526) | Side panel: active alarms and timers in nav drawer | Phase 3H | ✅ Done — PR #530 |
 | [#529](https://github.com/NickMonrad/kernel-ai-assistant/issues/529) | Improve LLM tool selection for bulk list operations | Phase 3H | 🔄 Open — on-device verification needed |
 | [#591](https://github.com/NickMonrad/kernel-ai-assistant/issues/591) | NeedsSlot for remaining bare-query intents (`make_call`, `create_calendar_event`, etc.) | Phase 3G | ⬜ Pending |
-| [#593](https://github.com/NickMonrad/kernel-ai-assistant/issues/593) | Minor UX: icon on model download screen | Phase 3B | ⬜ Pending |
+| [#593](https://github.com/NickMonrad/kernel-ai-assistant/issues/593) | Minor UX: icon on model download screen | Phase 3B | ✅ Done |
 | [#599](https://github.com/NickMonrad/kernel-ai-assistant/issues/599) | Unit tests for ActionsViewModel slot-fill state machine | Phase 3G | ⬜ Pending |
 | [#600](https://github.com/NickMonrad/kernel-ai-assistant/issues/600) | Slot fill spec: document expected multi-step interactions per intent | Phase 3G | ⬜ Pending |
 | [#601](https://github.com/NickMonrad/kernel-ai-assistant/issues/601) | Multi-slot: re-check for missing slots after each slot reply | Phase 3G | ⬜ Pending |
 | [#608](https://github.com/NickMonrad/kernel-ai-assistant/issues/608) | Colloquial weather phrases fall through to LLM instead of weather skill | Phase 3C | ✅ Done — PR #667 follow-up completed the routing/references path |
 | [#617](https://github.com/NickMonrad/kernel-ai-assistant/issues/617) | Homescreen widget for quick actions / voice | Phase 3F | ⬜ Pending |
 | [#619](https://github.com/NickMonrad/kernel-ai-assistant/issues/619) | `date_diff` tool — native date arithmetic (LLM arithmetic unreliable) | Phase 3C | ✅ Done |
-| [#620](https://github.com/NickMonrad/kernel-ai-assistant/issues/620) | Bypass `needsConfirmation` for no-param MiniLM matches | Phase 3G | ⬜ Pending |
-| [#621](https://github.com/NickMonrad/kernel-ai-assistant/issues/621) | Multi-turn QIR: dispatch pending intent on user confirmation | Phase 3G | ⬜ Pending |
+| [#620](https://github.com/NickMonrad/kernel-ai-assistant/issues/620) | Bypass `needsConfirmation` for no-param MiniLM matches | Phase 3G | ✅ Done |
+| [#621](https://github.com/NickMonrad/kernel-ai-assistant/issues/621) | Multi-turn QIR: dispatch pending intent on user confirmation | Phase 3G | ✅ Done |
 | [#624](https://github.com/NickMonrad/kernel-ai-assistant/issues/624) | Add more NZ truth memories (Kiwi memes + cultural touchpoints) | Phase 3B | ⬜ Pending |
 
 ---
