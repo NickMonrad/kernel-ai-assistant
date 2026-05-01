@@ -497,13 +497,35 @@ class MealPlannerCoordinator(
 
             }
 
+            lowerInput in setOf("done", "finish") -> {
+
+                // User is done with this day's recipe — advance to review.
+                sessionRepo.advanceDay(conversationId)
+                val newState = sessionRepo.getSession(conversationId)?.statusAsState()
+                when (newState) {
+                    MealPlannerStateMachine.State.RECIPE_REVIEW -> {
+                        val freshSession = sessionRepo.getSession(conversationId)
+                        val dayLabel = freshSession?.currentDayIndex?.let { it + 1 } ?: 1
+                        return CoordinatorResult.Text(
+                            "Day $dayLabel recipe saved. Ready for review. Say 'next' to continue, " +
+                            "'regenerate' to retry, or 'done' to finish.",
+                        )
+                    }
+                    MealPlannerStateMachine.State.WRITING_ARTIFACTS -> {
+                        // All days done — artifacts already being written.
+                        return CoordinatorResult.Text("Meal plan complete! Consolidating your recipes and shopping list...")
+                    }
+                    else -> CoordinatorResult.Text("Proceeding to the next day...")
+                }
+            }
+
             else -> {
 
                 val dayLabel = session.currentDayIndex?.let { it + 1 } ?: 1
 
                 CoordinatorResult.Text(
 
-                    "Day $dayLabel recipe generated. Say 'next' to continue, 'regenerate' to retry, or 'done' to finish."
+                    "Day $dayLabel recipe generated. Say 'next' to continue, 'regenerate' to retry, or 'done' to finish.",
 
                 )
 
