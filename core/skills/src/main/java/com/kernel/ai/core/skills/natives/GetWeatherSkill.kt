@@ -321,6 +321,34 @@ class GetWeatherSkill @Inject constructor(
             }
         }.trimEnd()
 
+
+        val forecastDays = (0 until len).map { i ->
+            val dateStr = dates.getString(i)
+            val formattedDate = formatForecastDate(dateStr)
+            val code = codes.optInt(i, -1)
+            val high = maxTemps.optDouble(i, Double.NaN)
+            val low = minTemps.optDouble(i, Double.NaN)
+            val rain = precip.optDouble(i, 0.0)
+            val uvMax = uvMaxArr?.let { if (i < it.length() && !it.isNull(i)) it.getDouble(i) else null }
+            val sunrise = sunriseArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
+            val sunset = sunsetArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
+            val sunStr = when {
+                sunrise != null && sunset != null -> "Sunrise $sunrise • Sunset $sunset"
+                sunrise != null -> "Sunrise $sunrise"
+                sunset != null -> "Sunset $sunset"
+                else -> null
+            }
+            ToolPresentation.ForecastDay(
+                date = formattedDate,
+                emoji = wmoEmoji(code),
+                description = wmoDescription(code),
+                highText = if (!high.isNaN()) "High %.0f°C".format(high) else null,
+                lowText = if (!low.isNaN()) "Low %.0f°C".format(low) else null,
+                precipText = "%.0fmm rain".format(rain).takeIf { rain > 0.0 },
+                uvText = uvMax?.let { "UV max %.0f (%s)".format(it, uvIndexLabel(it)) },
+                sunText = sunStr,
+            )
+        }
         Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast for $locationLabel")
         val firstCode = codes.optInt(0, -1)
         val firstHigh = maxTemps.optDouble(0, Double.NaN)
@@ -370,6 +398,7 @@ class GetWeatherSkill @Inject constructor(
                 uvText = firstUv?.let { "UV max %.0f (%s)".format(it, uvIndexLabel(it)) },
                 airQualityText = null,
                 sunText = sunText,
+                forecast = forecastDays,
             ),
         )
     }

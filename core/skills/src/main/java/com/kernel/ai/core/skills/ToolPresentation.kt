@@ -4,6 +4,17 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 sealed interface ToolPresentation {
+    data class ForecastDay(
+        val date: String,
+        val emoji: String,
+        val description: String,
+        val highText: String?,
+        val lowText: String?,
+        val precipText: String?,
+        val uvText: String?,
+        val sunText: String?,
+    )
+
     data class Weather(
         val locationName: String,
         val temperatureText: String,
@@ -17,7 +28,9 @@ sealed interface ToolPresentation {
         val uvText: String? = null,
         val airQualityText: String?,
         val sunText: String? = null,
+        val forecast: List<ForecastDay> = emptyList(),
     ) : ToolPresentation
+
 
     data class Status(
         val icon: String,
@@ -41,9 +54,19 @@ sealed interface ToolPresentation {
 
 object ToolPresentationJson {
     private const val KEY_TYPE = "type"
+    private const val KEY_FORECAST = "forecast"
+    private const val KEY_DATE = "date"
+    private const val KEY_EMOJI = "emoji"
+    private const val KEY_DESCRIPTION = "description"
+    private const val KEY_HIGH_TEXT = "highText"
+    private const val KEY_LOW_TEXT = "lowText"
+    private const val KEY_PRECIP_TEXT = "precipText"
+    private const val KEY_UV_TEXT = "uvText"
+    private const val KEY_SUN_TEXT = "sunText"
+
+
 
     fun toJsonString(presentation: ToolPresentation): String = toJsonObject(presentation).toString()
-
     fun fromJsonString(json: String?): ToolPresentation? {
         if (json.isNullOrBlank()) return null
         return runCatching { fromJsonObject(JSONObject(json)) }.getOrNull()
@@ -64,6 +87,9 @@ object ToolPresentationJson {
             put("uvText", presentation.uvText)
             put("airQualityText", presentation.airQualityText)
             put("sunText", presentation.sunText)
+            if (presentation.forecast.isNotEmpty()) {
+                put("forecast", toForecastJson(presentation.forecast))
+            }
         }
 
         is ToolPresentation.Status -> JSONObject().apply {
@@ -103,6 +129,21 @@ object ToolPresentationJson {
             uvText = obj.optString("uvText").takeIf { it.isNotBlank() },
             airQualityText = obj.optString("airQualityText").takeIf { it.isNotBlank() },
             sunText = obj.optString("sunText").takeIf { it.isNotBlank() },
+            forecast = obj.optJSONArray("forecast")?.let { arr ->
+                MutableList(arr.length()) { index ->
+                    val o = arr.getJSONObject(index)
+                    ToolPresentation.ForecastDay(
+                        date = o.optString("date"),
+                        emoji = o.optString("emoji"),
+                        description = o.optString("description"),
+                        highText = o.optString("highText").takeIf { it.isNotBlank() },
+                        lowText = o.optString("lowText").takeIf { it.isNotBlank() },
+                        precipText = o.optString("precipText").takeIf { it.isNotBlank() },
+                        uvText = o.optString("uvText").takeIf { it.isNotBlank() },
+                        sunText = o.optString("sunText").takeIf { it.isNotBlank() },
+                    )
+                }
+            } ?: emptyList(),
         )
 
         "status" -> ToolPresentation.Status(
@@ -128,4 +169,33 @@ object ToolPresentationJson {
 
         else -> null
     }
+
+    fun toForecastJson(forecast: List<ToolPresentation.ForecastDay>): JSONArray =
+        JSONArray(forecast.map { fd ->
+            JSONObject().apply {
+                put(KEY_DATE, fd.date)
+                put(KEY_EMOJI, fd.emoji)
+                put(KEY_DESCRIPTION, fd.description)
+                put(KEY_HIGH_TEXT, fd.highText ?: "")
+                put(KEY_LOW_TEXT, fd.lowText ?: "")
+                put(KEY_PRECIP_TEXT, fd.precipText ?: "")
+                put(KEY_UV_TEXT, fd.uvText ?: "")
+                put(KEY_SUN_TEXT, fd.sunText ?: "")
+            }
+        })
+
+    fun fromForecastJson(arr: JSONArray): List<ToolPresentation.ForecastDay> =
+        MutableList(arr.length()) { index ->
+            val o = arr.getJSONObject(index)
+            ToolPresentation.ForecastDay(
+                date = o.optString(KEY_DATE),
+                emoji = o.optString(KEY_EMOJI),
+                description = o.optString(KEY_DESCRIPTION),
+                highText = o.optString(KEY_HIGH_TEXT).takeIf { it.isNotBlank() },
+                lowText = o.optString(KEY_LOW_TEXT).takeIf { it.isNotBlank() },
+                precipText = o.optString(KEY_PRECIP_TEXT).takeIf { it.isNotBlank() },
+                uvText = o.optString(KEY_UV_TEXT).takeIf { it.isNotBlank() },
+                sunText = o.optString(KEY_SUN_TEXT).takeIf { it.isNotBlank() },
+            )
+        }
 }
