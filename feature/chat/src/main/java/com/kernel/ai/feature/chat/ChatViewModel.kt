@@ -709,85 +709,65 @@ class ChatViewModel @Inject constructor(
 
             // Exception: if the user explicitly says 'start meal planner', route to startOrResume
 
-            // so the coordinator can present the resume summary.
+            // so the coordinator can present the resume summary instead of processMessage().
 
             if (mealPlannerCoordinator.hasActiveSession(convId)) {
 
+                // Run QIR early to check if this is a start_meal_planner request.
 
+                val routeResult = quickIntentRouter.route(text)
 
-                try {
+                val isMealPlannerStart = when (routeResult) {
 
+                    is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent.intentName == "start_meal_planner"
 
+                    is QuickIntentRouter.RouteResult.ClassifierMatch -> routeResult.intent.intentName == "start_meal_planner"
 
-                    val result = mealPlannerCoordinator.processMessage(convId, text)
-
-
-
-
-
-
-
-
-
-                    // If the coordinator needs LLM content generation, inject the system hint
-
-
-
-                    // and fall through to the LLM path instead of appending text directly.
-
-
-
-                    if (result is CoordinatorResult.LlmDraft) {
-
-
-
-                        appendAssistantMessage(convId, result.content, shouldIndex = false)
-
-
-
-                        systemContext = "[System: ${result.systemHint}]"
-
-
-
-                        isActiveMealPlannerTurn = true
-
-
-
-                        // Break out of the coordinator block and fall through to LLM inference
-
-
-
-                    } else {
-
-
-
-                        appendAssistantMessage(convId, result.content, shouldIndex = false)
-
-
-
-                        return@launch
-
-
-
-                    }
-
-
-
-                } catch (e: Exception) {
-
-
-
-                    appendAssistantMessage(convId, "Error with meal planner: ${e.message}", shouldIndex = false)
-
-
-
-                    return@launch
-
-
+                    else -> false
 
                 }
 
+                try {
 
+                    val result = if (isMealPlannerStart) {
+
+                        mealPlannerCoordinator.startOrResume(convId)
+
+                    } else {
+
+                        mealPlannerCoordinator.processMessage(convId, text)
+
+                    }
+
+                    // If the coordinator needs LLM content generation, inject the system hint
+
+                    // and fall through to the LLM path instead of appending text directly.
+
+                    if (result is CoordinatorResult.LlmDraft) {
+
+                        appendAssistantMessage(convId, result.content, shouldIndex = false)
+
+                        systemContext = "[System: ${result.systemHint}]"
+
+                        isActiveMealPlannerTurn = true
+
+                        // Break out of the coordinator block and fall through to LLM inference
+
+                    } else {
+
+                        appendAssistantMessage(convId, result.content, shouldIndex = false)
+
+                        return@launch
+
+                    }
+
+                } catch (e: Exception) {
+
+                    appendAssistantMessage(convId, "Error with meal planner: ${e.message}", shouldIndex = false)
+
+                    return@launch
+
+                }
 
             }
 
