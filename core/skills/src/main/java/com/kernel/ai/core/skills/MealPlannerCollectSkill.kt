@@ -92,5 +92,9 @@ SESSION CONTEXT BLOCK:
 
 AFTER SAVE:
   - Once saveMealPlanState succeeds, tell the user: "Great! I've saved your preferences. I'll put together a high-level plan now."
+
+SHOPPING LISTS:
+  - After recipes are generated (Stage 3), the model will use runIntent with intentName="bulk_add_to_list" to create shopping lists.
+  - Do NOT create shopping lists yourself — that happens during recipe generation.
 """.trimIndent()
 }

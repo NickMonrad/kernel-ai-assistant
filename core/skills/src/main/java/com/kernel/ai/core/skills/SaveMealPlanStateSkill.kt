@@ -35,6 +35,7 @@ class SaveMealPlanStateSkill @Inject constructor(
 ) : Skill {
 
 
+
     override val name = "save_meal_plan_state"
     override val description =
         "Persist meal-planner session state to the database. Call after each stage " +
@@ -84,9 +85,18 @@ class SaveMealPlanStateSkill @Inject constructor(
     override val fullInstructions: String = """
 save_meal_plan_state: Persist meal-planner session state to the database.
 
+EXACT STATUS VALUES (use these literally, do not abbreviate or modify):
+  - "collecting_preferences" — collecting user preferences (Stage 1)
+  - "high_level_plan_ready" — high-level plan generated (Stage 2)
+  - "generating_recipes" — generating individual day recipes (Stage 3)
+  - "recipe_review" — recipe ready for user review (intermediate)
+  - "writing_artifacts" — consolidating recipes into lists (Stage 4)
+  - "completed" — meal plan finished
+  - "cancelled" — meal plan cancelled
+
 Parameters:
   - conversation_id (required, string): The conversation ID for this meal plan.
-  - status (enum: collecting_preferences, high_level_plan_ready, generating_recipes, completed)
+  - status (string): One of the exact values listed above.
   - people_count (integer): Number of people the plan is for
   - days (integer): Number of days in the plan
   - dietary_restrictions (string): JSON array, e.g. '["vegetarian","gluten-free"]'
@@ -101,8 +111,8 @@ Rules:
   - current_day_index is 0-based: Day 1 = 0, Day 2 = 1, etc. Increment it after saving each day.
   - When all days are complete, call with status="completed" to end the session.
   - Do NOT wait until the end of the entire meal plan — save after each stage.
+  - Do NOT modify status values — use the exact strings listed above.
 """.trimIndent()
-
     override suspend fun execute(call: SkillCall): SkillResult {
         val args = call.arguments
 
@@ -211,6 +221,23 @@ Rules:
                     "Invalid high_level_plan JSON: ${e.message}",
                 )
             }
+        }
+
+
+        // Bounds check: currentDayIndex must be < days
+        if (currentDayIndex != null && days != null && currentDayIndex >= days) {
+            return SkillResult.Failure(
+                name,
+                "currentDayIndex=$currentDayIndex is out of bounds (max: ${days - 1}). The meal plan only has $days days (0-based index 0..${days - 1}).",
+            )
+        }
+
+        // Validate currentDayIndex is non-negative
+        if (currentDayIndex != null && currentDayIndex < 0) {
+            return SkillResult.Failure(
+                name,
+                "currentDayIndex must be non-negative (0-based index). Received: $currentDayIndex.",
+            )
         }
 
         try {
