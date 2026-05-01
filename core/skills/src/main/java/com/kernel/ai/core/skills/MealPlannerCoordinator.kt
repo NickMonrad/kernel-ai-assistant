@@ -434,17 +434,24 @@ class MealPlannerCoordinator(
 
                                 appendLine()
 
-                                appendLine("Generate a detailed recipe for Day $nextDay including:")
+                appendLine("Generate a detailed recipe for Day $nextDay including:")
 
-                                appendLine("  - Recipe title")
-
-                                appendLine("  - Ingredients list (METRIC units: g, kg, ml, l, tsp, tbsp, Celsius)")
-
-                                appendLine("  - Cooking method steps (numbered)")
-
-                                appendLine("After generating, call saveMealPlanState with currentDayIndex=$nextDay and status=\"generating_recipes\".")
-
-                            },
+                appendLine("  - Recipe title")
+                appendLine("  - Ingredients list (METRIC units: g, kg, ml, l, tsp, tbsp, Celsius)")
+                appendLine("  - Cooking method steps (numbered)")
+                appendLine("  - Quantities MUST be realistic for ${fresh?.peopleCount ?: "the specified"} people:")
+                appendLine("    - Protein: 100-200 g per person | Vegetables: 100-150 g per person")
+                appendLine("    - Rice/grains (uncooked): 60-80 g per person | Liquids: 50-250 ml per person")
+                appendLine("    - Never exceed 2 kg of any single ingredient unless liquid.")
+                appendLine()
+                appendLine("AFTER generating the recipe, you MUST also call these tools in order:")
+                appendLine("  1. runIntent(intentName=\"bulk_add_to_list\", list_name=\"Meal Planning - Shopping List\", items=[...all ingredients...])")
+                appendLine("  2. runIntent(intentName=\"create_list\", name=\"<Recipe Title>\")")
+                appendLine("  3. runIntent(intentName=\"bulk_add_to_list\", list_name=\"<Recipe Title>\", items=[...numbered method steps...])")
+                appendLine("Use the EXACT recipe title as the recipe-specific list name. Do not abbreviate or rename.")
+                appendLine()
+                appendLine("After generating, call saveMealPlanState with currentDayIndex=$nextDay and status=\"generating_recipes\".")
+            }
 
                         )
 
@@ -664,6 +671,17 @@ class MealPlannerCoordinator(
             appendLine("  - Recipe title")
             appendLine("  - Ingredients list (METRIC units: g, kg, ml, l, tsp, tbsp, Celsius)")
             appendLine("  - Cooking method steps (numbered)")
+            appendLine("  - Quantities MUST be realistic for ${session.peopleCount ?: "the specified"} people:")
+            appendLine("    - Protein: 100-200 g per person | Vegetables: 100-150 g per person")
+            appendLine("    - Rice/grains (uncooked): 60-80 g per person | Liquids: 50-250 ml per person")
+            appendLine("    - Never exceed 2 kg of any single ingredient unless liquid.")
+            appendLine()
+            appendLine("AFTER generating the recipe, you MUST also call these tools in order:")
+            appendLine("  1. runIntent(intentName=\"bulk_add_to_list\", list_name=\"Meal Planning - Shopping List\", items=[...all ingredients...])")
+            appendLine("  2. runIntent(intentName=\"create_list\", name=\"<Recipe Title>\")")
+            appendLine("  3. runIntent(intentName=\"bulk_add_to_list\", list_name=\"<Recipe Title>\", items=[...numbered method steps...])")
+            appendLine("Use the EXACT recipe title as the recipe-specific list name. Do not abbreviate or rename.")
+            appendLine()
             appendLine("After generating, call saveMealPlanState with currentDayIndex=0 and status=\"generating_recipes\".")
         }
         return CoordinatorResult.LlmDraft(

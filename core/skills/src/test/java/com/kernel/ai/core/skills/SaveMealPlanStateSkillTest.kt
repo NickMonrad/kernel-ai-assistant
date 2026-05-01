@@ -371,11 +371,12 @@ class SaveMealPlanStateSkillTest {
     fun `execute handles partial update — only status changes`() = runTest {
         coEvery { repository.updateStatus(any(), any()) } answers { Unit }
         coEvery { repository.updatePreferences(any(), any(), any(), any(), any()) } answers { Unit }
+        coEvery { repository.saveHighLevelPlan(any(), any()) } answers { Unit }
 
         val result = skill.execute(
             SkillCall(
                 "save_meal_plan_state",
-                mapOf("conversation_id" to "conv-6", "status" to "high_level_plan_ready"),
+                mapOf("conversation_id" to "conv-6", "status" to "high_level_plan_ready", "high_level_plan" to "{\"day1\":\"Pasta Carbonara\",\"day2\":\"Lentil Soup\"}"),
             ),
         )
 

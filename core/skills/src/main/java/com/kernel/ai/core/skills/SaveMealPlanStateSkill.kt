@@ -150,23 +150,14 @@ Rules:
 
         // The model copies these from schema examples (e.g. "<N>", "<number>").
 
-        val isPlaceholder = { s: String? -> s != null && (s.startsWith('<') || s.contains("<") || s.contains("N>")) }
-
-        if (status == "collecting_preferences") {
-
-            if (isPlaceholder(rawPeopleCount) || isPlaceholder(rawDays)) {
-
-                return SkillResult.Failure(
-
-                    name,
-
-                    "Invalid parameters: people_count and days must be actual numbers (e.g. 3, 5), not placeholders. Collect these from the conversation with the user first.",
-
-                )
-
+        val isPlaceholder = { s: String? -> s != null && s.contains('<') }
+        // Reject placeholder-like values in numeric fields unconditionally.
+        listOf("people_count" to rawPeopleCount, "days" to rawDays, "current_day_index" to rawCurrentDayIndex).forEach { (field, value) ->
+            if (isPlaceholder(value)) {
+                return SkillResult.Failure(name, "Invalid $field: received a placeholder value '$value'. Use the actual integer from the conversation.")
             }
-
         }
+
 
 
 
@@ -183,11 +174,20 @@ Rules:
             "collecting_preferences",
             "high_level_plan_ready",
             "generating_recipes",
+            "recipe_review",
             "completed",
         )) {
             return SkillResult.Failure(
                 name,
-                "Invalid status: '$status'. Must be one of: collecting_preferences, high_level_plan_ready, generating_recipes, completed.",
+                "Invalid status: '$status'. Must be one of: collecting_preferences, high_level_plan_ready, generating_recipes, recipe_review, completed.",
+            )
+        }
+
+        // high_level_plan_ready requires highLevelPlan to be present
+        if (status == "high_level_plan_ready" && highLevelPlan == null) {
+            return SkillResult.Failure(
+                name,
+                "Cannot set status=high_level_plan_ready without high_level_plan. Generate the plan first, then pass both in the same call.",
             )
         }
 
