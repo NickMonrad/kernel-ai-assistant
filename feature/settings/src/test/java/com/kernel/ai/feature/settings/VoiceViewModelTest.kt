@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.settings
 
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
+import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
@@ -39,12 +40,13 @@ class VoiceViewModelTest {
     @BeforeEach
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
-        every { androidNativeRecognitionSupport.getAvailability() } returns
+        coEvery { androidNativeRecognitionSupport.getAvailability() } returns
             AndroidNativeRecognitionAvailability(
                 isRecognitionAvailable = true,
                 isOnDeviceRecognitionAvailable = true,
                 languageTag = "en-NZ",
                 languageDisplayName = "English (New Zealand)",
+                localeStatus = AndroidNativeRecognitionLocaleStatus.Ready,
             )
         every { voiceInputPreferences.selectedEngine } returns selectedInputEngine
         coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
@@ -86,12 +88,13 @@ class VoiceViewModelTest {
 
     @Test
     fun `android native availability message is exposed when on-device recognizer is unavailable`() = runTest {
-        every { androidNativeRecognitionSupport.getAvailability() } returns
+        coEvery { androidNativeRecognitionSupport.getAvailability() } returns
             AndroidNativeRecognitionAvailability(
                 isRecognitionAvailable = true,
                 isOnDeviceRecognitionAvailable = false,
                 languageTag = "en-US",
                 languageDisplayName = "English (United States)",
+                localeStatus = AndroidNativeRecognitionLocaleStatus.Unknown,
             )
 
         viewModel = VoiceViewModel(
@@ -103,6 +106,30 @@ class VoiceViewModelTest {
 
         assertEquals(
             "On-device Android speech recognition is unavailable for the current setup. Install the required language pack or keep using Vosk for guaranteed local voice input.",
+            viewModel.uiState.value.androidNativeAvailabilityMessage,
+        )
+    }
+
+    @Test
+    fun `android native availability message is exposed when locale is unsupported`() = runTest {
+        coEvery { androidNativeRecognitionSupport.getAvailability() } returns
+            AndroidNativeRecognitionAvailability(
+                isRecognitionAvailable = true,
+                isOnDeviceRecognitionAvailable = true,
+                languageTag = "en-NZ",
+                languageDisplayName = "English (New Zealand)",
+                localeStatus = AndroidNativeRecognitionLocaleStatus.NotSupported,
+            )
+
+        viewModel = VoiceViewModel(
+            androidNativeRecognitionSupport,
+            voiceInputPreferences,
+            voiceOutputPreferences,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            "English (New Zealand) is not supported by Android native speech recognition on this device.",
             viewModel.uiState.value.androidNativeAvailabilityMessage,
         )
     }

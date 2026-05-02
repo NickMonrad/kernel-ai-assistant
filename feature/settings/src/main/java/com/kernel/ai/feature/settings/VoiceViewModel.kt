@@ -32,12 +32,14 @@ class VoiceViewModel @Inject constructor(
     val uiState: StateFlow<VoiceUiState> = _uiState.asStateFlow()
 
     init {
-        _uiState.update {
+        viewModelScope.launch {
             val availability = androidNativeRecognitionSupport.getAvailability()
-            it.copy(
-                androidNativeAvailabilityMessage = availability.unavailableReason,
-                androidNativeLanguageSummary = availability.languageSummary,
-            )
+            _uiState.update {
+                it.copy(
+                    androidNativeAvailabilityMessage = availability.unavailableReason,
+                    androidNativeLanguageSummary = availability.languageSummary,
+                )
+            }
         }
         viewModelScope.launch {
             voiceInputPreferences.selectedEngine.collect { engine ->

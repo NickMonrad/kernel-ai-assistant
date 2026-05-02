@@ -71,7 +71,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 sessionCompleted = false
                 speechRecognizer = recognizer
                 recognizer.setRecognitionListener(SessionRecognitionListener(mode))
-                recognizer.startListening(buildRecognizerIntent())
+                recognizer.startListening(buildRecognizerIntent(availability.languageTag))
                 _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
                 VoiceInputStartResult.Started
             } catch (e: Exception) {
@@ -109,13 +109,12 @@ class NativeAndroidVoiceInputController @Inject constructor(
         }
     }
 
-    private fun buildRecognizerIntent(): Intent =
+    private fun buildRecognizerIntent(languageTag: String): Intent =
         Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            val availability = recognitionSupport.getAvailability()
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, availability.languageTag)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
 
