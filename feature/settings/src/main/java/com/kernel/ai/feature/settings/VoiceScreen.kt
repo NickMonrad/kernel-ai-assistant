@@ -14,6 +14,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -24,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.voice.VoiceInputEngine
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,6 +55,37 @@ fun VoiceScreen(
         ) {
             Text(
                 text = "Quick Actions",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+
+            VoiceInputEngine.entries.forEach { engine ->
+                val warning = engine.warning
+                ListItem(
+                    modifier = Modifier.fillMaxWidth(),
+                    headlineContent = { Text(engine.displayName) },
+                    supportingContent = { Text(engine.description) },
+                    trailingContent = {
+                        RadioButton(
+                            selected = uiState.selectedInputEngine == engine,
+                            onClick = { viewModel.setVoiceInputEngine(engine) },
+                        )
+                    },
+                )
+                if (uiState.selectedInputEngine == engine && warning != null) {
+                    Text(
+                        text = warning,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                HorizontalDivider()
+            }
+
+            Text(
+                text = "Quick Actions output",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),

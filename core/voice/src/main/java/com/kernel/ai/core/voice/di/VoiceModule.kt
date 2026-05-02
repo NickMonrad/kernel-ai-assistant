@@ -1,7 +1,7 @@
 package com.kernel.ai.core.voice.di
 
 import com.kernel.ai.core.voice.AndroidTextToSpeechController
-import com.kernel.ai.core.voice.VoskOfflineVoiceInputController
+import com.kernel.ai.core.voice.SelectableVoiceInputController
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
 import dagger.Binds
@@ -17,7 +17,7 @@ abstract class VoiceModule {
     @Binds
     @Singleton
     abstract fun bindVoiceInputController(
-        impl: VoskOfflineVoiceInputController,
+        impl: SelectableVoiceInputController,
     ): VoiceInputController
 
     @Binds

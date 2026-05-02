@@ -1,5 +1,7 @@
 package com.kernel.ai.feature.settings
 
+import com.kernel.ai.core.voice.VoiceInputEngine
+import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -24,7 +26,9 @@ import org.junit.jupiter.api.Test
 class VoiceViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
+    private val voiceInputPreferences: VoiceInputPreferences = mockk()
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
+    private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Vosk)
     private val spokenResponsesEnabled = MutableStateFlow(true)
 
     private lateinit var viewModel: VoiceViewModel
@@ -32,9 +36,11 @@ class VoiceViewModelTest {
     @BeforeEach
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        every { voiceInputPreferences.selectedEngine } returns selectedInputEngine
+        coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         coEvery { voiceOutputPreferences.setSpokenResponsesEnabled(any()) } just Runs
-        viewModel = VoiceViewModel(voiceOutputPreferences)
+        viewModel = VoiceViewModel(voiceInputPreferences, voiceOutputPreferences)
     }
 
     @AfterEach
@@ -46,6 +52,21 @@ class VoiceViewModelTest {
     fun `spoken responses default to enabled when preference flow emits true`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         assertTrue(viewModel.uiState.value.spokenResponsesEnabled)
+    }
+
+    @Test
+    fun `voice input engine defaults to vosk when preference flow emits vosk`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(VoiceInputEngine.Vosk, viewModel.uiState.value.selectedInputEngine)
+    }
+
+    @Test
+    fun `setVoiceInputEngine updates ui state immediately`() = runTest {
+        viewModel.setVoiceInputEngine(VoiceInputEngine.AndroidNative)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(VoiceInputEngine.AndroidNative, viewModel.uiState.value.selectedInputEngine)
+        coVerify { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.AndroidNative) }
     }
 
     @Test
