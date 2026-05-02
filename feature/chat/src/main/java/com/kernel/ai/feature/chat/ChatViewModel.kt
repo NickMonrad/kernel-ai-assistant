@@ -102,6 +102,11 @@ class ChatViewModel @Inject constructor(
 
     /** Passed via nav arg; null means "start a new conversation". */
     private val navConversationId: String? = savedStateHandle["conversationId"]
+    /**
+    * One-shot flag for Actions-tab LLM fallthroughs. Those handoffs must start with a minimal
+    * system prompt and skip RAG retrieval, even when the transcript no longer looks tool-like.
+    */
+    private var forceMinimalContextForNextMessage: Boolean = savedStateHandle["minimalContext"] ?: false
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     private val _inputText = MutableStateFlow("")
@@ -400,53 +405,72 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private suspend fun resetInferenceForFreshConversation() {
+        // A brand-new chat route must not inherit the singleton inference session's KV cache
+        // or a stripped-down temporary prompt from the previous conversation.
+        estimatedTokensUsed = 0
+        turnsSinceReset = 0
+        needsHistoryReplay = false
+        pendingConfirmationIntent = null
+        if (inferenceEngine.isReady.value) {
+            inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+        } else {
+            inferenceEngine.resetConversation()
+        }
+    }
+
     private suspend fun initializeConversation() {
         try {
-        val id = navConversationId ?: conversationRepository.createConversation()
-        conversationId = id
-        // Persist resolved ID so process-death recreation restores the right conversation
-        // instead of creating a fresh one on every cold start.
-        savedStateHandle["conversationId"] = id
+            val isFreshConversation = navConversationId == null
+            val id = navConversationId ?: conversationRepository.createConversation()
+            conversationId = id
+            // Persist resolved ID so process-death recreation restores the right conversation
+            // instead of creating a fresh one on every cold start.
+            savedStateHandle["conversationId"] = id
 
-        // Load persisted title immediately so UI shows it on back-navigation.
-        val conversation = conversationRepository.getConversation(id)
-        val existingTitle = conversation?.title
-        _conversationTitle.value = existingTitle
-
-        // Track lastDistilledAt for episodic distillation on close.
-        lastDistilledAt = conversation?.lastDistilledAt
-
-        val persisted = conversationRepository.getMessagesOnce(id)
-        if (persisted.isNotEmpty()) {
-            _messages.value = persisted.map { entity ->
-                ChatMessage(
-                    id = entity.id,
-                    role = if (entity.role == "user") ChatMessage.Role.USER else ChatMessage.Role.ASSISTANT,
-                    content = entity.content,
-                    thinkingText = entity.thinkingText,
-                    toolCall = entity.toolCallJson?.let(::toolCallInfoFromJson),
-                )
+            if (isFreshConversation) {
+                resetInferenceForFreshConversation()
             }
-            // History is in Room but not in LiteRT's KV cache — replay on next send.
-            needsHistoryReplay = true
-        }
 
-        // Determine whether smart-title generation should still fire on this restored session.
-        // A title that looks like a first-message placeholder (ends with '…', ≤43 chars) can
-        // still be overwritten if the conversation is long enough for a smart title.
-        if (existingTitle != null) {
-            val looksLikePlaceholder = existingTitle.endsWith("…") && existingTitle.length <= 43
-            if (looksLikePlaceholder) {
-                // Placeholder from a previous session — allow smart title to fire whenever
-                // messageCount >= 4 is reached. sendMessage() enforces that threshold.
-                titleIsPlaceholder = true
-                titleGenerationStarted = false
-                Log.d("KernelAI", "Restored session $id has placeholder title — smart title can still fire")
-            } else {
-                titleGenerationStarted = true  // real title present — never overwrite
+            // Load persisted title immediately so UI shows it on back-navigation.
+            val conversation = conversationRepository.getConversation(id)
+            val existingTitle = conversation?.title
+            _conversationTitle.value = existingTitle
+
+            // Track lastDistilledAt for episodic distillation on close.
+            lastDistilledAt = conversation?.lastDistilledAt
+
+            val persisted = conversationRepository.getMessagesOnce(id)
+            if (persisted.isNotEmpty()) {
+                _messages.value = persisted.map { entity ->
+                    ChatMessage(
+                        id = entity.id,
+                        role = if (entity.role == "user") ChatMessage.Role.USER else ChatMessage.Role.ASSISTANT,
+                        content = entity.content,
+                        thinkingText = entity.thinkingText,
+                        toolCall = entity.toolCallJson?.let(::toolCallInfoFromJson),
+                    )
+                }
+                // History is in Room but not in LiteRT's KV cache — replay on next send.
+                needsHistoryReplay = true
             }
-        }
-        // else: new conversation, both flags stay false (defaults)
+
+            // Determine whether smart-title generation should still fire on this restored session.
+            // A title that looks like a first-message placeholder (ends with '…', ≤43 chars) can
+            // still be overwritten if the conversation is long enough for a smart title.
+            if (existingTitle != null) {
+                val looksLikePlaceholder = existingTitle.endsWith("…") && existingTitle.length <= 43
+                if (looksLikePlaceholder) {
+                    // Placeholder from a previous session — allow smart title to fire whenever
+                    // messageCount >= 4 is reached. sendMessage() enforces that threshold.
+                    titleIsPlaceholder = true
+                    titleGenerationStarted = false
+                    Log.d("KernelAI", "Restored session $id has placeholder title — smart title can still fire")
+                } else {
+                    titleGenerationStarted = true  // real title present — never overwrite
+                }
+            }
+            // else: new conversation, both flags stay false (defaults)
         } finally {
             // Always unblock the Loading guard — even on DB error the engine-ready
             // path should still transition to Ready rather than freezing the screen.
@@ -622,6 +646,22 @@ class ChatViewModel @Inject constructor(
         if (_error.value != null) _error.value = null
     }
 
+    fun submitInitialQueryIfNeeded(initialQuery: String) {
+        val normalized = initialQuery.trim()
+        if (normalized.isBlank()) return
+        val alreadyPresent = _messages.value.any {
+            it.role == ChatMessage.Role.USER && it.content == normalized
+        }
+        if (alreadyPresent) {
+            forceMinimalContextForNextMessage = false
+            savedStateHandle["minimalContext"] = false
+            Log.d("ChatViewModel", "Skipping duplicate initial query after restore: $normalized")
+            return
+        }
+        onInputChanged(normalized)
+        sendMessage()
+    }
+
     fun renameConversation(newTitle: String) {
         val id = conversationId ?: return
         val trimmed = newTitle.trim()
@@ -661,6 +701,9 @@ class ChatViewModel @Inject constructor(
             // tool (run_intent, get_weather, etc.) — suppresses RAG indexing for both the user
             // message and the LLM response to prevent stale device state in future RAG (#614).
             var isDeviceActionExchange = false
+            // Actions-tab fallthroughs temporarily swap the system prompt to MINIMAL; mark the
+            // next turn for a history replay so normal chat can restore the full prompt safely.
+            var restoreFullPromptAfterTurn = false
             // Hoisted so the Complete handler can index the user message after knowing whether
             // any device-action tools were called during LLM inference.
             var savedUserMsgId = ""
@@ -694,13 +737,19 @@ class ChatViewModel @Inject constructor(
             // On failure or UnknownSkill: fall through to E4B unchanged.
 
             // Slot-fill shortcut: if the previous QIR match was paused awaiting a required
-            // param, route the user's reply here before touching QIR or the LLM.
-            if (slotFillerManager.hasPending) {
-                when (val fillResult = slotFillerManager.onUserReply(text)) {
+            // param for this conversation, route the user's reply here before touching QIR or the LLM.
+            if (slotFillerManager.hasPendingFor(convId)) {
+                when (val fillResult = slotFillerManager.onUserReply(convId, text)) {
                     is SlotFillResult.Completed -> {
-                        val skill = skillRegistry.get("run_intent")
+                        val directSkill = skillRegistry.get(fillResult.intentName)
+                        val (skill, callParams) = when {
+                            directSkill != null -> directSkill to fillResult.params
+                            else -> {
+                                val runIntent = skillRegistry.get("run_intent")
+                                runIntent to (mapOf("intent_name" to fillResult.intentName) + fillResult.params)
+                            }
+                        }
                         if (skill != null) {
-                            val callParams = mapOf("intent_name" to fillResult.intentName) + fillResult.params
                             val skillResult = skill.execute(SkillCall(skill.name, callParams))
                             when (skillResult) {
                                 is SkillResult.DirectReply -> {
@@ -718,6 +767,14 @@ class ChatViewModel @Inject constructor(
                                 else -> appendAssistantMessage(convId, "Something went wrong.", shouldIndex = false)
                             }
                         }
+                        return@launch
+                    }
+                    is SlotFillResult.NeedsMore -> {
+                        appendAssistantMessage(
+                            convId,
+                            fillResult.request.promptMessage,
+                            shouldIndex = false,
+                        )
                         return@launch
                     }
                     is SlotFillResult.Cancelled -> {
@@ -799,6 +856,7 @@ class ChatViewModel @Inject constructor(
                 is QuickIntentRouter.RouteResult.NeedsSlot -> {
                     // Intent matched but a required param is missing — ask the user for it.
                     slotFillerManager.startSlotFill(
+                        convId,
                         PendingSlotRequest(
                             intentName = routeResult.intent.intentName,
                             existingParams = routeResult.intent.params,
@@ -807,7 +865,7 @@ class ChatViewModel @Inject constructor(
                     )
                     appendAssistantMessage(
                         convId,
-                        slotFillerManager.pendingRequest?.promptMessage ?: "What would you like to say?",
+                        slotFillerManager.pendingRequestFor(convId)?.promptMessage ?: "What would you like to say?",
                         shouldIndex = false,
                     )
                     return@launch
@@ -909,13 +967,6 @@ class ChatViewModel @Inject constructor(
             activeStreamingContent = accumulatedContent
             activeStreamingThinking = accumulatedThinking
 
-            val ragContext = ragRepository.getRelevantContext(
-                query = text,
-                conversationId = convId,
-                maxTokens = ContextWindowManager.episodicBudget(activeContextWindowSize),
-            )
-            val ragTokenCost = contextWindowManager.estimateTokens(ragContext)
-
             // Proactive context reset: if we're at ~75% of the token budget, reset
             // the conversation and replay history to avoid LiteRT locking up.
             val tokenBudget = activeContextWindowSize
@@ -930,20 +981,36 @@ class ChatViewModel @Inject constructor(
             // Context stripping for tool-routable queries (#438, #481).
             // When the router had a best-guess intent (FallThrough with non-null bestGuess)
             // or the query matches known tool-trigger keywords, strip the Jandal personality
-            // and RAG context to free ~1000 tokens for tool-call reasoning. These queries
-            // don't benefit from episodic memory or cultural tone — they need clear headspace.
+            // and RAG context to free ~1000 tokens for tool-call reasoning. Actions-tab
+            // fallthroughs also force this path because the transcript may already be garbled.
             val priorMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
             val previousAssistant = priorMessages.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
             val previousUser = priorMessages.lastOrNull { it.role == ChatMessage.Role.USER }?.content
             val isToolFollowUp = looksLikeToolFollowUp(text, previousUser, previousAssistant)
-            val isToolQuery = (routeResult is QuickIntentRouter.RouteResult.FallThrough &&
-                routeResult.bestGuess != null) ||
+            val forceMinimalContext = forceMinimalContextForNextMessage
+            if (forceMinimalContext) {
+                forceMinimalContextForNextMessage = false
+                savedStateHandle["minimalContext"] = false
+            }
+            val isToolQuery = forceMinimalContext ||
+                (routeResult is QuickIntentRouter.RouteResult.FallThrough && routeResult.bestGuess != null) ||
                 looksLikeToolQuery(text) ||
                 isToolFollowUp
             isToolQueryForTurn = isToolQuery
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
-            val effectiveRagContext = if (isToolQuery) "" else ragContext
-            val effectiveRagTokenCost = if (isToolQuery) 0 else ragTokenCost
+            val effectiveRagContext: String
+            val effectiveRagTokenCost: Int
+            if (isToolQuery) {
+                effectiveRagContext = ""
+                effectiveRagTokenCost = 0
+            } else {
+                effectiveRagContext = ragRepository.getRelevantContext(
+                    query = text,
+                    conversationId = convId,
+                    maxTokens = ContextWindowManager.episodicBudget(activeContextWindowSize),
+                )
+                effectiveRagTokenCost = contextWindowManager.estimateTokens(effectiveRagContext)
+            }
 
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
             // the previous turn to resolve what "that/it/this" refers to. Inject the last
@@ -980,6 +1047,12 @@ class ChatViewModel @Inject constructor(
                 } + effectiveRagTokenCost
                 turnsSinceReset = 0
             } else {
+                if (forceMinimalContext) {
+                    inferenceEngine.updateSystemPrompt(
+                        buildSystemPrompt(isFirstReply = isFirstReply, identityTier = IdentityTier.MINIMAL)
+                    )
+                    restoreFullPromptAfterTurn = true
+                }
                 estimatedTokensUsed += effectiveRagTokenCost
             }
 
@@ -1260,6 +1333,10 @@ class ChatViewModel @Inject constructor(
                 activeStreamingMsgId = null
                 activeStreamingContent = StringBuilder()
                 activeStreamingThinking = StringBuilder()
+            } finally {
+                if (restoreFullPromptAfterTurn) {
+                    needsHistoryReplay = true
+                }
             }
         }
     }
@@ -1316,11 +1393,7 @@ class ChatViewModel @Inject constructor(
             _conversationTitle.value = null
             titleGenerationStarted = false
             titleIsPlaceholder = false
-            estimatedTokensUsed = 0
-            turnsSinceReset = 0
-            needsHistoryReplay = false
-            pendingConfirmationIntent = null
-            inferenceEngine.resetConversation()
+            resetInferenceForFreshConversation()
         }
     }
 

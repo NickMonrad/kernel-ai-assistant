@@ -76,6 +76,86 @@ class QuickIntentRouter(
         RegexOption.IGNORE_CASE,
     )
 
+    private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
+        "make_call" to mapOf(
+            "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "contact",
+                promptTemplate = "Who would you like to call?",
+            ),
+        ),
+        "send_sms" to mapOf(
+            "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "contact",
+                promptTemplate = "Who do you want to send a message to?",
+            ),
+            "message" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "message",
+                promptTemplate = "What would you like to say to {contact}?",
+            ),
+        ),
+        "send_email" to mapOf(
+            "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "contact",
+                promptTemplate = "Who would you like to email?",
+            ),
+            "subject" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "subject",
+                promptTemplate = "What's the subject of your email to {contact}?",
+            ),
+            "body" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "body",
+                promptTemplate = "What would you like the email to say?",
+            ),
+        ),
+        "add_to_list" to mapOf(
+            "item" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "item",
+                promptTemplate = "What would you like to add?",
+            ),
+            "list_name" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "list_name",
+                promptTemplate = "Which list should I add it to?",
+            ),
+        ),
+        "create_list" to mapOf(
+            "list_name" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "list_name",
+                promptTemplate = "What would you like to call the list?",
+            ),
+        ),
+        "save_memory" to mapOf(
+            "content" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "content",
+                promptTemplate = "What would you like me to remember?",
+            ),
+        ),
+    )
+
+    private fun slotContract(intentName: String): Map<String, com.kernel.ai.core.skills.slot.SlotSpec> =
+        slotContracts[intentName] ?: emptyMap()
+
+    private val placeholderContacts = setOf(
+        "someone",
+        "somebody",
+        "anyone",
+        "anybody",
+    )
+
+    private val placeholderItems = setOf(
+        "something",
+        "anything",
+    )
+
+    private fun normalizeOptionalContact(raw: String): String? = raw.trim()
+        .takeIf { it.isNotBlank() }
+        ?.takeUnless { it.lowercase() in placeholderContacts }
+
+    private fun normalizeOptionalItem(raw: String): String? = raw.trim()
+        .takeIf { it.isNotBlank() }
+        ?.takeUnless { it.lowercase() in placeholderItems }
+
+
+
     // ── Regex patterns ────────────────────────────────────────────────────────
 
     private data class IntentPattern(
@@ -1409,11 +1489,11 @@ class QuickIntentRouter(
         ),
         // Open app — "open YouTube" / "launch Spotify"
         // Excludes timer/countdown/alarm phrases and phrases that contain "timer" anywhere
-        // Also excludes "new conversation/chat" to prevent false matches on conversational phrases
+        // Also excludes list and new-conversation/chat phrases to prevent false matches on slot-fill commands
         IntentPattern(
             intentName = "open_app",
             regex = Regex(
-                """^(?:open|launch|start)\s+(?:the\s+)?(?!(?:a\s+)?(?:count(?:down|ing)|timer|alarm|new\s+conversation|new\s+chat|conversation|chat)\b)(?!.*\btimer\b)(.+?)(?:\s+app)?$""",
+                """^(?:open|launch|start)\s+(?:the\s+)?(?!(?:a\s+)?(?:count(?:down|ing)|timer|alarm|(?:my\s+)?list|new\s+conversation|new\s+chat|conversation|chat)\b)(?!.*\btimer\b)(.+?)(?:\s+app)?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("app_name" to match.groupValues[1].trim()) },
@@ -1902,13 +1982,26 @@ class QuickIntentRouter(
         ),
 
         // ── Communication ──
+        // "make a call" / "call someone" / "ring anybody" (no concrete contact) → ask who
+        IntentPattern(
+            intentName = "make_call",
+            regex = Regex(
+                """^(?:make\s+(?:a\s+)?call|(?:call|ring|dial|phone)\s+(?:someone|somebody|anyone|anybody))$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("make_call"),
+        ),
         IntentPattern(
             intentName = "make_call",
             regex = Regex(
                 """^(?:call|ring|dial|phone)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("contact" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ ->
+                normalizeOptionalContact(match.groupValues[1])?.let { mapOf("contact" to it) } ?: emptyMap()
+            },
+            requiredSlots = slotContract("make_call"),
         ),
         // "give Sarah a call" / "give mum a ring"
         IntentPattern(
@@ -1917,7 +2010,10 @@ class QuickIntentRouter(
                 """^give\s+(.+?)\s+a\s+(?:call|ring|buzz)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("contact" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ ->
+                normalizeOptionalContact(match.groupValues[1])?.let { mapOf("contact" to it) } ?: emptyMap()
+            },
+            requiredSlots = slotContract("make_call"),
         ),
         // Self-send: "text myself [message]" / "text me [message]" — contact resolved to own number
         IntentPattern(
@@ -1929,6 +2025,7 @@ class QuickIntentRouter(
             paramExtractor = { match, _ ->
                 mapOf("contact" to "myself", "message" to match.groupValues[1].trim())
             },
+            requiredSlots = slotContract("send_sms"),
         ),
         // "send a message" / "send a text" (no contact) → ask who to send to
         // Must come BEFORE the generic send_sms pattern below (which would capture "a" as contact)
@@ -1939,12 +2036,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
-            requiredSlots = mapOf(
-                "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
-                    name = "contact",
-                    promptTemplate = "Who do you want to send a message to?",
-                ),
-            ),
+            requiredSlots = slotContract("send_sms"),
         ),
         // "send a text to John saying hello" / "text John hey" / "sms John meet at 5"
         IntentPattern(
@@ -1954,18 +2046,13 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
-                val params = mutableMapOf("contact" to match.groupValues[1].trim())
+                val params = mutableMapOf<String, String>()
+                normalizeOptionalContact(match.groupValues[1])?.let { params["contact"] = it }
                 val msg = match.groupValues[2].trim()
                 if (msg.isNotBlank()) params["message"] = msg
                 params
             },
-            // Ask for the message body when the user only specified a recipient.
-            requiredSlots = mapOf(
-                "message" to com.kernel.ai.core.skills.slot.SlotSpec(
-                    name = "message",
-                    promptTemplate = "What would you like to say to {contact}?",
-                ),
-            ),
+            requiredSlots = slotContract("send_sms"),
         ),
         // "message mum that I'm on my way" / "message John saying..."
         IntentPattern(
@@ -1975,11 +2062,23 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
-                mapOf(
-                    "contact" to match.groupValues[1].trim(),
-                    "message" to match.groupValues[2].trim(),
-                )
+                val params = mutableMapOf<String, String>()
+                normalizeOptionalContact(match.groupValues[1])?.let { params["contact"] = it }
+                params["message"] = match.groupValues[2].trim()
+                params
             },
+            requiredSlots = slotContract("send_sms"),
+        ),
+        // "send an email" / "email someone" (no concrete contact) → ask who
+        // Must come BEFORE the contact-extraction pattern below
+        IntentPattern(
+            intentName = "send_email",
+            regex = Regex(
+                """^(?:send\s+(?:an?\s+)?email|email(?:\s+someone)?)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("send_email"),
         ),
         // "send an email to John about meeting" / "email John with body Please review"
         IntentPattern(
@@ -1991,37 +2090,17 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
-                val params = mutableMapOf("contact" to match.groupValues[1].trim())
+                val params = mutableMapOf<String, String>()
+                normalizeOptionalContact(match.groupValues[1])?.let { params["contact"] = it }
                 val subject = match.groupValues[2].trim()
                 val body = match.groupValues[3].trim()
                 if (subject.isNotBlank()) params["subject"] = subject
                 if (body.isNotBlank()) params["body"] = body
                 params
             },
-            // Ask for subject when contact provided but no subject given.
-            requiredSlots = mapOf(
-                "subject" to com.kernel.ai.core.skills.slot.SlotSpec(
-                    name = "subject",
-                    promptTemplate = "What's the subject of your email to {contact}?",
-                ),
-            ),
+            requiredSlots = slotContract("send_email"),
         ),
-        // "send an email" / "email someone" (no contact) → ask who
-        // Must come AFTER the contact-extraction pattern above
-        IntentPattern(
-            intentName = "send_email",
-            regex = Regex(
-                """^(?:send\s+(?:an?\s+)?email|email\s+someone)$""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { _, _ -> emptyMap() },
-            requiredSlots = mapOf(
-                "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
-                    name = "contact",
-                    promptTemplate = "Who would you like to email?",
-                ),
-            ),
-        ),
+
 
         // ── System Info ──
         // "show my device info" / "what are my device specs" / "show system info"
@@ -2091,45 +2170,76 @@ class QuickIntentRouter(
         ),
 
         // ── Lists ──
+        // "add milk to my list" / "put eggs on the list" (item present, list missing) → ask which list
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?(.+?)\s+list""",
+                """^(?:add\s+(.+?)\s+to|put\s+(.+?)\s+on)\s+(?:(?:my|the)\s+)?list$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
-                mapOf(
-                    "item" to match.groupValues[1].trim(),
-                    "list_name" to match.groupValues[2].trim(),
-                )
+                val item = normalizeOptionalItem(match.groupValues[1].ifBlank { match.groupValues[2] })
+                if (item != null) mapOf("item" to item) else emptyMap()
             },
+            requiredSlots = slotContract("add_to_list"),
+        ),
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """^add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+list(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf<String, String>()
+                normalizeOptionalItem(match.groupValues[1])?.let { params["item"] = it }
+                params["list_name"] = match.groupValues[2].trim()
+                params
+            },
+            requiredSlots = slotContract("add_to_list"),
         ),
         // "put milk on my shopping list" / "put eggs on the grocery list"
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """put\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(.+?)\s+list""",
+                """^put\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+list(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
-                mapOf(
-                    "item" to match.groupValues[1].trim(),
-                    "list_name" to match.groupValues[2].trim(),
-                )
+                val params = mutableMapOf<String, String>()
+                normalizeOptionalItem(match.groupValues[1])?.let { params["item"] = it }
+                params["list_name"] = match.groupValues[2].trim()
+                params
             },
+            requiredSlots = slotContract("add_to_list"),
         ),
-        // "chuck milk on the list" / "stick eggs on my shopping list" — NZ/AU/UK informal verbs
+        // "chuck milk on my list" / "stick eggs on the list" (item present, list missing) → ask which list
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?list""",
+                """^(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?list$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
-                val item = match.groupValues[1].trim()
-                val listName = match.groupValues[2].trim().ifEmpty { "shopping" }
-                mapOf("item" to item, "list_name" to listName)
+                val item = normalizeOptionalItem(match.groupValues[1])
+                if (item != null) mapOf("item" to item) else emptyMap()
             },
+            requiredSlots = slotContract("add_to_list"),
+        ),
+        // "chuck milk on the shopping list" / "stick eggs on my grocery list" — NZ/AU/UK informal verbs
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """^(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+list(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf<String, String>()
+                normalizeOptionalItem(match.groupValues[1])?.let { params["item"] = it }
+                val listName = match.groupValues[2].trim()
+                if (listName.isNotBlank()) params["list_name"] = listName
+                params
+            },
+            requiredSlots = slotContract("add_to_list"),
         ),
         // "add to my list" / "add something to my list" / "add to the shopping list" (no item) → ask what
         IntentPattern(
@@ -2142,12 +2252,17 @@ class QuickIntentRouter(
                 val listName = match.groupValues[1].trim()
                 if (listName.isNotBlank()) mapOf("list_name" to listName) else emptyMap()
             },
-            requiredSlots = mapOf(
-                "item" to com.kernel.ai.core.skills.slot.SlotSpec(
-                    name = "item",
-                    promptTemplate = "What would you like to add?",
-                ),
+            requiredSlots = slotContract("add_to_list"),
+        ),
+        // "create a list" / "make a new list" / "start my list" → ask for the list name
+        IntentPattern(
+            intentName = "create_list",
+            regex = Regex(
+                """^(?:create|make|start|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?list$""",
+                RegexOption.IGNORE_CASE,
             ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_list"),
         ),
         // "create a list called groceries" / "make a new list called holiday packing"
         // Must come BEFORE generic create_list to prevent lazy (.+?) capturing "a" or "new"
@@ -2158,6 +2273,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+            requiredSlots = slotContract("create_list"),
         ),
         // "create a groceries list" / "make a new shopping list" / "start a meal plan list"
         // "make a new list called holiday packing" / "create a list called groceries"
@@ -2168,6 +2284,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+            requiredSlots = slotContract("create_list"),
         ),
         IntentPattern(
             intentName = "create_list",
@@ -2176,6 +2293,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+            requiredSlots = slotContract("create_list"),
         ),
         // "remove milk from my shopping list" / "take eggs off the grocery list"
         IntentPattern(
@@ -2211,6 +2329,16 @@ class QuickIntentRouter(
         ),
 
         // ── Save Memory ──
+        // Pattern: "remember something" / "save something to memory" / "make a note" → ask what to remember
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """^(?:remember\s+something|(?:save|store|keep)\s+something\s+(?:to|in)\s+memory|(?:(?:make|take|save)\s+(?:a\s+)?)note)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("save_memory"),
+        ),
         // Pattern: "save [to/that/...] memory that X" / "save this to memory: X"
         IntentPattern(
             intentName = "save_memory",
@@ -2219,6 +2347,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            requiredSlots = slotContract("save_memory"),
         ),
         // Pattern: "remember that X" / "remember: X"
         IntentPattern(
@@ -2228,6 +2357,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            requiredSlots = slotContract("save_memory"),
         ),
         // Pattern: "note that X" / "make a note that X" / "don't forget that X"
         IntentPattern(
@@ -2237,6 +2367,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            requiredSlots = slotContract("save_memory"),
         ),
         // Pattern: "my X is Y" — captures personal facts like "my dog's name is Biscuit"
         // Anchored to start of message and requires "my" to reduce false positives.
@@ -2249,7 +2380,9 @@ class QuickIntentRouter(
             paramExtractor = { match, raw ->
                 mapOf("content" to raw.trim())
             },
+            requiredSlots = slotContract("save_memory"),
         ),
+
 
         // ── Brightness ──
         // Explicit Android-compat: "increase brightness" — split from complex alternation
@@ -2367,13 +2500,22 @@ class QuickIntentRouter(
      * Returns the first [RouteResult.RegexMatch] or [RouteResult.NeedsSlot] found, or null if
      * no pattern matches.
      */
+    private fun missingRequiredSlot(
+        requiredSlots: Map<String, com.kernel.ai.core.skills.slot.SlotSpec>,
+        params: Map<String, String>,
+    ): com.kernel.ai.core.skills.slot.SlotSpec? =
+        requiredSlots.entries.firstOrNull { (key, _) -> params[key].isNullOrBlank() }?.value
+
+    fun nextMissingSlot(
+        intentName: String,
+        params: Map<String, String>,
+    ): com.kernel.ai.core.skills.slot.SlotSpec? = missingRequiredSlot(slotContract(intentName), params)
+
     private fun tryMatchPatterns(trimmed: String, candidates: List<IntentPattern>): RouteResult? {
         for (pattern in candidates) {
             val match = pattern.regex.find(trimmed) ?: continue
             val params = pattern.paramExtractor(match, trimmed)
-            val missingSlot = pattern.requiredSlots.entries
-                .firstOrNull { (key, _) -> params[key].isNullOrBlank() }
-                ?.value
+            val missingSlot = missingRequiredSlot(pattern.requiredSlots, params)
             val intent = MatchedIntent(
                 intentName = pattern.intentName,
                 params = params,
@@ -2387,6 +2529,7 @@ class QuickIntentRouter(
         }
         return null
     }
+
 
     fun route(input: String): RouteResult {
         val trimmed = INTENT_PREFIX_RE.replace(input.trim(), "")
