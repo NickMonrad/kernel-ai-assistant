@@ -8,15 +8,8 @@ import android.content.pm.PackageManager
 import androidx.core.content.FileProvider
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
-import com.kernel.ai.core.voice.VoiceOutputPreferences
-import io.mockk.Runs
-import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.slot
@@ -24,6 +17,7 @@ import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -51,10 +45,17 @@ class AboutViewModelTest {
     private val applicationInfo: ApplicationInfo = mockk()
     private val packageManager: PackageManager = mockk()
     private val packageInfo: PackageInfo = mockk()
-    private val dataStore: DataStore<Preferences> = mockk()
-    private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val cacheDir: File = mockk()
-    private val spokenResponsesEnabled = MutableStateFlow(true)
+    private val preferencesState = MutableStateFlow<Preferences>(emptyPreferences())
+    private val dataStore: DataStore<Preferences> = object : DataStore<Preferences> {
+        override val data: Flow<Preferences> = preferencesState
+
+        override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
+            val updated = transform(preferencesState.value)
+            preferencesState.value = updated
+            return updated
+        }
+    }
 
     private lateinit var viewModel: AboutViewModel
 
@@ -70,10 +71,8 @@ class AboutViewModelTest {
         every { packageManager.getPackageInfo("com.kernel.ai.test", 0) } returns packageInfo
         every { cacheDir.absolutePath } returns "/data/user/0/com.kernel.ai.test/cache"
         every { cacheDir.mkdirs() } returns true
-        every { dataStore.data } returns kotlinx.coroutines.flow.flowOf(emptyPreferences())
-        every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
-        coEvery { voiceOutputPreferences.setSpokenResponsesEnabled(any()) } just Runs
-        viewModel = AboutViewModel(context, dataStore, voiceOutputPreferences)
+        preferencesState.value = emptyPreferences()
+        viewModel = AboutViewModel(context, dataStore)
     }
 
     @AfterEach
@@ -295,26 +294,10 @@ class AboutViewModelTest {
 
     @Test
     fun `setVerboseLogging updates ui state immediately`() = testScope.runTest {
-        coEvery { dataStore.updateData(any()) } returns emptyPreferences()
-
         viewModel.setVerboseLogging(false)
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(false, viewModel.uiState.value.verboseLogging)
     }
 
-    @Test
-    fun `spoken responses default to enabled when preference flow emits true`() = testScope.runTest {
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertTrue(viewModel.uiState.value.spokenResponsesEnabled)
-    }
-
-    @Test
-    fun `setSpokenResponsesEnabled updates ui state immediately`() = testScope.runTest {
-        viewModel.setSpokenResponsesEnabled(false)
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        assertEquals(false, viewModel.uiState.value.spokenResponsesEnabled)
-        coVerify { voiceOutputPreferences.setSpokenResponsesEnabled(false) }
-    }
 }
