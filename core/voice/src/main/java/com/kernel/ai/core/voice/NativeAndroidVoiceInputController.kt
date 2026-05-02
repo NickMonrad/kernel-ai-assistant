@@ -45,10 +45,9 @@ class NativeAndroidVoiceInputController @Inject constructor(
     private var currentMode: VoiceCaptureMode? = null
 
     @Volatile
-    private var sessionCompleted = false
+    private var activeSessionId: Long = 0L
 
-    @Volatile
-    private var currentAvailability: AndroidNativeRecognitionAvailability? = null
+    private var nextSessionId: Long = 0L
 
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         return withContext(Dispatchers.Main.immediate) {
@@ -64,11 +63,17 @@ class NativeAndroidVoiceInputController @Inject constructor(
             try {
                 requestAudioFocus()
                 val recognizer = recognitionSupport.createOnDeviceSpeechRecognizer()
+                val sessionId = ++nextSessionId
                 currentMode = mode
-                currentAvailability = availability
-                sessionCompleted = false
+                activeSessionId = sessionId
                 speechRecognizer = recognizer
-                recognizer.setRecognitionListener(SessionRecognitionListener(mode))
+                recognizer.setRecognitionListener(
+                    SessionRecognitionListener(
+                        sessionId = sessionId,
+                        mode = mode,
+                        availability = availability,
+                    ),
+                )
                 recognizer.startListening(buildRecognizerIntent(availability.languageTag))
                 _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
                 VoiceInputStartResult.Started
@@ -84,17 +89,20 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
     override fun stopListening() {
         context.mainExecutor.execute {
-            stopListeningInternal(emitStopped = true)
+            stopListeningInternal(emitStopped = true, expectedSessionId = activeSessionId)
         }
     }
 
-    private fun stopListeningInternal(emitStopped: Boolean) {
+    private fun stopListeningInternal(emitStopped: Boolean, expectedSessionId: Long? = null) {
+        if (expectedSessionId != null && activeSessionId != expectedSessionId) {
+            return
+        }
+
         val mode = currentMode
         val recognizer = speechRecognizer
         speechRecognizer = null
         currentMode = null
-        currentAvailability = null
-        sessionCompleted = true
+        activeSessionId = 0L
 
         recognizer?.apply {
             runCatching { stopListening() }
@@ -118,8 +126,12 @@ class NativeAndroidVoiceInputController @Inject constructor(
         }
 
     private inner class SessionRecognitionListener(
+        private val sessionId: Long,
         private val mode: VoiceCaptureMode,
+        private val availability: AndroidNativeRecognitionAvailability,
     ) : RecognitionListener {
+
+        private var sessionCompleted = false
 
         override fun onReadyForSpeech(params: Bundle?) = Unit
 
@@ -132,20 +144,20 @@ class NativeAndroidVoiceInputController @Inject constructor(
         override fun onEndOfSpeech() = Unit
 
         override fun onError(error: Int) {
-            if (sessionCompleted) return
+            if (sessionCompleted || activeSessionId != sessionId) return
             sessionCompleted = true
             _events.tryEmit(
                 VoiceInputEvent.Error(
                     mode = mode,
-                    message = mapError(error),
+                    message = mapError(error, availability),
                 ),
             )
             _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
-            stopListeningInternal(emitStopped = false)
+            stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
         }
 
         override fun onResults(results: Bundle?) {
-            if (sessionCompleted) return
+            if (sessionCompleted || activeSessionId != sessionId) return
             val transcript = extractBestTranscript(results)
             sessionCompleted = true
             if (transcript.isBlank()) {
@@ -159,11 +171,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 _events.tryEmit(VoiceInputEvent.Transcript(mode = mode, text = transcript))
             }
             _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
-            stopListeningInternal(emitStopped = false)
+            stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
-            if (sessionCompleted) return
+            if (sessionCompleted || activeSessionId != sessionId) return
             val transcript = extractBestTranscript(partialResults)
             if (transcript.isNotBlank()) {
                 _events.tryEmit(VoiceInputEvent.PartialTranscript(mode = mode, text = transcript))
@@ -180,7 +192,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
             ?.trim()
             .orEmpty()
 
-    private fun mapError(error: Int): String =
+    private fun mapError(
+        error: Int,
+        availability: AndroidNativeRecognitionAvailability,
+    ): String =
         when (error) {
             SpeechRecognizer.ERROR_AUDIO -> "Android speech recognition had an audio input problem."
             SpeechRecognizer.ERROR_CLIENT -> "Android speech recognition was interrupted by the app."
@@ -193,14 +208,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
             SpeechRecognizer.ERROR_NO_MATCH -> "Android speech recognition couldn't match what you said."
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Android speech recognition is already busy."
             SpeechRecognizer.ERROR_SERVER -> "Android speech recognition hit a service error."
-            SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> {
-                val languageSummary = currentAvailability?.languageSummary
-                if (languageSummary != null) {
-                    "Android speech recognition disconnected unexpectedly while using $languageSummary. This can happen when that on-device language is unsupported or not installed."
-                } else {
-                    "Android speech recognition disconnected unexpectedly. This can happen when the selected on-device language is unsupported or not installed."
-                }
-            }
+            SpeechRecognizer.ERROR_SERVER_DISCONNECTED ->
+                "Android speech recognition disconnected unexpectedly while using ${availability.languageSummary}. This can happen when that on-device language is unsupported or not installed."
             SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "I didn't catch anything before Android speech recognition timed out."
             else -> "Android speech recognition failed with error code $error."
         }

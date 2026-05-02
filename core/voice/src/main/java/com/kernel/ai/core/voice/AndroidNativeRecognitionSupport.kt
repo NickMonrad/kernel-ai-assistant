@@ -12,6 +12,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
@@ -79,75 +80,100 @@ class AndroidNativeRecognitionSupport @Inject constructor(
 
     private suspend fun checkLocaleSupport(languageTag: String): AndroidNativeRecognitionLocaleStatus =
         withContext(Dispatchers.Main.immediate) {
-            suspendCancellableCoroutine { continuation ->
-                val recognizer = createOnDeviceSpeechRecognizer()
-                val supportIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
-                }
+            withTimeoutOrNull(5_000) {
+                suspendCancellableCoroutine { continuation ->
+                    val recognizer = createOnDeviceSpeechRecognizer()
+                    val supportIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
+                    }
 
-                fun complete(status: AndroidNativeRecognitionLocaleStatus) {
-                    if (continuation.isActive) {
-                        recognizer.destroy()
-                        continuation.resume(status)
-                    } else {
+                    fun complete(status: AndroidNativeRecognitionLocaleStatus) {
+                        if (continuation.isActive) {
+                            recognizer.destroy()
+                            continuation.resume(status)
+                        } else {
+                            recognizer.destroy()
+                        }
+                    }
+
+                    continuation.invokeOnCancellation {
                         recognizer.destroy()
                     }
+
+                    recognizer.checkRecognitionSupport(
+                        supportIntent,
+                        context.mainExecutor,
+                        object : RecognitionSupportCallback {
+                            override fun onSupportResult(recognitionSupport: RecognitionSupport) {
+                                complete(resolveLocaleStatus(languageTag, recognitionSupport))
+                            }
+
+                            override fun onError(error: Int) {
+                                complete(
+                                    when (error) {
+                                        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ->
+                                            AndroidNativeRecognitionLocaleStatus.NotSupported
+                                        SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
+                                            AndroidNativeRecognitionLocaleStatus.Unavailable
+                                        else -> AndroidNativeRecognitionLocaleStatus.Unknown
+                                    },
+                                )
+                            }
+                        },
+                    )
                 }
+            } ?: AndroidNativeRecognitionLocaleStatus.Unknown
+        }
+}
 
-                continuation.invokeOnCancellation {
-                    recognizer.destroy()
-                }
+internal fun resolveLocaleStatus(
+    languageTag: String,
+    recognitionSupport: RecognitionSupport,
+): AndroidNativeRecognitionLocaleStatus =
+    resolveLocaleStatus(
+        languageTag = languageTag,
+        installedLanguages = recognitionSupport.getInstalledOnDeviceLanguages(),
+        supportedLanguages = recognitionSupport.getSupportedOnDeviceLanguages(),
+        pendingLanguages = recognitionSupport.getPendingOnDeviceLanguages(),
+        onlineLanguages = recognitionSupport.getOnlineLanguages(),
+    )
 
-                recognizer.checkRecognitionSupport(
-                    supportIntent,
-                    context.mainExecutor,
-                    object : RecognitionSupportCallback {
-                        override fun onSupportResult(recognitionSupport: RecognitionSupport) {
-                            complete(mapSupportResult(languageTag, recognitionSupport))
-                        }
+internal fun resolveLocaleStatus(
+    languageTag: String,
+    installedLanguages: List<String>,
+    supportedLanguages: List<String>,
+    pendingLanguages: List<String>,
+    onlineLanguages: List<String>,
+): AndroidNativeRecognitionLocaleStatus {
+    return when {
+        matchesRequestedLanguage(languageTag, installedLanguages) -> AndroidNativeRecognitionLocaleStatus.Ready
+        matchesRequestedLanguage(languageTag, supportedLanguages) -> AndroidNativeRecognitionLocaleStatus.Unavailable
+        matchesRequestedLanguage(languageTag, pendingLanguages) -> AndroidNativeRecognitionLocaleStatus.Unavailable
+        matchesRequestedLanguage(languageTag, onlineLanguages) -> AndroidNativeRecognitionLocaleStatus.NotSupported
+        else -> AndroidNativeRecognitionLocaleStatus.Unknown
+    }
+}
 
-                        override fun onError(error: Int) {
-                            complete(
-                                when (error) {
-                                    SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ->
-                                        AndroidNativeRecognitionLocaleStatus.NotSupported
-                                    SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
-                                        AndroidNativeRecognitionLocaleStatus.Unavailable
-                                    else -> AndroidNativeRecognitionLocaleStatus.Unknown
-                                },
-                            )
-                        }
-                    },
-                )
-            }
-        }
+private fun matchesRequestedLanguage(
+    requestedLanguageTag: String,
+    availableLanguageTags: List<String>,
+): Boolean {
+    val requestedLocale = Locale.forLanguageTag(requestedLanguageTag)
+    val requestedNormalizedTag = requestedLocale.toLanguageTag()
+    val requestedBaseLanguage = requestedLocale.language
 
-    private fun mapSupportResult(
-        languageTag: String,
-        recognitionSupport: RecognitionSupport,
-    ): AndroidNativeRecognitionLocaleStatus {
-        val normalizedLanguageTag = Locale.forLanguageTag(languageTag).toLanguageTag()
-        val installedLanguages = recognitionSupport.getInstalledOnDeviceLanguages().map {
-            Locale.forLanguageTag(it).toLanguageTag()
-        }
-        val supportedLanguages = recognitionSupport.getSupportedOnDeviceLanguages().map {
-            Locale.forLanguageTag(it).toLanguageTag()
-        }
-        val pendingLanguages = recognitionSupport.getPendingOnDeviceLanguages().map {
-            Locale.forLanguageTag(it).toLanguageTag()
-        }
-        val onlineLanguages = recognitionSupport.getOnlineLanguages().map {
-            Locale.forLanguageTag(it).toLanguageTag()
-        }
+    return availableLanguageTags.any { availableLanguageTag ->
+        val availableLocale = Locale.forLanguageTag(availableLanguageTag)
+        val availableNormalizedTag = availableLocale.toLanguageTag()
+        val availableBaseLanguage = availableLocale.language
 
-        return when {
-            normalizedLanguageTag in installedLanguages -> AndroidNativeRecognitionLocaleStatus.Ready
-            normalizedLanguageTag in supportedLanguages -> AndroidNativeRecognitionLocaleStatus.Unavailable
-            normalizedLanguageTag in pendingLanguages -> AndroidNativeRecognitionLocaleStatus.Unavailable
-            normalizedLanguageTag in onlineLanguages -> AndroidNativeRecognitionLocaleStatus.NotSupported
-            else -> AndroidNativeRecognitionLocaleStatus.Unknown
-        }
+        availableNormalizedTag == requestedNormalizedTag ||
+            (
+                requestedBaseLanguage.isNotBlank() &&
+                    availableBaseLanguage.isNotBlank() &&
+                    requestedBaseLanguage == availableBaseLanguage
+            )
     }
 }
