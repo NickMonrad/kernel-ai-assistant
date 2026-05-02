@@ -10,7 +10,7 @@ enum class VoiceInputEngine(
         description = "Offline-first voice recognition using the bundled local model.",
     ),
     AndroidNative(
-        displayName = "Android native (Experimental)",
+        displayName = "Android native",
         description = "Uses the platform speech recognizer and may work better for some accents or devices.",
         warning = "Android native speech recognition may depend on device support, installed language packs, and recognizer availability. Offline behavior is not guaranteed on all devices.",
     ),
