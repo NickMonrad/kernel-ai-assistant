@@ -75,6 +75,7 @@ private const val ROUTE_LIST_ITEMS = "lists/{listName}"
 private const val ARG_LIST_NAME = "listName"
 private const val ARG_CONVERSATION_ID = "conversationId"
 private const val ARG_INITIAL_QUERY = "initialQuery"
+private const val ARG_MINIMAL_CONTEXT = "minimalContext"
 private const val ARG_START_VOICE = "startVoice"
 private const val STATE_OPEN_SHEET_CONSUMED = "openSheetConsumed"
 private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
@@ -288,7 +289,9 @@ fun KernelNavHost(
                             },
                             onNavigateToChat = { query ->
                                 val encoded = Uri.encode(query)
-                                navController.navigate("$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded")
+                                navController.navigate(
+                                    "$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded&$ARG_MINIMAL_CONTEXT=true"
+                                )
                             },
                             onNewConversation = {
                                 navController.navigate(ROUTE_CHAT)
@@ -301,12 +304,18 @@ fun KernelNavHost(
                 }
 
                 composable(
-                    route = "$ROUTE_CHAT?$ARG_INITIAL_QUERY={$ARG_INITIAL_QUERY}",
-                    arguments = listOf(navArgument(ARG_INITIAL_QUERY) {
-                        type = NavType.StringType
-                        defaultValue = ""
-                        nullable = false
-                    }),
+                    route = "$ROUTE_CHAT?$ARG_INITIAL_QUERY={$ARG_INITIAL_QUERY}&$ARG_MINIMAL_CONTEXT={$ARG_MINIMAL_CONTEXT}",
+                    arguments = listOf(
+                        navArgument(ARG_INITIAL_QUERY) {
+                            type = NavType.StringType
+                            defaultValue = ""
+                            nullable = false
+                        },
+                        navArgument(ARG_MINIMAL_CONTEXT) {
+                            type = NavType.BoolType
+                            defaultValue = false
+                        },
+                    ),
                 ) { backStackEntry ->
                     val initialQuery = backStackEntry.arguments?.getString(ARG_INITIAL_QUERY)
                         ?.takeIf { it.isNotBlank() }

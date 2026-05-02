@@ -339,20 +339,44 @@ best-matching intent wins if it clears both a confidence floor and an ambiguity 
 
 If the classifier is absent or returns `null`, the input falls through to Stage 3 (Gemma-4 E4B).
 
-**QIR + Slot-filling state machine:**
+**Actions-tab deterministic slot-fill loop:**
 
-The combined QIR/slot-filling pipeline is a four-state machine managed by `SlotFillerManager`
-(`@Singleton`, survives configuration changes):
+For quick actions, pending slot state lives inside `ActionsViewModel`, not a shared
+`SlotFillerManager` singleton. `executeAction()` reacts to `QuickIntentRouter.RouteResult`
+like this:
 
-| State | Condition | Next states |
-|-------|-----------|-------------|
-| `IDLE` | `SlotFillerManager.hasPending = false`; no intent in flight | → `RESOLVED` (regex/classifier match with all params) · → `COLLECTING` (match but missing slot) · → `FAILED` (FallThrough) |
-| `COLLECTING` | `RouteResult.NeedsSlot` returned; `hasPending = true`; assistant has asked user for missing slot | → `RESOLVED` (user supplies non-blank reply) · → `FAILED` (user sends blank reply) |
-| `RESOLVED` | `SlotFillResult.Completed` or direct `RegexMatch`/`ClassifierMatch` with all params present; intent dispatched | → `IDLE` (after dispatch) |
-| `FAILED` | `RouteResult.FallThrough` (no match) or `SlotFillResult.Cancelled` (blank user reply) | → `IDLE` (falls through to Gemma-4 for FallThrough; slot is abandoned for Cancelled) |
+1. `RegexMatch` / `ClassifierMatch` with complete params → execute immediately.
+2. `NeedsSlot` → call `primePendingSlot(...)` and show the missing-slot prompt.
+3. `FallThrough` → hand off to chat.
 
-> **Note:** State is not persisted across process death. An interrupted slot fill is a
-> recoverable UX edge case — the user simply re-asks.
+When a slot reply arrives, `onSlotReply()` merges the reply into the accumulated params,
+calls `quickIntentRouter.nextMissingSlot(intentName, mergedParams)`, and then either:
+
+- prompts for the next missing required slot if one remains
+- clears pending state and executes only when all required slots are present
+- cancels on a blank reply via `cancelSlotFill()`
+
+Current deterministic slot-fill coverage in this sprint is:
+
+| Intent | Required slots |
+|--------|----------------|
+| `set_alarm` | `time` |
+| `set_timer` | `duration_seconds` |
+| `open_app` | `app_name` |
+| `navigate_to` | `destination` |
+| `find_nearby` | `query` |
+| `send_sms` | `contact`, `message` |
+| `send_email` | `contact`, `subject`, `body` |
+| `add_to_list` | `item`, `list_name` |
+| `make_call` | `contact` |
+| `save_memory` | `content` |
+| `create_list` | `list_name` |
+
+`add_to_list` has no implicit default shopping-list fallback in this slot contract.
+This sprint explicitly excludes weather/forecast, `create_calendar_event`,
+`remove_from_list`, and zero-slot toggles/media controls from multi-turn slot
+continuation. Weather/forecast stays single-turn because the existing weather path already
+has safe defaults, including current-location behavior and optional forecast fields.
 
 | Pattern | Action | OS API |
 |---------|--------|--------|
@@ -434,6 +458,11 @@ so `ChatViewModel` can attach tool call metadata to the UI. A `ToolCallExtractor
 fallback exists for edge cases where the model emits raw JSON outside the SDK path.
 
 **Registered `run_intent` intents:**
+
+> This is the broader native-tool inventory. The current deterministic quick-action
+> slot-fill sprint only locks `set_alarm`, `set_timer`, `open_app`, `navigate_to`,
+> `find_nearby`, `send_sms`, `send_email`, `add_to_list`, `make_call`, `save_memory`,
+> and `create_list`.
 
 | `intent_name` | Action | OS API | Status |
 |---------------|--------|--------|--------|

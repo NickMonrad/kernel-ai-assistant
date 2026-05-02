@@ -148,6 +148,300 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice mode normalizes add bread list mishear before routing`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("at bridge to my last", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals(
+            "bread",
+            voiceViewModel.pendingSlot.value?.request?.existingParams?.get("item"),
+        )
+        assertEquals(
+            "Which list should I add it to?",
+            voiceViewModel.pendingSlot.value?.request?.promptMessage,
+        )
+        coVerify {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> {
+                    it.text == "Which list should I add it to?"
+                }
+            )
+        }
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
+    fun `voice mode normalizes and bred to my last before routing`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("and bred to my last", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals(
+            "bread",
+            voiceViewModel.pendingSlot.value?.request?.existingParams?.get("item"),
+        )
+        assertEquals(
+            "Which list should I add it to?",
+            voiceViewModel.pendingSlot.value?.request?.promptMessage,
+        )
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
+    fun `voice mode normalizes and ice cream to my last before routing`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("and ice cream to my last", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals(
+            "ice cream",
+            voiceViewModel.pendingSlot.value?.request?.existingParams?.get("item"),
+        )
+        assertEquals(
+            "Which list should I add it to?",
+            voiceViewModel.pendingSlot.value?.request?.promptMessage,
+        )
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
+    fun `voice mode normalizes create a new lust into create list slot flow`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("create a new lust", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals(
+            "list_name",
+            voiceViewModel.pendingSlot.value?.request?.missingSlot?.name,
+        )
+        assertEquals(
+            "What would you like to call the list?",
+            voiceViewModel.pendingSlot.value?.request?.promptMessage,
+        )
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
+    fun `voice mode normalizes add a bridge item mishear before routing`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("add a bridge to my list", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals(
+            "bread",
+            voiceViewModel.pendingSlot.value?.request?.existingParams?.get("item"),
+        )
+        assertEquals(
+            "Which list should I add it to?",
+            voiceViewModel.pendingSlot.value?.request?.promptMessage,
+        )
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
+    fun `voice mode preserves legitimate bridge item before routing`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("add bridge to my shopping list") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "add bridge to my shopping list")
+
+        viewModel.executeAction("add bridge to my shopping list", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("add bridge to my shopping list") }
+        verify(exactly = 0) { quickIntentRouter.route("add bread to my shopping list") }
+    }
+
+    @Test
+    fun `voice mode preserves explicit a bridge item before routing`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("add a bridge to my shopping list") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "add a bridge to my shopping list")
+
+        viewModel.executeAction("add a bridge to my shopping list", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("add a bridge to my shopping list") }
+        verify(exactly = 0) { quickIntentRouter.route("add bread to my shopping list") }
+    }
+
+    @Test
+    fun `voice mode speaks follow up slot prompt after first reply in multi slot flow`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("send an email", InputMode.Voice)
+        advanceUntilIdle()
+
+        voiceViewModel.onSlotReply("Nick")
+        runCurrent()
+
+        assertEquals(
+            "What's the subject of your email to Nick?",
+            voiceViewModel.pendingSlot.value?.request?.promptMessage,
+        )
+        coVerify(exactly = 0) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> {
+                it.text == "What's the subject of your email to Nick?"
+            })
+        }
+
+        advanceTimeBy(149)
+        runCurrent()
+        coVerify(exactly = 0) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> {
+                it.text == "What's the subject of your email to Nick?"
+            })
+        }
+
+        advanceTimeBy(1)
+        runCurrent()
+        coVerify {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> {
+                    it.text == "What's the subject of your email to Nick?"
+                }
+            )
+        }
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
+    fun `cancelSlotFill drops delayed follow up prompt speech`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("send an email", InputMode.Voice)
+        advanceUntilIdle()
+
+        voiceViewModel.onSlotReply("Nick")
+        runCurrent()
+        voiceViewModel.cancelSlotFill()
+        advanceTimeBy(151)
+        runCurrent()
+
+        coVerify(exactly = 0) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> {
+                it.text == "What's the subject of your email to Nick?"
+            })
+        }
+    }
+
+    @Test
+    fun `disabling spoken responses drops delayed follow up prompt speech`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("send an email", InputMode.Voice)
+        advanceUntilIdle()
+
+        voiceViewModel.onSlotReply("Nick")
+        runCurrent()
+        spokenResponsesEnabled.value = false
+        runCurrent()
+        advanceTimeBy(151)
+        runCurrent()
+
+        coVerify(exactly = 0) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> {
+                it.text == "What's the subject of your email to Nick?"
+            })
+        }
+    }
+
+    @Test
+    fun `new input cancels delayed follow up prompt speech`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("send an email", InputMode.Voice)
+        advanceUntilIdle()
+
+        voiceViewModel.onSlotReply("Nick")
+        runCurrent()
+        voiceViewModel.executeAction("turn on flashlight", InputMode.Text)
+        advanceTimeBy(151)
+        runCurrent()
+
+        coVerify(exactly = 0) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> {
+                it.text == "What's the subject of your email to Nick?"
+            })
+        }
+    }
+
+    @Test
     fun `voice mode auto starts slot reply capture after prompt finishes`() = runTest(dispatcher) {
         every { quickIntentRouter.route("send a text message to my wife") } returns
             QuickIntentRouter.RouteResult.NeedsSlot(
@@ -177,6 +471,44 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         coVerify { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        verify(exactly = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `stale slot reply auto restart is cancelled when a newer follow up prompt starts`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("send an email", InputMode.Voice)
+        advanceUntilIdle()
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        runCurrent()
+
+        voiceViewModel.onSlotReply("Nick")
+        advanceUntilIdle()
+
+        advanceTimeBy(351)
+        runCurrent()
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        runCurrent()
+        advanceTimeBy(351)
+        runCurrent()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
     }
 
     @Test
@@ -287,6 +619,36 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+    }
+
+    @Test
+    fun `disabling spoken responses during slot prompt does not reopen microphone`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("send a text message to my wife") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_sms",
+                    params = mapOf("contact" to "my wife"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "message",
+                    promptTemplate = "What would you like to say to {contact}?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+
+        spokenResponsesEnabled.value = false
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        runCurrent()
+        advanceTimeBy(351)
+        runCurrent()
+
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
     }
 
     @Test

@@ -67,7 +67,7 @@ private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is require
  * Supported intents:
  *   toggle_flashlight_on    — Camera2 torch on
  *   toggle_flashlight_off   — Camera2 torch off
- *   send_email              — ACTION_SENDTO mailto: URI (params: subject, body)
+ *   send_email              — ACTION_SENDTO mailto: URI (params: contact, subject, body)
  *   send_sms                — ACTION_SENDTO SMS composer (params: message)
  *   set_alarm               — AlarmClock.ACTION_SET_ALARM (params: hours, minutes, label)
  *   set_timer               — Built-in timer via AlarmManager (params: duration_seconds, label)
@@ -95,7 +95,7 @@ private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is require
  *   navigate_to             — Google Maps / geo: URI (params: destination)
  *   find_nearby             — geo: URI nearby search (params: query)
  *   make_call               — ACTION_DIAL with contact resolution (params: contact)
- *   add_to_list             — Insert item into list (params: item, list_name?) — returns DirectReply
+ *   add_to_list             — Insert item into list (params: item, list_name) — returns DirectReply
  *   bulk_add_to_list        — Insert multiple items at once (params: items (CSV or JSON array), list_name?) — returns DirectReply
  *   create_list             — Create a named list (params: list_name)
  *   get_list_items          — Retrieve unchecked items from a list (params: list_name?)
@@ -261,25 +261,31 @@ class NativeIntentHandler @Inject constructor(
     private fun sendEmail(params: Map<String, String>): SkillResult {
         // Use ACTION_SENDTO with mailto: URI so the system routes directly to an
         // email app instead of showing the generic share sheet (ACTION_SEND behaviour).
-        val contact = params["contact"]
-        val resolvedEmail = contact?.let { resolveContactEmail(it) }
-        val mailtoUri = if (resolvedEmail != null) {
-            val subject = Uri.encode(params["subject"] ?: "")
-            val body = Uri.encode(params["body"] ?: "")
-            // Email address must NOT be percent-encoded (RFC 6068) — only query params are encoded
-            Uri.parse("mailto:$resolvedEmail?subject=$subject&body=$body")
-        } else {
-            val subject = Uri.encode(params["subject"] ?: "")
-            val body = Uri.encode(params["body"] ?: "")
-            Uri.parse("mailto:?subject=$subject&body=$body")
-        }
+        val contact = params["contact"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("send_email", "No contact specified")
+        val subject = params["subject"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("send_email", "No subject specified")
+        val body = params["body"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("send_email", "No body specified")
+        val resolvedEmail = resolveContactEmail(contact)
+            ?: contact.takeIf(::looksLikeEmailAddress)
+
+        val encodedSubject = Uri.encode(subject)
+        val encodedBody = Uri.encode(body)
+        // Email address must NOT be percent-encoded (RFC 6068) — only query params are encoded
+        val mailtoUri = resolvedEmail?.let {
+            Uri.parse("mailto:$it?subject=$encodedSubject&body=$encodedBody")
+        } ?: Uri.parse("mailto:?subject=$encodedSubject&body=$encodedBody")
         val intent = Intent(Intent.ACTION_SENDTO, mailtoUri).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         return try {
             context.startActivity(intent)
-            val recipientLabel = resolvedEmail?.let { " to $it" } ?: ""
-            SkillResult.Success("Email composer opened$recipientLabel.")
+            if (resolvedEmail != null) {
+                SkillResult.Success("Email composer opened to $resolvedEmail.")
+            } else {
+                SkillResult.Success("Email composer opened. Couldn't prefill recipient for $contact.")
+            }
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("send_email", "No email app available")
         }
@@ -1432,26 +1438,44 @@ class NativeIntentHandler @Inject constructor(
     /** Resolves a contact name to an email address. Only pre-populates on unique match. */
     private fun resolveContactEmail(name: String): String? {
         return try {
-            val uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI
-            val projection = arrayOf(
-                ContactsContract.CommonDataKinds.Email.ADDRESS,
-                ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY,
-            )
-            val selection = "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?"
-            val selectionArgs = arrayOf("%$name%")
-            context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-                val matches = mutableListOf<String>()
-                while (cursor.moveToNext()) {
-                    val address = cursor.getString(
-                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Email.ADDRESS)
+            val aliasMatch = runBlocking { contactAliasRepository.getByAlias(name) }
+            if (aliasMatch != null) {
+                val aliasEmails = queryContactEmails(
+                    selection = "${ContactsContract.CommonDataKinds.Email.CONTACT_ID} = ?",
+                    selectionArgs = arrayOf(aliasMatch.contactId),
+                ).distinct()
+                when (aliasEmails.size) {
+                    1 -> {
+                        Log.d(TAG, "Email resolved via alias '$name' → ${aliasEmails[0]}")
+                        return aliasEmails[0]
+                    }
+                    0 -> Log.d(TAG, "Alias '${aliasMatch.alias}' found but no email found for contactId=${aliasMatch.contactId}")
+                    else -> {
+                        Log.d(TAG, "Alias '${aliasMatch.alias}' resolved to multiple emails — not pre-populating")
+                        return null
+                    }
+                }
+            }
+
+            val nameLookups = buildList {
+                add(name)
+                aliasMatch?.displayName
+                    ?.takeIf { it.isNotBlank() && !it.equals(name, ignoreCase = true) }
+                    ?.let(::add)
+            }
+
+            val matches = nameLookups
+                .flatMap { lookupName ->
+                    queryContactEmails(
+                        selection = "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?",
+                        selectionArgs = arrayOf("%$lookupName%"),
                     )
-                    if (!address.isNullOrBlank()) matches += address
                 }
-                when (matches.size) {
-                    0 -> { Log.d(TAG, "No email found for '$name'"); null }
-                    1 -> { Log.d(TAG, "Email resolved: '$name' → ${matches[0]}"); matches[0] }
-                    else -> { Log.d(TAG, "Multiple emails match '$name' — not pre-populating"); null }
-                }
+                .distinct()
+            when (matches.size) {
+                0 -> { Log.d(TAG, "No email found for '$name'"); null }
+                1 -> { Log.d(TAG, "Email resolved: '$name' → ${matches[0]}"); matches[0] }
+                else -> { Log.d(TAG, "Multiple emails match '$name' — not pre-populating"); null }
             }
         } catch (e: SecurityException) {
             Log.w(TAG, "READ_CONTACTS permission not granted — cannot resolve email for '$name'", e)
@@ -1462,18 +1486,51 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
+    private fun queryContactEmails(
+        selection: String,
+        selectionArgs: Array<String>,
+    ): List<String> {
+        val uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI
+        val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Email.ADDRESS,
+            ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY,
+        )
+        return context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val address = cursor.getString(
+                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Email.ADDRESS),
+                    )
+                    if (!address.isNullOrBlank()) add(address)
+                }
+            }
+        }.orEmpty()
+    }
+
+    private fun looksLikeEmailAddress(raw: String): Boolean {
+        val trimmed = raw.trim()
+        val atIndex = trimmed.indexOf('@')
+        return atIndex > 0 && atIndex < trimmed.lastIndex && trimmed.substring(atIndex + 1).contains('.')
+    }
+
     // ── List Management (#315 / #476 / #477) ─────────────────────────────────
 
-    private fun normalizeListName(raw: String): String = when (raw.lowercase().trim()) {
-        "grocery list", "groceries", "grocery" -> "shopping list"
-        "todo", "to do", "todos", "to-do" -> "to-do list"
-        else -> raw.lowercase().trim()
+    private fun normalizeListName(raw: String): String {
+        val trimmed = raw.lowercase().trim()
+        val alias = trimmed.removePrefix("my ").removePrefix("the ")
+        return when (alias) {
+            "shopping", "shopping list", "grocery list", "groceries", "grocery" -> "shopping list"
+            "todo", "to do", "todos", "to-do", "to-do list" -> "to-do list"
+            else -> trimmed
+        }
     }
 
     private fun addToList(params: Map<String, String>): SkillResult {
-        val item = params["item"] ?: return SkillResult.Failure("add_to_list", "No item specified")
-        val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
-        val listName = normalizeListName(raw)
+        val item = params["item"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("add_to_list", "No item specified")
+        val raw = params["list_name"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("add_to_list", "No list name specified")
+        val listName = normalizeListName(raw.lowercase())
         val items = runBlocking {
             listNameDao.insert(ListNameEntity(name = listName))
             listItemDao.insert(ListItemEntity(listName = listName, item = item))
@@ -1511,7 +1568,7 @@ class NativeIntentHandler @Inject constructor(
 
     private fun createList(params: Map<String, String>): SkillResult {
         val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
-        val name = raw.lowercase().trim()
+        val name = normalizeListName(raw)
         runBlocking { listNameDao.insert(ListNameEntity(name = name)) }
         return SkillResult.DirectReply(
             "Created list \"$name\".",

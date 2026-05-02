@@ -11,6 +11,7 @@ import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
+import com.kernel.ai.core.skills.slot.normalizeSlotReply
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
@@ -21,6 +22,7 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +36,7 @@ import javax.inject.Inject
 
 private const val TAG = "KernelAI"
 private const val SLOT_REPLY_REARM_DELAY_MS = 350L
+private const val VOICE_REPLY_TTS_DELAY_MS = 150L
 private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
 
 /** Input modality for an action. Carried through slot-fill state for voice-readiness (#350/#588). */
@@ -48,8 +51,8 @@ enum class InputMode { Text, Voice }
  *
  * Slot-fill state is managed locally here (not via SlotFillerManager, which is
  * ChatViewModel's concern). When QIR returns NeedsSlot, [_pendingSlot] is primed
- * and [ActionsScreen] shows a ModalBottomSheet. On reply, the merged params are
- * executed directly. See #589.
+ * and [ActionsScreen] shows a ModalBottomSheet. On reply, the merged params either
+ * continue slot-fill for the next missing value or execute the intent. See #589/#601.
  */
 @HiltViewModel
 class ActionsViewModel @Inject constructor(
@@ -130,6 +133,8 @@ class ActionsViewModel @Inject constructor(
     private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
     private var shouldAutoStartVoiceSlotReply = false
+    private var pendingVoiceSlotReplyRestartJob: Job? = null
+    private var pendingVoiceSpeechJob: Job? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var spokenResponsesEnabled = true
 
@@ -140,6 +145,9 @@ class ActionsViewModel @Inject constructor(
                 if (enabled) {
                     voiceOutputController.warmUp()
                 } else {
+                    shouldAutoStartVoiceSlotReply = false
+                    cancelPendingVoiceSlotReplyRestart()
+                    cancelPendingVoiceSpeech()
                     voiceOutputController.stop()
                 }
             }
@@ -193,6 +201,7 @@ class ActionsViewModel @Inject constructor(
             voiceOutputController.events.collect { event ->
                 when (event) {
                     is VoiceOutputEvent.SpeakingStarted -> {
+                        cancelPendingVoiceSlotReplyRestart()
                         _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
@@ -203,13 +212,17 @@ class ActionsViewModel @Inject constructor(
                             _voiceCaptureState.value == VoiceCaptureState.Idle
                         ) {
                             shouldAutoStartVoiceSlotReply = false
-                            viewModelScope.launch {
+                            cancelPendingVoiceSlotReplyRestart()
+                            pendingVoiceSlotReplyRestartJob = viewModelScope.launch {
                                 delay(SLOT_REPLY_REARM_DELAY_MS)
                                 if (
                                     _pendingSlot.value?.inputMode == InputMode.Voice &&
                                     _voiceCaptureState.value == VoiceCaptureState.Idle
                                 ) {
-                                    startVoiceCapture(VoiceCaptureMode.SlotReply)
+                                    startVoiceCapture(
+                                        mode = VoiceCaptureMode.SlotReply,
+                                        interruptPlayback = false,
+                                    )
                                 }
                             }
                         }
@@ -238,12 +251,16 @@ class ActionsViewModel @Inject constructor(
 
     fun stopVoiceOutput() {
         shouldAutoStartVoiceSlotReply = false
+        cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSpeech()
         voiceOutputController.stop()
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
     fun pauseTransientVoiceUi() {
         shouldAutoStartVoiceSlotReply = false
+        cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSpeech()
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
         voiceOutputController.stop()
@@ -298,6 +315,7 @@ class ActionsViewModel @Inject constructor(
     fun executeAction(query: String, inputMode: InputMode = InputMode.Text) {
         val normalizedQuery = if (inputMode == InputMode.Voice) normalizeVoiceCommand(query) else query.trim()
         if (normalizedQuery.isBlank()) return
+        cancelPendingVoiceSpeech()
         if (_pendingSlot.value != null) {
             // A slot-fill is already in progress — ignore until the user replies or cancels.
             // Voice (#350) may want to cancel-and-proceed here instead.
@@ -330,17 +348,13 @@ class ActionsViewModel @Inject constructor(
                         // Pause execution — show slot prompt in a ModalBottomSheet.
                         // Do NOT use SlotFillerManager; state lives locally here.
                         Log.d(TAG, "ActionsViewModel: NeedsSlot for \"$normalizedQuery\" → showing slot sheet")
-                        _pendingSlot.value = PendingSlotState(
-                            request = PendingSlotRequest(
-                                intentName = routeResult.intent.intentName,
-                                existingParams = routeResult.intent.params,
-                                missingSlot = routeResult.missingSlot,
-                            ),
+                        primePendingSlot(
+                            intentName = routeResult.intent.intentName,
+                            existingParams = routeResult.intent.params,
+                            missingSlot = routeResult.missingSlot,
                             originalQuery = normalizedQuery,
                             inputMode = inputMode,
                         )
-                        shouldAutoStartVoiceSlotReply = inputMode == InputMode.Voice
-                        speakForVoice(inputMode, _pendingSlot.value?.request?.promptMessage.orEmpty())
                     }
                     is QuickIntentRouter.RouteResult.RegexMatch -> {
                         val entity = executeIntent(
@@ -383,25 +397,42 @@ class ActionsViewModel @Inject constructor(
     /**
      * Called when the user submits a reply to a slot-fill prompt.
      *
-     * Merges the reply into the existing params and executes the intent directly.
-     * For multi-slot intents (future), re-route through QIR after merging.
+     * Merges the reply into the accumulated params, then either prompts for the next
+     * missing required slot or executes the intent once the slot contract is complete.
      */
     fun onSlotReply(text: String) {
+        cancelPendingVoiceSpeech()
         val pending = _pendingSlot.value ?: return
         shouldAutoStartVoiceSlotReply = false
         val normalizedText = if (pending.inputMode == InputMode.Voice) {
             normalizeVoiceSlotReply(text, pending.request.missingSlot.name)
         } else {
-            text.trim()
+            normalizeSlotReply(text, pending.request.missingSlot.name)
         }
         if (normalizedText.isBlank()) {
             cancelSlotFill()
             return
         }
-        _pendingSlot.value = null
-        val mergedParams = pending.request.existingParams +
-                mapOf(pending.request.missingSlot.name to normalizedText)
 
+        val mergedParams = pending.request.existingParams +
+            mapOf(pending.request.missingSlot.name to normalizedText)
+        val nextMissingSlot = quickIntentRouter.nextMissingSlot(
+            intentName = pending.request.intentName,
+            params = mergedParams,
+        )
+        if (nextMissingSlot != null) {
+            primePendingSlot(
+                intentName = pending.request.intentName,
+                existingParams = mergedParams,
+                missingSlot = nextMissingSlot,
+                originalQuery = pending.originalQuery,
+                inputMode = pending.inputMode,
+                delayVoicePrompt = pending.inputMode == InputMode.Voice,
+            )
+            return
+        }
+
+        _pendingSlot.value = null
         viewModelScope.launch {
             _uiState.value = UiState.Executing
             try {
@@ -413,7 +444,11 @@ class ActionsViewModel @Inject constructor(
                     inputMode = pending.inputMode,
                 )
                 quickActionDao.insert(entity)
-                speakForVoice(pending.inputMode, entity.resultText)
+                speakForVoice(
+                    pending.inputMode,
+                    entity.resultText,
+                    delayMs = if (pending.inputMode == InputMode.Voice) VOICE_REPLY_TTS_DELAY_MS else 0L,
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onSlotReply failed — ${e.message}", e)
                 _error.value = e.message ?: "Unknown error"
@@ -423,7 +458,11 @@ class ActionsViewModel @Inject constructor(
                     isSuccess = false,
                 )
                 quickActionDao.insert(entity)
-                speakForVoice(pending.inputMode, entity.resultText)
+                speakForVoice(
+                    pending.inputMode,
+                    entity.resultText,
+                    delayMs = if (pending.inputMode == InputMode.Voice) VOICE_REPLY_TTS_DELAY_MS else 0L,
+                )
             } finally {
                 _voiceCaptureState.value = VoiceCaptureState.Idle
                 _uiState.value = UiState.Idle
@@ -434,10 +473,41 @@ class ActionsViewModel @Inject constructor(
     /** Silently dismiss the slot-fill sheet with no log entry. */
     fun cancelSlotFill() {
         shouldAutoStartVoiceSlotReply = false
+        cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSpeech()
         _pendingSlot.value = null
         stopVoiceCapture()
         voiceOutputController.stop()
     }
+
+    private fun primePendingSlot(
+        intentName: String,
+        existingParams: Map<String, String>,
+        missingSlot: com.kernel.ai.core.skills.slot.SlotSpec,
+        originalQuery: String,
+        inputMode: InputMode,
+        delayVoicePrompt: Boolean = false,
+    ) {
+        _pendingSlot.value = PendingSlotState(
+            request = PendingSlotRequest(
+                intentName = intentName,
+                existingParams = existingParams,
+                missingSlot = missingSlot,
+            ),
+            originalQuery = originalQuery,
+            inputMode = inputMode,
+        )
+        shouldAutoStartVoiceSlotReply = inputMode == InputMode.Voice
+        if (inputMode == InputMode.Voice) {
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+        }
+        speakForVoice(
+            inputMode,
+            _pendingSlot.value?.request?.promptMessage.orEmpty(),
+            delayMs = if (delayVoicePrompt) VOICE_REPLY_TTS_DELAY_MS else 0L,
+        )
+    }
+
 
     fun deleteAction(id: String) {
         viewModelScope.launch { quickActionDao.deleteById(id) }
@@ -550,9 +620,16 @@ class ActionsViewModel @Inject constructor(
             result.error == PHONE_PERMISSION_REQUIRED_ERROR
     }
 
-    private fun startVoiceCapture(mode: VoiceCaptureMode) {
+    private fun startVoiceCapture(
+        mode: VoiceCaptureMode,
+        interruptPlayback: Boolean = true,
+    ) {
+        cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSpeech()
         _error.value = null
-        voiceOutputController.stop()
+        if (interruptPlayback) {
+            voiceOutputController.stop()
+        }
         _voiceCaptureState.value = VoiceCaptureState.Preparing(mode)
         viewModelScope.launch {
             when (val result = voiceInputController.startListening(mode)) {
@@ -569,17 +646,35 @@ class ActionsViewModel @Inject constructor(
         }
     }
 
-    private fun speakForVoice(inputMode: InputMode, text: String) {
+    private fun speakForVoice(
+        inputMode: InputMode,
+        text: String,
+        delayMs: Long = 0L,
+    ) {
         if (inputMode != InputMode.Voice) return
         if (!spokenResponsesEnabled) return
         val summary = toSpokenSummary(text)
         if (summary.isBlank()) return
-        viewModelScope.launch {
+        cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSpeech()
+        pendingVoiceSpeechJob = viewModelScope.launch {
+            if (delayMs > 0) delay(delayMs)
+            if (!spokenResponsesEnabled) return@launch
             when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = summary))) {
                 is VoiceOutputResult.Spoken -> Unit
                 is VoiceOutputResult.Unavailable -> _error.value = result.message
             }
         }
+    }
+
+    private fun cancelPendingVoiceSlotReplyRestart() {
+        pendingVoiceSlotReplyRestartJob?.cancel()
+        pendingVoiceSlotReplyRestartJob = null
+    }
+
+    private fun cancelPendingVoiceSpeech() {
+        pendingVoiceSpeechJob?.cancel()
+        pendingVoiceSpeechJob = null
     }
 
     private fun toSpokenSummary(text: String): String {
@@ -607,7 +702,11 @@ class ActionsViewModel @Inject constructor(
         if (normalized != original) {
             Log.d(TAG, "ActionsViewModel: normalized voice command \"$original\" -> \"$normalized\"")
         }
-        val listEllipsisMatch = VOICE_ADD_TO_LIST_WITHOUT_VERB.matchEntire(normalized)
+        val normalizedListCommand = normalizeListVoiceMishears(normalized)
+        if (normalizedListCommand != normalized) {
+            Log.d(TAG, "ActionsViewModel: normalized list voice command \"$normalized\" -> \"$normalizedListCommand\"")
+        }
+        val listEllipsisMatch = VOICE_ADD_TO_LIST_WITHOUT_VERB.matchEntire(normalizedListCommand)
         if (listEllipsisMatch != null) {
             val item = listEllipsisMatch.groupValues[1].trim()
             val listName = listEllipsisMatch.groupValues[2].trim()
@@ -616,7 +715,7 @@ class ActionsViewModel @Inject constructor(
                 return "add $item to $listName list"
             }
         }
-        return normalized
+        return normalizedListCommand
     }
 
     private fun normalizeAlarmTimeFragments(text: String): String {
@@ -711,13 +810,32 @@ class ActionsViewModel @Inject constructor(
         return normalized
     }
 
+    private fun normalizeListVoiceMishears(text: String): String {
+        VOICE_ADD_BRIDGE_ITEM_TO_LIST.matchEntire(text)?.let { match ->
+            return "add bread to ${match.groupValues[1]}list"
+        }
+        VOICE_ADD_BRED_TO_LIST_MISHEAR.matchEntire(text)?.let { match ->
+            return "add bread to ${match.groupValues[1]}list"
+        }
+        VOICE_ADD_BREAD_TO_LIST_MISHEAR.matchEntire(text)?.let { match ->
+            return "add bread to ${match.groupValues[1]}list"
+        }
+        VOICE_ADD_TO_LIST_LEADING_AT.matchEntire(text)?.let { match ->
+            return "add ${match.groupValues[1].trim()} to ${match.groupValues[2]}list"
+        }
+        val addToListLastMatch = VOICE_ADD_TO_LIST_ENDING_LAST.matchEntire(text) ?: return text
+        return addToListLastMatch.groupValues[1] + "list"
+    }
+
     private fun normalizeVoiceSlotReply(text: String, slotName: String): String {
         val trimmed = text.trim()
         if (trimmed.isBlank()) return trimmed
-        if (looksLikeNumericSlot(slotName) || looksLikeStandaloneNumberPhrase(trimmed)) {
-            return normalizeSpokenNumbers(trimmed)
+        val normalized = if (looksLikeNumericSlot(slotName) || looksLikeStandaloneNumberPhrase(trimmed)) {
+            normalizeSpokenNumbers(trimmed)
+        } else {
+            trimmed
         }
-        return trimmed
+        return normalizeSlotReply(normalized, slotName)
     }
 
     private fun looksLikeNumericSlot(slotName: String): Boolean {
@@ -792,6 +910,26 @@ class ActionsViewModel @Inject constructor(
             """^(.+?)\s+to\s+(?:(?:my|the)\s+)?(.+?)\s+list$""",
             RegexOption.IGNORE_CASE,
         )
+        val VOICE_ADD_BRIDGE_ITEM_TO_LIST = Regex(
+            """^add\s+a\s+bridge\s+to\s+((?:(?:my|the)\s+)?)list$""",
+            RegexOption.IGNORE_CASE,
+        )
+        val VOICE_ADD_BRED_TO_LIST_MISHEAR = Regex(
+            """^(?:and|add)\s+bred\s+to\s+((?:(?:my|the)\s+)?)last$""",
+            RegexOption.IGNORE_CASE,
+        )
+        val VOICE_ADD_BREAD_TO_LIST_MISHEAR = Regex(
+            """^at\s+bridge\s+to\s+((?:(?:my|the)\s+)?)last$""",
+            RegexOption.IGNORE_CASE,
+        )
+        val VOICE_ADD_TO_LIST_LEADING_AT = Regex(
+            """^(?:at|and)\s+(.+?)\s+to\s+((?:(?:my|the)\s+)?)last$""",
+            RegexOption.IGNORE_CASE,
+        )
+        val VOICE_ADD_TO_LIST_ENDING_LAST = Regex(
+            """^((?:add\s+.+?\s+to|put\s+.+?\s+on|(?:chuck|stick|bung|pop|toss)\s+.+?\s+on)\s+(?:(?:my|the)\s+)?)last$""",
+            RegexOption.IGNORE_CASE,
+        )
         val SPOKEN_TIME_PHRASE = Regex(
             """\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+((?:oh|o|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)(?:[ -]+(?:one|two|three|four|five|six|seven|eight|nine))?)\s*(am|pm|a\.m\.|p\.m\.)?\b""",
             RegexOption.IGNORE_CASE,
@@ -841,7 +979,10 @@ class ActionsViewModel @Inject constructor(
             Regex("""\bday\s+in\s+day\b""", RegexOption.IGNORE_CASE) to "dnd",
             Regex("""\bnext\s+drink\b""", RegexOption.IGNORE_CASE) to "next track",
             Regex("""\bget\s+system\s+far\b""", RegexOption.IGNORE_CASE) to "get system info",
-            Regex("""\bcreate\s+lust\b""", RegexOption.IGNORE_CASE) to "create list",
+            Regex(
+                """\b((?:create|make|start|new)(?:\s+(?:a|an))?(?:\s+new)?)\s+lust\b""",
+                RegexOption.IGNORE_CASE,
+            ) to "$1 list",
             Regex("""\bhuge\s+your\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
             Regex("""\byou\s+tube\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
             Regex("""\bnujood\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",

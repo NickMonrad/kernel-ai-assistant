@@ -85,7 +85,6 @@ class RunIntentSkill @Inject constructor(
         "Flashlight on → runIntent(intentName=\"toggle_flashlight_on\", parameters=\"{}\")",
         "Flashlight off → runIntent(intentName=\"toggle_flashlight_off\", parameters=\"{}\")",
         // Communication
-        "Send email → runIntent(intentName=\"send_email\", parameters='{\"subject\":\"Hi\",\"body\":\"Text\"}')",
         "Send email to John → runIntent(intentName=\"send_email\", parameters='{\"contact\":\"John\",\"subject\":\"Hi\",\"body\":\"Text\"}')",
         "Send SMS → runIntent(intentName=\"send_sms\", parameters='{\"contact\":\"Mom\",\"message\":\"On my way\"}')",
         "Call Dad → runIntent(intentName=\"make_call\", parameters='{\"contact\":\"Dad\"}')",
@@ -130,7 +129,7 @@ class RunIntentSkill @Inject constructor(
         appendLine("  toggle_flashlight_on, toggle_flashlight_off — No params")
         appendLine()
         appendLine("COMMUNICATION:")
-        appendLine("  send_email — params: contact (optional, name to resolve email from contacts), subject, body")
+        appendLine("  send_email — params: contact, subject, body")
         appendLine("  send_sms — params: contact, message")
         appendLine("  make_call — params: contact")
         appendLine()

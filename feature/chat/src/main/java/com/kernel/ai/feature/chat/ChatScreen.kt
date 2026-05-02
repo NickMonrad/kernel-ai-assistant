@@ -143,8 +143,7 @@ fun ChatScreen(
                 viewModel.isConversationReady.first { it }
             }
             if (ready != null) {
-                viewModel.onInputChanged(initialQuery)
-                viewModel.sendMessage()
+                viewModel.submitInitialQueryIfNeeded(initialQuery)
             }
         }
     }
