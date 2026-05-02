@@ -61,11 +61,27 @@ fun VoiceScreen(
             )
 
             VoiceInputEngine.entries.forEach { engine ->
-                val warning = engine.warning
+                val warning = when (engine) {
+                    VoiceInputEngine.AndroidNative ->
+                        uiState.androidNativeAvailabilityMessage ?: engine.warning
+                    else -> engine.warning
+                }
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
-                    supportingContent = { Text(engine.description) },
+                    supportingContent = {
+                        Column {
+                            Text(engine.description)
+                            if (engine == VoiceInputEngine.AndroidNative && warning != null) {
+                                Text(
+                                    text = warning,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                        }
+                    },
                     trailingContent = {
                         RadioButton(
                             selected = uiState.selectedInputEngine == engine,
@@ -73,7 +89,11 @@ fun VoiceScreen(
                         )
                     },
                 )
-                if (uiState.selectedInputEngine == engine && warning != null) {
+                if (
+                    engine != VoiceInputEngine.AndroidNative &&
+                    uiState.selectedInputEngine == engine &&
+                    warning != null
+                ) {
                     Text(
                         text = warning,
                         style = MaterialTheme.typography.bodySmall,

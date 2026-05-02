@@ -25,6 +25,7 @@ private const val TAG = "NativeVoiceInput"
 @Singleton
 class NativeAndroidVoiceInputController @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val recognitionSupport: AndroidNativeRecognitionSupport,
 ) : VoiceInputController {
 
     private val _events = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 8)
@@ -50,15 +51,22 @@ class NativeAndroidVoiceInputController @Inject constructor(
         return withContext(Dispatchers.Main.immediate) {
             stopListeningInternal(emitStopped = false)
 
-            if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            val availability = recognitionSupport.getAvailability()
+            if (!availability.isRecognitionAvailable) {
                 return@withContext VoiceInputStartResult.Unavailable(
                     "Android speech recognition is not available on this device.",
+                )
+            }
+            if (!availability.isOnDeviceRecognitionAvailable) {
+                return@withContext VoiceInputStartResult.Unavailable(
+                    availability.unavailableReason
+                        ?: "On-device Android speech recognition is unavailable on this device.",
                 )
             }
 
             try {
                 requestAudioFocus()
-                val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                val recognizer = recognitionSupport.createOnDeviceSpeechRecognizer()
                 currentMode = mode
                 sessionCompleted = false
                 speechRecognizer = recognizer
@@ -180,7 +188,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is required for Android speech recognition."
             SpeechRecognizer.ERROR_NETWORK,
             SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
-            -> "Android speech recognition needs network access or timed out while contacting the recognizer."
+            -> "Android speech recognition unexpectedly requested network access or timed out."
             SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "The current language is not supported by Android speech recognition."
             SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "The current language pack is unavailable for Android speech recognition."
             SpeechRecognizer.ERROR_NO_MATCH -> "Android speech recognition couldn't match what you said."

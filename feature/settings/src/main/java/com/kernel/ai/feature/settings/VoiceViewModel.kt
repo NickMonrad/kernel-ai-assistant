@@ -2,6 +2,7 @@ package com.kernel.ai.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -16,10 +17,12 @@ import javax.inject.Inject
 data class VoiceUiState(
     val spokenResponsesEnabled: Boolean = true,
     val selectedInputEngine: VoiceInputEngine = VoiceInputEngine.Vosk,
+    val androidNativeAvailabilityMessage: String? = null,
 )
 
 @HiltViewModel
 class VoiceViewModel @Inject constructor(
+    private val androidNativeRecognitionSupport: AndroidNativeRecognitionSupport,
     private val voiceInputPreferences: VoiceInputPreferences,
     private val voiceOutputPreferences: VoiceOutputPreferences,
 ) : ViewModel() {
@@ -28,6 +31,13 @@ class VoiceViewModel @Inject constructor(
     val uiState: StateFlow<VoiceUiState> = _uiState.asStateFlow()
 
     init {
+        _uiState.update {
+            it.copy(
+                androidNativeAvailabilityMessage = androidNativeRecognitionSupport
+                    .getAvailability()
+                    .unavailableReason,
+            )
+        }
         viewModelScope.launch {
             voiceInputPreferences.selectedEngine.collect { engine ->
                 _uiState.update { it.copy(selectedInputEngine = engine) }
