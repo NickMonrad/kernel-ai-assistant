@@ -10,6 +10,8 @@ import io.mockk.just
 import io.mockk.junit5.MockKExtension
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
@@ -63,6 +65,27 @@ class ClockRepositoryImplTest {
                 }
             )
         }
+    }
+
+    @Test
+    fun `observeActiveTimers filters expired timers from the main list`() = runTest {
+        val expired = scheduleRow(
+            id = "expired-timer",
+            triggerAtMillis = System.currentTimeMillis() - 60_000L,
+            enabled = true,
+            entryType = ClockEventType.TIMER.name,
+        ).copy(durationMs = 60_000L, startedAtMs = System.currentTimeMillis() - 120_000L)
+        val active = scheduleRow(
+            id = "active-timer",
+            triggerAtMillis = System.currentTimeMillis() + 60_000L,
+            enabled = true,
+            entryType = ClockEventType.TIMER.name,
+        ).copy(durationMs = 60_000L, startedAtMs = System.currentTimeMillis())
+        every { scheduledAlarmDao.observeActiveTimers() } returns flowOf(listOf(expired, active))
+
+        val timers = repository.observeActiveTimers().first()
+
+        assertEquals(listOf("active-timer"), timers.map { it.id })
     }
 
     @Test

@@ -33,8 +33,10 @@ class ClockRepositoryImpl @Inject constructor(
         }
 
     override fun observeActiveTimers(): Flow<List<ClockTimer>> =
-        scheduledAlarmDao.observeActiveTimers().map { schedules ->
-            schedules.mapNotNull { it.toClockTimer() }
+        combine(scheduledAlarmDao.observeActiveTimers(), clockNowFlow()) { schedules, now ->
+            schedules
+                .filter { it.triggerAtMillis > now }
+                .mapNotNull { it.toClockTimer() }
         }
 
     override fun getPlatformState(): ClockPlatformState = scheduler.getPlatformState()

@@ -1945,12 +1945,24 @@ class NativeIntentHandler @Inject constructor(
             "${m.groupValues[1]}:0${m.groupValues[2]}${m.groupValues[3]}"
         }
 
-        // 3. Insert ":00" for bare hour+meridiem — only for valid 12h range (1-12).
+        // 3. Normalize dotted meridiem and insert ":00" for bare hour+meridiem — only for valid 12h range (1-12).
         //    Reject "13pm" / "0am" here so we don't produce a string that silently fails later.
-        val input = Regex("""^(\d{1,2})\s*(am|pm|AM|PM)$""").replace(padded) { m ->
-            val h = m.groupValues[1].toIntOrNull() ?: 0
-            if (h in 1..12) "${m.groupValues[1]}:00${m.groupValues[2]}" else m.value
-        }.trim()
+        val input = padded
+            .replace(Regex("""a\.m\.|p\.m\.""", RegexOption.IGNORE_CASE)) {
+                it.value.replace(".", "")
+            }
+            .let { normalized ->
+                Regex("""\b(am|pm)\b""", RegexOption.IGNORE_CASE).replace(normalized) {
+                    it.value.uppercase()
+                }
+            }
+            .let { normalized ->
+                Regex("""^(\d{1,2})\s*(AM|PM)$""").replace(normalized) { m ->
+                    val h = m.groupValues[1].toIntOrNull() ?: 0
+                    if (h in 1..12) "${m.groupValues[1]}:00${m.groupValues[2]}" else m.value
+                }
+            }
+            .trim()
 
         val formatters = listOf(
             DateTimeFormatter.ofPattern("HH:mm"),
@@ -1981,9 +1993,10 @@ class NativeIntentHandler @Inject constructor(
             }
         }
 
-        val flattenedOclock = Regex("""^([1-9]|1[0-2])0:00(\s*(?:am|pm|AM|PM))?$""")
+        val flattenedOclock = Regex("""^((?:[3-9]|1[0-2])0):00(\s*(?:am|pm|AM|PM))?$""")
         flattenedOclock.matchEntire(input)?.let { match ->
-            val hour = match.groupValues[1].toIntOrNull() ?: return@let
+            val flattenedHour = match.groupValues[1].toIntOrNull() ?: return@let
+            val hour = flattenedHour / 10
             val meridiem = match.groupValues[2]
             return "$hour:00$meridiem"
         }

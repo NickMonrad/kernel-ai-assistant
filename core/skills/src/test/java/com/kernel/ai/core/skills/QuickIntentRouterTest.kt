@@ -283,6 +283,29 @@ class QuickIntentRouterTest {
         }
 
         @Test
+        fun `should parse dotted meridiem alarm times`() {
+            val result = regexOnlyRouter.route("set an alarm for 10:00 a.m.")
+            assertRegexMatch(result, "set_alarm", "set an alarm for 10:00 a.m.")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("10", intent.params["hours"])
+            assertEquals("0", intent.params["minutes"])
+            assertEquals("10:00", intent.params["time"])
+        }
+
+        @Test
+        fun `should match alarm phrases with day before preposition`() {
+            val result = regexOnlyRouter.route("set an alarm tomorrow for 7:30 a.m. called rugby")
+            assertRegexMatch(result, "set_alarm", "set an alarm tomorrow for 7:30 a.m. called rugby")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("7", intent.params["hours"])
+            assertEquals("30", intent.params["minutes"])
+            assertEquals("tomorrow", intent.params["day"])
+            assertEquals("rugby", intent.params["label"])
+        }
+
+        @Test
         fun `should recover compact alarm times`() {
             val result = regexOnlyRouter.route("set an alarm for 730am")
             assertRegexMatch(result, "set_alarm", "set an alarm for 730am")
@@ -1731,6 +1754,8 @@ class QuickIntentRouterTest {
             Arguments.of("timer for 15 minutes", "900"),
             Arguments.of("5 minute timer", "300"),
             Arguments.of("10 second timer", "10"),
+            Arguments.of("set a 2-minute timer", "120"),
+            Arguments.of("start a 45-second timer", "45"),
             Arguments.of("set a timer for 1 hour and 30 minutes", "5400"),
             Arguments.of("set timer for 2 hours and 15 minutes", "8100"),
         )

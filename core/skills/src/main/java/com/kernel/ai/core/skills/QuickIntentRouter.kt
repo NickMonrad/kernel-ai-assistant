@@ -247,6 +247,16 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "set_alarm",
             regex = Regex(
+                """(?:set|create|make)\s+(?:an?\s+)?alarm\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:for|at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                parseAlarmTime("${match.groupValues[1]} ${match.groupValues[2]}")
+            },
+        ),
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
                 """(?:set|create|make)\s+(?:an?\s+)?alarm\s+(?:for|at)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
@@ -454,7 +464,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "set_timer",
             regex = Regex(
-                """(?:set|start|create)\s+(?:a\s+)?(?:timer|countdown)\s+(?:for\s+)?(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)(?:\s+(?:and\s+)?(\d+)\s*(minutes?|mins?|seconds?|secs?|m|s))?""",
+                """(?:set|start|create)\s+(?:a\s+)?(?:timer|countdown)\s+(?:for\s+)?(\d+)(?:\s*|-)(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)(?:\s+(?:and\s+)?(\d+)(?:\s*|-)(minutes?|mins?|seconds?|secs?|m|s))?""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input -> parseTimerDuration(match, input) },
@@ -462,7 +472,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "set_timer",
             regex = Regex(
-                """(?:timer|countdown)\s+(?:for\s+)?(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)""",
+                """(?:timer|countdown)\s+(?:for\s+)?(\d+)(?:\s*|-)(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input -> parseTimerDuration(match, input) },
@@ -471,7 +481,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "set_timer",
             regex = Regex(
-                """(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)\s+.*?timer""",
+                """(\d+)(?:\s*|-)(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)\s+.*?timer""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input -> parseTimerDuration(match, input) },
@@ -480,7 +490,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "set_timer",
             regex = Regex(
-                """remind\s+me\s+in\s+(\d+)\s*(hours?|minutes?|mins?|seconds?|secs?|h|m|s)""",
+                """remind\s+me\s+in\s+(\d+)(?:\s*|-)(hours?|minutes?|mins?|seconds?|secs?|h|m|s)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input -> parseTimerDuration(match, input) },
@@ -489,7 +499,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "set_timer",
             regex = Regex(
-                """time\s+me\s+(?:for\s+)?(\d+)\s*(hours?|minutes?|mins?|seconds?|secs?|h|m|s)""",
+                """time\s+me\s+(?:for\s+)?(\d+)(?:\s*|-)(hours?|minutes?|mins?|seconds?|secs?|h|m|s)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input -> parseTimerDuration(match, input) },

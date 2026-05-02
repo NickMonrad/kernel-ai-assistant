@@ -109,6 +109,45 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `resolveTime preserves valid dotted meridiem times`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveTime",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "10:00 a.m.") as LocalTime?
+
+        assertNotNull(resolved)
+        assertEquals(LocalTime.of(10, 0), resolved)
+    }
+
+    @Test
+    fun `resolveTime recovers flattened seven oclock format`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveTime",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "70:00") as LocalTime?
+
+        assertNotNull(resolved)
+        assertEquals(LocalTime.of(7, 0), resolved)
+    }
+
+    @Test
+    fun `resolveTime recovers flattened three oclock format`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveTime",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "30:00") as LocalTime?
+
+        assertNotNull(resolved)
+        assertEquals(LocalTime.of(3, 0), resolved)
+    }
+
+    @Test
     fun `resolveTime recovers flattened oclock format`() {
         val method = NativeIntentHandler::class.java.getDeclaredMethod(
             "resolveTime",
