@@ -30,6 +30,8 @@ data class AndroidNativeRecognitionAvailability(
                 "$languageDisplayName is not supported by Android native speech recognition on this device."
             localeStatus == AndroidNativeRecognitionLocaleStatus.Unavailable ->
                 "$languageDisplayName is supported, but its Android native speech recognition language pack is not available on this device yet."
+            localeStatus == AndroidNativeRecognitionLocaleStatus.Unknown ->
+                "Android native speech recognition could not verify on-device support for $languageDisplayName on this device. It may fail unless that language is supported and installed locally."
             else -> null
         }
 

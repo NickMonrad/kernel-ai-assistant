@@ -135,6 +135,30 @@ class VoiceViewModelTest {
     }
 
     @Test
+    fun `android native availability message is exposed when locale support cannot be verified`() = runTest {
+        coEvery { androidNativeRecognitionSupport.getAvailability() } returns
+            AndroidNativeRecognitionAvailability(
+                isRecognitionAvailable = true,
+                isOnDeviceRecognitionAvailable = true,
+                languageTag = "en-NZ",
+                languageDisplayName = "English (New Zealand)",
+                localeStatus = AndroidNativeRecognitionLocaleStatus.Unknown,
+            )
+
+        viewModel = VoiceViewModel(
+            androidNativeRecognitionSupport,
+            voiceInputPreferences,
+            voiceOutputPreferences,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            "Android native speech recognition could not verify on-device support for English (New Zealand) on this device. It may fail unless that language is supported and installed locally.",
+            viewModel.uiState.value.androidNativeAvailabilityMessage,
+        )
+    }
+
+    @Test
     fun `setVoiceInputEngine updates ui state immediately`() = runTest {
         viewModel.setVoiceInputEngine(VoiceInputEngine.AndroidNative)
         testDispatcher.scheduler.advanceUntilIdle()

@@ -47,20 +47,17 @@ class NativeAndroidVoiceInputController @Inject constructor(
     @Volatile
     private var sessionCompleted = false
 
+    @Volatile
+    private var currentAvailability: AndroidNativeRecognitionAvailability? = null
+
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         return withContext(Dispatchers.Main.immediate) {
             stopListeningInternal(emitStopped = false)
 
             val availability = recognitionSupport.getAvailability()
-            if (!availability.isRecognitionAvailable) {
+            availability.unavailableReason?.let { reason ->
                 return@withContext VoiceInputStartResult.Unavailable(
-                    "Android speech recognition is not available on this device.",
-                )
-            }
-            if (!availability.isOnDeviceRecognitionAvailable) {
-                return@withContext VoiceInputStartResult.Unavailable(
-                    availability.unavailableReason
-                        ?: "On-device Android speech recognition is unavailable on this device.",
+                    reason,
                 )
             }
 
@@ -68,6 +65,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 requestAudioFocus()
                 val recognizer = recognitionSupport.createOnDeviceSpeechRecognizer()
                 currentMode = mode
+                currentAvailability = availability
                 sessionCompleted = false
                 speechRecognizer = recognizer
                 recognizer.setRecognitionListener(SessionRecognitionListener(mode))
@@ -95,6 +93,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         val recognizer = speechRecognizer
         speechRecognizer = null
         currentMode = null
+        currentAvailability = null
         sessionCompleted = true
 
         recognizer?.apply {
@@ -194,7 +193,14 @@ class NativeAndroidVoiceInputController @Inject constructor(
             SpeechRecognizer.ERROR_NO_MATCH -> "Android speech recognition couldn't match what you said."
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Android speech recognition is already busy."
             SpeechRecognizer.ERROR_SERVER -> "Android speech recognition hit a service error."
-            SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> "Android speech recognition disconnected unexpectedly."
+            SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> {
+                val languageSummary = currentAvailability?.languageSummary
+                if (languageSummary != null) {
+                    "Android speech recognition disconnected unexpectedly while using $languageSummary. This can happen when that on-device language is unsupported or not installed."
+                } else {
+                    "Android speech recognition disconnected unexpectedly. This can happen when the selected on-device language is unsupported or not installed."
+                }
+            }
             SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "I didn't catch anything before Android speech recognition timed out."
             else -> "Android speech recognition failed with error code $error."
         }
