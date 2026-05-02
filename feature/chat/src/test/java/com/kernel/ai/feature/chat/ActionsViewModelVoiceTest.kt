@@ -15,6 +15,7 @@ import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
+import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import io.mockk.Runs
@@ -28,6 +29,7 @@ import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
@@ -55,8 +57,10 @@ class ActionsViewModelVoiceTest {
     private val quickActionDao: QuickActionDao = mockk()
     private val voiceInputController: VoiceInputController = mockk()
     private val voiceOutputController: VoiceOutputController = mockk()
+    private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
+    private val spokenResponsesEnabled = MutableStateFlow(true)
 
     private lateinit var viewModel: ActionsViewModel
 
@@ -71,15 +75,18 @@ class ActionsViewModelVoiceTest {
         coEvery { quickActionDao.insert(any()) } just Runs
         every { voiceInputController.events } returns voiceInputEvents
         every { voiceInputController.stopListening() } just Runs
+        coEvery { voiceOutputController.warmUp() } returns VoiceOutputResult.Spoken
         coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
         every { voiceOutputController.events } returns voiceOutputEvents
         every { voiceOutputController.stop() } just Runs
+        every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         viewModel = ActionsViewModel(
             quickIntentRouter = quickIntentRouter,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
         )
     }
 
@@ -257,6 +264,29 @@ class ActionsViewModelVoiceTest {
                 }
             )
         }
+    }
+
+    @Test
+    fun `voice mode does not speak when spoken responses disabled`() = runTest(dispatcher) {
+        val directSkill = mockk<Skill>()
+        spokenResponsesEnabled.value = false
+        every { quickIntentRouter.route("turn on flashlight") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "toggle_flashlight_on",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("toggle_flashlight_on") } returns directSkill
+        every { directSkill.name } returns "toggle_flashlight_on"
+        every { directSkill.description } returns "Toggle flashlight"
+        every { directSkill.schema } returns SkillSchema()
+        coEvery { directSkill.execute(any()) } returns SkillResult.Success("Flashlight on")
+
+        viewModel.executeAction("turn on flashlight", InputMode.Voice)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { voiceOutputController.speak(any()) }
     }
 
     @Test

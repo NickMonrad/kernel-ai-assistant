@@ -71,6 +71,12 @@ Baseline target:
 - transcript flows through the same routing path as typed input
 - empty/silence/error states are visible and recoverable
 
+Current branch status:
+
+- Quick Actions already ships with a push-to-talk mic entry point, microphone permission flow, and offline Vosk-backed transcription
+- transcripts route back through the existing `ActionsViewModel` Quick Actions path
+- the current manual device pass was sufficient to treat `#671` as complete on merge alongside `#672`
+
 #### 4. Implement spoken responses
 
 Primary issue: `#672`
@@ -81,6 +87,14 @@ Baseline target:
 - slot-fill prompts can be spoken
 - interruption / stop behavior is predictable
 - typed Quick Actions remain silent by default
+- spoken-response controls live under **Settings -> Voice** so future STT/TTS options can expand in one place
+
+Current branch status:
+
+- `AndroidTextToSpeechController` has warm-up support and explicit assistant-style audio attributes / transient audio focus handling
+- Quick Actions / QIR spoken responses are controlled by a shared `VoiceOutputPreferences` preference
+- the user-facing spoken-response toggle has been moved out of About into a dedicated **Settings -> Voice** screen
+- the new Voice screen is the intended future home for additional STT/TTS settings, engine choices, and voice model controls
 
 #### 5. Connect the voice session loop
 
