@@ -276,7 +276,116 @@ class ChatViewModelInitTest {
         advanceUntilIdle()
         viewModel.startNewConversation()
         advanceUntilIdle()
-
         assertTrue(systemPrompts.last().contains(DEFAULT_SYSTEM_PROMPT), systemPrompts.joinToString(separator = "\n---\n"))
+    }
+
+    @Test
+    fun `initial query is not resent after restored conversation reload`() = runTest(dispatcher) {
+        coEvery { conversationRepository.getMessagesOnce("conv-existing") } returns listOf(
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-1",
+                conversationId = "conv-existing",
+                role = "user",
+                content = "and ice cream to my last",
+                thinkingText = null,
+                timestamp = 1L,
+            ),
+        )
+
+        val viewModel = ChatViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+            inferenceEngine = inferenceEngine,
+            downloadManager = downloadManager,
+            conversationRepository = conversationRepository,
+            ragRepository = ragRepository,
+            userProfileRepository = userProfileRepository,
+            memoryRepository = memoryRepository,
+            episodicDistillationUseCase = episodicDistillationUseCase,
+            modelSettingsRepository = modelSettingsRepository,
+            skillRegistry = skillRegistry,
+            skillExecutor = skillExecutor,
+            quickIntentRouter = quickIntentRouter,
+            slotFillerManager = slotFillerManager,
+            kernelAIToolSet = kernelAIToolSet,
+            toolProvider = toolProvider,
+            embeddingEngine = embeddingEngine,
+            jandalPersona = jandalPersona,
+            nzTruthSeedingService = nzTruthSeedingService,
+            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        )
+
+        advanceUntilIdle()
+        viewModel.submitInitialQueryIfNeeded("and ice cream to my last")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { conversationRepository.addMessage(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `skipping duplicate restored initial query clears minimal handoff for next send`() = runTest(dispatcher) {
+        val systemPrompts = mutableListOf<String>()
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.generate(any()) } returns
+            flowOf(GenerationResult.Token("Hi"), GenerationResult.Complete(durationMs = 1L))
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            systemPrompts += firstArg<String>()
+        }
+        coEvery { ragRepository.getRelevantContext(any(), any(), any()) } returns "memory context"
+        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
+            listOf("user-msg-1", "assistant-msg-1", "user-msg-2", "assistant-msg-2")
+        coEvery { conversationRepository.getMessagesOnce("conv-existing") } returns listOf(
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-1",
+                conversationId = "conv-existing",
+                role = "user",
+                content = "and ice cream to my last",
+                thinkingText = null,
+                timestamp = 1L,
+            ),
+        )
+        every { quickIntentRouter.route("follow up question") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "follow up question")
+
+        val savedStateHandle = SavedStateHandle(
+            mapOf(
+                "conversationId" to "conv-existing",
+                "minimalContext" to true,
+            ),
+        )
+        val viewModel = ChatViewModel(
+            savedStateHandle = savedStateHandle,
+            inferenceEngine = inferenceEngine,
+            downloadManager = downloadManager,
+            conversationRepository = conversationRepository,
+            ragRepository = ragRepository,
+            userProfileRepository = userProfileRepository,
+            memoryRepository = memoryRepository,
+            episodicDistillationUseCase = episodicDistillationUseCase,
+            modelSettingsRepository = modelSettingsRepository,
+            skillRegistry = skillRegistry,
+            skillExecutor = skillExecutor,
+            quickIntentRouter = quickIntentRouter,
+            slotFillerManager = slotFillerManager,
+            kernelAIToolSet = kernelAIToolSet,
+            toolProvider = toolProvider,
+            embeddingEngine = embeddingEngine,
+            jandalPersona = jandalPersona,
+            nzTruthSeedingService = nzTruthSeedingService,
+            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        )
+
+        advanceUntilIdle()
+        viewModel.submitInitialQueryIfNeeded("and ice cream to my last")
+        assertTrue(savedStateHandle.get<Boolean>("minimalContext") == false)
+
+        viewModel.onInputChanged("follow up question")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { ragRepository.getRelevantContext("follow up question", any(), any()) }
+        assertTrue(
+            systemPrompts.any { it.contains(DEFAULT_SYSTEM_PROMPT) },
+            systemPrompts.joinToString(separator = "\n---\n"),
+        )
     }
 }

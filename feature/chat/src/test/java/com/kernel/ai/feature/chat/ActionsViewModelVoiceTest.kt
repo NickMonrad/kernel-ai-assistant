@@ -207,6 +207,58 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice mode normalizes and ice cream to my last before routing`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("and ice cream to my last", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals(
+            "ice cream",
+            voiceViewModel.pendingSlot.value?.request?.existingParams?.get("item"),
+        )
+        assertEquals(
+            "Which list should I add it to?",
+            voiceViewModel.pendingSlot.value?.request?.promptMessage,
+        )
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
+    fun `voice mode normalizes create a new lust into create list slot flow`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("create a new lust", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals(
+            "list_name",
+            voiceViewModel.pendingSlot.value?.request?.missingSlot?.name,
+        )
+        assertEquals(
+            "What would you like to call the list?",
+            voiceViewModel.pendingSlot.value?.request?.promptMessage,
+        )
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
     fun `voice mode normalizes add a bridge item mishear before routing`() = runTest(dispatcher) {
         val router = QuickIntentRouter()
         val voiceViewModel = ActionsViewModel(

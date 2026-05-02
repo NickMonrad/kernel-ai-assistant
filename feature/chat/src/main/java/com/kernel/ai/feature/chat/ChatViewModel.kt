@@ -646,6 +646,22 @@ class ChatViewModel @Inject constructor(
         if (_error.value != null) _error.value = null
     }
 
+    fun submitInitialQueryIfNeeded(initialQuery: String) {
+        val normalized = initialQuery.trim()
+        if (normalized.isBlank()) return
+        val alreadyPresent = _messages.value.any {
+            it.role == ChatMessage.Role.USER && it.content == normalized
+        }
+        if (alreadyPresent) {
+            forceMinimalContextForNextMessage = false
+            savedStateHandle["minimalContext"] = false
+            Log.d("ChatViewModel", "Skipping duplicate initial query after restore: $normalized")
+            return
+        }
+        onInputChanged(normalized)
+        sendMessage()
+    }
+
     fun renameConversation(newTitle: String) {
         val id = conversationId ?: return
         val trimmed = newTitle.trim()

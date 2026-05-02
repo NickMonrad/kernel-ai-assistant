@@ -923,7 +923,7 @@ class ActionsViewModel @Inject constructor(
             RegexOption.IGNORE_CASE,
         )
         val VOICE_ADD_TO_LIST_LEADING_AT = Regex(
-            """^at\s+(.+?)\s+to\s+((?:(?:my|the)\s+)?)last$""",
+            """^(?:at|and)\s+(.+?)\s+to\s+((?:(?:my|the)\s+)?)last$""",
             RegexOption.IGNORE_CASE,
         )
         val VOICE_ADD_TO_LIST_ENDING_LAST = Regex(
@@ -979,7 +979,10 @@ class ActionsViewModel @Inject constructor(
             Regex("""\bday\s+in\s+day\b""", RegexOption.IGNORE_CASE) to "dnd",
             Regex("""\bnext\s+drink\b""", RegexOption.IGNORE_CASE) to "next track",
             Regex("""\bget\s+system\s+far\b""", RegexOption.IGNORE_CASE) to "get system info",
-            Regex("""\bcreate\s+lust\b""", RegexOption.IGNORE_CASE) to "create list",
+            Regex(
+                """\b((?:create|make|start|new)(?:\s+(?:a|an))?(?:\s+new)?)\s+lust\b""",
+                RegexOption.IGNORE_CASE,
+            ) to "$1 list",
             Regex("""\bhuge\s+your\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
             Regex("""\byou\s+tube\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
             Regex("""\bnujood\s+music\b""", RegexOption.IGNORE_CASE) to "youtube music",
