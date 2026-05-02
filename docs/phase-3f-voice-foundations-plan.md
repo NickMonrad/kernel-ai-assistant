@@ -135,6 +135,19 @@ Only after the baseline voice slice is stable:
 
 These should remain behind the same shared controller/session architecture.
 
+#### STT model allocation guidance
+
+The STT wave should avoid assuming one engine/model is ideal for every voice surface.
+
+- **push-to-talk** and future **wake-word / instant voice entry** should prefer a **small, fast-loading STT path**
+- that path should minimise cold-start time and reduce memory/runtime conflict with the main resident reasoning model
+- heavier model-assisted voice handling may still make sense later for richer **chat voice** flows, but it should not drive the quick-entry STT choice by default
+
+Practical implication:
+
+- evaluate Vosk, Android native STT, whisper tiny/base, and Parakeet as candidates for the **fast entry STT layer**
+- keep the main Gemma reasoning model focused on downstream reasoning and response generation rather than treating it as the default quick-load transcription engine
+
 ## Follow-on work after the foundation
 
 ### Next consumer surfaces
