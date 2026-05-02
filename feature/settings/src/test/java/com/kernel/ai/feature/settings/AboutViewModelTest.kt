@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import com.kernel.ai.core.voice.VoiceOutputPreferences
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -22,10 +23,13 @@ import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.cancelAndJoin
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -48,7 +52,9 @@ class AboutViewModelTest {
     private val packageManager: PackageManager = mockk()
     private val packageInfo: PackageInfo = mockk()
     private val dataStore: DataStore<Preferences> = mockk()
+    private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val cacheDir: File = mockk()
+    private val spokenResponsesEnabled = MutableStateFlow(true)
 
     private lateinit var viewModel: AboutViewModel
 
@@ -64,8 +70,10 @@ class AboutViewModelTest {
         every { packageManager.getPackageInfo("com.kernel.ai.test", 0) } returns packageInfo
         every { cacheDir.absolutePath } returns "/data/user/0/com.kernel.ai.test/cache"
         every { cacheDir.mkdirs() } returns true
-        every { dataStore.data } returns kotlinx.coroutines.flow.flowOf(emptyMap<Preferences.Key<*>, Any>())
-        viewModel = AboutViewModel(context, dataStore)
+        every { dataStore.data } returns kotlinx.coroutines.flow.flowOf(emptyPreferences())
+        every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
+        coEvery { voiceOutputPreferences.setSpokenResponsesEnabled(any()) } just Runs
+        viewModel = AboutViewModel(context, dataStore, voiceOutputPreferences)
     }
 
     @AfterEach
@@ -82,7 +90,7 @@ class AboutViewModelTest {
         every { cacheDir.listFiles() } returns emptyArray()
 
         val filenameSlot = slot<String>()
-        every { File(any(), capture(filenameSlot)) } answers {
+        every { File(any<File>(), capture(filenameSlot)) } answers {
             mockk<File>(relaxed = true) {
                 every { absolutePath } returns "/data/user/0/com.kernel.ai.test/cache/${filenameSlot.captured}"
                 every { writeText(any()) } returns Unit
@@ -117,7 +125,7 @@ class AboutViewModelTest {
             PackageManager.NameNotFoundException("not found")
 
         val filenameSlot = slot<String>()
-        every { File(any(), capture(filenameSlot)) } answers {
+        every { File(any<File>(), capture(filenameSlot)) } answers {
             mockk<File>(relaxed = true) {
                 every { absolutePath } returns "/data/user/0/com.kernel.ai.test/cache/${filenameSlot.captured}"
                 every { writeText(any()) } returns Unit
@@ -143,7 +151,7 @@ class AboutViewModelTest {
         every { FileProvider.getUriForFile(any(), any(), any()) } returns mockk()
 
         every { cacheDir.listFiles() } returns emptyArray()
-        every { File(any(), any()) } answers {
+        every { File(any<File>(), any<String>()) } answers {
             mockk<File>(relaxed = true) {
                 every { writeText(any()) } throws RuntimeException("disk full")
             }
@@ -167,7 +175,7 @@ class AboutViewModelTest {
         every { cacheDir.listFiles() } returns emptyArray()
 
         val filenames = mutableListOf<String>()
-        every { File(any(), any()) } answers {
+        every { File(any<File>(), any<String>()) } answers {
             val filename = it.invocation.args[1] as String
             filenames.add(filename)
             mockk<File>(relaxed = true) {
@@ -197,7 +205,7 @@ class AboutViewModelTest {
         every { Intent.createChooser(capture(intentCaptor), any()) } answers { firstArg<Intent>() }
         every { cacheDir.listFiles() } returns emptyArray()
 
-        every { File(any(), any()) } answers {
+        every { File(any<File>(), any<String>()) } answers {
             mockk<File>(relaxed = true) {
                 every { absolutePath } returns "/data/user/0/com.kernel.ai.test/cache/test.txt"
                 every { writeText(any()) } returns Unit
@@ -223,7 +231,7 @@ class AboutViewModelTest {
         every { Intent.createChooser(any(), any()) } answers { firstArg<Intent>() }
         every { cacheDir.listFiles() } returns emptyArray()
 
-        every { File(any(), any()) } answers {
+        every { File(any<File>(), any<String>()) } answers {
             mockk<File>(relaxed = true) {
                 every { absolutePath } returns "/data/user/0/com.kernel.ai.test/cache/test.txt"
                 every { writeText(any()) } returns Unit
@@ -258,7 +266,7 @@ class AboutViewModelTest {
         every { Intent.createChooser(any(), any()) } answers { firstArg<Intent>() }
         every { cacheDir.listFiles() } returns emptyArray()
 
-        every { File(any(), any()) } answers {
+        every { File(any<File>(), any<String>()) } answers {
             mockk<File>(relaxed = true) {
                 every { absolutePath } returns "/data/user/0/com.kernel.ai.test/cache/test.txt"
                 every { writeText(any()) } returns Unit
@@ -293,5 +301,20 @@ class AboutViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(false, viewModel.uiState.value.verboseLogging)
+    }
+
+    @Test
+    fun `spoken responses default to enabled when preference flow emits true`() = testScope.runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.spokenResponsesEnabled)
+    }
+
+    @Test
+    fun `setSpokenResponsesEnabled updates ui state immediately`() = testScope.runTest {
+        viewModel.setSpokenResponsesEnabled(false)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(false, viewModel.uiState.value.spokenResponsesEnabled)
+        coVerify { voiceOutputPreferences.setSpokenResponsesEnabled(false) }
     }
 }

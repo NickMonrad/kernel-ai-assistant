@@ -127,6 +127,29 @@ fun AboutScreen(
             )
             HorizontalDivider()
 
+            // ── Voice ─────────────────────────────────────────────────────────
+            Text(
+                text = "Voice",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                headlineContent = { Text("Speak Quick Actions voice responses") },
+                supportingContent = {
+                    Text("Read spoken prompts and results aloud for voice-triggered quick actions")
+                },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.spokenResponsesEnabled,
+                        onCheckedChange = { viewModel.setSpokenResponsesEnabled(it) },
+                    )
+                },
+            )
+            HorizontalDivider()
+
             ListItem(
                 modifier = Modifier.fillMaxWidth(),
                 headlineContent = { Text("Export logs") },

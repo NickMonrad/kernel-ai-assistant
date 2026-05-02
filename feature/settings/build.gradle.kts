@@ -33,6 +33,7 @@ dependencies {
     implementation(project(":core:ui"))
     implementation(project(":core:inference"))
     implementation(project(":core:memory"))
+    implementation(project(":core:voice"))
     implementation(project(":core:skills"))
 
     // Compose

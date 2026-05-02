@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-04-22 (docs refresh for #523 / PR #682; prompt/tool-routing docs updated)
+> **Last updated:** 2026-05-02 (voice foundations and roadmap summary refresh)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -575,7 +575,7 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 - **Navigation:** Bottom nav bar — Chats tab (conversations list) + Actions tab (quick commands)
 - **Chat:** Streaming token display, thinking mode indicator, markdown rendering, multi-conversation
 - **Actions tab:** History list, FAB (⚡) for new commands, bottom sheet input, Room-persisted history
-- **Voice:** Tap-to-toggle with auto-stop on silence (future: "Hey Jandal" wake word)
+- **Voice:** Quick Actions push-to-talk with offline STT and spoken QIR responses; chat voice and wake word remain future work
 - **Skill results:** Inline rich cards in the conversation stream, with expandable list previews and link surfacing for fallback/plain-text results
 - **Persona:** Friendly, concise, dry-humoured Kiwi — see §7 for full identity details
 
@@ -805,9 +805,9 @@ for the larger planned coverage matrix.
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM chat + GPU/NPU + GPU alignment fixes + OOM protection | ✅ Complete |
 | 2 | sqlite-vec RAG + EmbeddingGemma + episodic distillation + memory UI | ✅ Complete |
-| 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, weather/list/date/media skills, and broader multi-turn support | 🔄 In Progress |
+| 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, voice foundations, weather/list/date/media skills, and broader multi-turn support | 🔄 In Progress |
 | 4 | Dreaming Engine (overnight distillation) + Semantic Cache + Self-Healing Identity | ⬜ Planned |
 | 5 | Chicory Wasm Runtime + GitHub Skill Store | ⬜ Planned |
-| 6 | 8GB device optimisation (dynamic weight loading, E2B auto-select) + wake word | ⬜ Planned |
+| 6 | 8GB device optimisation (dynamic weight loading, E2B auto-select) | ⬜ Planned |
 
 See [`ROADMAP.md`](./ROADMAP.md) for full task-level detail.

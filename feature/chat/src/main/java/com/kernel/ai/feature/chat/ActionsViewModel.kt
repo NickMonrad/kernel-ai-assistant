@@ -17,6 +17,7 @@ import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
+import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -57,6 +58,7 @@ class ActionsViewModel @Inject constructor(
     private val quickActionDao: QuickActionDao,
     private val voiceInputController: VoiceInputController,
     private val voiceOutputController: VoiceOutputController,
+    private val voiceOutputPreferences: VoiceOutputPreferences,
 ) : ViewModel() {
 
     // ── Action history ──────────────────────────────────────────────────────
@@ -129,8 +131,19 @@ class ActionsViewModel @Inject constructor(
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
     private var shouldAutoStartVoiceSlotReply = false
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
+    private var spokenResponsesEnabled = true
 
     init {
+        viewModelScope.launch {
+            voiceOutputPreferences.spokenResponsesEnabled.collect { enabled ->
+                spokenResponsesEnabled = enabled
+                if (enabled) {
+                    voiceOutputController.warmUp()
+                } else {
+                    voiceOutputController.stop()
+                }
+            }
+        }
         viewModelScope.launch {
             voiceInputController.events.collect { event ->
                 when (event) {
@@ -558,6 +571,7 @@ class ActionsViewModel @Inject constructor(
 
     private fun speakForVoice(inputMode: InputMode, text: String) {
         if (inputMode != InputMode.Voice) return
+        if (!spokenResponsesEnabled) return
         val summary = toSpokenSummary(text)
         if (summary.isBlank()) return
         viewModelScope.launch {

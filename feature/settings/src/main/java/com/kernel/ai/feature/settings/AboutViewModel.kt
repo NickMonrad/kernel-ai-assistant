@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.voice.VoiceOutputPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +30,7 @@ import javax.inject.Named
 
 data class AboutUiState(
     val verboseLogging: Boolean = false,
+    val spokenResponsesEnabled: Boolean = true,
     val exportState: ExportState = ExportState.Idle,
 )
 
@@ -43,6 +45,7 @@ sealed class ExportState {
 class AboutViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     @Named("about") private val dataStore: DataStore<Preferences>,
+    private val voiceOutputPreferences: VoiceOutputPreferences,
 ) : ViewModel() {
 
     private companion object {
@@ -65,6 +68,11 @@ class AboutViewModel @Inject constructor(
                 _uiState.update { it.copy(verboseLogging = defaultVerboseLoggingEnabled) }
             }
         }
+        viewModelScope.launch {
+            voiceOutputPreferences.spokenResponsesEnabled.collect { enabled ->
+                _uiState.update { it.copy(spokenResponsesEnabled = enabled) }
+            }
+        }
     }
 
     fun setVerboseLogging(enabled: Boolean) {
@@ -77,6 +85,13 @@ class AboutViewModel @Inject constructor(
             } catch (e: Exception) {
                 _uiState.update { it.copy(verboseLogging = !enabled) }
             }
+        }
+    }
+
+    fun setSpokenResponsesEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(spokenResponsesEnabled = enabled) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setSpokenResponsesEnabled(enabled)
         }
     }
 
