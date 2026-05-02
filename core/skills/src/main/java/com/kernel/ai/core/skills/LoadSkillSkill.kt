@@ -28,8 +28,7 @@ class LoadSkillSkill @Inject constructor(
     override val description =
         "Load full instructions for a skill before calling it. " +
             "Call this first whenever you need to use run_intent, get_weather, " +
-            "query_wikipedia, meal_planner, save_memory, search_memory, or get_system_info."
-
+            "save_meal_plan_state, save_memory, search_memory, or get_system_info."
     override val schema = SkillSchema(
         parameters = mapOf(
             "skill_name" to SkillParameter(
@@ -39,7 +38,11 @@ class LoadSkillSkill @Inject constructor(
                     "run_intent",
                     "get_weather",
                     "query_wikipedia",
-                    "meal_planner",
+                    "meal_planner_collect",
+                    "meal_planner_plan",
+                    "meal_planner_recipe",
+                    "meal_planner_complete",
+                    "save_meal_plan_state",
                     "save_memory",
                     "search_memory",
                     "get_system_info",
@@ -53,22 +56,37 @@ class LoadSkillSkill @Inject constructor(
     override val examples = listOf(
         "Load device action instructions → loadSkill(skillName=\"run_intent\")",
         "Load Wikipedia instructions → loadSkill(skillName=\"query_wikipedia\")",
-        "Load meal planner instructions → loadSkill(skillName=\"meal_planner\")",
         "Load memory save instructions → loadSkill(skillName=\"save_memory\")",
     )
 
     // load_skill's own fullInstructions are always embedded in the system prompt — no need
     // to load them lazily. This just returns the standard default.
 
-    // Success: instruction context for LLM — not user-facing
     override suspend fun execute(call: SkillCall): SkillResult {
+
         val skillName = call.arguments["skill_name"]?.takeIf { it.isNotBlank() }
+
             ?: return SkillResult.Failure(name, "Missing required parameter: skill_name.")
+
         val skill = skillRegistry.get().get(skillName)
+
             ?: return SkillResult.Failure(
+
                 name,
-                "Unknown skill: '$skillName'. Available: run_intent, get_weather, query_wikipedia, meal_planner, save_memory, search_memory, get_system_info, run_js",
+
+                "Unknown skill: '$skillName'. Available: run_intent, get_weather, query_wikipedia, meal_planner_collect, meal_planner_plan, meal_planner_recipe, meal_planner_complete, save_meal_plan_state, save_memory, search_memory, get_system_info, run_js"
+
             )
-        return SkillResult.Success(skill.fullInstructions)
+
+        val instructions = skill.fullInstructions
+
+        if (instructions.isBlank()) {
+
+            return SkillResult.Success("Instructions loaded for '$skillName'. Follow them to complete the task.")
+
+        }
+
+        return SkillResult.Success("Instructions loaded for '$skillName':\n\n$instructions")
+
     }
 }
