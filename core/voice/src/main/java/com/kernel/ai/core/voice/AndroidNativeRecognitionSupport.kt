@@ -94,6 +94,9 @@ class AndroidNativeRecognitionSupport @Inject constructor(
     fun createOnDeviceSpeechRecognizer(): SpeechRecognizer =
         SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
 
+    fun createPlatformSpeechRecognizer(): SpeechRecognizer =
+        SpeechRecognizer.createSpeechRecognizer(context)
+
     private suspend fun checkLocaleSupport(languageTag: String): AndroidNativeRecognitionLocaleStatus =
         withContext(Dispatchers.Main.immediate) {
             withTimeoutOrNull(5_000) {

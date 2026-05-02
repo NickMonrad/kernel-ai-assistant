@@ -22,6 +22,11 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "NativeVoiceInput"
 
+private enum class RecognizerBackend {
+    OnDevice,
+    Platform,
+}
+
 @Singleton
 class NativeAndroidVoiceInputController @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -67,25 +72,15 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
             try {
                 requestAudioFocus()
-                val recognizer = recognitionSupport.createOnDeviceSpeechRecognizer()
                 val sessionId = ++nextSessionId
                 currentMode = mode
                 activeSessionId = sessionId
-                speechRecognizer = recognizer
-                Log.i(
-                    TAG,
-                    "Starting Android native STT: sessionId=$sessionId mode=$mode " +
-                        "language=${availability.languageSummary} localeStatus=${availability.localeStatus} " +
-                        "forceLanguage=${availability.localeStatus != AndroidNativeRecognitionLocaleStatus.Unknown}",
+                startRecognizer(
+                    sessionId = sessionId,
+                    mode = mode,
+                    availability = availability,
+                    backend = RecognizerBackend.OnDevice,
                 )
-                recognizer.setRecognitionListener(
-                    SessionRecognitionListener(
-                        sessionId = sessionId,
-                        mode = mode,
-                        availability = availability,
-                    ),
-                )
-                recognizer.startListening(buildRecognizerIntent(availability))
                 _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
                 VoiceInputStartResult.Started
             } catch (e: Exception) {
@@ -138,10 +133,65 @@ class NativeAndroidVoiceInputController @Inject constructor(
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
 
+    private fun startRecognizer(
+        sessionId: Long,
+        mode: VoiceCaptureMode,
+        availability: AndroidNativeRecognitionAvailability,
+        backend: RecognizerBackend,
+    ) {
+        val recognizer = when (backend) {
+            RecognizerBackend.OnDevice -> recognitionSupport.createOnDeviceSpeechRecognizer()
+            RecognizerBackend.Platform -> recognitionSupport.createPlatformSpeechRecognizer()
+        }
+        speechRecognizer = recognizer
+        Log.i(
+            TAG,
+            "Starting Android native STT: sessionId=$sessionId mode=$mode " +
+                "backend=$backend language=${availability.languageSummary} " +
+                "localeStatus=${availability.localeStatus} " +
+                "forceLanguage=${availability.localeStatus != AndroidNativeRecognitionLocaleStatus.Unknown}",
+        )
+        recognizer.setRecognitionListener(
+            SessionRecognitionListener(
+                sessionId = sessionId,
+                mode = mode,
+                availability = availability,
+                backend = backend,
+            ),
+        )
+        recognizer.startListening(buildRecognizerIntent(availability))
+    }
+
+    private fun retryWithPlatformRecognizer(
+        sessionId: Long,
+        mode: VoiceCaptureMode,
+        availability: AndroidNativeRecognitionAvailability,
+    ): Boolean {
+        if (activeSessionId != sessionId) return false
+
+        return runCatching {
+            speechRecognizer?.apply {
+                runCatching { cancel() }
+                runCatching { destroy() }
+            }
+            startRecognizer(
+                sessionId = sessionId,
+                mode = mode,
+                availability = availability,
+                backend = RecognizerBackend.Platform,
+            )
+            true
+        }.getOrElse { error ->
+            Log.e(TAG, "Failed to retry Android native STT with platform recognizer", error)
+            false
+        }
+    }
+
     private inner class SessionRecognitionListener(
         private val sessionId: Long,
         private val mode: VoiceCaptureMode,
         private val availability: AndroidNativeRecognitionAvailability,
+        private val backend: RecognizerBackend,
     ) : RecognitionListener {
 
         private var sessionCompleted = false
@@ -158,11 +208,28 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
         override fun onError(error: Int) {
             if (sessionCompleted || activeSessionId != sessionId) return
+            if (
+                backend == RecognizerBackend.OnDevice &&
+                error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED &&
+                retryWithPlatformRecognizer(
+                    sessionId = sessionId,
+                    mode = mode,
+                    availability = availability,
+                )
+            ) {
+                sessionCompleted = true
+                Log.w(
+                    TAG,
+                    "On-device recognizer disconnected for sessionId=$sessionId; retried with platform recognizer",
+                )
+                return
+            }
             sessionCompleted = true
             Log.w(
                 TAG,
                 "Android native STT error: sessionId=$sessionId mode=$mode error=$error " +
-                    "language=${availability.languageSummary} localeStatus=${availability.localeStatus}",
+                    "backend=$backend language=${availability.languageSummary} " +
+                    "localeStatus=${availability.localeStatus}",
             )
             _events.tryEmit(
                 VoiceInputEvent.Error(
