@@ -55,6 +55,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
             val availability = recognitionSupport.getAvailability()
             availability.blockingReason?.let { reason ->
+                Log.w(
+                    TAG,
+                    "Blocking Android native STT start: language=${availability.languageSummary} " +
+                        "localeStatus=${availability.localeStatus} reason=$reason",
+                )
                 return@withContext VoiceInputStartResult.Unavailable(
                     reason,
                 )
@@ -67,6 +72,12 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 currentMode = mode
                 activeSessionId = sessionId
                 speechRecognizer = recognizer
+                Log.i(
+                    TAG,
+                    "Starting Android native STT: sessionId=$sessionId mode=$mode " +
+                        "language=${availability.languageSummary} localeStatus=${availability.localeStatus} " +
+                        "forceLanguage=${availability.localeStatus != AndroidNativeRecognitionLocaleStatus.Unknown}",
+                )
                 recognizer.setRecognitionListener(
                     SessionRecognitionListener(
                         sessionId = sessionId,
@@ -148,6 +159,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
         override fun onError(error: Int) {
             if (sessionCompleted || activeSessionId != sessionId) return
             sessionCompleted = true
+            Log.w(
+                TAG,
+                "Android native STT error: sessionId=$sessionId mode=$mode error=$error " +
+                    "language=${availability.languageSummary} localeStatus=${availability.localeStatus}",
+            )
             _events.tryEmit(
                 VoiceInputEvent.Error(
                     mode = mode,
@@ -162,6 +178,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
             if (sessionCompleted || activeSessionId != sessionId) return
             val transcript = extractBestTranscript(results)
             sessionCompleted = true
+            Log.i(
+                TAG,
+                "Android native STT result: sessionId=$sessionId mode=$mode transcript='$transcript' " +
+                    "language=${availability.languageSummary}",
+            )
             if (transcript.isBlank()) {
                 _events.tryEmit(
                     VoiceInputEvent.Error(
@@ -180,6 +201,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
             if (sessionCompleted || activeSessionId != sessionId) return
             val transcript = extractBestTranscript(partialResults)
             if (transcript.isNotBlank()) {
+                Log.d(
+                    TAG,
+                    "Android native STT partial: sessionId=$sessionId mode=$mode transcript='$transcript'",
+                )
                 _events.tryEmit(VoiceInputEvent.PartialTranscript(mode = mode, text = transcript))
             }
         }

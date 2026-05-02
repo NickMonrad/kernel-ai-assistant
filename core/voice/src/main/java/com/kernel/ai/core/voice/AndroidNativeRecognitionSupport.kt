@@ -6,6 +6,7 @@ import android.speech.RecognitionSupport
 import android.speech.RecognitionSupportCallback
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Locale
 import javax.inject.Inject
@@ -15,6 +16,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
+
+private const val TAG = "NativeVoiceInput"
 
 data class AndroidNativeRecognitionAvailability(
     val isRecognitionAvailable: Boolean,
@@ -72,6 +75,13 @@ class AndroidNativeRecognitionSupport @Inject constructor(
             AndroidNativeRecognitionLocaleStatus.Unknown
         }
 
+        Log.i(
+            TAG,
+            "Android native availability: language=$languageTag displayName=$languageDisplayName " +
+                "recognitionAvailable=$isRecognitionAvailable " +
+                "onDeviceAvailable=$isOnDeviceRecognitionAvailable localeStatus=$localeStatus",
+        )
+
         return AndroidNativeRecognitionAvailability(
             isRecognitionAvailable = isRecognitionAvailable,
             isOnDeviceRecognitionAvailable = isOnDeviceRecognitionAvailable,
@@ -113,10 +123,19 @@ class AndroidNativeRecognitionSupport @Inject constructor(
                         context.mainExecutor,
                         object : RecognitionSupportCallback {
                             override fun onSupportResult(recognitionSupport: RecognitionSupport) {
+                                Log.i(
+                                    TAG,
+                                    "Recognition support result for $languageTag: " +
+                                        "installed=${recognitionSupport.getInstalledOnDeviceLanguages()} " +
+                                        "supported=${recognitionSupport.getSupportedOnDeviceLanguages()} " +
+                                        "pending=${recognitionSupport.getPendingOnDeviceLanguages()} " +
+                                        "online=${recognitionSupport.getOnlineLanguages()}",
+                                )
                                 complete(resolveLocaleStatus(languageTag, recognitionSupport))
                             }
 
                             override fun onError(error: Int) {
+                                Log.w(TAG, "Recognition support check failed for $languageTag with error=$error")
                                 complete(
                                     when (error) {
                                         SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ->
@@ -130,7 +149,10 @@ class AndroidNativeRecognitionSupport @Inject constructor(
                         },
                     )
                 }
-            } ?: AndroidNativeRecognitionLocaleStatus.Unknown
+            } ?: run {
+                Log.w(TAG, "Recognition support check timed out for $languageTag")
+                AndroidNativeRecognitionLocaleStatus.Unknown
+            }
         }
 }
 
