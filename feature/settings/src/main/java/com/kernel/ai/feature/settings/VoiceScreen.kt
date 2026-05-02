@@ -1,13 +1,17 @@
 package com.kernel.ai.feature.settings
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -61,11 +65,37 @@ fun VoiceScreen(
             )
 
             VoiceInputEngine.entries.forEach { engine ->
-                val warning = engine.warning
+                val warning = when (engine) {
+                    VoiceInputEngine.AndroidNative ->
+                        uiState.androidNativeAvailabilityMessage ?: engine.warning
+                    else -> engine.warning
+                }
+                val languageSummary = when (engine) {
+                    VoiceInputEngine.AndroidNative -> uiState.androidNativeLanguageSummary
+                    else -> null
+                }
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
-                    supportingContent = { Text(engine.description) },
+                    supportingContent = {
+                        Column {
+                            Text(engine.description)
+                            if (languageSummary != null) {
+                                Text(
+                                    text = "Language: $languageSummary",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                            if (engine == VoiceInputEngine.AndroidNative && warning != null) {
+                                VoiceWarningCard(
+                                    message = warning,
+                                    modifier = Modifier.padding(top = 8.dp),
+                                )
+                            }
+                        }
+                    },
                     trailingContent = {
                         RadioButton(
                             selected = uiState.selectedInputEngine == engine,
@@ -73,7 +103,11 @@ fun VoiceScreen(
                         )
                     },
                 )
-                if (uiState.selectedInputEngine == engine && warning != null) {
+                if (
+                    engine != VoiceInputEngine.AndroidNative &&
+                    uiState.selectedInputEngine == engine &&
+                    warning != null
+                ) {
                     Text(
                         text = warning,
                         style = MaterialTheme.typography.bodySmall,
@@ -105,6 +139,39 @@ fun VoiceScreen(
                 },
             )
             HorizontalDivider()
+        }
+    }
+}
+
+@Composable
+private fun VoiceWarningCard(
+    message: String,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Warning",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
         }
     }
 }
