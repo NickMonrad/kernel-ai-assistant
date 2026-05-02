@@ -52,7 +52,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
+import com.kernel.ai.core.memory.clock.ClockAlarm
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -66,11 +66,12 @@ fun ScheduledAlarmsScreen(
     viewModel: ScheduledAlarmsViewModel = hiltViewModel(),
 ) {
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
-    var pendingCancel by remember { mutableStateOf<ScheduledAlarmEntity?>(null) }
+    var pendingCancel by remember { mutableStateOf<ClockAlarm?>(null) }
     var pendingCancelIds by remember { mutableStateOf<Set<String>?>(null) }
-    var editingAlarm by remember { mutableStateOf<ScheduledAlarmEntity?>(null) }
+    var editingAlarm by remember { mutableStateOf<ClockAlarm?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<String>()) }
+    var schedulingError by remember { mutableStateOf<String?>(null) }
     val inSelectionMode = selectedIds.isNotEmpty()
 
     Scaffold(
@@ -157,7 +158,13 @@ fun ScheduledAlarmsScreen(
                             selectedIds = selectedIds + alarm.id
                         },
                         onCancel = { pendingCancel = alarm },
-                        onToggle = { viewModel.toggleEnabled(alarm) },
+                        onToggle = {
+                            viewModel.toggleEnabled(alarm) { success ->
+                                if (!success) {
+                                    schedulingError = "Exact alarms are unavailable right now."
+                                }
+                            }
+                        },
                     )
                     HorizontalDivider()
                 }
@@ -169,8 +176,21 @@ fun ScheduledAlarmsScreen(
         AlarmCreateEditDialog(
             existingAlarm = null,
             onConfirm = { triggerAtMillis, label ->
-                viewModel.scheduleAlarm(triggerAtMillis, label)
-                showCreateDialog = false
+                viewModel.scheduleAlarm(triggerAtMillis, label) { result ->
+                    when (result) {
+                        AlarmSaveResult.STORED -> {
+                            schedulingError = null
+                            showCreateDialog = false
+                        }
+                        AlarmSaveResult.CLOCK_APP_FALLBACK -> {
+                            showCreateDialog = false
+                            schedulingError = "Clock app opened. Because exact alarms are unavailable, this alarm will be managed by your system clock and won't appear in Jandal's managed list."
+                        }
+                        AlarmSaveResult.FAILED -> {
+                            schedulingError = "Exact alarms are unavailable right now."
+                        }
+                    }
+                }
             },
             onDismiss = { showCreateDialog = false },
         )
@@ -180,8 +200,21 @@ fun ScheduledAlarmsScreen(
         AlarmCreateEditDialog(
             existingAlarm = alarm,
             onConfirm = { triggerAtMillis, label ->
-                viewModel.editAlarm(alarm, triggerAtMillis, label)
-                editingAlarm = null
+                viewModel.editAlarm(alarm, triggerAtMillis, label) { result ->
+                    when (result) {
+                        AlarmSaveResult.STORED -> {
+                            schedulingError = null
+                            editingAlarm = null
+                        }
+                        AlarmSaveResult.CLOCK_APP_FALLBACK -> {
+                            editingAlarm = null
+                            schedulingError = "Clock app opened. The existing Jandal alarm was left unchanged; delete or disable it manually if you no longer want it."
+                        }
+                        AlarmSaveResult.FAILED -> {
+                            schedulingError = "Exact alarms are unavailable right now."
+                        }
+                    }
+                }
             },
             onDismiss = { editingAlarm = null },
         )
@@ -230,12 +263,23 @@ fun ScheduledAlarmsScreen(
             },
         )
     }
+    schedulingError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { schedulingError = null },
+            icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
+            title = { Text("Couldn't save alarm") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { schedulingError = null }) { Text("OK") }
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AlarmCreateEditDialog(
-    existingAlarm: ScheduledAlarmEntity?,
+    existingAlarm: ClockAlarm?,
     onConfirm: (triggerAtMillis: Long, label: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -353,7 +397,7 @@ private fun AlarmCreateEditDialog(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AlarmRow(
-    alarm: ScheduledAlarmEntity,
+    alarm: ClockAlarm,
     inSelectionMode: Boolean,
     isSelected: Boolean,
     onTap: () -> Unit,

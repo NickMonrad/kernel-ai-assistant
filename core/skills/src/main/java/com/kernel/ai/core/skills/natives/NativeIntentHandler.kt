@@ -1,8 +1,6 @@
 package com.kernel.ai.core.skills.natives
 
-import android.app.AlarmManager
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.SearchManager
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -22,12 +20,11 @@ import android.util.Log
 import android.view.KeyEvent
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
+import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
-import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
-import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
@@ -45,17 +42,12 @@ import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.time.temporal.WeekFields
 import java.util.Locale
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
 import kotlinx.coroutines.runBlocking
 
 private const val TAG = "KernelAI"
-private const val ALARM_RECEIVER_CLASS = "com.kernel.ai.alarm.AlarmBroadcastReceiver"
-private const val EXTRA_ALARM_LABEL = "alarm_label"
-private const val EXTRA_ALARM_ID = "alarm_id"
-private const val EXTRA_ALARM_TITLE = "alarm_title"
 private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
 
 /**
@@ -69,8 +61,8 @@ private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is require
  *   toggle_flashlight_off   — Camera2 torch off
  *   send_email              — ACTION_SENDTO mailto: URI (params: contact, subject, body)
  *   send_sms                — ACTION_SENDTO SMS composer (params: message)
- *   set_alarm               — AlarmClock.ACTION_SET_ALARM (params: hours, minutes, label)
- *   set_timer               — Built-in timer via AlarmManager (params: duration_seconds, label)
+ *   set_alarm               — App-owned alarm scheduling (params: hours, minutes, label)
+ *   set_timer               — App-owned timer scheduling (params: duration_seconds, label)
  *   create_calendar_event   — CalendarContract ACTION_INSERT edit screen (params: title, date, time?, duration_minutes?, description?)
  *   get_battery             — BatteryManager capacity + charging state
  *   get_time / get_date     — LocalDateTime formatted display
@@ -111,7 +103,7 @@ private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is require
 @Singleton
 class NativeIntentHandler @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val scheduledAlarmDao: ScheduledAlarmDao,
+    private val clockRepository: ClockRepository,
     private val listItemDao: ListItemDao,
     private val listNameDao: ListNameDao,
     private val contactAliasRepository: ContactAliasRepository,
@@ -324,89 +316,67 @@ class NativeIntentHandler @Inject constructor(
         val label = params["label"]?.takeIf { it.isNotBlank() }
         val day = params["day"]?.trim()?.takeIf { it.isNotBlank() }
         val resolvedDate = day?.let { resolveDate(it) }
+        if (day != null && resolvedDate == null) {
+            return SkillResult.Failure("run_intent", "Couldn't parse day: $day")
+        }
 
-        if (resolvedDate != null) {
-            // Schedule a real exact alarm via AlarmManager
-            val triggerAt = resolvedDate
+        val triggerAt = if (resolvedDate != null) {
+            resolvedDate
                 .atTime(resolvedTime)
                 .atZone(ZoneId.systemDefault())
                 .toInstant()
                 .toEpochMilli()
-
-            if (triggerAt <= System.currentTimeMillis()) {
-                return SkillResult.Failure("run_intent", "That time has already passed.")
+        } else {
+            val zone = ZoneId.systemDefault()
+            val now = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(zone)
+            val candidate = now.toLocalDate().atTime(resolvedTime).atZone(zone)
+            if (candidate.toInstant().toEpochMilli() > System.currentTimeMillis()) {
+                candidate.toInstant().toEpochMilli()
+            } else {
+                candidate.plusDays(1).toInstant().toEpochMilli()
             }
+        }
 
-            val alarmId = UUID.randomUUID().toString()
-            val alarmEntity = ScheduledAlarmEntity(
-                id = alarmId,
-                triggerAtMillis = triggerAt,
-                label = label,
-                createdAt = System.currentTimeMillis(),
-            )
-            runBlocking { scheduledAlarmDao.insert(alarmEntity) }
+        if (triggerAt <= System.currentTimeMillis()) {
+            return SkillResult.Failure("run_intent", "That time has already passed.")
+        }
 
-            val alarmManager = context.getSystemService(AlarmManager::class.java)
-            val alarmIntent = Intent().apply {
-                component = android.content.ComponentName(
-                    context.packageName,
-                    "com.kernel.ai.alarm.AlarmBroadcastReceiver",
-                )
-                putExtra("alarm_label", label ?: "Alarm")
-                putExtra("alarm_id", alarmId)
-            }
-            val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                alarmId.hashCode(),
-                alarmIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
-
+        val scheduled = runBlocking {
+            clockRepository.scheduleAlarm(triggerAt, label)
+        }
+        if (scheduled != null) {
             val formatter = DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mma")
                 .withZone(ZoneId.systemDefault())
-            val formattedTime = formatter.format(Instant.ofEpochMilli(triggerAt))
+            val formattedTime = formatter.format(Instant.ofEpochMilli(scheduled.triggerAtMillis))
             return SkillResult.Success(
                 "Alarm set for $formattedTime${if (label != null) " — $label" else ""}"
             )
         }
-
-        // No date resolved — fall back to clock app intent (existing behaviour)
-        val (hours, minutes) = resolvedTime.hour to resolvedTime.minute
-        val dayDisplay = day?.replaceFirstChar { it.uppercase() }
-        val isWeekday = day?.lowercase() in setOf(
-            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
-        )
-        val isTomorrow = day?.lowercase() == "tomorrow"
-        val messageLabel = when {
-            isTomorrow && label != null -> "TOMORROW: $label"
-            isTomorrow -> "TOMORROW"
-            isWeekday && label != null -> "$dayDisplay: $label"
-            isWeekday -> dayDisplay
-            else -> label
+        if (clockRepository.getPlatformState().canScheduleExactAlarms) {
+            return SkillResult.Failure("run_intent", "Could not schedule the alarm.")
         }
 
+        val (hours, minutes) = resolvedTime.hour to resolvedTime.minute
+        val dayDisplay = day?.replaceFirstChar { it.uppercase() }
+        val messageLabel = when {
+            dayDisplay != null && label != null -> "$dayDisplay: $label"
+            dayDisplay != null -> dayDisplay
+            else -> label
+        }
         val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
             putExtra(AlarmClock.EXTRA_HOUR, hours)
             putExtra(AlarmClock.EXTRA_MINUTES, minutes)
             messageLabel?.let { putExtra(AlarmClock.EXTRA_MESSAGE, it) }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        if (context.packageManager.resolveActivity(intent, 0) == null) {
-            return SkillResult.Failure("run_intent", "No clock app found to set an alarm.")
-        }
         return try {
             context.startActivity(intent)
-            val dayLabel = day?.takeIf { it.isNotBlank() }
-                ?.let { " for ${it.replaceFirstChar { c -> c.uppercase() }}" } ?: ""
-            val dayWarning = when {
-                isTomorrow -> " ⚠ Your clock app schedules by time only — please verify the date is set to tomorrow before confirming."
-                isWeekday -> " ⚠ Your clock app schedules by time only — please verify the date is set to $dayDisplay before confirming."
-                else -> ""
-            }
+            val dayLabel = dayDisplay?.let { " for $it" } ?: ""
+            val dayWarning = dayDisplay?.let {
+                " Exact alarms are unavailable, so please verify the date is set to $it before confirming."
+            } ?: ""
             SkillResult.Success(
-                "Clock app opened — alarm$dayLabel at %02d:%02d. Please confirm in your clock app.$dayWarning"
-                    .format(hours, minutes)
+                "Clock app opened — alarm$dayLabel at %02d:%02d.$dayWarning".format(hours, minutes)
             )
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("run_intent", "No clock app found to set an alarm.")
@@ -420,59 +390,35 @@ class NativeIntentHandler @Inject constructor(
             ?: return SkillResult.Failure("run_intent", "duration_seconds is required and must be an integer.")
         val durationMs = seconds * 1000L
         val label = params["label"]?.takeIf { it.isNotBlank() }
-        val now = System.currentTimeMillis()
-        val timer = ScheduledAlarmEntity(
-            id = UUID.randomUUID().toString(),
-            entryType = "TIMER",
-            label = label,
-            durationMs = durationMs,
-            startedAtMs = now,
-            triggerAtMillis = now + durationMs,
-            createdAt = now,
-        )
-        return try {
-            runBlocking { scheduledAlarmDao.insert(timer) }
-            scheduleTimerBroadcast(timer)
-            val mins = seconds / 60
-            val secs = seconds % 60
-            val labelStr = when {
-                mins > 0 && secs > 0 -> "$mins min $secs sec"
-                mins > 0 -> "$mins minute${if (mins != 1) "s" else ""}"
-                else -> "$seconds seconds"
-            }
-            SkillResult.Success("Timer set for $labelStr.")
-        } catch (e: Exception) {
-            SkillResult.Failure("run_intent", "Could not set the timer.")
+        val scheduled = runBlocking {
+            clockRepository.scheduleTimer(durationMs, label)
+        } ?: return SkillResult.Failure("run_intent", "Exact alarms are unavailable right now.")
+        val mins = (scheduled.durationMs / 1000) / 60
+        val secs = (scheduled.durationMs / 1000) % 60
+        val labelStr = when {
+            mins > 0 && secs > 0 -> "$mins min $secs sec"
+            mins > 0 -> "$mins minute${if (mins != 1L) "s" else ""}"
+            else -> "${scheduled.durationMs / 1000} seconds"
         }
+        return SkillResult.Success("Timer set for $labelStr.")
     }
 
     private fun cancelTimer(): SkillResult {
-        val timers = runBlocking { scheduledAlarmDao.getAllTimers() }
-        if (timers.isEmpty()) return SkillResult.DirectReply("No timers running.")
-        runBlocking {
-            timers.forEach { timer ->
-                cancelTimerBroadcast(timer)
-                scheduledAlarmDao.delete(timer.id)
-            }
-        }
-        val count = timers.size
-        return SkillResult.Success("Cancelled $count timer${if (count == 1) "" else "s"}.")
+        val cancelled = runBlocking { clockRepository.cancelAllTimers() }
+        if (cancelled == 0) return SkillResult.DirectReply("No timers running.")
+        return SkillResult.Success("Cancelled $cancelled timer${if (cancelled == 1) "" else "s"}.")
     }
 
     // ── Timer Registry ────────────────────────────────────────────────────────
 
     private fun listTimers(): SkillResult {
-        val timers = runBlocking { scheduledAlarmDao.getAllTimers() }
+        val timers = runBlocking { clockRepository.getAllTimers() }
         if (timers.isEmpty()) return SkillResult.DirectReply("No timers running.")
         val now = System.currentTimeMillis()
         val lines = timers.mapIndexed { i, t ->
             val label = t.label ?: "Timer ${i + 1}"
-            val remaining = t.durationMs?.let { dur ->
-                t.startedAtMs?.let { start ->
-                    val remMs = (start + dur) - now
-                    if (remMs > 0) formatDuration(remMs / 1000) else "finished"
-                }
-            } ?: "unknown"
+            val remMs = (t.startedAtMillis + t.durationMs) - now
+            val remaining = if (remMs > 0) formatDuration(remMs / 1000) else "finished"
             "• $label — $remaining remaining"
         }
         return SkillResult.DirectReply(lines.joinToString("\n"))
@@ -481,34 +427,25 @@ class NativeIntentHandler @Inject constructor(
     private fun cancelTimerNamed(params: Map<String, String>): SkillResult {
         val name = params["name"] ?: return cancelTimer()
         val durationMs = parseDurationToMs(name)
-        val timers = runBlocking { scheduledAlarmDao.getAllTimers() }
-        val matches = timers.filter { timer ->
-            timer.label?.equals(name, ignoreCase = true) == true ||
-                (durationMs != null && timer.durationMs == durationMs)
-        }
-        if (matches.isEmpty()) return SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
-        runBlocking {
-            matches.forEach { timer ->
-                cancelTimerBroadcast(timer)
-                scheduledAlarmDao.delete(timer.id)
-            }
-        }
-        return SkillResult.Success("Cancelled the $name timer")
+        val cancelled = runBlocking { clockRepository.cancelTimersMatching(name, durationMs) }
+        if (cancelled == 0) return SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
+        return SkillResult.Success(
+            if (cancelled == 1) "Cancelled the $name timer"
+            else "Cancelled $cancelled timers matching $name"
+        )
     }
 
     private fun getTimerRemaining(params: Map<String, String>): SkillResult {
         val name = params["name"]
-        val timers = runBlocking { scheduledAlarmDao.getAllTimers() }
+        val timers = runBlocking { clockRepository.getAllTimers() }
         if (timers.isEmpty()) return SkillResult.DirectReply("No timers running.")
         val timer = if (name != null) {
             timers.firstOrNull { it.label?.contains(name, ignoreCase = true) == true }
                 ?: timers.first()
         } else timers.first()
         val now = System.currentTimeMillis()
-        val remMs = timer.durationMs?.let { dur ->
-            timer.startedAtMs?.let { start -> (start + dur) - now }
-        }
-        return if (remMs != null && remMs > 0) {
+        val remMs = (timer.startedAtMillis + timer.durationMs) - now
+        return if (remMs > 0) {
             val label = timer.label ?: "Timer"
             SkillResult.DirectReply("$label — ${formatSpokenDuration(remMs / 1000)} remaining")
         } else {
@@ -550,46 +487,6 @@ class NativeIntentHandler @Inject constructor(
             "minute", "min" -> amount * 60_000L
             else -> amount * 1_000L
         }
-    }
-
-    private fun scheduleTimerBroadcast(timer: ScheduledAlarmEntity) {
-        val alarmManager = context.getSystemService(AlarmManager::class.java)
-        val broadcastIntent = Intent().apply {
-            component = android.content.ComponentName(
-                context.packageName,
-                ALARM_RECEIVER_CLASS,
-            )
-            putExtra(EXTRA_ALARM_LABEL, timer.label ?: "Timer")
-            putExtra(EXTRA_ALARM_ID, timer.id)
-            putExtra(EXTRA_ALARM_TITLE, "Timer")
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            timer.id.hashCode(),
-            broadcastIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, timer.triggerAtMillis, pendingIntent)
-    }
-
-    private fun cancelTimerBroadcast(timer: ScheduledAlarmEntity) {
-        val alarmManager = context.getSystemService(AlarmManager::class.java)
-        val broadcastIntent = Intent().apply {
-            component = android.content.ComponentName(
-                context.packageName,
-                ALARM_RECEIVER_CLASS,
-            )
-            putExtra(EXTRA_ALARM_LABEL, timer.label ?: "Timer")
-            putExtra(EXTRA_ALARM_ID, timer.id)
-            putExtra(EXTRA_ALARM_TITLE, "Timer")
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            timer.id.hashCode(),
-            broadcastIntent,
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
-        )
-        pendingIntent?.let { alarmManager.cancel(it) }
     }
 
     // ── Calendar ──────────────────────────────────────────────────────────────
@@ -1625,7 +1522,24 @@ class NativeIntentHandler @Inject constructor(
     // ── Cancel Alarm ──────────────────────────────────────────────────────────
 
     private fun cancelAlarm(params: Map<String, String>): SkillResult {
-        val label = params["label"]
+        val label = params["label"]?.takeIf { it.isNotBlank() }
+        if (label != null) {
+            val cancelled = runBlocking { clockRepository.cancelAlarmsByLabel(label) }
+            if (cancelled > 0) {
+                return SkillResult.Success(
+                    if (cancelled > 1) "Cancelled $cancelled app alarms matching $label."
+                    else "Cancelled app alarm: $label."
+                )
+            }
+        } else {
+            val nextAlarm = runBlocking { clockRepository.cancelNextAlarm() }
+            if (nextAlarm != null) {
+                return SkillResult.Success(
+                    "Cancelled next app alarm${nextAlarm.label?.let { value -> ": $value" } ?: ""}."
+                )
+            }
+        }
+
         val intent = Intent(AlarmClock.ACTION_DISMISS_ALARM).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
             if (label != null) {
@@ -1637,7 +1551,12 @@ class NativeIntentHandler @Inject constructor(
         }
         return try {
             context.startActivity(intent)
-            SkillResult.Success(if (label != null) "Cancelling alarm: $label" else "Opening alarms to cancel")
+            val clockMessage = if (label != null) {
+                "Cancelling alarm in clock app: $label"
+            } else {
+                "Opening alarms to cancel"
+            }
+            SkillResult.Success(clockMessage)
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure("cancel_alarm", "No clock app found")
         }

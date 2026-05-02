@@ -48,7 +48,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 23,
+    version = 24,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -275,6 +275,14 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_22_23 = object : Migration(22, 23) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE quick_actions ADD COLUMN presentationJson TEXT DEFAULT NULL")
+            }
+        }
+
+        /** Adds owner_id to scheduled_alarms so reminder events can point at their owning clock item (#720). */
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN owner_id TEXT DEFAULT NULL")
+                db.execSQL("UPDATE scheduled_alarms SET owner_id = id WHERE owner_id IS NULL")
             }
         }
     }

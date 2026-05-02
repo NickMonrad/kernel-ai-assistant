@@ -67,13 +67,15 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
+import com.kernel.ai.core.memory.clock.ClockAlarm
+import com.kernel.ai.core.memory.clock.ClockTimer
 import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -87,12 +89,13 @@ fun SidePanelScreen(
     val isInSelectionMode by viewModel.isInSelectionMode.collectAsStateWithLifecycle()
     val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
     val showBulkDeleteConfirmation by viewModel.showBulkDeleteConfirmation.collectAsStateWithLifecycle()
-    var pendingDismiss by remember { mutableStateOf<ScheduledAlarmEntity?>(null) }
-    var pendingCancel by remember { mutableStateOf<ScheduledAlarmEntity?>(null) }
-    var editingAlarm by remember { mutableStateOf<ScheduledAlarmEntity?>(null) }
+    var pendingDismiss by remember { mutableStateOf<ClockAlarm?>(null) }
+    var pendingCancel by remember { mutableStateOf<ClockTimer?>(null) }
+    var editingAlarm by remember { mutableStateOf<ClockAlarm?>(null) }
     var showCreateAlarmDialog by remember { mutableStateOf(false) }
     var showCreateTimerDialog by remember { mutableStateOf(false) }
     var fabExpanded by remember { mutableStateOf(false) }
+    var schedulingError by remember { mutableStateOf<String?>(null) }
 
     // Tick every second so countdown labels stay live
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -109,7 +112,7 @@ fun SidePanelScreen(
 
     val visibleTimers = if (filterType != AlarmTimerFilter.ALARMS) timers else emptyList()
     val visibleAlarms = if (filterType != AlarmTimerFilter.TIMERS) alarms else emptyList()
-    val allVisibleIds = (visibleTimers + visibleAlarms).map { it.id }
+    val allVisibleIds = visibleTimers.map { it.id } + visibleAlarms.map { it.id }
 
     Scaffold(
         topBar = {
@@ -298,7 +301,13 @@ fun SidePanelScreen(
                                     if (!isInSelectionMode) viewModel.enterSelectionMode(alarm.id)
                                 },
                                 onDismiss = { pendingDismiss = alarm },
-                                onToggle = { viewModel.toggleEnabled(alarm) },
+                                onToggle = {
+                                    viewModel.toggleEnabled(alarm) { success ->
+                                        if (!success) {
+                                            schedulingError = "Exact alarms are unavailable right now."
+                                        }
+                                    }
+                                },
                             )
                             HorizontalDivider()
                         }
@@ -371,8 +380,21 @@ fun SidePanelScreen(
         AlarmCreateEditDialog(
             existingAlarm = null,
             onConfirm = { triggerAtMillis, label ->
-                viewModel.scheduleAlarm(triggerAtMillis, label)
-                showCreateAlarmDialog = false
+                viewModel.scheduleAlarm(triggerAtMillis, label) { result ->
+                    when (result) {
+                        AlarmSaveResult.STORED -> {
+                            schedulingError = null
+                            showCreateAlarmDialog = false
+                        }
+                        AlarmSaveResult.CLOCK_APP_FALLBACK -> {
+                            showCreateAlarmDialog = false
+                            schedulingError = "Clock app opened. Because exact alarms are unavailable, this alarm will be managed by your system clock and won't appear in Jandal's managed list."
+                        }
+                        AlarmSaveResult.FAILED -> {
+                            schedulingError = "Exact alarms are unavailable right now."
+                        }
+                    }
+                }
             },
             onDismiss = { showCreateAlarmDialog = false },
         )
@@ -382,8 +404,21 @@ fun SidePanelScreen(
         AlarmCreateEditDialog(
             existingAlarm = alarm,
             onConfirm = { triggerAtMillis, label ->
-                viewModel.editAlarm(alarm, triggerAtMillis, label)
-                editingAlarm = null
+                viewModel.editAlarm(alarm, triggerAtMillis, label) { result ->
+                    when (result) {
+                        AlarmSaveResult.STORED -> {
+                            schedulingError = null
+                            editingAlarm = null
+                        }
+                        AlarmSaveResult.CLOCK_APP_FALLBACK -> {
+                            editingAlarm = null
+                            schedulingError = "Clock app opened. The existing Jandal alarm was left unchanged; delete or disable it manually if you no longer want it."
+                        }
+                        AlarmSaveResult.FAILED -> {
+                            schedulingError = "Exact alarms are unavailable right now."
+                        }
+                    }
+                }
             },
             onDismiss = { editingAlarm = null },
         )
@@ -392,10 +427,28 @@ fun SidePanelScreen(
     if (showCreateTimerDialog) {
         TimerCreateDialog(
             onConfirm = { durationMs, label ->
-                viewModel.scheduleTimer(durationMs, label)
-                showCreateTimerDialog = false
+                viewModel.scheduleTimer(durationMs, label) { success ->
+                    if (success) {
+                        schedulingError = null
+                        showCreateTimerDialog = false
+                    } else {
+                        schedulingError = "Exact alarms are unavailable right now."
+                    }
+                }
             },
             onDismiss = { showCreateTimerDialog = false },
+        )
+    }
+
+    schedulingError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { schedulingError = null },
+            icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
+            title = { Text("Couldn't save timer or alarm") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { schedulingError = null }) { Text("OK") }
+            },
         )
     }
 }
@@ -413,7 +466,7 @@ private fun SectionHeader(title: String) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TimerRow(
-    timer: ScheduledAlarmEntity,
+    timer: ClockTimer,
     nowMs: Long,
     inSelectionMode: Boolean,
     isSelected: Boolean,
@@ -421,13 +474,9 @@ private fun TimerRow(
     onLongPress: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    val startedAtMs = timer.startedAtMs
+    val startedAtMs = timer.startedAtMillis
     val durationMs = timer.durationMs
-    val remainingMs = if (startedAtMs != null && durationMs != null) {
-        startedAtMs + durationMs - nowMs
-    } else {
-        -1L
-    }
+    val remainingMs = startedAtMs + durationMs - nowMs
     val countdownText = if (remainingMs <= 0) {
         "Time's up!"
     } else {
@@ -477,7 +526,7 @@ private fun TimerRow(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AlarmPanelRow(
-    alarm: ScheduledAlarmEntity,
+    alarm: ClockAlarm,
     inSelectionMode: Boolean,
     isSelected: Boolean,
     onTap: () -> Unit,
@@ -531,7 +580,7 @@ private fun AlarmPanelRow(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AlarmCreateEditDialog(
-    existingAlarm: ScheduledAlarmEntity?,
+    existingAlarm: ClockAlarm?,
     onConfirm: (triggerAtMillis: Long, label: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
