@@ -13,8 +13,11 @@ import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
+import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.skills.SkillResult
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -33,12 +36,15 @@ class NativeIntentHandlerTest {
     private val context = mockk<Context>(relaxed = true)
     private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val contactAliasRepository = mockk<ContactAliasRepository>(relaxed = true)
+    private val scheduledAlarmDao = mockk<ScheduledAlarmDao>(relaxed = true)
+    private val listItemDao = mockk<ListItemDao>(relaxed = true)
+    private val listNameDao = mockk<ListNameDao>(relaxed = true)
 
     private val handler = NativeIntentHandler(
         context = context,
-        scheduledAlarmDao = mockk<ScheduledAlarmDao>(relaxed = true),
-        listItemDao = mockk<ListItemDao>(relaxed = true),
-        listNameDao = mockk<ListNameDao>(relaxed = true),
+        scheduledAlarmDao = scheduledAlarmDao,
+        listItemDao = listItemDao,
+        listNameDao = listNameDao,
         contactAliasRepository = contactAliasRepository,
         memoryRepository = mockk<MemoryRepository>(relaxed = true),
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
@@ -51,6 +57,7 @@ class NativeIntentHandlerTest {
         every { Log.w(any<String>(), any<String>(), any()) } returns 0
         every { Log.e(any<String>(), any<String>(), any()) } returns 0
         every { context.contentResolver } returns contentResolver
+        every { context.startActivity(any()) } just Runs
     }
 
     @AfterEach
@@ -217,6 +224,135 @@ class NativeIntentHandlerTest {
 
         assertEquals(null, generic)
         assertEquals("Daft Punk", meaningful)
+    }
+
+    @Test
+    fun `send email fails fast when contact is missing`() {
+        val result = handler.handle(
+            "send_email",
+            mapOf(
+                "subject" to "Hello",
+                "body" to "World",
+            ),
+        )
+
+        assertEquals(
+            SkillResult.Failure("send_email", "No contact specified"),
+            result,
+        )
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send email fails fast when body is missing`() {
+        val result = handler.handle(
+            "send_email",
+            mapOf(
+                "contact" to "Nick",
+                "subject" to "Hello",
+            ),
+        )
+
+        assertEquals(
+            SkillResult.Failure("send_email", "No body specified"),
+            result,
+        )
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+
+    @Test
+    fun `add to list fails fast when list name is missing`() {
+        val result = handler.handle(
+            "add_to_list",
+            mapOf("item" to "milk"),
+        )
+
+        assertEquals(
+            SkillResult.Failure("add_to_list", "No list name specified"),
+            result,
+        )
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+        coVerify(exactly = 0) { listItemDao.insert(any()) }
+    }
+
+    @Test
+    fun `shopping list aliases resolve to the same stored list`() {
+        coEvery { listItemDao.getByList("shopping list") } returnsMany
+            listOf(
+                emptyList(),
+                listOf(ListItemEntity(listName = "shopping list", item = "milk")),
+            )
+
+        val addResult = handler.handle(
+            "add_to_list",
+            mapOf(
+                "item" to "milk",
+                "list_name" to "shopping list",
+            ),
+        )
+        val readResult = handler.handle(
+            "get_list_items",
+            mapOf("list_name" to "shopping"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "Added \"milk\" to your shopping list.",
+                presentation = addResult.let { (it as SkillResult.DirectReply).presentation },
+            ),
+            addResult,
+        )
+        assertEquals(
+            SkillResult.DirectReply(
+                "shopping list (1 item):\n• milk",
+                presentation = readResult.let { (it as SkillResult.DirectReply).presentation },
+            ),
+            readResult,
+        )
+        coVerify(exactly = 2) { listItemDao.getByList("shopping list") }
+    }
+
+    @Test
+    fun `create list shares canonical shopping alias with add and get`() {
+        coEvery { listItemDao.getByList("shopping list") } returnsMany
+            listOf(
+                emptyList(),
+                listOf(ListItemEntity(listName = "shopping list", item = "milk")),
+            )
+
+        val createResult = handler.handle(
+            "create_list",
+            mapOf("list_name" to "shopping"),
+        )
+        handler.handle(
+            "add_to_list",
+            mapOf(
+                "item" to "milk",
+                "list_name" to "shopping list",
+            ),
+        )
+        val readResult = handler.handle(
+            "get_list_items",
+            mapOf("list_name" to "shopping"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "Created list \"shopping list\".",
+                presentation = createResult.let { (it as SkillResult.DirectReply).presentation },
+            ),
+            createResult,
+        )
+        assertEquals(
+            SkillResult.DirectReply(
+                "shopping list (1 item):\n• milk",
+                presentation = readResult.let { (it as SkillResult.DirectReply).presentation },
+            ),
+            readResult,
+        )
+        coVerify(atLeast = 1) { listNameDao.insert(match { it.name == "shopping list" }) }
+        coVerify(exactly = 2) { listItemDao.getByList("shopping list") }
     }
 
     @Test

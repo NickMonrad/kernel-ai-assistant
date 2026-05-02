@@ -148,6 +148,37 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice mode speaks follow up slot prompt after first reply in multi slot flow`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+        )
+
+        voiceViewModel.executeAction("send an email", InputMode.Voice)
+        advanceUntilIdle()
+
+        voiceViewModel.onSlotReply("Nick")
+        advanceUntilIdle()
+
+        assertEquals(
+            "What's the subject of your email to Nick?",
+            voiceViewModel.pendingSlot.value?.request?.promptMessage,
+        )
+        coVerify {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> {
+                    it.text == "What's the subject of your email to Nick?"
+                }
+            )
+        }
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
     fun `voice mode auto starts slot reply capture after prompt finishes`() = runTest(dispatcher) {
         every { quickIntentRouter.route("send a text message to my wife") } returns
             QuickIntentRouter.RouteResult.NeedsSlot(

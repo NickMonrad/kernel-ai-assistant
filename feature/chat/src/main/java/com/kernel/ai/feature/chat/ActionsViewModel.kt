@@ -11,6 +11,7 @@ import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
+import com.kernel.ai.core.skills.slot.normalizeSlotReply
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
@@ -48,8 +49,8 @@ enum class InputMode { Text, Voice }
  *
  * Slot-fill state is managed locally here (not via SlotFillerManager, which is
  * ChatViewModel's concern). When QIR returns NeedsSlot, [_pendingSlot] is primed
- * and [ActionsScreen] shows a ModalBottomSheet. On reply, the merged params are
- * executed directly. See #589.
+ * and [ActionsScreen] shows a ModalBottomSheet. On reply, the merged params either
+ * continue slot-fill for the next missing value or execute the intent. See #589/#601.
  */
 @HiltViewModel
 class ActionsViewModel @Inject constructor(
@@ -330,17 +331,13 @@ class ActionsViewModel @Inject constructor(
                         // Pause execution — show slot prompt in a ModalBottomSheet.
                         // Do NOT use SlotFillerManager; state lives locally here.
                         Log.d(TAG, "ActionsViewModel: NeedsSlot for \"$normalizedQuery\" → showing slot sheet")
-                        _pendingSlot.value = PendingSlotState(
-                            request = PendingSlotRequest(
-                                intentName = routeResult.intent.intentName,
-                                existingParams = routeResult.intent.params,
-                                missingSlot = routeResult.missingSlot,
-                            ),
+                        primePendingSlot(
+                            intentName = routeResult.intent.intentName,
+                            existingParams = routeResult.intent.params,
+                            missingSlot = routeResult.missingSlot,
                             originalQuery = normalizedQuery,
                             inputMode = inputMode,
                         )
-                        shouldAutoStartVoiceSlotReply = inputMode == InputMode.Voice
-                        speakForVoice(inputMode, _pendingSlot.value?.request?.promptMessage.orEmpty())
                     }
                     is QuickIntentRouter.RouteResult.RegexMatch -> {
                         val entity = executeIntent(
@@ -383,8 +380,8 @@ class ActionsViewModel @Inject constructor(
     /**
      * Called when the user submits a reply to a slot-fill prompt.
      *
-     * Merges the reply into the existing params and executes the intent directly.
-     * For multi-slot intents (future), re-route through QIR after merging.
+     * Merges the reply into the accumulated params, then either prompts for the next
+     * missing required slot or executes the intent once the slot contract is complete.
      */
     fun onSlotReply(text: String) {
         val pending = _pendingSlot.value ?: return
@@ -392,16 +389,31 @@ class ActionsViewModel @Inject constructor(
         val normalizedText = if (pending.inputMode == InputMode.Voice) {
             normalizeVoiceSlotReply(text, pending.request.missingSlot.name)
         } else {
-            text.trim()
+            normalizeSlotReply(text, pending.request.missingSlot.name)
         }
         if (normalizedText.isBlank()) {
             cancelSlotFill()
             return
         }
-        _pendingSlot.value = null
-        val mergedParams = pending.request.existingParams +
-                mapOf(pending.request.missingSlot.name to normalizedText)
 
+        val mergedParams = pending.request.existingParams +
+            mapOf(pending.request.missingSlot.name to normalizedText)
+        val nextMissingSlot = quickIntentRouter.nextMissingSlot(
+            intentName = pending.request.intentName,
+            params = mergedParams,
+        )
+        if (nextMissingSlot != null) {
+            primePendingSlot(
+                intentName = pending.request.intentName,
+                existingParams = mergedParams,
+                missingSlot = nextMissingSlot,
+                originalQuery = pending.originalQuery,
+                inputMode = pending.inputMode,
+            )
+            return
+        }
+
+        _pendingSlot.value = null
         viewModelScope.launch {
             _uiState.value = UiState.Executing
             try {
@@ -438,6 +450,30 @@ class ActionsViewModel @Inject constructor(
         stopVoiceCapture()
         voiceOutputController.stop()
     }
+
+    private fun primePendingSlot(
+        intentName: String,
+        existingParams: Map<String, String>,
+        missingSlot: com.kernel.ai.core.skills.slot.SlotSpec,
+        originalQuery: String,
+        inputMode: InputMode,
+    ) {
+        _pendingSlot.value = PendingSlotState(
+            request = PendingSlotRequest(
+                intentName = intentName,
+                existingParams = existingParams,
+                missingSlot = missingSlot,
+            ),
+            originalQuery = originalQuery,
+            inputMode = inputMode,
+        )
+        shouldAutoStartVoiceSlotReply = inputMode == InputMode.Voice
+        if (inputMode == InputMode.Voice) {
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+        }
+        speakForVoice(inputMode, _pendingSlot.value?.request?.promptMessage.orEmpty())
+    }
+
 
     fun deleteAction(id: String) {
         viewModelScope.launch { quickActionDao.deleteById(id) }
@@ -714,10 +750,12 @@ class ActionsViewModel @Inject constructor(
     private fun normalizeVoiceSlotReply(text: String, slotName: String): String {
         val trimmed = text.trim()
         if (trimmed.isBlank()) return trimmed
-        if (looksLikeNumericSlot(slotName) || looksLikeStandaloneNumberPhrase(trimmed)) {
-            return normalizeSpokenNumbers(trimmed)
+        val normalized = if (looksLikeNumericSlot(slotName) || looksLikeStandaloneNumberPhrase(trimmed)) {
+            normalizeSpokenNumbers(trimmed)
+        } else {
+            trimmed
         }
-        return trimmed
+        return normalizeSlotReply(normalized, slotName)
     }
 
     private fun looksLikeNumericSlot(slotName: String): Boolean {

@@ -694,13 +694,19 @@ class ChatViewModel @Inject constructor(
             // On failure or UnknownSkill: fall through to E4B unchanged.
 
             // Slot-fill shortcut: if the previous QIR match was paused awaiting a required
-            // param, route the user's reply here before touching QIR or the LLM.
-            if (slotFillerManager.hasPending) {
-                when (val fillResult = slotFillerManager.onUserReply(text)) {
+            // param for this conversation, route the user's reply here before touching QIR or the LLM.
+            if (slotFillerManager.hasPendingFor(convId)) {
+                when (val fillResult = slotFillerManager.onUserReply(convId, text)) {
                     is SlotFillResult.Completed -> {
-                        val skill = skillRegistry.get("run_intent")
+                        val directSkill = skillRegistry.get(fillResult.intentName)
+                        val (skill, callParams) = when {
+                            directSkill != null -> directSkill to fillResult.params
+                            else -> {
+                                val runIntent = skillRegistry.get("run_intent")
+                                runIntent to (mapOf("intent_name" to fillResult.intentName) + fillResult.params)
+                            }
+                        }
                         if (skill != null) {
-                            val callParams = mapOf("intent_name" to fillResult.intentName) + fillResult.params
                             val skillResult = skill.execute(SkillCall(skill.name, callParams))
                             when (skillResult) {
                                 is SkillResult.DirectReply -> {
@@ -718,6 +724,14 @@ class ChatViewModel @Inject constructor(
                                 else -> appendAssistantMessage(convId, "Something went wrong.", shouldIndex = false)
                             }
                         }
+                        return@launch
+                    }
+                    is SlotFillResult.NeedsMore -> {
+                        appendAssistantMessage(
+                            convId,
+                            fillResult.request.promptMessage,
+                            shouldIndex = false,
+                        )
                         return@launch
                     }
                     is SlotFillResult.Cancelled -> {
@@ -799,6 +813,7 @@ class ChatViewModel @Inject constructor(
                 is QuickIntentRouter.RouteResult.NeedsSlot -> {
                     // Intent matched but a required param is missing — ask the user for it.
                     slotFillerManager.startSlotFill(
+                        convId,
                         PendingSlotRequest(
                             intentName = routeResult.intent.intentName,
                             existingParams = routeResult.intent.params,
@@ -807,7 +822,7 @@ class ChatViewModel @Inject constructor(
                     )
                     appendAssistantMessage(
                         convId,
-                        slotFillerManager.pendingRequest?.promptMessage ?: "What would you like to say?",
+                        slotFillerManager.pendingRequestFor(convId)?.promptMessage ?: "What would you like to say?",
                         shouldIndex = false,
                     )
                     return@launch
