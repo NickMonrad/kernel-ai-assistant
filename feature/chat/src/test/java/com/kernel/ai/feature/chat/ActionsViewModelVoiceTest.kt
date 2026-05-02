@@ -148,7 +148,7 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
-    fun `voice mode normalizes add-to-list list mishear before routing`() = runTest(dispatcher) {
+    fun `voice mode normalizes add bread list mishear before routing`() = runTest(dispatcher) {
         val router = QuickIntentRouter()
         val voiceViewModel = ActionsViewModel(
             quickIntentRouter = router,
@@ -159,9 +159,13 @@ class ActionsViewModelVoiceTest {
             voiceOutputPreferences = voiceOutputPreferences,
         )
 
-        voiceViewModel.executeAction("add milk to my last", InputMode.Voice)
+        voiceViewModel.executeAction("at bridge to my last", InputMode.Voice)
         advanceUntilIdle()
 
+        assertEquals(
+            "bread",
+            voiceViewModel.pendingSlot.value?.request?.existingParams?.get("item"),
+        )
         assertEquals(
             "Which list should I add it to?",
             voiceViewModel.pendingSlot.value?.request?.promptMessage,

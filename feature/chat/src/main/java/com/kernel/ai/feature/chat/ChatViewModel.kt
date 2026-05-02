@@ -402,51 +402,63 @@ class ChatViewModel @Inject constructor(
 
     private suspend fun initializeConversation() {
         try {
-        val id = navConversationId ?: conversationRepository.createConversation()
-        conversationId = id
-        // Persist resolved ID so process-death recreation restores the right conversation
-        // instead of creating a fresh one on every cold start.
-        savedStateHandle["conversationId"] = id
+            val isFreshConversation = navConversationId == null
+            val id = navConversationId ?: conversationRepository.createConversation()
+            conversationId = id
+            // Persist resolved ID so process-death recreation restores the right conversation
+            // instead of creating a fresh one on every cold start.
+            savedStateHandle["conversationId"] = id
 
-        // Load persisted title immediately so UI shows it on back-navigation.
-        val conversation = conversationRepository.getConversation(id)
-        val existingTitle = conversation?.title
-        _conversationTitle.value = existingTitle
-
-        // Track lastDistilledAt for episodic distillation on close.
-        lastDistilledAt = conversation?.lastDistilledAt
-
-        val persisted = conversationRepository.getMessagesOnce(id)
-        if (persisted.isNotEmpty()) {
-            _messages.value = persisted.map { entity ->
-                ChatMessage(
-                    id = entity.id,
-                    role = if (entity.role == "user") ChatMessage.Role.USER else ChatMessage.Role.ASSISTANT,
-                    content = entity.content,
-                    thinkingText = entity.thinkingText,
-                    toolCall = entity.toolCallJson?.let(::toolCallInfoFromJson),
-                )
+            if (isFreshConversation) {
+                // A brand-new chat route must not inherit the singleton inference session's KV cache
+                // from whichever conversation ran previously. Start with an empty model session so
+                // Actions-tab fallthroughs and "new conversation" launches cannot bleed old context.
+                estimatedTokensUsed = 0
+                turnsSinceReset = 0
+                needsHistoryReplay = false
+                pendingConfirmationIntent = null
+                inferenceEngine.resetConversation()
             }
-            // History is in Room but not in LiteRT's KV cache — replay on next send.
-            needsHistoryReplay = true
-        }
 
-        // Determine whether smart-title generation should still fire on this restored session.
-        // A title that looks like a first-message placeholder (ends with '…', ≤43 chars) can
-        // still be overwritten if the conversation is long enough for a smart title.
-        if (existingTitle != null) {
-            val looksLikePlaceholder = existingTitle.endsWith("…") && existingTitle.length <= 43
-            if (looksLikePlaceholder) {
-                // Placeholder from a previous session — allow smart title to fire whenever
-                // messageCount >= 4 is reached. sendMessage() enforces that threshold.
-                titleIsPlaceholder = true
-                titleGenerationStarted = false
-                Log.d("KernelAI", "Restored session $id has placeholder title — smart title can still fire")
-            } else {
-                titleGenerationStarted = true  // real title present — never overwrite
+            // Load persisted title immediately so UI shows it on back-navigation.
+            val conversation = conversationRepository.getConversation(id)
+            val existingTitle = conversation?.title
+            _conversationTitle.value = existingTitle
+
+            // Track lastDistilledAt for episodic distillation on close.
+            lastDistilledAt = conversation?.lastDistilledAt
+
+            val persisted = conversationRepository.getMessagesOnce(id)
+            if (persisted.isNotEmpty()) {
+                _messages.value = persisted.map { entity ->
+                    ChatMessage(
+                        id = entity.id,
+                        role = if (entity.role == "user") ChatMessage.Role.USER else ChatMessage.Role.ASSISTANT,
+                        content = entity.content,
+                        thinkingText = entity.thinkingText,
+                        toolCall = entity.toolCallJson?.let(::toolCallInfoFromJson),
+                    )
+                }
+                // History is in Room but not in LiteRT's KV cache — replay on next send.
+                needsHistoryReplay = true
             }
-        }
-        // else: new conversation, both flags stay false (defaults)
+
+            // Determine whether smart-title generation should still fire on this restored session.
+            // A title that looks like a first-message placeholder (ends with '…', ≤43 chars) can
+            // still be overwritten if the conversation is long enough for a smart title.
+            if (existingTitle != null) {
+                val looksLikePlaceholder = existingTitle.endsWith("…") && existingTitle.length <= 43
+                if (looksLikePlaceholder) {
+                    // Placeholder from a previous session — allow smart title to fire whenever
+                    // messageCount >= 4 is reached. sendMessage() enforces that threshold.
+                    titleIsPlaceholder = true
+                    titleGenerationStarted = false
+                    Log.d("KernelAI", "Restored session $id has placeholder title — smart title can still fire")
+                } else {
+                    titleGenerationStarted = true  // real title present — never overwrite
+                }
+            }
+            // else: new conversation, both flags stay false (defaults)
         } finally {
             // Always unblock the Loading guard — even on DB error the engine-ready
             // path should still transition to Ready rather than freezing the screen.

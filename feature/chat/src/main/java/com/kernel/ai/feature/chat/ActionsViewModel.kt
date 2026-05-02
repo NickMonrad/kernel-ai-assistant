@@ -811,6 +811,12 @@ class ActionsViewModel @Inject constructor(
     }
 
     private fun normalizeListVoiceMishears(text: String): String {
+        VOICE_ADD_BREAD_TO_LIST_MISHEAR.matchEntire(text)?.let { match ->
+            return "add bread to ${match.groupValues[1]}list"
+        }
+        VOICE_ADD_TO_LIST_LEADING_AT.matchEntire(text)?.let { match ->
+            return "add ${match.groupValues[1].trim()} to ${match.groupValues[2]}list"
+        }
         val addToListLastMatch = VOICE_ADD_TO_LIST_ENDING_LAST.matchEntire(text) ?: return text
         return addToListLastMatch.groupValues[1] + "list"
     }
@@ -896,6 +902,14 @@ class ActionsViewModel @Inject constructor(
     private companion object {
         val VOICE_ADD_TO_LIST_WITHOUT_VERB = Regex(
             """^(.+?)\s+to\s+(?:(?:my|the)\s+)?(.+?)\s+list$""",
+            RegexOption.IGNORE_CASE,
+        )
+        val VOICE_ADD_BREAD_TO_LIST_MISHEAR = Regex(
+            """^at\s+bridge\s+to\s+((?:(?:my|the)\s+)?)last$""",
+            RegexOption.IGNORE_CASE,
+        )
+        val VOICE_ADD_TO_LIST_LEADING_AT = Regex(
+            """^at\s+(.+?)\s+to\s+((?:(?:my|the)\s+)?)last$""",
             RegexOption.IGNORE_CASE,
         )
         val VOICE_ADD_TO_LIST_ENDING_LAST = Regex(
