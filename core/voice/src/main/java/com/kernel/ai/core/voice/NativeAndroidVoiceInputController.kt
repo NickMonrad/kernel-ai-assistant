@@ -74,7 +74,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         availability = availability,
                     ),
                 )
-                recognizer.startListening(buildRecognizerIntent(availability.languageTag))
+                recognizer.startListening(buildRecognizerIntent(availability))
                 _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
                 VoiceInputStartResult.Started
             } catch (e: Exception) {
@@ -116,12 +116,14 @@ class NativeAndroidVoiceInputController @Inject constructor(
         }
     }
 
-    private fun buildRecognizerIntent(languageTag: String): Intent =
+    private fun buildRecognizerIntent(availability: AndroidNativeRecognitionAvailability): Intent =
         Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
+            if (availability.localeStatus != AndroidNativeRecognitionLocaleStatus.Unknown) {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, availability.languageTag)
+            }
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
 

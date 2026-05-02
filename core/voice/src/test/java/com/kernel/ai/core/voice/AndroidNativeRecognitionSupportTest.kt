@@ -81,4 +81,18 @@ class AndroidNativeRecognitionSupportTest {
         )
         assertEquals(availability.blockingReason, availability.warningMessage)
     }
+
+    @Test
+    fun `ready locale has no warning or blocking reason`() {
+        val availability = AndroidNativeRecognitionAvailability(
+            isRecognitionAvailable = true,
+            isOnDeviceRecognitionAvailable = true,
+            languageTag = "en-AU",
+            languageDisplayName = "English (Australia)",
+            localeStatus = AndroidNativeRecognitionLocaleStatus.Ready,
+        )
+
+        assertNull(availability.blockingReason)
+        assertNull(availability.warningMessage)
+    }
 }
