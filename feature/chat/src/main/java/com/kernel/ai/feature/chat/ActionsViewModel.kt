@@ -36,6 +36,7 @@ import javax.inject.Inject
 
 private const val TAG = "KernelAI"
 private const val SLOT_REPLY_REARM_DELAY_MS = 350L
+private const val VOICE_REPLY_TTS_DELAY_MS = 150L
 private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
 
 /** Input modality for an action. Carried through slot-fill state for voice-readiness (#350/#588). */
@@ -133,6 +134,7 @@ class ActionsViewModel @Inject constructor(
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
     private var shouldAutoStartVoiceSlotReply = false
     private var pendingVoiceSlotReplyRestartJob: Job? = null
+    private var pendingVoiceSpeechJob: Job? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var spokenResponsesEnabled = true
 
@@ -145,6 +147,7 @@ class ActionsViewModel @Inject constructor(
                 } else {
                     shouldAutoStartVoiceSlotReply = false
                     cancelPendingVoiceSlotReplyRestart()
+                    cancelPendingVoiceSpeech()
                     voiceOutputController.stop()
                 }
             }
@@ -249,6 +252,7 @@ class ActionsViewModel @Inject constructor(
     fun stopVoiceOutput() {
         shouldAutoStartVoiceSlotReply = false
         cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSpeech()
         voiceOutputController.stop()
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
@@ -256,6 +260,7 @@ class ActionsViewModel @Inject constructor(
     fun pauseTransientVoiceUi() {
         shouldAutoStartVoiceSlotReply = false
         cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSpeech()
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
         voiceOutputController.stop()
@@ -310,6 +315,7 @@ class ActionsViewModel @Inject constructor(
     fun executeAction(query: String, inputMode: InputMode = InputMode.Text) {
         val normalizedQuery = if (inputMode == InputMode.Voice) normalizeVoiceCommand(query) else query.trim()
         if (normalizedQuery.isBlank()) return
+        cancelPendingVoiceSpeech()
         if (_pendingSlot.value != null) {
             // A slot-fill is already in progress — ignore until the user replies or cancels.
             // Voice (#350) may want to cancel-and-proceed here instead.
@@ -395,6 +401,7 @@ class ActionsViewModel @Inject constructor(
      * missing required slot or executes the intent once the slot contract is complete.
      */
     fun onSlotReply(text: String) {
+        cancelPendingVoiceSpeech()
         val pending = _pendingSlot.value ?: return
         shouldAutoStartVoiceSlotReply = false
         val normalizedText = if (pending.inputMode == InputMode.Voice) {
@@ -420,6 +427,7 @@ class ActionsViewModel @Inject constructor(
                 missingSlot = nextMissingSlot,
                 originalQuery = pending.originalQuery,
                 inputMode = pending.inputMode,
+                delayVoicePrompt = pending.inputMode == InputMode.Voice,
             )
             return
         }
@@ -436,7 +444,11 @@ class ActionsViewModel @Inject constructor(
                     inputMode = pending.inputMode,
                 )
                 quickActionDao.insert(entity)
-                speakForVoice(pending.inputMode, entity.resultText)
+                speakForVoice(
+                    pending.inputMode,
+                    entity.resultText,
+                    delayMs = if (pending.inputMode == InputMode.Voice) VOICE_REPLY_TTS_DELAY_MS else 0L,
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onSlotReply failed — ${e.message}", e)
                 _error.value = e.message ?: "Unknown error"
@@ -446,7 +458,11 @@ class ActionsViewModel @Inject constructor(
                     isSuccess = false,
                 )
                 quickActionDao.insert(entity)
-                speakForVoice(pending.inputMode, entity.resultText)
+                speakForVoice(
+                    pending.inputMode,
+                    entity.resultText,
+                    delayMs = if (pending.inputMode == InputMode.Voice) VOICE_REPLY_TTS_DELAY_MS else 0L,
+                )
             } finally {
                 _voiceCaptureState.value = VoiceCaptureState.Idle
                 _uiState.value = UiState.Idle
@@ -458,6 +474,7 @@ class ActionsViewModel @Inject constructor(
     fun cancelSlotFill() {
         shouldAutoStartVoiceSlotReply = false
         cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSpeech()
         _pendingSlot.value = null
         stopVoiceCapture()
         voiceOutputController.stop()
@@ -469,6 +486,7 @@ class ActionsViewModel @Inject constructor(
         missingSlot: com.kernel.ai.core.skills.slot.SlotSpec,
         originalQuery: String,
         inputMode: InputMode,
+        delayVoicePrompt: Boolean = false,
     ) {
         _pendingSlot.value = PendingSlotState(
             request = PendingSlotRequest(
@@ -483,7 +501,11 @@ class ActionsViewModel @Inject constructor(
         if (inputMode == InputMode.Voice) {
             _voiceCaptureState.value = VoiceCaptureState.Idle
         }
-        speakForVoice(inputMode, _pendingSlot.value?.request?.promptMessage.orEmpty())
+        speakForVoice(
+            inputMode,
+            _pendingSlot.value?.request?.promptMessage.orEmpty(),
+            delayMs = if (delayVoicePrompt) VOICE_REPLY_TTS_DELAY_MS else 0L,
+        )
     }
 
 
@@ -603,6 +625,7 @@ class ActionsViewModel @Inject constructor(
         interruptPlayback: Boolean = true,
     ) {
         cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSpeech()
         _error.value = null
         if (interruptPlayback) {
             voiceOutputController.stop()
@@ -623,13 +646,20 @@ class ActionsViewModel @Inject constructor(
         }
     }
 
-    private fun speakForVoice(inputMode: InputMode, text: String) {
+    private fun speakForVoice(
+        inputMode: InputMode,
+        text: String,
+        delayMs: Long = 0L,
+    ) {
         if (inputMode != InputMode.Voice) return
         if (!spokenResponsesEnabled) return
         val summary = toSpokenSummary(text)
         if (summary.isBlank()) return
         cancelPendingVoiceSlotReplyRestart()
-        viewModelScope.launch {
+        cancelPendingVoiceSpeech()
+        pendingVoiceSpeechJob = viewModelScope.launch {
+            if (delayMs > 0) delay(delayMs)
+            if (!spokenResponsesEnabled) return@launch
             when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = summary))) {
                 is VoiceOutputResult.Spoken -> Unit
                 is VoiceOutputResult.Unavailable -> _error.value = result.message
@@ -640,6 +670,11 @@ class ActionsViewModel @Inject constructor(
     private fun cancelPendingVoiceSlotReplyRestart() {
         pendingVoiceSlotReplyRestartJob?.cancel()
         pendingVoiceSlotReplyRestartJob = null
+    }
+
+    private fun cancelPendingVoiceSpeech() {
+        pendingVoiceSpeechJob?.cancel()
+        pendingVoiceSpeechJob = null
     }
 
     private fun toSpokenSummary(text: String): String {

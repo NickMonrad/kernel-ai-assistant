@@ -163,12 +163,28 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         voiceViewModel.onSlotReply("Nick")
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(
             "What's the subject of your email to Nick?",
             voiceViewModel.pendingSlot.value?.request?.promptMessage,
         )
+        coVerify(exactly = 0) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> {
+                it.text == "What's the subject of your email to Nick?"
+            })
+        }
+
+        advanceTimeBy(149)
+        runCurrent()
+        coVerify(exactly = 0) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> {
+                it.text == "What's the subject of your email to Nick?"
+            })
+        }
+
+        advanceTimeBy(1)
+        runCurrent()
         coVerify {
             voiceOutputController.speak(
                 match<VoiceSpeakRequest> {
@@ -177,6 +193,91 @@ class ActionsViewModelVoiceTest {
             )
         }
         coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
+    fun `cancelSlotFill drops delayed follow up prompt speech`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("send an email", InputMode.Voice)
+        advanceUntilIdle()
+
+        voiceViewModel.onSlotReply("Nick")
+        runCurrent()
+        voiceViewModel.cancelSlotFill()
+        advanceTimeBy(151)
+        runCurrent()
+
+        coVerify(exactly = 0) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> {
+                it.text == "What's the subject of your email to Nick?"
+            })
+        }
+    }
+
+    @Test
+    fun `disabling spoken responses drops delayed follow up prompt speech`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("send an email", InputMode.Voice)
+        advanceUntilIdle()
+
+        voiceViewModel.onSlotReply("Nick")
+        runCurrent()
+        spokenResponsesEnabled.value = false
+        runCurrent()
+        advanceTimeBy(151)
+        runCurrent()
+
+        coVerify(exactly = 0) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> {
+                it.text == "What's the subject of your email to Nick?"
+            })
+        }
+    }
+
+    @Test
+    fun `new input cancels delayed follow up prompt speech`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("send an email", InputMode.Voice)
+        advanceUntilIdle()
+
+        voiceViewModel.onSlotReply("Nick")
+        runCurrent()
+        voiceViewModel.executeAction("turn on flashlight", InputMode.Text)
+        advanceTimeBy(151)
+        runCurrent()
+
+        coVerify(exactly = 0) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> {
+                it.text == "What's the subject of your email to Nick?"
+            })
+        }
     }
 
     @Test
