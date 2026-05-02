@@ -2,6 +2,8 @@ package com.kernel.ai.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.voice.VoiceInputEngine
+import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,10 +15,12 @@ import javax.inject.Inject
 
 data class VoiceUiState(
     val spokenResponsesEnabled: Boolean = true,
+    val selectedInputEngine: VoiceInputEngine = VoiceInputEngine.Vosk,
 )
 
 @HiltViewModel
 class VoiceViewModel @Inject constructor(
+    private val voiceInputPreferences: VoiceInputPreferences,
     private val voiceOutputPreferences: VoiceOutputPreferences,
 ) : ViewModel() {
 
@@ -25,9 +29,21 @@ class VoiceViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            voiceInputPreferences.selectedEngine.collect { engine ->
+                _uiState.update { it.copy(selectedInputEngine = engine) }
+            }
+        }
+        viewModelScope.launch {
             voiceOutputPreferences.spokenResponsesEnabled.collect { enabled ->
                 _uiState.update { it.copy(spokenResponsesEnabled = enabled) }
             }
+        }
+    }
+
+    fun setVoiceInputEngine(engine: VoiceInputEngine) {
+        _uiState.update { it.copy(selectedInputEngine = engine) }
+        viewModelScope.launch {
+            voiceInputPreferences.setSelectedEngine(engine)
         }
     }
 
