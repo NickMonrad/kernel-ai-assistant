@@ -1438,26 +1438,44 @@ class NativeIntentHandler @Inject constructor(
     /** Resolves a contact name to an email address. Only pre-populates on unique match. */
     private fun resolveContactEmail(name: String): String? {
         return try {
-            val uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI
-            val projection = arrayOf(
-                ContactsContract.CommonDataKinds.Email.ADDRESS,
-                ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY,
-            )
-            val selection = "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?"
-            val selectionArgs = arrayOf("%$name%")
-            context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-                val matches = mutableListOf<String>()
-                while (cursor.moveToNext()) {
-                    val address = cursor.getString(
-                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Email.ADDRESS)
+            val aliasMatch = runBlocking { contactAliasRepository.getByAlias(name) }
+            if (aliasMatch != null) {
+                val aliasEmails = queryContactEmails(
+                    selection = "${ContactsContract.CommonDataKinds.Email.CONTACT_ID} = ?",
+                    selectionArgs = arrayOf(aliasMatch.contactId),
+                ).distinct()
+                when (aliasEmails.size) {
+                    1 -> {
+                        Log.d(TAG, "Email resolved via alias '$name' → ${aliasEmails[0]}")
+                        return aliasEmails[0]
+                    }
+                    0 -> Log.d(TAG, "Alias '${aliasMatch.alias}' found but no email found for contactId=${aliasMatch.contactId}")
+                    else -> {
+                        Log.d(TAG, "Alias '${aliasMatch.alias}' resolved to multiple emails — not pre-populating")
+                        return null
+                    }
+                }
+            }
+
+            val nameLookups = buildList {
+                add(name)
+                aliasMatch?.displayName
+                    ?.takeIf { it.isNotBlank() && !it.equals(name, ignoreCase = true) }
+                    ?.let(::add)
+            }
+
+            val matches = nameLookups
+                .flatMap { lookupName ->
+                    queryContactEmails(
+                        selection = "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?",
+                        selectionArgs = arrayOf("%$lookupName%"),
                     )
-                    if (!address.isNullOrBlank()) matches += address
                 }
-                when (matches.size) {
-                    0 -> { Log.d(TAG, "No email found for '$name'"); null }
-                    1 -> { Log.d(TAG, "Email resolved: '$name' → ${matches[0]}"); matches[0] }
-                    else -> { Log.d(TAG, "Multiple emails match '$name' — not pre-populating"); null }
-                }
+                .distinct()
+            when (matches.size) {
+                0 -> { Log.d(TAG, "No email found for '$name'"); null }
+                1 -> { Log.d(TAG, "Email resolved: '$name' → ${matches[0]}"); matches[0] }
+                else -> { Log.d(TAG, "Multiple emails match '$name' — not pre-populating"); null }
             }
         } catch (e: SecurityException) {
             Log.w(TAG, "READ_CONTACTS permission not granted — cannot resolve email for '$name'", e)
@@ -1466,6 +1484,27 @@ class NativeIntentHandler @Inject constructor(
             Log.w(TAG, "Email lookup failed for '$name'", e)
             null
         }
+    }
+
+    private fun queryContactEmails(
+        selection: String,
+        selectionArgs: Array<String>,
+    ): List<String> {
+        val uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI
+        val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Email.ADDRESS,
+            ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY,
+        )
+        return context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val address = cursor.getString(
+                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Email.ADDRESS),
+                    )
+                    if (!address.isNullOrBlank()) add(address)
+                }
+            }
+        }.orEmpty()
     }
 
     private fun looksLikeEmailAddress(raw: String): Boolean {

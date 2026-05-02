@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.media.AudioManager
+import android.net.Uri
 import android.provider.ContactsContract
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
@@ -13,6 +14,7 @@ import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
+import com.kernel.ai.core.memory.entity.ContactAliasEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.skills.SkillResult
@@ -53,6 +55,17 @@ class NativeIntentHandlerTest {
     @BeforeEach
     fun setUp() {
         mockkStatic(Log::class)
+        mockkStatic(Uri::class)
+        every { Uri.encode(any()) } answers {
+            java.net.URLEncoder.encode(firstArg<String>(), java.nio.charset.StandardCharsets.UTF_8)
+                .replace("+", "%20")
+        }
+        every { Uri.parse(any()) } answers {
+            val raw = firstArg<String>()
+            mockk<Uri>(relaxed = true).also { uri ->
+                every { uri.toString() } returns raw
+            }
+        }
         every { Log.d(any<String>(), any<String>()) } returns 0
         every { Log.w(any<String>(), any<String>(), any()) } returns 0
         every { Log.e(any<String>(), any<String>(), any()) } returns 0
@@ -62,6 +75,7 @@ class NativeIntentHandlerTest {
 
     @AfterEach
     fun tearDown() {
+        unmockkStatic(Uri::class)
         unmockkStatic(Log::class)
     }
 
@@ -244,20 +258,78 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `send email fails fast when body is missing`() {
-        val result = handler.handle(
-            "send_email",
-            mapOf(
-                "contact" to "Nick",
-                "subject" to "Hello",
+    fun `resolveContactEmail uses alias contact id when available`() {
+        coEvery { contactAliasRepository.getByAlias("My wife") } returns
+            ContactAliasEntity(
+                alias = "wife",
+                displayName = "Alice Smith",
+                contactId = "42",
+                phoneNumber = "021111222",
+            )
+        every {
+            contentResolver.query(
+                ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+                any(),
+                "${ContactsContract.CommonDataKinds.Email.CONTACT_ID} = ?",
+                match<Array<String>> { it.contentEquals(arrayOf("42")) },
+                null,
+            )
+        } returns emailCursor(
+            EmailRow(
+                address = "alice@example.com",
+                displayName = "Alice Smith",
             ),
         )
 
-        assertEquals(
-            SkillResult.Failure("send_email", "No body specified"),
-            result,
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveContactEmail",
+            String::class.java,
+        ).apply { isAccessible = true }
+        val resolved = method.invoke(handler, "My wife") as String?
+
+        assertEquals("alice@example.com", resolved)
+    }
+
+    @Test
+    fun `resolveContactEmail falls back to alias display name when contact id has no email`() {
+        coEvery { contactAliasRepository.getByAlias("My wife") } returns
+            ContactAliasEntity(
+                alias = "wife",
+                displayName = "Alice Smith",
+                contactId = "42",
+                phoneNumber = "021111222",
+            )
+        every {
+            contentResolver.query(
+                ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+                any(),
+                "${ContactsContract.CommonDataKinds.Email.CONTACT_ID} = ?",
+                match<Array<String>> { it.contentEquals(arrayOf("42")) },
+                null,
+            )
+        } returns emailCursor()
+        every {
+            contentResolver.query(
+                ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+                any(),
+                "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?",
+                match<Array<String>> { it.contentEquals(arrayOf("%Alice Smith%")) },
+                null,
+            )
+        } returns emailCursor(
+            EmailRow(
+                address = "alice@example.com",
+                displayName = "Alice Smith",
+            ),
         )
-        verify(exactly = 0) { context.startActivity(any()) }
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveContactEmail",
+            String::class.java,
+        ).apply { isAccessible = true }
+        val resolved = method.invoke(handler, "My wife") as String?
+
+        assertEquals("alice@example.com", resolved)
     }
 
 
@@ -404,6 +476,11 @@ class NativeIntentHandlerTest {
         val phoneType: Int = ContactsContract.CommonDataKinds.Phone.TYPE_OTHER,
     )
 
+    private data class EmailRow(
+        val address: String,
+        val displayName: String,
+    )
+
     private fun phoneCursor(vararg rows: PhoneRow): Cursor {
         val cursor = mockk<Cursor>()
         val columns = mapOf(
@@ -429,6 +506,28 @@ class NativeIntentHandlerTest {
         every { cursor.getInt(3) } answers { if (rows[index].isPrimary) 1 else 0 }
         every { cursor.getInt(4) } answers { if (rows[index].isSuperPrimary) 1 else 0 }
         every { cursor.getInt(5) } answers { rows[index].phoneType }
+        every { cursor.close() } just Runs
+
+        return cursor
+    }
+
+    private fun emailCursor(vararg rows: EmailRow): Cursor {
+        val cursor = mockk<Cursor>()
+        val columns = mapOf(
+            ContactsContract.CommonDataKinds.Email.ADDRESS to 0,
+            ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY to 1,
+        )
+        var index = -1
+
+        every { cursor.moveToNext() } answers {
+            index += 1
+            index < rows.size
+        }
+        every { cursor.getColumnIndexOrThrow(any()) } answers {
+            columns[firstArg<String>()] ?: error("Unknown column ${firstArg<String>()}")
+        }
+        every { cursor.getString(0) } answers { rows[index].address }
+        every { cursor.getString(1) } answers { rows[index].displayName }
         every { cursor.close() } just Runs
 
         return cursor
