@@ -212,7 +212,7 @@ Active follow-on model/runtime investigations now live under
 | [#662](https://github.com/NickMonrad/kernel-ai-assistant/issues/662) | Lists management upgrades (rename, pin, sort, edit items, favorites, due dates) | ⬜ Pending | 🟡 Medium |
 | [#676](https://github.com/NickMonrad/kernel-ai-assistant/issues/676) | Native unit conversion tool | ⬜ Pending | 🟡 Medium |
 | [#677](https://github.com/NickMonrad/kernel-ai-assistant/issues/677) | World clock and timezone lookup | ⬜ Pending | 🟢 Low |
-| [#697](https://github.com/NickMonrad/kernel-ai-assistant/issues/697) | Multi-day weather forecast card in chat | ⬜ Pending | 🟡 Medium |
+| [#697](https://github.com/NickMonrad/kernel-ai-assistant/issues/697) | Multi-day weather forecast card in chat | ✅ Done — PR #710 | 🟡 Medium |
 
 **Already completed skills:**
 - ✅ set_alarm (PR #257/#262, time param fix PR #339)
@@ -286,25 +286,27 @@ Lower-priority skill additions — third-party integrations and local utilities.
 
 ### 3G: Multi-turn Dialog Management ([#708](https://github.com/NickMonrad/kernel-ai-assistant/issues/708))
 
-Slot filling, disambiguation, confirmation, and context-switching — transforms single-shot command routing into a true conversational state machine.
+Deterministic multi-turn quick actions — slot filling and confirmation baseline for the current state-machine path.
 
 | Sub-Issue | Title | Status | Priority |
 |-----------|-------|--------|----------|
 | [#493](https://github.com/NickMonrad/kernel-ai-assistant/issues/493) | Multi-turn spike — slot fill loop for `send_sms` | ✅ Done (spike) | 🔴 High |
-| [#518](https://github.com/NickMonrad/kernel-ai-assistant/issues/518) | Research: dialog state machine patterns (Gemini brainstorm) | ⬜ Pending | 🟡 Medium |
-| [#522](https://github.com/NickMonrad/kernel-ai-assistant/issues/522) | Phase 2: full dialog management — 7 conversational paths, session stack, slot schemas for 9 intents | ✅ Done | 🔴 High |
+| [#518](https://github.com/NickMonrad/kernel-ai-assistant/issues/518) | Research: dialog state machine patterns (Gemini brainstorm) | ✅ Done (research consumed) | 🟡 Medium |
+| [#522](https://github.com/NickMonrad/kernel-ai-assistant/issues/522) | Phase 2: deterministic slot-fill + confirmation baseline (#493 follow-up) | ✅ Done | 🔴 High |
 | [#621](https://github.com/NickMonrad/kernel-ai-assistant/issues/621) | Dispatch pending intent on user confirmation (multi-turn QIR) | ✅ Done | 🔴 High |
 | [#620](https://github.com/NickMonrad/kernel-ai-assistant/issues/620) | Bypass `needsConfirmation` for no-param MiniLM matches | ✅ Done | 🔴 High |
-| [#591](https://github.com/NickMonrad/kernel-ai-assistant/issues/591) | NeedsSlot for remaining bare-query intents (`make_call`, `create_calendar_event`, etc.) | ⬜ Pending | 🟡 Medium |
-| [#601](https://github.com/NickMonrad/kernel-ai-assistant/issues/601) | Multi-slot: re-check for missing slots after each slot reply | ⬜ Pending | 🟡 Medium |
-| [#600](https://github.com/NickMonrad/kernel-ai-assistant/issues/600) | Slot fill spec: document expected multi-step interactions per intent | ⬜ Pending | 🟡 Medium |
-| [#599](https://github.com/NickMonrad/kernel-ai-assistant/issues/599) | Unit tests for ActionsViewModel slot-fill state machine | ⬜ Pending | 🟡 Medium |
+| [#591](https://github.com/NickMonrad/kernel-ai-assistant/issues/591) | NeedsSlot for remaining bare-query intents (`make_call`, `create_calendar_event`, etc.) | ✅ Done — PR #712 | 🟡 Medium |
+| [#601](https://github.com/NickMonrad/kernel-ai-assistant/issues/601) | Multi-slot: re-check for missing slots after each slot reply | ✅ Done — PR #712 | 🟡 Medium |
+| [#600](https://github.com/NickMonrad/kernel-ai-assistant/issues/600) | Slot fill spec: document expected multi-step interactions per intent | ✅ Done — PR #712 | 🟡 Medium |
+| [#599](https://github.com/NickMonrad/kernel-ai-assistant/issues/599) | Unit tests for ActionsViewModel slot-fill state machine | ✅ Done — PR #712 | 🟡 Medium |
 
-**Key design decisions (from #518 research):**
-- State machine: `IDLE → QIR_MATCH → SLOT_FILLING ↔ AWAITING_SLOT → CONFIRMING → EXECUTING`
-- Session stack for digressions (push/pop active intent when user switches topics mid-flow)
-- Confirmation required by default for high-stakes intents (SMS, call, email)
-- Max 3 slot-fill prompts before graceful abandon; explicit cancel always clears stack
+> Delivered scope today: deterministic slot-fill plus confirmation follow-through. Broader digression/session-stack and disambiguation ideas from the original research remain future design space, not shipped behavior.
+
+**Current takeaways from #518 research:**
+
+- Shipped baseline: `IDLE → QIR_MATCH → SLOT_FILLING ↔ AWAITING_SLOT → CONFIRMING → EXECUTING`
+- Future design space: session-stack digressions / resumptions
+- Future design space: broader prompt-limit and graceful-abandon policies beyond the current deterministic flow
 
 ---
 
@@ -502,19 +504,19 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#405](https://github.com/NickMonrad/kernel-ai-assistant/issues/405) | FallThrough bridge drops query — Chat opens blank | Phase 3 (bug) | ✅ Fixed — PR #410 (race condition fix) |
 | [#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407) | WebSearchSkill — Brave/Tavily API for LLM tool calling | Phase 3C | ⬜ Pending |
 | [#493](https://github.com/NickMonrad/kernel-ai-assistant/issues/493) | Multi-turn spike — slot fill loop, disambig chips | Phase 3G | ✅ Done (spike) |
-| [#518](https://github.com/NickMonrad/kernel-ai-assistant/issues/518) | Research: multi-turn dialog state machine patterns | Phase 3G | ⬜ Pending |
+| [#518](https://github.com/NickMonrad/kernel-ai-assistant/issues/518) | Research: multi-turn dialog state machine patterns | Phase 3G | ✅ Done (research consumed) |
 | [#519](https://github.com/NickMonrad/kernel-ai-assistant/issues/519) | User profile parser bugs + Phase 2b LLM extraction | Phase 3D | ✅ Done — PR #520 |
 | [#521](https://github.com/NickMonrad/kernel-ai-assistant/issues/521) | Media control intents: pause, stop, skip, previous | Phase 3H | ✅ Done — PR #520 |
-| [#522](https://github.com/NickMonrad/kernel-ai-assistant/issues/522) | Multi-turn dialog management — Phase 2 full implementation | Phase 3G | ✅ Done |
+| [#522](https://github.com/NickMonrad/kernel-ai-assistant/issues/522) | Deterministic slot-fill + confirmation baseline | Phase 3G | ✅ Done |
 | [#524](https://github.com/NickMonrad/kernel-ai-assistant/issues/524) | Add podcast patterns to QIR | Phase 3H | ✅ Done — PR #520 |
 | [#525](https://github.com/NickMonrad/kernel-ai-assistant/issues/525) | Timer management — list, pause, cancel individual timers | Phase 3H | ✅ Done — PR #520 |
 | [#526](https://github.com/NickMonrad/kernel-ai-assistant/issues/526) | Side panel: active alarms and timers in nav drawer | Phase 3H | ✅ Done — PR #530 |
 | [#529](https://github.com/NickMonrad/kernel-ai-assistant/issues/529) | Improve LLM tool selection for bulk list operations | Phase 3H | 🔄 Open — on-device verification needed |
-| [#591](https://github.com/NickMonrad/kernel-ai-assistant/issues/591) | NeedsSlot for remaining bare-query intents (`make_call`, `create_calendar_event`, etc.) | Phase 3G | ⬜ Pending |
+| [#591](https://github.com/NickMonrad/kernel-ai-assistant/issues/591) | NeedsSlot for remaining bare-query intents (`make_call`, `create_calendar_event`, etc.) | Phase 3G | ✅ Done — PR #712 |
 | [#593](https://github.com/NickMonrad/kernel-ai-assistant/issues/593) | Minor UX: icon on model download screen | Phase 3B | ✅ Done |
-| [#599](https://github.com/NickMonrad/kernel-ai-assistant/issues/599) | Unit tests for ActionsViewModel slot-fill state machine | Phase 3G | ⬜ Pending |
-| [#600](https://github.com/NickMonrad/kernel-ai-assistant/issues/600) | Slot fill spec: document expected multi-step interactions per intent | Phase 3G | ⬜ Pending |
-| [#601](https://github.com/NickMonrad/kernel-ai-assistant/issues/601) | Multi-slot: re-check for missing slots after each slot reply | Phase 3G | ⬜ Pending |
+| [#599](https://github.com/NickMonrad/kernel-ai-assistant/issues/599) | Unit tests for ActionsViewModel slot-fill state machine | Phase 3G | ✅ Done — PR #712 |
+| [#600](https://github.com/NickMonrad/kernel-ai-assistant/issues/600) | Slot fill spec: document expected multi-step interactions per intent | Phase 3G | ✅ Done — PR #712 |
+| [#601](https://github.com/NickMonrad/kernel-ai-assistant/issues/601) | Multi-slot: re-check for missing slots after each slot reply | Phase 3G | ✅ Done — PR #712 |
 | [#608](https://github.com/NickMonrad/kernel-ai-assistant/issues/608) | Colloquial weather phrases fall through to LLM instead of weather skill | Phase 3C | ✅ Done — PR #667 follow-up completed the routing/references path |
 | [#617](https://github.com/NickMonrad/kernel-ai-assistant/issues/617) | Homescreen widget for quick actions / voice | Phase 3F | ⬜ Pending |
 | [#619](https://github.com/NickMonrad/kernel-ai-assistant/issues/619) | `date_diff` tool — native date arithmetic (LLM arithmetic unreliable) | Phase 3C | ✅ Done |
