@@ -22,9 +22,15 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "NativeVoiceInput"
 
+private enum class RecognizerBackend {
+    OnDevice,
+    Platform,
+}
+
 @Singleton
 class NativeAndroidVoiceInputController @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val recognitionSupport: AndroidNativeRecognitionSupport,
 ) : VoiceInputController {
 
     private val _events = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 8)
@@ -44,26 +50,37 @@ class NativeAndroidVoiceInputController @Inject constructor(
     private var currentMode: VoiceCaptureMode? = null
 
     @Volatile
-    private var sessionCompleted = false
+    private var activeSessionId: Long = 0L
+
+    private var nextSessionId: Long = 0L
 
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         return withContext(Dispatchers.Main.immediate) {
             stopListeningInternal(emitStopped = false)
 
-            if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            val availability = recognitionSupport.getAvailability()
+            availability.blockingReason?.let { reason ->
+                Log.w(
+                    TAG,
+                    "Blocking Android native STT start: language=${availability.languageSummary} " +
+                        "localeStatus=${availability.localeStatus} reason=$reason",
+                )
                 return@withContext VoiceInputStartResult.Unavailable(
-                    "Android speech recognition is not available on this device.",
+                    reason,
                 )
             }
 
             try {
                 requestAudioFocus()
-                val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                val sessionId = ++nextSessionId
                 currentMode = mode
-                sessionCompleted = false
-                speechRecognizer = recognizer
-                recognizer.setRecognitionListener(SessionRecognitionListener(mode))
-                recognizer.startListening(buildRecognizerIntent())
+                activeSessionId = sessionId
+                startRecognizer(
+                    sessionId = sessionId,
+                    mode = mode,
+                    availability = availability,
+                    backend = RecognizerBackend.OnDevice,
+                )
                 _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
                 VoiceInputStartResult.Started
             } catch (e: Exception) {
@@ -78,16 +95,20 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
     override fun stopListening() {
         context.mainExecutor.execute {
-            stopListeningInternal(emitStopped = true)
+            stopListeningInternal(emitStopped = true, expectedSessionId = activeSessionId)
         }
     }
 
-    private fun stopListeningInternal(emitStopped: Boolean) {
+    private fun stopListeningInternal(emitStopped: Boolean, expectedSessionId: Long? = null) {
+        if (expectedSessionId != null && activeSessionId != expectedSessionId) {
+            return
+        }
+
         val mode = currentMode
         val recognizer = speechRecognizer
         speechRecognizer = null
         currentMode = null
-        sessionCompleted = true
+        activeSessionId = 0L
 
         recognizer?.apply {
             runCatching { stopListening() }
@@ -101,18 +122,79 @@ class NativeAndroidVoiceInputController @Inject constructor(
         }
     }
 
-    private fun buildRecognizerIntent(): Intent =
+    private fun buildRecognizerIntent(availability: AndroidNativeRecognitionAvailability): Intent =
         Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, context.resources.configuration.locales[0].toLanguageTag())
+            if (availability.localeStatus != AndroidNativeRecognitionLocaleStatus.Unknown) {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, availability.languageTag)
+            }
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
 
+    private fun startRecognizer(
+        sessionId: Long,
+        mode: VoiceCaptureMode,
+        availability: AndroidNativeRecognitionAvailability,
+        backend: RecognizerBackend,
+    ) {
+        val recognizer = when (backend) {
+            RecognizerBackend.OnDevice -> recognitionSupport.createOnDeviceSpeechRecognizer()
+            RecognizerBackend.Platform -> recognitionSupport.createPlatformSpeechRecognizer()
+        }
+        speechRecognizer = recognizer
+        Log.i(
+            TAG,
+            "Starting Android native STT: sessionId=$sessionId mode=$mode " +
+                "backend=$backend language=${availability.languageSummary} " +
+                "localeStatus=${availability.localeStatus} " +
+                "forceLanguage=${availability.localeStatus != AndroidNativeRecognitionLocaleStatus.Unknown}",
+        )
+        recognizer.setRecognitionListener(
+            SessionRecognitionListener(
+                sessionId = sessionId,
+                mode = mode,
+                availability = availability,
+                backend = backend,
+            ),
+        )
+        recognizer.startListening(buildRecognizerIntent(availability))
+    }
+
+    private fun retryWithPlatformRecognizer(
+        sessionId: Long,
+        mode: VoiceCaptureMode,
+        availability: AndroidNativeRecognitionAvailability,
+    ): Boolean {
+        if (activeSessionId != sessionId) return false
+
+        return runCatching {
+            speechRecognizer?.apply {
+                runCatching { cancel() }
+                runCatching { destroy() }
+            }
+            startRecognizer(
+                sessionId = sessionId,
+                mode = mode,
+                availability = availability,
+                backend = RecognizerBackend.Platform,
+            )
+            true
+        }.getOrElse { error ->
+            Log.e(TAG, "Failed to retry Android native STT with platform recognizer", error)
+            false
+        }
+    }
+
     private inner class SessionRecognitionListener(
+        private val sessionId: Long,
         private val mode: VoiceCaptureMode,
+        private val availability: AndroidNativeRecognitionAvailability,
+        private val backend: RecognizerBackend,
     ) : RecognitionListener {
+
+        private var sessionCompleted = false
 
         override fun onReadyForSpeech(params: Bundle?) = Unit
 
@@ -125,22 +207,49 @@ class NativeAndroidVoiceInputController @Inject constructor(
         override fun onEndOfSpeech() = Unit
 
         override fun onError(error: Int) {
-            if (sessionCompleted) return
+            if (sessionCompleted || activeSessionId != sessionId) return
+            if (
+                backend == RecognizerBackend.OnDevice &&
+                error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED &&
+                retryWithPlatformRecognizer(
+                    sessionId = sessionId,
+                    mode = mode,
+                    availability = availability,
+                )
+            ) {
+                sessionCompleted = true
+                Log.w(
+                    TAG,
+                    "On-device recognizer disconnected for sessionId=$sessionId; retried with platform recognizer",
+                )
+                return
+            }
             sessionCompleted = true
+            Log.w(
+                TAG,
+                "Android native STT error: sessionId=$sessionId mode=$mode error=$error " +
+                    "backend=$backend language=${availability.languageSummary} " +
+                    "localeStatus=${availability.localeStatus}",
+            )
             _events.tryEmit(
                 VoiceInputEvent.Error(
                     mode = mode,
-                    message = mapError(error),
+                    message = mapError(error, availability),
                 ),
             )
             _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
-            stopListeningInternal(emitStopped = false)
+            stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
         }
 
         override fun onResults(results: Bundle?) {
-            if (sessionCompleted) return
+            if (sessionCompleted || activeSessionId != sessionId) return
             val transcript = extractBestTranscript(results)
             sessionCompleted = true
+            Log.i(
+                TAG,
+                "Android native STT result: sessionId=$sessionId mode=$mode transcript='$transcript' " +
+                    "language=${availability.languageSummary}",
+            )
             if (transcript.isBlank()) {
                 _events.tryEmit(
                     VoiceInputEvent.Error(
@@ -152,13 +261,17 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 _events.tryEmit(VoiceInputEvent.Transcript(mode = mode, text = transcript))
             }
             _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
-            stopListeningInternal(emitStopped = false)
+            stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
-            if (sessionCompleted) return
+            if (sessionCompleted || activeSessionId != sessionId) return
             val transcript = extractBestTranscript(partialResults)
             if (transcript.isNotBlank()) {
+                Log.d(
+                    TAG,
+                    "Android native STT partial: sessionId=$sessionId mode=$mode transcript='$transcript'",
+                )
                 _events.tryEmit(VoiceInputEvent.PartialTranscript(mode = mode, text = transcript))
             }
         }
@@ -173,20 +286,24 @@ class NativeAndroidVoiceInputController @Inject constructor(
             ?.trim()
             .orEmpty()
 
-    private fun mapError(error: Int): String =
+    private fun mapError(
+        error: Int,
+        availability: AndroidNativeRecognitionAvailability,
+    ): String =
         when (error) {
             SpeechRecognizer.ERROR_AUDIO -> "Android speech recognition had an audio input problem."
             SpeechRecognizer.ERROR_CLIENT -> "Android speech recognition was interrupted by the app."
             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is required for Android speech recognition."
             SpeechRecognizer.ERROR_NETWORK,
             SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
-            -> "Android speech recognition needs network access or timed out while contacting the recognizer."
+            -> "Android speech recognition unexpectedly requested network access or timed out."
             SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "The current language is not supported by Android speech recognition."
             SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "The current language pack is unavailable for Android speech recognition."
             SpeechRecognizer.ERROR_NO_MATCH -> "Android speech recognition couldn't match what you said."
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Android speech recognition is already busy."
             SpeechRecognizer.ERROR_SERVER -> "Android speech recognition hit a service error."
-            SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> "Android speech recognition disconnected unexpectedly."
+            SpeechRecognizer.ERROR_SERVER_DISCONNECTED ->
+                "Android speech recognition disconnected unexpectedly while using ${availability.languageSummary}. This can happen when that on-device language is unsupported or not installed."
             SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "I didn't catch anything before Android speech recognition timed out."
             else -> "Android speech recognition failed with error code $error."
         }
