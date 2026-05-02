@@ -71,6 +71,12 @@ Baseline target:
 - transcript flows through the same routing path as typed input
 - empty/silence/error states are visible and recoverable
 
+Current branch status:
+
+- Quick Actions already ships with a push-to-talk mic entry point, microphone permission flow, and offline Vosk-backed transcription
+- transcripts route back through the existing `ActionsViewModel` Quick Actions path
+- the current manual device pass was sufficient to treat `#671` as complete on merge alongside `#672`
+
 #### 4. Implement spoken responses
 
 Primary issue: `#672`
