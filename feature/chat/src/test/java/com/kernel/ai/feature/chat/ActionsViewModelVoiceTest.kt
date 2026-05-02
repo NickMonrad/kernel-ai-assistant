@@ -181,6 +181,56 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice mode normalizes add a bridge item mishear before routing`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("add a bridge to my list", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals(
+            "bread",
+            voiceViewModel.pendingSlot.value?.request?.existingParams?.get("item"),
+        )
+        assertEquals(
+            "Which list should I add it to?",
+            voiceViewModel.pendingSlot.value?.request?.promptMessage,
+        )
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
+    fun `voice mode preserves legitimate bridge item before routing`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("add bridge to my shopping list") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "add bridge to my shopping list")
+
+        viewModel.executeAction("add bridge to my shopping list", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("add bridge to my shopping list") }
+        verify(exactly = 0) { quickIntentRouter.route("add bread to my shopping list") }
+    }
+
+    @Test
+    fun `voice mode preserves explicit a bridge item before routing`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("add a bridge to my shopping list") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "add a bridge to my shopping list")
+
+        viewModel.executeAction("add a bridge to my shopping list", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("add a bridge to my shopping list") }
+        verify(exactly = 0) { quickIntentRouter.route("add bread to my shopping list") }
+    }
+
+    @Test
     fun `voice mode speaks follow up slot prompt after first reply in multi slot flow`() = runTest(dispatcher) {
         val router = QuickIntentRouter()
         val voiceViewModel = ActionsViewModel(

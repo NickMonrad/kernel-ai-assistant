@@ -2186,7 +2186,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?(.+?)\s+list""",
+                """^add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+list(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2201,7 +2201,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """put\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(.+?)\s+list""",
+                """^put\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+list(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2229,7 +2229,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?list""",
+                """^(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+list(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
