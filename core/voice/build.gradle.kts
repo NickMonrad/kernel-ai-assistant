@@ -31,6 +31,7 @@ android {
 dependencies {
     implementation(libs.core.ktx)
     implementation(libs.coroutines.android)
+    implementation(libs.datastore.preferences)
     implementation(libs.vosk.android)
 
     implementation(libs.hilt.android)

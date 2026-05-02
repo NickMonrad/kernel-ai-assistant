@@ -8,24 +8,22 @@ import android.content.pm.PackageManager
 import androidx.core.content.FileProvider
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
-import io.mockk.Runs
-import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.cancelAndJoin
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -47,8 +45,17 @@ class AboutViewModelTest {
     private val applicationInfo: ApplicationInfo = mockk()
     private val packageManager: PackageManager = mockk()
     private val packageInfo: PackageInfo = mockk()
-    private val dataStore: DataStore<Preferences> = mockk()
     private val cacheDir: File = mockk()
+    private val preferencesState = MutableStateFlow<Preferences>(emptyPreferences())
+    private val dataStore: DataStore<Preferences> = object : DataStore<Preferences> {
+        override val data: Flow<Preferences> = preferencesState
+
+        override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
+            val updated = transform(preferencesState.value)
+            preferencesState.value = updated
+            return updated
+        }
+    }
 
     private lateinit var viewModel: AboutViewModel
 
@@ -64,7 +71,7 @@ class AboutViewModelTest {
         every { packageManager.getPackageInfo("com.kernel.ai.test", 0) } returns packageInfo
         every { cacheDir.absolutePath } returns "/data/user/0/com.kernel.ai.test/cache"
         every { cacheDir.mkdirs() } returns true
-        every { dataStore.data } returns kotlinx.coroutines.flow.flowOf(emptyMap<Preferences.Key<*>, Any>())
+        preferencesState.value = emptyPreferences()
         viewModel = AboutViewModel(context, dataStore)
     }
 
@@ -82,7 +89,7 @@ class AboutViewModelTest {
         every { cacheDir.listFiles() } returns emptyArray()
 
         val filenameSlot = slot<String>()
-        every { File(any(), capture(filenameSlot)) } answers {
+        every { File(any<File>(), capture(filenameSlot)) } answers {
             mockk<File>(relaxed = true) {
                 every { absolutePath } returns "/data/user/0/com.kernel.ai.test/cache/${filenameSlot.captured}"
                 every { writeText(any()) } returns Unit
@@ -117,7 +124,7 @@ class AboutViewModelTest {
             PackageManager.NameNotFoundException("not found")
 
         val filenameSlot = slot<String>()
-        every { File(any(), capture(filenameSlot)) } answers {
+        every { File(any<File>(), capture(filenameSlot)) } answers {
             mockk<File>(relaxed = true) {
                 every { absolutePath } returns "/data/user/0/com.kernel.ai.test/cache/${filenameSlot.captured}"
                 every { writeText(any()) } returns Unit
@@ -143,7 +150,7 @@ class AboutViewModelTest {
         every { FileProvider.getUriForFile(any(), any(), any()) } returns mockk()
 
         every { cacheDir.listFiles() } returns emptyArray()
-        every { File(any(), any()) } answers {
+        every { File(any<File>(), any<String>()) } answers {
             mockk<File>(relaxed = true) {
                 every { writeText(any()) } throws RuntimeException("disk full")
             }
@@ -167,7 +174,7 @@ class AboutViewModelTest {
         every { cacheDir.listFiles() } returns emptyArray()
 
         val filenames = mutableListOf<String>()
-        every { File(any(), any()) } answers {
+        every { File(any<File>(), any<String>()) } answers {
             val filename = it.invocation.args[1] as String
             filenames.add(filename)
             mockk<File>(relaxed = true) {
@@ -197,7 +204,7 @@ class AboutViewModelTest {
         every { Intent.createChooser(capture(intentCaptor), any()) } answers { firstArg<Intent>() }
         every { cacheDir.listFiles() } returns emptyArray()
 
-        every { File(any(), any()) } answers {
+        every { File(any<File>(), any<String>()) } answers {
             mockk<File>(relaxed = true) {
                 every { absolutePath } returns "/data/user/0/com.kernel.ai.test/cache/test.txt"
                 every { writeText(any()) } returns Unit
@@ -223,7 +230,7 @@ class AboutViewModelTest {
         every { Intent.createChooser(any(), any()) } answers { firstArg<Intent>() }
         every { cacheDir.listFiles() } returns emptyArray()
 
-        every { File(any(), any()) } answers {
+        every { File(any<File>(), any<String>()) } answers {
             mockk<File>(relaxed = true) {
                 every { absolutePath } returns "/data/user/0/com.kernel.ai.test/cache/test.txt"
                 every { writeText(any()) } returns Unit
@@ -258,7 +265,7 @@ class AboutViewModelTest {
         every { Intent.createChooser(any(), any()) } answers { firstArg<Intent>() }
         every { cacheDir.listFiles() } returns emptyArray()
 
-        every { File(any(), any()) } answers {
+        every { File(any<File>(), any<String>()) } answers {
             mockk<File>(relaxed = true) {
                 every { absolutePath } returns "/data/user/0/com.kernel.ai.test/cache/test.txt"
                 every { writeText(any()) } returns Unit
@@ -287,11 +294,10 @@ class AboutViewModelTest {
 
     @Test
     fun `setVerboseLogging updates ui state immediately`() = testScope.runTest {
-        coEvery { dataStore.updateData(any()) } returns emptyPreferences()
-
         viewModel.setVerboseLogging(false)
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(false, viewModel.uiState.value.verboseLogging)
     }
+
 }

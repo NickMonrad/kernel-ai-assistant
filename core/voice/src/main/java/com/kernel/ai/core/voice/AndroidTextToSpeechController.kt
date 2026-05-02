@@ -1,5 +1,8 @@
 package com.kernel.ai.core.voice
 
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.content.Context
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
@@ -29,6 +32,9 @@ class AndroidTextToSpeechController @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _events = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
     override val events: Flow<VoiceOutputEvent> = _events.asSharedFlow()
+    private val audioManager by lazy {
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
 
     @Volatile
     private var textToSpeech: TextToSpeech? = null
@@ -41,6 +47,17 @@ class AndroidTextToSpeechController @Inject constructor(
 
     @Volatile
     private var activeUtteranceText: String? = null
+
+    @Volatile
+    private var audioFocusRequest: AudioFocusRequest? = null
+
+    override suspend fun warmUp(): VoiceOutputResult {
+        return if (ensureReady() != null) {
+            VoiceOutputResult.Spoken
+        } else {
+            VoiceOutputResult.Unavailable("Text-to-speech is unavailable on this device.")
+        }
+    }
 
     override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult {
         val engine = ensureReady() ?: return VoiceOutputResult.Unavailable(
@@ -56,6 +73,7 @@ class AndroidTextToSpeechController @Inject constructor(
         }
 
         engine.language = locale
+        requestAudioFocus()
         val utteranceId = request.utteranceId ?: "kernel-voice-${System.nanoTime()}"
         activeUtteranceId = utteranceId
         activeUtteranceText = request.text
@@ -68,6 +86,7 @@ class AndroidTextToSpeechController @Inject constructor(
         return if (result == TextToSpeech.ERROR) {
             activeUtteranceId = null
             activeUtteranceText = null
+            releaseAudioFocus()
             VoiceOutputResult.Unavailable("Text-to-speech failed to start.")
         } else {
             VoiceOutputResult.Spoken
@@ -80,6 +99,7 @@ class AndroidTextToSpeechController @Inject constructor(
             textToSpeech?.stop()
             activeUtteranceId = null
             activeUtteranceText = null
+            releaseAudioFocus()
             if (hadActiveUtterance) {
                 _events.emit(VoiceOutputEvent.SpeakingStopped)
             }
@@ -100,6 +120,12 @@ class AndroidTextToSpeechController @Inject constructor(
         val engine = TextToSpeech(context) { status ->
             if (!deferred.isCompleted) deferred.complete(status)
         }
+        engine.setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+        )
         engine.setOnUtteranceProgressListener(
             object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
@@ -149,6 +175,31 @@ class AndroidTextToSpeechController @Inject constructor(
         if (utteranceId != activeUtteranceId) return
         activeUtteranceId = null
         activeUtteranceText = null
+        releaseAudioFocus()
         _events.tryEmit(VoiceOutputEvent.SpeakingStopped)
+    }
+
+    private fun requestAudioFocus() {
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .setAcceptsDelayedFocusGain(false)
+            .setWillPauseWhenDucked(false)
+            .setOnAudioFocusChangeListener { }
+            .build()
+        audioFocusRequest = request
+        val result = audioManager.requestAudioFocus(request)
+        if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            Log.w(TAG, "TextToSpeech audio focus request not granted: $result")
+        }
+    }
+
+    private fun releaseAudioFocus() {
+        audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        audioFocusRequest = null
     }
 }

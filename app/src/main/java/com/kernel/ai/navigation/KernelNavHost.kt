@@ -51,6 +51,7 @@ import com.kernel.ai.feature.settings.ScheduledAlarmsScreen
 import com.kernel.ai.feature.settings.SettingsScreen
 import com.kernel.ai.feature.settings.SidePanelScreen
 import com.kernel.ai.feature.settings.UserProfileScreen
+import com.kernel.ai.feature.settings.VoiceScreen
 import kotlinx.coroutines.launch
 
 private const val ROUTE_LIST = "conversation_list"
@@ -61,6 +62,7 @@ private const val ROUTE_CHAT = "chat"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_USER_PROFILE = "settings/user_profile"
 private const val ROUTE_MEMORY = "settings/memory"
+private const val ROUTE_VOICE = "settings/voice"
 private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
 private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management?scrollTo={scrollTo}"
 private const val ARG_SCROLL_TO = "scrollTo"
@@ -357,6 +359,9 @@ fun KernelNavHost(
                         onNavigateToMemory = {
                             navController.navigate(ROUTE_MEMORY)
                         },
+                        onNavigateToVoice = {
+                            navController.navigate(ROUTE_VOICE)
+                        },
                         onNavigateToModelSettings = {
                             navController.navigate(ROUTE_MODEL_SETTINGS)
                         },
@@ -378,6 +383,12 @@ fun KernelNavHost(
 
                 composable(ROUTE_MEMORY) {
                     MemoryScreen(
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(ROUTE_VOICE) {
+                    VoiceScreen(
                         onBack = { navController.popBackStack() },
                     )
                 }

@@ -23,6 +23,8 @@ sealed interface VoiceOutputEvent {
 interface VoiceOutputController {
     val events: Flow<VoiceOutputEvent> get() = emptyFlow()
 
+    suspend fun warmUp(): VoiceOutputResult = VoiceOutputResult.Spoken
+
     suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult
 
     fun stop()

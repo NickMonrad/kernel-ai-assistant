@@ -55,6 +55,7 @@ fun SettingsScreen(
     onBack: () -> Unit = {},
     onNavigateToUserProfile: () -> Unit = {},
     onNavigateToMemory: () -> Unit = {},
+    onNavigateToVoice: () -> Unit = {},
     onNavigateToModelSettings: () -> Unit = {},
     onNavigateToModelManagement: (preferred: Boolean) -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
@@ -188,6 +189,17 @@ fun SettingsScreen(
                 headlineContent = { Text("Memory") },
                 supportingContent = { Text("Manage stored memories") },
                 leadingContent = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToVoice() },
+                headlineContent = { Text("Voice") },
+                supportingContent = { Text("Speech and spoken response settings") },
+                leadingContent = { Icon(Icons.Default.Tune, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()
@@ -342,5 +354,4 @@ private fun HuggingFaceAccountRowNotSignedInPreview() {
         )
     }
 }
-
 
