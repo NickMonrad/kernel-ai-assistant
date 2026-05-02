@@ -814,6 +814,9 @@ class ActionsViewModel @Inject constructor(
         VOICE_ADD_BRIDGE_ITEM_TO_LIST.matchEntire(text)?.let { match ->
             return "add bread to ${match.groupValues[1]}list"
         }
+        VOICE_ADD_BRED_TO_LIST_MISHEAR.matchEntire(text)?.let { match ->
+            return "add bread to ${match.groupValues[1]}list"
+        }
         VOICE_ADD_BREAD_TO_LIST_MISHEAR.matchEntire(text)?.let { match ->
             return "add bread to ${match.groupValues[1]}list"
         }
@@ -909,6 +912,10 @@ class ActionsViewModel @Inject constructor(
         )
         val VOICE_ADD_BRIDGE_ITEM_TO_LIST = Regex(
             """^add\s+a\s+bridge\s+to\s+((?:(?:my|the)\s+)?)list$""",
+            RegexOption.IGNORE_CASE,
+        )
+        val VOICE_ADD_BRED_TO_LIST_MISHEAR = Regex(
+            """^(?:and|add)\s+bred\s+to\s+((?:(?:my|the)\s+)?)last$""",
             RegexOption.IGNORE_CASE,
         )
         val VOICE_ADD_BREAD_TO_LIST_MISHEAR = Regex(

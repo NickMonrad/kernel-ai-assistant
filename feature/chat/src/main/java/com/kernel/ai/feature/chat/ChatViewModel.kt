@@ -102,6 +102,11 @@ class ChatViewModel @Inject constructor(
 
     /** Passed via nav arg; null means "start a new conversation". */
     private val navConversationId: String? = savedStateHandle["conversationId"]
+    /**
+    * One-shot flag for Actions-tab LLM fallthroughs. Those handoffs must start with a minimal
+    * system prompt and skip RAG retrieval, even when the transcript no longer looks tool-like.
+    */
+    private var forceMinimalContextForNextMessage: Boolean = savedStateHandle["minimalContext"] ?: false
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     private val _inputText = MutableStateFlow("")
@@ -400,6 +405,20 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private suspend fun resetInferenceForFreshConversation() {
+        // A brand-new chat route must not inherit the singleton inference session's KV cache
+        // or a stripped-down temporary prompt from the previous conversation.
+        estimatedTokensUsed = 0
+        turnsSinceReset = 0
+        needsHistoryReplay = false
+        pendingConfirmationIntent = null
+        if (inferenceEngine.isReady.value) {
+            inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+        } else {
+            inferenceEngine.resetConversation()
+        }
+    }
+
     private suspend fun initializeConversation() {
         try {
             val isFreshConversation = navConversationId == null
@@ -410,14 +429,7 @@ class ChatViewModel @Inject constructor(
             savedStateHandle["conversationId"] = id
 
             if (isFreshConversation) {
-                // A brand-new chat route must not inherit the singleton inference session's KV cache
-                // from whichever conversation ran previously. Start with an empty model session so
-                // Actions-tab fallthroughs and "new conversation" launches cannot bleed old context.
-                estimatedTokensUsed = 0
-                turnsSinceReset = 0
-                needsHistoryReplay = false
-                pendingConfirmationIntent = null
-                inferenceEngine.resetConversation()
+                resetInferenceForFreshConversation()
             }
 
             // Load persisted title immediately so UI shows it on back-navigation.
@@ -673,6 +685,9 @@ class ChatViewModel @Inject constructor(
             // tool (run_intent, get_weather, etc.) — suppresses RAG indexing for both the user
             // message and the LLM response to prevent stale device state in future RAG (#614).
             var isDeviceActionExchange = false
+            // Actions-tab fallthroughs temporarily swap the system prompt to MINIMAL; mark the
+            // next turn for a history replay so normal chat can restore the full prompt safely.
+            var restoreFullPromptAfterTurn = false
             // Hoisted so the Complete handler can index the user message after knowing whether
             // any device-action tools were called during LLM inference.
             var savedUserMsgId = ""
@@ -936,13 +951,6 @@ class ChatViewModel @Inject constructor(
             activeStreamingContent = accumulatedContent
             activeStreamingThinking = accumulatedThinking
 
-            val ragContext = ragRepository.getRelevantContext(
-                query = text,
-                conversationId = convId,
-                maxTokens = ContextWindowManager.episodicBudget(activeContextWindowSize),
-            )
-            val ragTokenCost = contextWindowManager.estimateTokens(ragContext)
-
             // Proactive context reset: if we're at ~75% of the token budget, reset
             // the conversation and replay history to avoid LiteRT locking up.
             val tokenBudget = activeContextWindowSize
@@ -957,20 +965,36 @@ class ChatViewModel @Inject constructor(
             // Context stripping for tool-routable queries (#438, #481).
             // When the router had a best-guess intent (FallThrough with non-null bestGuess)
             // or the query matches known tool-trigger keywords, strip the Jandal personality
-            // and RAG context to free ~1000 tokens for tool-call reasoning. These queries
-            // don't benefit from episodic memory or cultural tone — they need clear headspace.
+            // and RAG context to free ~1000 tokens for tool-call reasoning. Actions-tab
+            // fallthroughs also force this path because the transcript may already be garbled.
             val priorMessages = _messages.value.dropLast(2) // exclude just-added user + placeholder
             val previousAssistant = priorMessages.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
             val previousUser = priorMessages.lastOrNull { it.role == ChatMessage.Role.USER }?.content
             val isToolFollowUp = looksLikeToolFollowUp(text, previousUser, previousAssistant)
-            val isToolQuery = (routeResult is QuickIntentRouter.RouteResult.FallThrough &&
-                routeResult.bestGuess != null) ||
+            val forceMinimalContext = forceMinimalContextForNextMessage
+            if (forceMinimalContext) {
+                forceMinimalContextForNextMessage = false
+                savedStateHandle["minimalContext"] = false
+            }
+            val isToolQuery = forceMinimalContext ||
+                (routeResult is QuickIntentRouter.RouteResult.FallThrough && routeResult.bestGuess != null) ||
                 looksLikeToolQuery(text) ||
                 isToolFollowUp
             isToolQueryForTurn = isToolQuery
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
-            val effectiveRagContext = if (isToolQuery) "" else ragContext
-            val effectiveRagTokenCost = if (isToolQuery) 0 else ragTokenCost
+            val effectiveRagContext: String
+            val effectiveRagTokenCost: Int
+            if (isToolQuery) {
+                effectiveRagContext = ""
+                effectiveRagTokenCost = 0
+            } else {
+                effectiveRagContext = ragRepository.getRelevantContext(
+                    query = text,
+                    conversationId = convId,
+                    maxTokens = ContextWindowManager.episodicBudget(activeContextWindowSize),
+                )
+                effectiveRagTokenCost = contextWindowManager.estimateTokens(effectiveRagContext)
+            }
 
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
             // the previous turn to resolve what "that/it/this" refers to. Inject the last
@@ -1007,6 +1031,12 @@ class ChatViewModel @Inject constructor(
                 } + effectiveRagTokenCost
                 turnsSinceReset = 0
             } else {
+                if (forceMinimalContext) {
+                    inferenceEngine.updateSystemPrompt(
+                        buildSystemPrompt(isFirstReply = isFirstReply, identityTier = IdentityTier.MINIMAL)
+                    )
+                    restoreFullPromptAfterTurn = true
+                }
                 estimatedTokensUsed += effectiveRagTokenCost
             }
 
@@ -1287,6 +1317,10 @@ class ChatViewModel @Inject constructor(
                 activeStreamingMsgId = null
                 activeStreamingContent = StringBuilder()
                 activeStreamingThinking = StringBuilder()
+            } finally {
+                if (restoreFullPromptAfterTurn) {
+                    needsHistoryReplay = true
+                }
             }
         }
     }
@@ -1343,11 +1377,7 @@ class ChatViewModel @Inject constructor(
             _conversationTitle.value = null
             titleGenerationStarted = false
             titleIsPlaceholder = false
-            estimatedTokensUsed = 0
-            turnsSinceReset = 0
-            needsHistoryReplay = false
-            pendingConfirmationIntent = null
-            inferenceEngine.resetConversation()
+            resetInferenceForFreshConversation()
         }
     }
 

@@ -181,6 +181,32 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice mode normalizes and bred to my last before routing`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("and bred to my last", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals(
+            "bread",
+            voiceViewModel.pendingSlot.value?.request?.existingParams?.get("item"),
+        )
+        assertEquals(
+            "Which list should I add it to?",
+            voiceViewModel.pendingSlot.value?.request?.promptMessage,
+        )
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
     fun `voice mode normalizes add a bridge item mishear before routing`() = runTest(dispatcher) {
         val router = QuickIntentRouter()
         val voiceViewModel = ActionsViewModel(

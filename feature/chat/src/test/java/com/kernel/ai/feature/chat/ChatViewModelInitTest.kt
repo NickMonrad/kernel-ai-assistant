@@ -4,9 +4,12 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import com.google.ai.edge.litertlm.ToolProvider
 import com.kernel.ai.core.inference.BackendType
+import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
+import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.inference.JandalPersona
+import com.kernel.ai.core.inference.MINIMAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
@@ -37,15 +40,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModelInitTest {
     private val dispatcher = StandardTestDispatcher()
@@ -167,5 +171,112 @@ class ChatViewModelInitTest {
 
         coVerify(exactly = 0) { conversationRepository.createConversation() }
         coVerify(exactly = 0) { inferenceEngine.resetConversation() }
+    }
+
+    @Test
+    fun `actions fallthrough initial query uses minimal prompt and skips rag`() = runTest(dispatcher) {
+        val systemPrompts = mutableListOf<String>()
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.generate(any()) } returns
+            flowOf(GenerationResult.Token("Hi"), GenerationResult.Complete(durationMs = 1L))
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            systemPrompts += firstArg<String>()
+        }
+        coEvery { ragRepository.getRelevantContext(any(), any(), any()) } returns "memory context"
+        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
+            listOf("user-msg", "assistant-msg")
+        every { quickIntentRouter.route("and bred to my last") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "and bred to my last")
+
+        val savedStateHandle = SavedStateHandle(
+            mapOf(
+                "minimalContext" to true,
+            ),
+        )
+
+        val viewModel = ChatViewModel(
+            savedStateHandle = savedStateHandle,
+            inferenceEngine = inferenceEngine,
+            downloadManager = downloadManager,
+            conversationRepository = conversationRepository,
+            ragRepository = ragRepository,
+            userProfileRepository = userProfileRepository,
+            memoryRepository = memoryRepository,
+            episodicDistillationUseCase = episodicDistillationUseCase,
+            modelSettingsRepository = modelSettingsRepository,
+            skillRegistry = skillRegistry,
+            skillExecutor = skillExecutor,
+            quickIntentRouter = quickIntentRouter,
+            slotFillerManager = slotFillerManager,
+            kernelAIToolSet = kernelAIToolSet,
+            toolProvider = toolProvider,
+            embeddingEngine = embeddingEngine,
+            jandalPersona = jandalPersona,
+            nzTruthSeedingService = nzTruthSeedingService,
+            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        )
+
+        advanceUntilIdle()
+        viewModel.onInputChanged("and bred to my last")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(
+            systemPrompts.any { prompt ->
+                prompt.contains(MINIMAL_SYSTEM_PROMPT) &&
+                    !prompt.contains("[User Profile]") &&
+                    !prompt.contains("[Previous conversation context]")
+            },
+            systemPrompts.joinToString(separator = "\n---\n"),
+        )
+        assertTrue(savedStateHandle.get<Boolean>("minimalContext") == false)
+        coVerify(exactly = 0) { ragRepository.getRelevantContext(any(), any(), any()) }
+    }
+
+
+    @Test
+    fun `starting new conversation restores full prompt after minimal handoff`() = runTest(dispatcher) {
+        val systemPrompts = mutableListOf<String>()
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.generate(any()) } returns
+            flowOf(GenerationResult.Token("Hi"), GenerationResult.Complete(durationMs = 1L))
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            systemPrompts += firstArg<String>()
+        }
+        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
+            listOf("user-msg", "assistant-msg")
+        every { quickIntentRouter.route("and bred to my last") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "and bred to my last")
+
+        val viewModel = ChatViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("minimalContext" to true)),
+            inferenceEngine = inferenceEngine,
+            downloadManager = downloadManager,
+            conversationRepository = conversationRepository,
+            ragRepository = ragRepository,
+            userProfileRepository = userProfileRepository,
+            memoryRepository = memoryRepository,
+            episodicDistillationUseCase = episodicDistillationUseCase,
+            modelSettingsRepository = modelSettingsRepository,
+            skillRegistry = skillRegistry,
+            skillExecutor = skillExecutor,
+            quickIntentRouter = quickIntentRouter,
+            slotFillerManager = slotFillerManager,
+            kernelAIToolSet = kernelAIToolSet,
+            toolProvider = toolProvider,
+            embeddingEngine = embeddingEngine,
+            jandalPersona = jandalPersona,
+            nzTruthSeedingService = nzTruthSeedingService,
+            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        )
+
+        advanceUntilIdle()
+        viewModel.onInputChanged("and bred to my last")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+        viewModel.startNewConversation()
+        advanceUntilIdle()
+
+        assertTrue(systemPrompts.last().contains(DEFAULT_SYSTEM_PROMPT), systemPrompts.joinToString(separator = "\n---\n"))
     }
 }
