@@ -43,6 +43,8 @@ class VoiceViewModelTest {
             AndroidNativeRecognitionAvailability(
                 isRecognitionAvailable = true,
                 isOnDeviceRecognitionAvailable = true,
+                languageTag = "en-NZ",
+                languageDisplayName = "English (New Zealand)",
             )
         every { voiceInputPreferences.selectedEngine } returns selectedInputEngine
         coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
@@ -73,11 +75,23 @@ class VoiceViewModelTest {
     }
 
     @Test
+    fun `android native language summary is exposed from recognizer support`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            "English (New Zealand) (en-NZ)",
+            viewModel.uiState.value.androidNativeLanguageSummary,
+        )
+    }
+
+    @Test
     fun `android native availability message is exposed when on-device recognizer is unavailable`() = runTest {
         every { androidNativeRecognitionSupport.getAvailability() } returns
             AndroidNativeRecognitionAvailability(
                 isRecognitionAvailable = true,
                 isOnDeviceRecognitionAvailable = false,
+                languageTag = "en-US",
+                languageDisplayName = "English (United States)",
             )
 
         viewModel = VoiceViewModel(

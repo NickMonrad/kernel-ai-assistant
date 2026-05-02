@@ -111,10 +111,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
     private fun buildRecognizerIntent(): Intent =
         Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            val availability = recognitionSupport.getAvailability()
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, context.resources.configuration.locales[0].toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, availability.languageTag)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
 

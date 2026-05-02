@@ -66,12 +66,24 @@ fun VoiceScreen(
                         uiState.androidNativeAvailabilityMessage ?: engine.warning
                     else -> engine.warning
                 }
+                val languageSummary = when (engine) {
+                    VoiceInputEngine.AndroidNative -> uiState.androidNativeLanguageSummary
+                    else -> null
+                }
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
                     supportingContent = {
                         Column {
                             Text(engine.description)
+                            if (languageSummary != null) {
+                                Text(
+                                    text = "Language: $languageSummary",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
                             if (engine == VoiceInputEngine.AndroidNative && warning != null) {
                                 Text(
                                     text = warning,

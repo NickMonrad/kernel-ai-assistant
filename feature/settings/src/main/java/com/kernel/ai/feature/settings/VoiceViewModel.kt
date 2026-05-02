@@ -18,6 +18,7 @@ data class VoiceUiState(
     val spokenResponsesEnabled: Boolean = true,
     val selectedInputEngine: VoiceInputEngine = VoiceInputEngine.Vosk,
     val androidNativeAvailabilityMessage: String? = null,
+    val androidNativeLanguageSummary: String? = null,
 )
 
 @HiltViewModel
@@ -32,10 +33,10 @@ class VoiceViewModel @Inject constructor(
 
     init {
         _uiState.update {
+            val availability = androidNativeRecognitionSupport.getAvailability()
             it.copy(
-                androidNativeAvailabilityMessage = androidNativeRecognitionSupport
-                    .getAvailability()
-                    .unavailableReason,
+                androidNativeAvailabilityMessage = availability.unavailableReason,
+                androidNativeLanguageSummary = availability.languageSummary,
             )
         }
         viewModelScope.launch {
