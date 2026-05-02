@@ -161,7 +161,7 @@ fun ScheduledAlarmsScreen(
                         onToggle = {
                             viewModel.toggleEnabled(alarm) { success ->
                                 if (!success) {
-                                    schedulingError = "Exact alarms are unavailable right now."
+                                    schedulingError = "Couldn't update the alarm."
                                 }
                             }
                         },
@@ -187,7 +187,7 @@ fun ScheduledAlarmsScreen(
                             schedulingError = "Clock app opened. Because exact alarms are unavailable, this alarm will be managed by your system clock and won't appear in Jandal's managed list."
                         }
                         AlarmSaveResult.FAILED -> {
-                            schedulingError = "Exact alarms are unavailable right now."
+                            schedulingError = "Couldn't save the alarm."
                         }
                     }
                 }
@@ -211,7 +211,7 @@ fun ScheduledAlarmsScreen(
                             schedulingError = "Clock app opened. The existing Jandal alarm was left unchanged; delete or disable it manually if you no longer want it."
                         }
                         AlarmSaveResult.FAILED -> {
-                            schedulingError = "Exact alarms are unavailable right now."
+                            schedulingError = "Couldn't save the alarm."
                         }
                     }
                 }

@@ -90,12 +90,22 @@ class ClockRepositoryImpl @Inject constructor(
         val updated = existing.copy(enabled = enabled)
         if (enabled) {
             if (!scheduler.getPlatformState().canScheduleExactAlarms) return false
+            if (updated.triggerAtMillis <= System.currentTimeMillis()) return false
             scheduler.schedule(updated.toScheduledEvent())
         } else {
             scheduler.cancel(existing.toScheduledEvent())
         }
-        scheduledAlarmDao.setEnabled(alarmId, enabled)
-        return true
+        return try {
+            scheduledAlarmDao.setEnabled(alarmId, enabled)
+            true
+        } catch (_: Exception) {
+            if (enabled) {
+                scheduler.cancel(updated.toScheduledEvent())
+            } else if (existing.enabled) {
+                scheduler.schedule(existing.toScheduledEvent())
+            }
+            false
+        }
     }
 
     override suspend fun cancelAlarm(alarmId: String) {
@@ -128,6 +138,7 @@ class ClockRepositoryImpl @Inject constructor(
         val matches = scheduledAlarmDao.getUnfiredFuture(now)
             .asSequence()
             .filter { it.entryType == ClockEventType.ALARM.name }
+            .filter { it.enabled }
             .filter { it.label?.equals(label, ignoreCase = true) == true }
             .map { it.withDefaultOwnerId() }
             .toList()
@@ -166,6 +177,15 @@ class ClockRepositoryImpl @Inject constructor(
         val existing = scheduledAlarmDao.getById(timerId)?.withDefaultOwnerId() ?: return
         scheduler.cancel(existing.toScheduledEvent())
         scheduledAlarmDao.delete(timerId)
+    }
+
+    override suspend fun recordDeliveredEvent(eventId: String) {
+        val existing = scheduledAlarmDao.getById(eventId)?.withDefaultOwnerId() ?: return
+        if (existing.entryType == ClockEventType.TIMER.name) {
+            scheduledAlarmDao.delete(eventId)
+        } else {
+            scheduledAlarmDao.markFired(eventId)
+        }
     }
 
     override suspend fun cancelTimers(timerIds: Collection<String>) {

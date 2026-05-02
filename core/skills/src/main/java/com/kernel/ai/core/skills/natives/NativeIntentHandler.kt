@@ -392,7 +392,11 @@ class NativeIntentHandler @Inject constructor(
         val label = params["label"]?.takeIf { it.isNotBlank() }
         val scheduled = runBlocking {
             clockRepository.scheduleTimer(durationMs, label)
-        } ?: return SkillResult.Failure("run_intent", "Exact alarms are unavailable right now.")
+        } ?: return if (!clockRepository.getPlatformState().canScheduleExactAlarms) {
+            SkillResult.Failure("run_intent", "Exact alarms are unavailable right now.")
+        } else {
+            SkillResult.Failure("run_intent", "Could not schedule the timer.")
+        }
         val mins = (scheduled.durationMs / 1000) / 60
         val secs = (scheduled.durationMs / 1000) % 60
         val labelStr = when {
@@ -1526,20 +1530,25 @@ class NativeIntentHandler @Inject constructor(
         if (label != null) {
             val cancelled = runBlocking { clockRepository.cancelAlarmsByLabel(label) }
             if (cancelled > 0) {
-                return SkillResult.Success(
-                    if (cancelled > 1) "Cancelled $cancelled app alarms matching $label."
-                    else "Cancelled app alarm: $label."
-                )
+                val internalMessage = if (cancelled > 1) {
+                    "Cancelled $cancelled app alarms matching $label."
+                } else {
+                    "Cancelled app alarm: $label."
+                }
+                return dismissAlarmInClockApp(label, internalMessage)
             }
         } else {
             val nextAlarm = runBlocking { clockRepository.cancelNextAlarm() }
             if (nextAlarm != null) {
-                return SkillResult.Success(
-                    "Cancelled next app alarm${nextAlarm.label?.let { value -> ": $value" } ?: ""}."
-                )
+                val internalMessage = "Cancelled next app alarm${nextAlarm.label?.let { value -> ": $value" } ?: ""}."
+                return nextAlarm.label?.let { dismissAlarmInClockApp(it, internalMessage) }
+                    ?: SkillResult.Success(internalMessage)
             }
         }
+        return dismissAlarmInClockApp(label)
+    }
 
+    private fun dismissAlarmInClockApp(label: String?, prefixMessage: String? = null): SkillResult {
         val intent = Intent(AlarmClock.ACTION_DISMISS_ALARM).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
             if (label != null) {
@@ -1556,9 +1565,10 @@ class NativeIntentHandler @Inject constructor(
             } else {
                 "Opening alarms to cancel"
             }
-            SkillResult.Success(clockMessage)
+            SkillResult.Success(listOfNotNull(prefixMessage, clockMessage).joinToString(" "))
         } catch (e: ActivityNotFoundException) {
-            SkillResult.Failure("cancel_alarm", "No clock app found")
+            prefixMessage?.let { SkillResult.Success(it) }
+                ?: SkillResult.Failure("cancel_alarm", "No clock app found")
         }
     }
 

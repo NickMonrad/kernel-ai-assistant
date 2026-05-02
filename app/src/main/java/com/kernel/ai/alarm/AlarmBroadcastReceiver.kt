@@ -31,14 +31,12 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
         val alarmId = intent.getStringExtra(EXTRA_ALARM_ID) ?: return
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "Alarm"
 
-        if (title == "Timer") {
-            val pendingResult = goAsync()
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    clockRepository.cancelTimer(alarmId)
-                } finally {
-                    pendingResult.finish()
-                }
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                clockRepository.recordDeliveredEvent(alarmId)
+            } finally {
+                pendingResult.finish()
             }
         }
 

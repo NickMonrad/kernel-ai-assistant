@@ -27,16 +27,12 @@ interface ClockRepository {
     suspend fun cancelAlarmsByLabel(label: String): Int
 
     suspend fun scheduleTimer(durationMs: Long, label: String?): ClockTimer?
-
     suspend fun cancelTimer(timerId: String)
-
+    suspend fun recordDeliveredEvent(eventId: String)
     suspend fun cancelTimers(timerIds: Collection<String>)
-
     suspend fun cancelAllTimers(): Int
-
     suspend fun cancelTimersMatching(name: String?, durationMs: Long?): Int
-
     suspend fun getAllTimers(): List<ClockTimer>
-
     suspend fun restoreScheduledEntries(nowMillis: Long = System.currentTimeMillis()): ClockRestoreReport
+
 }
