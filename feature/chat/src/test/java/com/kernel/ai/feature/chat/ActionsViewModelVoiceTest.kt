@@ -156,6 +156,7 @@ class ActionsViewModelVoiceTest {
             quickActionDao = quickActionDao,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -208,6 +209,44 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         coVerify { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        verify(exactly = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `stale slot reply auto restart is cancelled when a newer follow up prompt starts`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("send an email", InputMode.Voice)
+        advanceUntilIdle()
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        runCurrent()
+
+        voiceViewModel.onSlotReply("Nick")
+        advanceUntilIdle()
+
+        advanceTimeBy(351)
+        runCurrent()
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        runCurrent()
+        advanceTimeBy(351)
+        runCurrent()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
     }
 
     @Test
@@ -318,6 +357,36 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+    }
+
+    @Test
+    fun `disabling spoken responses during slot prompt does not reopen microphone`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("send a text message to my wife") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_sms",
+                    params = mapOf("contact" to "my wife"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "message",
+                    promptTemplate = "What would you like to say to {contact}?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+
+        spokenResponsesEnabled.value = false
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        runCurrent()
+        advanceTimeBy(351)
+        runCurrent()
+
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
     }
 
     @Test

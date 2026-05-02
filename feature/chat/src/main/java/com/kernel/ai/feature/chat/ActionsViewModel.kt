@@ -22,6 +22,7 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -131,6 +132,7 @@ class ActionsViewModel @Inject constructor(
     private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
     private var shouldAutoStartVoiceSlotReply = false
+    private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var spokenResponsesEnabled = true
 
@@ -141,6 +143,8 @@ class ActionsViewModel @Inject constructor(
                 if (enabled) {
                     voiceOutputController.warmUp()
                 } else {
+                    shouldAutoStartVoiceSlotReply = false
+                    cancelPendingVoiceSlotReplyRestart()
                     voiceOutputController.stop()
                 }
             }
@@ -194,6 +198,7 @@ class ActionsViewModel @Inject constructor(
             voiceOutputController.events.collect { event ->
                 when (event) {
                     is VoiceOutputEvent.SpeakingStarted -> {
+                        cancelPendingVoiceSlotReplyRestart()
                         _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
@@ -204,13 +209,17 @@ class ActionsViewModel @Inject constructor(
                             _voiceCaptureState.value == VoiceCaptureState.Idle
                         ) {
                             shouldAutoStartVoiceSlotReply = false
-                            viewModelScope.launch {
+                            cancelPendingVoiceSlotReplyRestart()
+                            pendingVoiceSlotReplyRestartJob = viewModelScope.launch {
                                 delay(SLOT_REPLY_REARM_DELAY_MS)
                                 if (
                                     _pendingSlot.value?.inputMode == InputMode.Voice &&
                                     _voiceCaptureState.value == VoiceCaptureState.Idle
                                 ) {
-                                    startVoiceCapture(VoiceCaptureMode.SlotReply)
+                                    startVoiceCapture(
+                                        mode = VoiceCaptureMode.SlotReply,
+                                        interruptPlayback = false,
+                                    )
                                 }
                             }
                         }
@@ -239,12 +248,14 @@ class ActionsViewModel @Inject constructor(
 
     fun stopVoiceOutput() {
         shouldAutoStartVoiceSlotReply = false
+        cancelPendingVoiceSlotReplyRestart()
         voiceOutputController.stop()
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
     fun pauseTransientVoiceUi() {
         shouldAutoStartVoiceSlotReply = false
+        cancelPendingVoiceSlotReplyRestart()
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
         voiceOutputController.stop()
@@ -446,6 +457,7 @@ class ActionsViewModel @Inject constructor(
     /** Silently dismiss the slot-fill sheet with no log entry. */
     fun cancelSlotFill() {
         shouldAutoStartVoiceSlotReply = false
+        cancelPendingVoiceSlotReplyRestart()
         _pendingSlot.value = null
         stopVoiceCapture()
         voiceOutputController.stop()
@@ -586,9 +598,15 @@ class ActionsViewModel @Inject constructor(
             result.error == PHONE_PERMISSION_REQUIRED_ERROR
     }
 
-    private fun startVoiceCapture(mode: VoiceCaptureMode) {
+    private fun startVoiceCapture(
+        mode: VoiceCaptureMode,
+        interruptPlayback: Boolean = true,
+    ) {
+        cancelPendingVoiceSlotReplyRestart()
         _error.value = null
-        voiceOutputController.stop()
+        if (interruptPlayback) {
+            voiceOutputController.stop()
+        }
         _voiceCaptureState.value = VoiceCaptureState.Preparing(mode)
         viewModelScope.launch {
             when (val result = voiceInputController.startListening(mode)) {
@@ -610,12 +628,18 @@ class ActionsViewModel @Inject constructor(
         if (!spokenResponsesEnabled) return
         val summary = toSpokenSummary(text)
         if (summary.isBlank()) return
+        cancelPendingVoiceSlotReplyRestart()
         viewModelScope.launch {
             when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = summary))) {
                 is VoiceOutputResult.Spoken -> Unit
                 is VoiceOutputResult.Unavailable -> _error.value = result.message
             }
         }
+    }
+
+    private fun cancelPendingVoiceSlotReplyRestart() {
+        pendingVoiceSlotReplyRestartJob?.cancel()
+        pendingVoiceSlotReplyRestartJob = null
     }
 
     private fun toSpokenSummary(text: String): String {

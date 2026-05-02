@@ -11,6 +11,7 @@ import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputPreferences
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
@@ -20,6 +21,7 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -44,7 +46,9 @@ class ActionsViewModelTest {
     private val quickActionDao: QuickActionDao = mockk()
     private val voiceInputController: VoiceInputController = mockk()
     private val voiceOutputController: VoiceOutputController = mockk()
+    private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val insertedActions = mutableListOf<QuickActionEntity>()
+    private val spokenResponsesEnabled = MutableStateFlow(false)
 
     private lateinit var viewModel: ActionsViewModel
 
@@ -61,6 +65,7 @@ class ActionsViewModelTest {
         every { voiceInputController.stopListening() } just Runs
         every { voiceOutputController.events } returns emptyFlow()
         every { voiceOutputController.stop() } just Runs
+        every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         every { skillRegistry.get(any()) } answers {
             when (firstArg<String>()) {
                 "run_intent" -> CapturingRunIntentSkill.default
@@ -73,6 +78,7 @@ class ActionsViewModelTest {
             quickActionDao = quickActionDao,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
         )
     }
 
