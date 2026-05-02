@@ -273,7 +273,7 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | Sub-Issue | Title | Status | Priority |
 |-----------|-------|--------|----------|
 | [#671](https://github.com/NickMonrad/kernel-ai-assistant/issues/671) | Offline push-to-talk voice input foundation | ⬜ Pending | 🟡 Medium |
-| [#672](https://github.com/NickMonrad/kernel-ai-assistant/issues/672) | Generic spoken response / TTS foundation | ⬜ Pending | 🟡 Medium |
+| [#672](https://github.com/NickMonrad/kernel-ai-assistant/issues/672) | Generic spoken response / TTS foundation | ✅ Done — PR #711 | 🟡 Medium |
 | [#678](https://github.com/NickMonrad/kernel-ai-assistant/issues/678) | Optional native Android STT engine alongside Vosk | ⬜ Pending | 🟡 Medium |
 | [#700](https://github.com/NickMonrad/kernel-ai-assistant/issues/700) | Parakeet CTC STT evaluation | ⬜ Pending | 🟡 Medium |
 | [#703](https://github.com/NickMonrad/kernel-ai-assistant/issues/703) | Whisper.cpp vs Vosk + staged vision follow-up | ⬜ Pending | 🟡 Medium |
