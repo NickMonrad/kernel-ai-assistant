@@ -148,6 +148,35 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice mode normalizes add-to-list list mishear before routing`() = runTest(dispatcher) {
+        val router = QuickIntentRouter()
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = router,
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+        )
+
+        voiceViewModel.executeAction("add milk to my last", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals(
+            "Which list should I add it to?",
+            voiceViewModel.pendingSlot.value?.request?.promptMessage,
+        )
+        coVerify {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> {
+                    it.text == "Which list should I add it to?"
+                }
+            )
+        }
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
+
+    @Test
     fun `voice mode speaks follow up slot prompt after first reply in multi slot flow`() = runTest(dispatcher) {
         val router = QuickIntentRouter()
         val voiceViewModel = ActionsViewModel(

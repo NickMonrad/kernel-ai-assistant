@@ -702,7 +702,11 @@ class ActionsViewModel @Inject constructor(
         if (normalized != original) {
             Log.d(TAG, "ActionsViewModel: normalized voice command \"$original\" -> \"$normalized\"")
         }
-        val listEllipsisMatch = VOICE_ADD_TO_LIST_WITHOUT_VERB.matchEntire(normalized)
+        val normalizedListCommand = normalizeListVoiceMishears(normalized)
+        if (normalizedListCommand != normalized) {
+            Log.d(TAG, "ActionsViewModel: normalized list voice command \"$normalized\" -> \"$normalizedListCommand\"")
+        }
+        val listEllipsisMatch = VOICE_ADD_TO_LIST_WITHOUT_VERB.matchEntire(normalizedListCommand)
         if (listEllipsisMatch != null) {
             val item = listEllipsisMatch.groupValues[1].trim()
             val listName = listEllipsisMatch.groupValues[2].trim()
@@ -711,7 +715,7 @@ class ActionsViewModel @Inject constructor(
                 return "add $item to $listName list"
             }
         }
-        return normalized
+        return normalizedListCommand
     }
 
     private fun normalizeAlarmTimeFragments(text: String): String {
@@ -806,6 +810,11 @@ class ActionsViewModel @Inject constructor(
         return normalized
     }
 
+    private fun normalizeListVoiceMishears(text: String): String {
+        val addToListLastMatch = VOICE_ADD_TO_LIST_ENDING_LAST.matchEntire(text) ?: return text
+        return addToListLastMatch.groupValues[1] + "list"
+    }
+
     private fun normalizeVoiceSlotReply(text: String, slotName: String): String {
         val trimmed = text.trim()
         if (trimmed.isBlank()) return trimmed
@@ -887,6 +896,10 @@ class ActionsViewModel @Inject constructor(
     private companion object {
         val VOICE_ADD_TO_LIST_WITHOUT_VERB = Regex(
             """^(.+?)\s+to\s+(?:(?:my|the)\s+)?(.+?)\s+list$""",
+            RegexOption.IGNORE_CASE,
+        )
+        val VOICE_ADD_TO_LIST_ENDING_LAST = Regex(
+            """^((?:add\s+.+?\s+to|put\s+.+?\s+on|(?:chuck|stick|bung|pop|toss)\s+.+?\s+on)\s+(?:(?:my|the)\s+)?)last$""",
             RegexOption.IGNORE_CASE,
         )
         val SPOKEN_TIME_PHRASE = Regex(
