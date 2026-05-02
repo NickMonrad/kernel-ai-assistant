@@ -36,7 +36,7 @@ class VoiceViewModel @Inject constructor(
             val availability = androidNativeRecognitionSupport.getAvailability()
             _uiState.update {
                 it.copy(
-                    androidNativeAvailabilityMessage = availability.unavailableReason,
+                    androidNativeAvailabilityMessage = availability.warningMessage,
                     androidNativeLanguageSummary = availability.languageSummary,
                 )
             }

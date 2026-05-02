@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 class AndroidNativeRecognitionSupportTest {
@@ -45,5 +46,39 @@ class AndroidNativeRecognitionSupportTest {
                 onlineLanguages = emptyList(),
             ),
         )
+    }
+
+    @Test
+    fun `unknown locale support warns without blocking start`() {
+        val availability = AndroidNativeRecognitionAvailability(
+            isRecognitionAvailable = true,
+            isOnDeviceRecognitionAvailable = true,
+            languageTag = "en-AU",
+            languageDisplayName = "English (Australia)",
+            localeStatus = AndroidNativeRecognitionLocaleStatus.Unknown,
+        )
+
+        assertNull(availability.blockingReason)
+        assertEquals(
+            "Android native speech recognition could not verify on-device support for English (Australia) on this device. It may fail unless that language is supported and installed locally.",
+            availability.warningMessage,
+        )
+    }
+
+    @Test
+    fun `unsupported locale still blocks start`() {
+        val availability = AndroidNativeRecognitionAvailability(
+            isRecognitionAvailable = true,
+            isOnDeviceRecognitionAvailable = true,
+            languageTag = "en-NZ",
+            languageDisplayName = "English (New Zealand)",
+            localeStatus = AndroidNativeRecognitionLocaleStatus.NotSupported,
+        )
+
+        assertEquals(
+            "English (New Zealand) is not supported by Android native speech recognition on this device.",
+            availability.blockingReason,
+        )
+        assertEquals(availability.blockingReason, availability.warningMessage)
     }
 }

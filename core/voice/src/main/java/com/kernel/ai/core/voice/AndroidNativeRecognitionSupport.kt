@@ -23,7 +23,7 @@ data class AndroidNativeRecognitionAvailability(
     val languageDisplayName: String,
     val localeStatus: AndroidNativeRecognitionLocaleStatus = AndroidNativeRecognitionLocaleStatus.Ready,
 ) {
-    val unavailableReason: String?
+    val blockingReason: String?
         get() = when {
             !isRecognitionAvailable -> "Android speech recognition is not available on this device."
             !isOnDeviceRecognitionAvailable -> "On-device Android speech recognition is unavailable for the current setup. Install the required language pack or keep using Vosk for guaranteed local voice input."
@@ -31,6 +31,12 @@ data class AndroidNativeRecognitionAvailability(
                 "$languageDisplayName is not supported by Android native speech recognition on this device."
             localeStatus == AndroidNativeRecognitionLocaleStatus.Unavailable ->
                 "$languageDisplayName is supported, but its Android native speech recognition language pack is not available on this device yet."
+            else -> null
+        }
+
+    val warningMessage: String?
+        get() = when {
+            blockingReason != null -> blockingReason
             localeStatus == AndroidNativeRecognitionLocaleStatus.Unknown ->
                 "Android native speech recognition could not verify on-device support for $languageDisplayName on this device. It may fail unless that language is supported and installed locally."
             else -> null
