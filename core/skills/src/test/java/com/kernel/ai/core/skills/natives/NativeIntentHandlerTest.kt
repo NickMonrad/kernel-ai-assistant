@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.media.AudioManager
+import android.net.Uri
 import android.provider.ContactsContract
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
@@ -13,8 +14,12 @@ import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
+import com.kernel.ai.core.memory.entity.ContactAliasEntity
+import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.skills.SkillResult
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -33,12 +38,15 @@ class NativeIntentHandlerTest {
     private val context = mockk<Context>(relaxed = true)
     private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val contactAliasRepository = mockk<ContactAliasRepository>(relaxed = true)
+    private val scheduledAlarmDao = mockk<ScheduledAlarmDao>(relaxed = true)
+    private val listItemDao = mockk<ListItemDao>(relaxed = true)
+    private val listNameDao = mockk<ListNameDao>(relaxed = true)
 
     private val handler = NativeIntentHandler(
         context = context,
-        scheduledAlarmDao = mockk<ScheduledAlarmDao>(relaxed = true),
-        listItemDao = mockk<ListItemDao>(relaxed = true),
-        listNameDao = mockk<ListNameDao>(relaxed = true),
+        scheduledAlarmDao = scheduledAlarmDao,
+        listItemDao = listItemDao,
+        listNameDao = listNameDao,
         contactAliasRepository = contactAliasRepository,
         memoryRepository = mockk<MemoryRepository>(relaxed = true),
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
@@ -47,14 +55,27 @@ class NativeIntentHandlerTest {
     @BeforeEach
     fun setUp() {
         mockkStatic(Log::class)
+        mockkStatic(Uri::class)
+        every { Uri.encode(any()) } answers {
+            java.net.URLEncoder.encode(firstArg<String>(), java.nio.charset.StandardCharsets.UTF_8)
+                .replace("+", "%20")
+        }
+        every { Uri.parse(any()) } answers {
+            val raw = firstArg<String>()
+            mockk<Uri>(relaxed = true).also { uri ->
+                every { uri.toString() } returns raw
+            }
+        }
         every { Log.d(any<String>(), any<String>()) } returns 0
         every { Log.w(any<String>(), any<String>(), any()) } returns 0
         every { Log.e(any<String>(), any<String>(), any()) } returns 0
         every { context.contentResolver } returns contentResolver
+        every { context.startActivity(any()) } just Runs
     }
 
     @AfterEach
     fun tearDown() {
+        unmockkStatic(Uri::class)
         unmockkStatic(Log::class)
     }
 
@@ -220,6 +241,193 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `send email fails fast when contact is missing`() {
+        val result = handler.handle(
+            "send_email",
+            mapOf(
+                "subject" to "Hello",
+                "body" to "World",
+            ),
+        )
+
+        assertEquals(
+            SkillResult.Failure("send_email", "No contact specified"),
+            result,
+        )
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `resolveContactEmail uses alias contact id when available`() {
+        coEvery { contactAliasRepository.getByAlias("My wife") } returns
+            ContactAliasEntity(
+                alias = "wife",
+                displayName = "Alice Smith",
+                contactId = "42",
+                phoneNumber = "021111222",
+            )
+        every {
+            contentResolver.query(
+                ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+                any(),
+                "${ContactsContract.CommonDataKinds.Email.CONTACT_ID} = ?",
+                match<Array<String>> { it.contentEquals(arrayOf("42")) },
+                null,
+            )
+        } returns emailCursor(
+            EmailRow(
+                address = "alice@example.com",
+                displayName = "Alice Smith",
+            ),
+        )
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveContactEmail",
+            String::class.java,
+        ).apply { isAccessible = true }
+        val resolved = method.invoke(handler, "My wife") as String?
+
+        assertEquals("alice@example.com", resolved)
+    }
+
+    @Test
+    fun `resolveContactEmail falls back to alias display name when contact id has no email`() {
+        coEvery { contactAliasRepository.getByAlias("My wife") } returns
+            ContactAliasEntity(
+                alias = "wife",
+                displayName = "Alice Smith",
+                contactId = "42",
+                phoneNumber = "021111222",
+            )
+        every {
+            contentResolver.query(
+                ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+                any(),
+                "${ContactsContract.CommonDataKinds.Email.CONTACT_ID} = ?",
+                match<Array<String>> { it.contentEquals(arrayOf("42")) },
+                null,
+            )
+        } returns emailCursor()
+        every {
+            contentResolver.query(
+                ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+                any(),
+                "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?",
+                match<Array<String>> { it.contentEquals(arrayOf("%Alice Smith%")) },
+                null,
+            )
+        } returns emailCursor(
+            EmailRow(
+                address = "alice@example.com",
+                displayName = "Alice Smith",
+            ),
+        )
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveContactEmail",
+            String::class.java,
+        ).apply { isAccessible = true }
+        val resolved = method.invoke(handler, "My wife") as String?
+
+        assertEquals("alice@example.com", resolved)
+    }
+
+
+    @Test
+    fun `add to list fails fast when list name is missing`() {
+        val result = handler.handle(
+            "add_to_list",
+            mapOf("item" to "milk"),
+        )
+
+        assertEquals(
+            SkillResult.Failure("add_to_list", "No list name specified"),
+            result,
+        )
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+        coVerify(exactly = 0) { listItemDao.insert(any()) }
+    }
+
+    @Test
+    fun `shopping list aliases resolve to the same stored list`() {
+        coEvery { listItemDao.getByList("shopping list") } returnsMany
+            listOf(
+                emptyList(),
+                listOf(ListItemEntity(listName = "shopping list", item = "milk")),
+            )
+
+        val addResult = handler.handle(
+            "add_to_list",
+            mapOf(
+                "item" to "milk",
+                "list_name" to "shopping list",
+            ),
+        )
+        val readResult = handler.handle(
+            "get_list_items",
+            mapOf("list_name" to "shopping"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "Added \"milk\" to your shopping list.",
+                presentation = addResult.let { (it as SkillResult.DirectReply).presentation },
+            ),
+            addResult,
+        )
+        assertEquals(
+            SkillResult.DirectReply(
+                "shopping list (1 item):\n• milk",
+                presentation = readResult.let { (it as SkillResult.DirectReply).presentation },
+            ),
+            readResult,
+        )
+        coVerify(exactly = 2) { listItemDao.getByList("shopping list") }
+    }
+
+    @Test
+    fun `create list shares canonical shopping alias with add and get`() {
+        coEvery { listItemDao.getByList("shopping list") } returnsMany
+            listOf(
+                emptyList(),
+                listOf(ListItemEntity(listName = "shopping list", item = "milk")),
+            )
+
+        val createResult = handler.handle(
+            "create_list",
+            mapOf("list_name" to "shopping"),
+        )
+        handler.handle(
+            "add_to_list",
+            mapOf(
+                "item" to "milk",
+                "list_name" to "shopping list",
+            ),
+        )
+        val readResult = handler.handle(
+            "get_list_items",
+            mapOf("list_name" to "shopping"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "Created list \"shopping list\".",
+                presentation = createResult.let { (it as SkillResult.DirectReply).presentation },
+            ),
+            createResult,
+        )
+        assertEquals(
+            SkillResult.DirectReply(
+                "shopping list (1 item):\n• milk",
+                presentation = readResult.let { (it as SkillResult.DirectReply).presentation },
+            ),
+            readResult,
+        )
+        coVerify(atLeast = 1) { listNameDao.insert(match { it.name == "shopping list" }) }
+        coVerify(exactly = 2) { listItemDao.getByList("shopping list") }
+    }
+
+    @Test
     fun `playYoutubeMusic launches app and sends play key for generic music query`() {
         val packageManager = mockk<PackageManager>(relaxed = true)
         val audioManager = mockk<AudioManager>(relaxed = true)
@@ -268,6 +476,11 @@ class NativeIntentHandlerTest {
         val phoneType: Int = ContactsContract.CommonDataKinds.Phone.TYPE_OTHER,
     )
 
+    private data class EmailRow(
+        val address: String,
+        val displayName: String,
+    )
+
     private fun phoneCursor(vararg rows: PhoneRow): Cursor {
         val cursor = mockk<Cursor>()
         val columns = mapOf(
@@ -293,6 +506,28 @@ class NativeIntentHandlerTest {
         every { cursor.getInt(3) } answers { if (rows[index].isPrimary) 1 else 0 }
         every { cursor.getInt(4) } answers { if (rows[index].isSuperPrimary) 1 else 0 }
         every { cursor.getInt(5) } answers { rows[index].phoneType }
+        every { cursor.close() } just Runs
+
+        return cursor
+    }
+
+    private fun emailCursor(vararg rows: EmailRow): Cursor {
+        val cursor = mockk<Cursor>()
+        val columns = mapOf(
+            ContactsContract.CommonDataKinds.Email.ADDRESS to 0,
+            ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY to 1,
+        )
+        var index = -1
+
+        every { cursor.moveToNext() } answers {
+            index += 1
+            index < rows.size
+        }
+        every { cursor.getColumnIndexOrThrow(any()) } answers {
+            columns[firstArg<String>()] ?: error("Unknown column ${firstArg<String>()}")
+        }
+        every { cursor.getString(0) } answers { rows[index].address }
+        every { cursor.getString(1) } answers { rows[index].displayName }
         every { cursor.close() } just Runs
 
         return cursor

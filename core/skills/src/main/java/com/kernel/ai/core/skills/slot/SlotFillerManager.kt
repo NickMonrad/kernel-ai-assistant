@@ -1,10 +1,11 @@
 package com.kernel.ai.core.skills.slot
 
+import com.kernel.ai.core.skills.QuickIntentRouter
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * State machine that manages multi-turn slot-filling for quick intents.
+ * State machine that manages multi-turn slot-filling for quick intents in conversation mode.
  *
  * **Flow:**
  * 1. [QuickIntentRouter.route] returns [QuickIntentRouter.RouteResult.NeedsSlot] when a
@@ -13,8 +14,9 @@ import javax.inject.Singleton
  *    [PendingSlotRequest.promptMessage] as an assistant bubble.
  * 3. On the user's next message, [ChatViewModel] detects [hasPending] and calls
  *    [onUserReply] *instead* of routing to QIR or the LLM.
- * 4. [onUserReply] returns [SlotFillResult.Completed] with the merged params, or
- *    [SlotFillResult.Cancelled] if the user sent a blank reply.
+ * 4. [onUserReply] merges the reply, asks [QuickIntentRouter.nextMissingSlot], and either
+ *    returns [SlotFillResult.NeedsMore] with the next prompt or [SlotFillResult.Completed]
+ *    with the fully merged params.
  * 5. [ChatViewModel] executes the completed intent exactly as it would a direct QIR match.
  *
  * This class is a `@Singleton` so it survives configuration changes alongside ChatViewModel.
@@ -22,38 +24,63 @@ import javax.inject.Singleton
  * is a recoverable UX edge case (user simply re-asks).
  */
 @Singleton
-class SlotFillerManager @Inject constructor() {
+class SlotFillerManager @Inject constructor(
+    private val quickIntentRouter: QuickIntentRouter,
+ ) {
 
-    private var _pendingRequest: PendingSlotRequest? = null
+    private val pendingRequests = mutableMapOf<String, PendingSlotRequest>()
 
-    val hasPending: Boolean get() = _pendingRequest != null
+    val hasPending: Boolean get() = pendingRequests.isNotEmpty()
 
-    val pendingRequest: PendingSlotRequest? get() = _pendingRequest
+    fun hasPendingFor(conversationId: String): Boolean = pendingRequests.containsKey(conversationId)
 
-    fun startSlotFill(request: PendingSlotRequest) {
-        _pendingRequest = request
+    val pendingRequest: PendingSlotRequest? get() = pendingRequests.values.firstOrNull()
+
+    fun pendingRequestFor(conversationId: String): PendingSlotRequest? = pendingRequests[conversationId]
+
+    fun startSlotFill(conversationId: String, request: PendingSlotRequest) {
+        pendingRequests[conversationId] = request
     }
+
 
     /**
      * Called with the user's reply when a slot fill is in progress.
      *
-     * @return [SlotFillResult.Completed] with all params merged, or
+     * @return [SlotFillResult.Completed] with all params merged when the slot contract is
+     *         satisfied, [SlotFillResult.NeedsMore] when another required slot remains, or
      *         [SlotFillResult.Cancelled] if [message] is blank.
      */
-    fun onUserReply(message: String): SlotFillResult {
-        val pending = _pendingRequest ?: return SlotFillResult.Cancelled
-        _pendingRequest = null
-        return if (message.isBlank()) {
-            SlotFillResult.Cancelled
+    fun onUserReply(conversationId: String, message: String): SlotFillResult {
+        val pending = pendingRequests[conversationId] ?: return SlotFillResult.Cancelled
+        val normalizedMessage = normalizeSlotReply(message, pending.missingSlot.name)
+        if (normalizedMessage.isBlank()) {
+            pendingRequests.remove(conversationId)
+            return SlotFillResult.Cancelled
+        }
+
+        val mergedParams = pending.existingParams + mapOf(pending.missingSlot.name to normalizedMessage)
+        val nextMissingSlot = quickIntentRouter.nextMissingSlot(
+            intentName = pending.intentName,
+            params = mergedParams,
+        )
+        return if (nextMissingSlot != null) {
+            val nextRequest = PendingSlotRequest(
+                intentName = pending.intentName,
+                existingParams = mergedParams,
+                missingSlot = nextMissingSlot,
+            )
+            pendingRequests[conversationId] = nextRequest
+            SlotFillResult.NeedsMore(nextRequest)
         } else {
+            pendingRequests.remove(conversationId)
             SlotFillResult.Completed(
                 intentName = pending.intentName,
-                params = pending.existingParams + mapOf(pending.missingSlot.name to message.trim()),
+                params = mergedParams,
             )
         }
     }
 
     fun cancel() {
-        _pendingRequest = null
+        pendingRequests.clear()
     }
 }
