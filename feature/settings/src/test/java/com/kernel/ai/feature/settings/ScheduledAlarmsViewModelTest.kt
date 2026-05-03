@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
 import io.mockk.coEvery
@@ -35,7 +36,7 @@ class ScheduledAlarmsViewModelTest {
     @Test
     fun `scheduleAlarm returns false when repository rejects exact alarm`() = runTest {
         every { clockRepository.observeUpcomingAlarms() } returns emptyFlow()
-        coEvery { clockRepository.scheduleAlarm(any(), any()) } returns null
+        coEvery { clockRepository.createAlarm(any()) } returns null
         val viewModel = ScheduledAlarmsViewModel(clockRepository)
 
         val result = viewModel.tryScheduleAlarm(1_234L, "Wake")
@@ -46,7 +47,7 @@ class ScheduledAlarmsViewModelTest {
     @Test
     fun `scheduleAlarm reports failure when repository cannot store alarm`() = runTest {
         every { clockRepository.observeUpcomingAlarms() } returns emptyFlow()
-        coEvery { clockRepository.scheduleAlarm(any(), any()) } returns null
+        coEvery { clockRepository.createAlarm(any()) } returns null
         val viewModel = ScheduledAlarmsViewModel(clockRepository)
         var result: AlarmSaveResult? = null
 
@@ -60,13 +61,17 @@ class ScheduledAlarmsViewModelTest {
     fun `editAlarm returns true when repository accepts update`() = runTest {
         val alarm = ClockAlarm(
             id = "alarm-1",
-            triggerAtMillis = 1_234L,
             label = "Wake",
             createdAtMillis = 100L,
             enabled = true,
+            hour = 7,
+            minute = 0,
+            repeatRule = AlarmRepeatRule.OneOff(19_000L),
+            timeZoneId = java.time.ZoneId.systemDefault().id,
+            triggerAtMillis = 1_234L,
         )
         every { clockRepository.observeUpcomingAlarms() } returns emptyFlow()
-        coEvery { clockRepository.editAlarm(alarm.id, any(), any()) } returns alarm
+        coEvery { clockRepository.updateAlarm(alarm.id, any()) } returns alarm
         val viewModel = ScheduledAlarmsViewModel(clockRepository)
 
         val result = viewModel.tryEditAlarm(alarm, 2_345L, "Updated")

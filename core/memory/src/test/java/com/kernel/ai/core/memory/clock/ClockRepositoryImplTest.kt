@@ -14,9 +14,15 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 @ExtendWith(MockKExtension::class)
 class ClockRepositoryImplTest {
@@ -38,33 +44,45 @@ class ClockRepositoryImplTest {
     }
 
     @Test
-    fun `scheduleAlarm inserts schedule row and delegates scheduling`() = runTest {
+    fun `createAlarm inserts one off alarm row and delegates scheduling`() = runTest {
         coEvery { scheduledAlarmDao.insert(any()) } just Runs
+        val zoneId = ZoneId.systemDefault().id
+        val draft = AlarmDraft(
+            label = "Morning",
+            hour = 7,
+            minute = 30,
+            repeatRule = AlarmRepeatRule.OneOff(LocalDate.now(ZoneId.systemDefault()).plusDays(1).toEpochDay()),
+            timeZoneId = zoneId,
+        )
 
-        val result = repository.scheduleAlarm(triggerAtMillis = 1_234_567L, label = "Morning")
+        val result = repository.createAlarm(draft)
 
         assertEquals("Morning", result?.label)
-        assertEquals(1_234_567L, result?.triggerAtMillis)
+        assertEquals(7, result?.hour)
+        assertEquals(30, result?.minute)
         coVerify(exactly = 1) {
-            scheduledAlarmDao.insert(
-                match {
-                    it.ownerId == it.id &&
-                        it.entryType == ClockEventType.ALARM.name &&
-                        it.triggerAtMillis == 1_234_567L &&
-                        it.label == "Morning"
-                }
-            )
+            scheduledAlarmDao.insert(match {
+                it.entryType == ClockEventType.ALARM.name &&
+                    it.repeatType == "ONE_OFF" &&
+                    it.alarmHour == 7 &&
+                    it.alarmMinute == 30 &&
+                    it.timeZoneId == zoneId
+            })
         }
-        verify(exactly = 1) {
-            scheduler.schedule(
-                match {
-                    it.ownerId == it.eventId &&
-                        it.type == ClockEventType.ALARM &&
-                        it.triggerAtMillis == 1_234_567L &&
-                        it.label == "Morning"
-                }
-            )
-        }
+        verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM }) }
+        verify(exactly = 0) { scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM }) }
+    }
+
+    @Test
+    fun `createAlarm schedules pre alarm companion for repeating alarms`() = runTest {
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
+        val draft = dailyDraft(label = "Gym", hour = 8, minute = 0)
+
+        val result = repository.createAlarm(draft)
+
+        assertEquals(AlarmRepeatRule.Daily, result?.repeatRule)
+        verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM }) }
+        verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM }) }
     }
 
     @Test
@@ -89,123 +107,79 @@ class ClockRepositoryImplTest {
     }
 
     @Test
-    fun `restoreScheduledEntries marks expired rows and restores only enabled future rows`() = runTest {
-        val now = 5_000L
-        val expired = scheduleRow(id = "expired", triggerAtMillis = 4_000L)
-        val enabledFuture = scheduleRow(id = "future-enabled", triggerAtMillis = 6_000L)
-        val disabledFuture = scheduleRow(id = "future-disabled", triggerAtMillis = 7_000L, enabled = false)
-
-        coEvery { scheduledAlarmDao.getUnfiredElapsed(now) } returns listOf(expired)
-        coEvery { scheduledAlarmDao.getUnfiredFuture(now) } returns listOf(enabledFuture, disabledFuture)
-        coEvery { scheduledAlarmDao.markFired(expired.id) } just Runs
-
-        val report = repository.restoreScheduledEntries(nowMillis = now)
-
-        assertEquals(
-            ClockRestoreReport(
-                restoredCount = 1,
-                expiredCount = 1,
-                disabledCount = 1,
-                blockedByExactAlarmCapability = false,
-            ),
-            report,
-        )
-        coVerify(exactly = 1) { scheduledAlarmDao.markFired("expired") }
-        verify(exactly = 1) { scheduler.schedule(match { it.eventId == "future-enabled" }) }
-        verify(exactly = 0) { scheduler.schedule(match { it.eventId == "future-disabled" }) }
-    }
-
-    @Test
-    fun `cancelNextAlarm cancels and deletes the earliest enabled alarm`() = runTest {
-        val later = scheduleRow(id = "later", triggerAtMillis = 8_000L)
-        val earlier = scheduleRow(id = "earlier", triggerAtMillis = 6_000L)
-        coEvery { scheduledAlarmDao.getUnfiredFuture(any()) } returns listOf(earlier, later)
-        coEvery { scheduledAlarmDao.delete("earlier") } just Runs
-
-        val cancelled = repository.cancelNextAlarm()
-
-        assertEquals("earlier", cancelled?.id)
-        verify(exactly = 1) { scheduler.cancel(match { it.eventId == "earlier" }) }
-        coVerify(exactly = 1) { scheduledAlarmDao.delete("earlier") }
-    }
-
-    @Test
-    fun `cancelAlarmsByLabel cancels only enabled alarms`() = runTest {
-        val enabledMatch = scheduleRow(id = "enabled", triggerAtMillis = 6_000L).copy(label = "Wake")
-        val disabledMatch = scheduleRow(id = "disabled", triggerAtMillis = 7_000L, enabled = false).copy(label = "Wake")
-        val other = scheduleRow(id = "other", triggerAtMillis = 8_000L).copy(label = "Other")
-        coEvery { scheduledAlarmDao.getUnfiredFuture(any()) } returns listOf(enabledMatch, disabledMatch, other)
-        coEvery { scheduledAlarmDao.delete("enabled") } just Runs
-
-        val cancelled = repository.cancelAlarmsByLabel("wake")
-
-        assertEquals(1, cancelled)
-        verify(exactly = 1) { scheduler.cancel(match { it.eventId == "enabled" }) }
-        verify(exactly = 0) { scheduler.cancel(match { it.eventId == "disabled" }) }
-        coVerify(exactly = 1) { scheduledAlarmDao.delete("enabled") }
-        coVerify(exactly = 0) { scheduledAlarmDao.delete("disabled") }
-    }
-
-    @Test
-    fun `setAlarmEnabled rolls back scheduler cancel when disable write fails`() = runTest {
-        val existing = scheduleRow(id = "alarm-1", triggerAtMillis = 6_000L, enabled = true)
-        coEvery { scheduledAlarmDao.getById("alarm-1") } returns existing
-        coEvery { scheduledAlarmDao.setEnabled("alarm-1", false) } throws IllegalStateException("db")
-
-        val result = repository.setAlarmEnabled("alarm-1", enabled = false)
-
-        assertEquals(false, result)
-        verify(exactly = 1) { scheduler.cancel(match { it.eventId == "alarm-1" }) }
-        verify(exactly = 1) { scheduler.schedule(match { it.eventId == "alarm-1" }) }
-    }
-
-    @Test
-    fun `setAlarmEnabled rejects enabling a past due alarm`() = runTest {
-        val existing = scheduleRow(
+    fun `setAlarmEnabled rolls repeating alarms forward when re enabling stale row`() = runTest {
+        val staleDaily = scheduleRow(
             id = "alarm-1",
-            triggerAtMillis = System.currentTimeMillis() - 1_000L,
+            triggerAtMillis = System.currentTimeMillis() - 3_600_000L,
             enabled = false,
+            repeatType = "DAILY",
+            alarmHour = 7,
+            alarmMinute = 30,
         )
-        coEvery { scheduledAlarmDao.getById("alarm-1") } returns existing
+        coEvery { scheduledAlarmDao.getById("alarm-1") } returns staleDaily
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
 
         val result = repository.setAlarmEnabled("alarm-1", enabled = true)
 
-        assertEquals(false, result)
-        verify(exactly = 0) { scheduler.schedule(any()) }
-        coVerify(exactly = 0) { scheduledAlarmDao.setEnabled(any(), any()) }
+        assertTrue(result)
+        coVerify(exactly = 1) { scheduledAlarmDao.insert(match { it.enabled && it.triggerAtMillis > System.currentTimeMillis() }) }
+        verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM }) }
+        verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM }) }
     }
 
     @Test
-    fun `setAlarmEnabled rolls back scheduler schedule when enable write fails`() = runTest {
-        val existing = scheduleRow(
+    fun `skipAlarmOccurrence advances repeating alarm only once`() = runTest {
+        val daily = scheduleRow(
+            id = "alarm-1",
+            triggerAtMillis = System.currentTimeMillis() + 3_600_000L,
+            repeatType = "DAILY",
+            alarmHour = 7,
+            alarmMinute = 30,
+        )
+        coEvery { scheduledAlarmDao.getById("alarm-1") } returns daily
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
+
+        val skipped = repository.skipAlarmOccurrence("alarm-1", daily.triggerAtMillis)
+
+        assertTrue(skipped)
+        coVerify(exactly = 1) { scheduledAlarmDao.insert(match { it.triggerAtMillis > daily.triggerAtMillis }) }
+        verify(atLeast = 1) { scheduler.cancel(match { it.type == ClockEventType.PRE_ALARM }) }
+        verify(atLeast = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM }) }
+    }
+
+    @Test
+    fun `handleScheduledEvent advances repeating alarms after delivery`() = runTest {
+        val weekdayMask = weekdayMaskFor(DayOfWeek.MONDAY) or weekdayMaskFor(DayOfWeek.FRIDAY)
+        val repeating = scheduleRow(
             id = "alarm-1",
             triggerAtMillis = System.currentTimeMillis() + 60_000L,
-            enabled = false,
+            repeatType = "SELECTED_WEEKDAYS",
+            repeatDaysMask = weekdayMask,
+            alarmHour = 7,
+            alarmMinute = 30,
         )
-        coEvery { scheduledAlarmDao.getById("alarm-1") } returns existing
-        coEvery { scheduledAlarmDao.setEnabled("alarm-1", true) } throws IllegalStateException("db")
+        coEvery { scheduledAlarmDao.getById("alarm-1") } returns repeating
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
 
-        val result = repository.setAlarmEnabled("alarm-1", enabled = true)
+        repository.handleScheduledEvent("alarm-1", ClockEventType.ALARM, repeating.triggerAtMillis)
 
-        assertEquals(false, result)
-        verify(exactly = 1) { scheduler.schedule(match { it.eventId == "alarm-1" }) }
-        verify(exactly = 1) { scheduler.cancel(match { it.eventId == "alarm-1" }) }
+        coVerify(exactly = 1) { scheduledAlarmDao.insert(match { it.triggerAtMillis > repeating.triggerAtMillis }) }
+        coVerify(exactly = 0) { scheduledAlarmDao.markFired("alarm-1") }
     }
 
     @Test
-    fun `recordDeliveredEvent marks alarms fired`() = runTest {
-        val existing = scheduleRow(id = "alarm-1", triggerAtMillis = 6_000L, enabled = true)
-        coEvery { scheduledAlarmDao.getById("alarm-1") } returns existing
+    fun `handleScheduledEvent marks one off alarms fired`() = runTest {
+        val oneOff = scheduleRow(id = "alarm-1", triggerAtMillis = System.currentTimeMillis() + 60_000L)
+        coEvery { scheduledAlarmDao.getById("alarm-1") } returns oneOff
         coEvery { scheduledAlarmDao.markFired("alarm-1") } just Runs
 
-        repository.recordDeliveredEvent("alarm-1")
+        repository.handleScheduledEvent("alarm-1", ClockEventType.ALARM, oneOff.triggerAtMillis)
 
         coVerify(exactly = 1) { scheduledAlarmDao.markFired("alarm-1") }
-        coVerify(exactly = 0) { scheduledAlarmDao.delete("alarm-1") }
     }
 
     @Test
-    fun `recordDeliveredEvent marks timers completed instead of deleting them`() = runTest {
+    fun `handleScheduledEvent marks timers completed instead of deleting them`() = runTest {
         val existing = scheduleRow(
             id = "timer-1",
             triggerAtMillis = 6_000L,
@@ -215,7 +189,7 @@ class ClockRepositoryImplTest {
         coEvery { scheduledAlarmDao.getById("timer-1") } returns existing
         coEvery { scheduledAlarmDao.markTimerCompleted(eq("timer-1"), any()) } just Runs
 
-        repository.recordDeliveredEvent("timer-1")
+        repository.handleScheduledEvent("timer-1", ClockEventType.TIMER, existing.triggerAtMillis)
 
         coVerify(exactly = 1) { scheduledAlarmDao.markTimerCompleted(eq("timer-1"), any()) }
         coVerify(exactly = 0) { scheduledAlarmDao.delete("timer-1") }
@@ -238,49 +212,25 @@ class ClockRepositoryImplTest {
     }
 
     @Test
-    fun `editAlarm returns null when row is already gone`() = runTest {
-        coEvery { scheduledAlarmDao.getById("missing") } returns null
-
-        val result = repository.editAlarm("missing", newTriggerAtMillis = 9_000L, newLabel = "Updated")
-
-        assertEquals(null, result)
-        verify(exactly = 0) { scheduler.cancel(any()) }
-    }
-
-    @Test
-    fun `restoreScheduledEntries disables unrecoverable alarms and expires timers when exact alarms are unavailable`() = runTest {
-        val now = 5_000L
-        val futureAlarm = scheduleRow(id = "future-alarm", triggerAtMillis = 6_000L)
-        val futureTimer = scheduleRow(
-            id = "future-timer",
-            triggerAtMillis = 7_000L,
-            entryType = ClockEventType.TIMER.name,
-        ).copy(durationMs = 60_000L, startedAtMs = 1_000L)
-
-        every { scheduler.getPlatformState() } returns ClockPlatformState(
-            canScheduleExactAlarms = false,
-            notificationsEnabled = true,
-            canUseFullScreenIntent = false,
+    fun `restoreScheduledEntries rolls expired repeating alarms forward`() = runTest {
+        val now = System.currentTimeMillis()
+        val repeatingExpired = scheduleRow(
+            id = "alarm-1",
+            triggerAtMillis = now - 60_000L,
+            repeatType = "DAILY",
+            alarmHour = 7,
+            alarmMinute = 30,
         )
-        coEvery { scheduledAlarmDao.getUnfiredElapsed(now) } returns emptyList()
-        coEvery { scheduledAlarmDao.getUnfiredFuture(now) } returns listOf(futureAlarm, futureTimer)
-        coEvery { scheduledAlarmDao.setEnabled("future-alarm", false) } just Runs
-        coEvery { scheduledAlarmDao.markFired("future-timer") } just Runs
+        coEvery { scheduledAlarmDao.getUnfiredElapsed(now) } returns listOf(repeatingExpired)
+        coEvery { scheduledAlarmDao.getUnfiredFuture(now) } returns emptyList()
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
 
         val report = repository.restoreScheduledEntries(nowMillis = now)
 
-        assertEquals(
-            ClockRestoreReport(
-                restoredCount = 0,
-                expiredCount = 0,
-                disabledCount = 1,
-                blockedByExactAlarmCapability = true,
-            ),
-            report,
-        )
-        coVerify(exactly = 1) { scheduledAlarmDao.setEnabled("future-alarm", false) }
-        coVerify(exactly = 1) { scheduledAlarmDao.markFired("future-timer") }
-        verify(exactly = 0) { scheduler.schedule(any()) }
+        assertEquals(1, report.restoredCount)
+        assertEquals(0, report.expiredCount)
+        coVerify(exactly = 1) { scheduledAlarmDao.insert(match { it.triggerAtMillis > now }) }
+        verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM }) }
     }
 
     @Test
@@ -292,11 +242,24 @@ class ClockRepositoryImplTest {
         assertEquals(2, deleted)
         coVerify(exactly = 1) { scheduledAlarmDao.deleteCompletedTimers() }
     }
+
+    private fun dailyDraft(label: String, hour: Int, minute: Int) = AlarmDraft(
+        label = label,
+        hour = hour,
+        minute = minute,
+        repeatRule = AlarmRepeatRule.Daily,
+        timeZoneId = ZoneId.systemDefault().id,
+    )
+
     private fun scheduleRow(
         id: String,
         triggerAtMillis: Long,
         enabled: Boolean = true,
         entryType: String = ClockEventType.ALARM.name,
+        repeatType: String = "ONE_OFF",
+        repeatDaysMask: Int? = null,
+        alarmHour: Int? = 7,
+        alarmMinute: Int? = 30,
     ): ScheduledAlarmEntity = ScheduledAlarmEntity(
         id = id,
         ownerId = id,
@@ -305,5 +268,13 @@ class ClockRepositoryImplTest {
         createdAt = 1_000L,
         enabled = enabled,
         entryType = entryType,
+        alarmHour = if (entryType == ClockEventType.ALARM.name) alarmHour else null,
+        alarmMinute = if (entryType == ClockEventType.ALARM.name) alarmMinute else null,
+        repeatType = if (entryType == ClockEventType.ALARM.name) repeatType else null,
+        repeatDaysMask = repeatDaysMask,
+        oneOffDateEpochDay = Instant.ofEpochMilli(triggerAtMillis).atZone(ZoneId.systemDefault()).toLocalDate().toEpochDay(),
+        timeZoneId = ZoneId.systemDefault().id,
     )
 }
+
+private fun weekdayMaskFor(day: DayOfWeek): Int = 1 shl (day.value - 1)

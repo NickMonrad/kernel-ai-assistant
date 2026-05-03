@@ -2,9 +2,13 @@ package com.kernel.ai.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.memory.clock.AlarmDraft
+import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Instant
+import java.time.ZoneId
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,7 +25,7 @@ class ScheduledAlarmsViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     suspend fun tryScheduleAlarm(triggerAtMillis: Long, label: String?): Boolean =
-        clockRepository.scheduleAlarm(triggerAtMillis, label) != null
+        clockRepository.createAlarm(triggerAtMillis.toOneOffAlarmDraft(label)) != null
 
     fun scheduleAlarm(triggerAtMillis: Long, label: String?, onResult: (AlarmSaveResult) -> Unit = {}) {
         viewModelScope.launch {
@@ -35,7 +39,7 @@ class ScheduledAlarmsViewModel @Inject constructor(
     }
 
     suspend fun tryEditAlarm(alarm: ClockAlarm, newTriggerAtMillis: Long, newLabel: String?): Boolean =
-        clockRepository.editAlarm(alarm.id, newTriggerAtMillis, newLabel) != null
+        clockRepository.updateAlarm(alarm.id, newTriggerAtMillis.toOneOffAlarmDraft(newLabel)) != null
 
     fun editAlarm(
         alarm: ClockAlarm,
@@ -67,4 +71,16 @@ class ScheduledAlarmsViewModel @Inject constructor(
             clockRepository.cancelAlarm(alarm.id)
         }
     }
+}
+
+private fun Long.toOneOffAlarmDraft(label: String?): AlarmDraft {
+    val zone = ZoneId.systemDefault()
+    val trigger = Instant.ofEpochMilli(this).atZone(zone)
+    return AlarmDraft(
+        label = label,
+        hour = trigger.hour,
+        minute = trigger.minute,
+        repeatRule = AlarmRepeatRule.OneOff(trigger.toLocalDate().toEpochDay()),
+        timeZoneId = zone.id,
+    )
 }
