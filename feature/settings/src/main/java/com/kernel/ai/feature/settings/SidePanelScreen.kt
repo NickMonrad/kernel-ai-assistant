@@ -207,35 +207,11 @@ fun SidePanelScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FilterChip(
-                    selected = selectedTab == ClockSurfaceTab.TIMERS,
-                    onClick = { viewModel.setTab(ClockSurfaceTab.TIMERS) },
-                    label = { Text("Timers") },
-                    leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null) },
-                )
-                FilterChip(
-                    selected = selectedTab == ClockSurfaceTab.ALARMS,
-                    onClick = { viewModel.setTab(ClockSurfaceTab.ALARMS) },
-                    label = { Text("Alarms") },
-                    leadingIcon = { Icon(Icons.Default.Alarm, contentDescription = null) },
-                )
-                FilterChip(
-                    selected = selectedTab == ClockSurfaceTab.WORLD_CLOCK,
-                    onClick = { viewModel.setTab(ClockSurfaceTab.WORLD_CLOCK) },
-                    label = { Text("World Clock") },
-                    leadingIcon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
-                )
-                FilterChip(
-                    selected = selectedTab == ClockSurfaceTab.STOPWATCH,
-                    onClick = { viewModel.setTab(ClockSurfaceTab.STOPWATCH) },
-                    label = { Text("Stopwatch") },
-                    leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null) },
-                )
-            }
+            ClockSurfaceTabs(
+                selectedTab = selectedTab,
+                onTabSelected = viewModel::setTab,
+            )
+
 
             when (selectedTab) {
                 ClockSurfaceTab.TIMERS -> TimerDashboard(
@@ -530,6 +506,55 @@ private val TIMER_PRESETS = listOf(
     TimerPreset("10 min", 10 * 60_000L),
     TimerPreset("15 min", 15 * 60_000L),
 )
+
+@Composable
+internal fun ClockSurfaceTabs(
+    selectedTab: ClockSurfaceTab,
+    onTabSelected: (ClockSurfaceTab) -> Unit,
+    modifier: Modifier = Modifier,
+ ) {
+    LazyRow(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("clock_surface_tabs"),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item {
+            FilterChip(
+                selected = selectedTab == ClockSurfaceTab.TIMERS,
+                onClick = { onTabSelected(ClockSurfaceTab.TIMERS) },
+                label = { Text("Timers") },
+                leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null) },
+            )
+        }
+        item {
+            FilterChip(
+                selected = selectedTab == ClockSurfaceTab.ALARMS,
+                onClick = { onTabSelected(ClockSurfaceTab.ALARMS) },
+                label = { Text("Alarms") },
+                leadingIcon = { Icon(Icons.Default.Alarm, contentDescription = null) },
+            )
+        }
+        item {
+            FilterChip(
+                selected = selectedTab == ClockSurfaceTab.WORLD_CLOCK,
+                onClick = { onTabSelected(ClockSurfaceTab.WORLD_CLOCK) },
+                label = { Text("World Clock") },
+                leadingIcon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
+            )
+        }
+        item {
+            FilterChip(
+                selected = selectedTab == ClockSurfaceTab.STOPWATCH,
+                onClick = { onTabSelected(ClockSurfaceTab.STOPWATCH) },
+                label = { Text("Stopwatch") },
+                leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null) },
+            )
+        }
+    }
+}
+
 
 @Composable
 private fun SectionHeader(
