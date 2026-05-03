@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -129,6 +130,8 @@ fun ChatScreen(
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
+    val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -170,6 +173,11 @@ fun ChatScreen(
                     onNewConversation()
                 },
                 onRenameConversation = viewModel::renameConversation,
+                voiceCaptureState = voiceCaptureState,
+                voicePlaybackState = voicePlaybackState,
+                onStartVoiceInput = viewModel::startVoiceInput,
+                onStopVoiceInput = viewModel::stopVoiceInput,
+                onStopVoiceOutput = viewModel::stopVoiceOutput,
                 snackbarHostState = snackbarHostState,
                 onCopyMessage = { content ->
                     clipboardManager.setText(AnnotatedString(stripMarkdownForClipboard(content)))
@@ -200,6 +208,11 @@ private fun ChatContent(
     onBack: () -> Unit,
     onNewConversation: () -> Unit,
     onRenameConversation: (String) -> Unit,
+    voiceCaptureState: ChatViewModel.VoiceCaptureState,
+    voicePlaybackState: ChatViewModel.VoicePlaybackState,
+    onStartVoiceInput: () -> Unit,
+    onStopVoiceInput: () -> Unit,
+    onStopVoiceOutput: () -> Unit,
     snackbarHostState: SnackbarHostState,
     onCopyMessage: (String) -> Unit,
     onCopyAll: () -> Unit,
@@ -380,10 +393,15 @@ private fun ChatContent(
             InputBar(
                 text = state.inputText,
                 isGenerating = state.isGenerating,
+                voiceCaptureState = voiceCaptureState,
+                voicePlaybackState = voicePlaybackState,
                 onTextChanged = onInputChanged,
                 onSend = onSend,
                 onCancel = onCancel,
-            modifier = Modifier.navigationBarsPadding(),
+                onStartVoiceInput = onStartVoiceInput,
+                onStopVoiceInput = onStopVoiceInput,
+                onStopVoiceOutput = onStopVoiceOutput,
+                modifier = Modifier.navigationBarsPadding(),
             )
         }
     }
@@ -605,48 +623,132 @@ private fun MessageBubble(
 private fun InputBar(
     text: String,
     isGenerating: Boolean,
+    voiceCaptureState: ChatViewModel.VoiceCaptureState,
+    voicePlaybackState: ChatViewModel.VoicePlaybackState,
     onTextChanged: (String) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit,
+    onStartVoiceInput: () -> Unit,
+    onStopVoiceInput: () -> Unit,
+    onStopVoiceOutput: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val voiceStatusText = when (voiceCaptureState) {
+        ChatViewModel.VoiceCaptureState.Idle -> when (voicePlaybackState) {
+            ChatViewModel.VoicePlaybackState.Idle -> null
+            is ChatViewModel.VoicePlaybackState.Speaking -> "Speaking: ${voicePlaybackState.text}"
+        }
+        ChatViewModel.VoiceCaptureState.Preparing -> "Starting voice input…"
+        is ChatViewModel.VoiceCaptureState.Listening -> {
+            if (voiceCaptureState.transcript.isBlank()) {
+                "Listening…"
+            } else {
+                "Listening: ${voiceCaptureState.transcript}"
+            }
+        }
+        is ChatViewModel.VoiceCaptureState.Processing -> "Processing: ${voiceCaptureState.transcript}"
+    }
+
     Surface(
         tonalElevation = 4.dp,
         modifier = modifier.fillMaxWidth(),
     ) {
-        Row(
-            modifier = Modifier
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextField(
-                value = text,
-                onValueChange = onTextChanged,
-                placeholder = { Text("Message Jandal…") },
-                modifier = Modifier.weight(1f),
-                maxLines = 5,
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                ),
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                    imeAction = ImeAction.Send,
-                ),
-                keyboardActions = KeyboardActions(onSend = { if (!isGenerating) onSend() }),
-            )
-
-            AnimatedVisibility(visible = isGenerating, enter = fadeIn(), exit = fadeOut()) {
-                IconButton(onClick = onCancel) {
-                    Icon(Icons.Default.Close, contentDescription = "Stop generation")
+        Column {
+            AnimatedVisibility(
+                visible = voiceStatusText != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                voiceStatusText?.let { status ->
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .testTag("chat_voice_status"),
+                    )
                 }
             }
 
-            AnimatedVisibility(visible = !isGenerating && text.isNotBlank(), enter = fadeIn(), exit = fadeOut()) {
-                IconButton(onClick = onSend) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+            Row(
+                modifier = Modifier
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextField(
+                    value = text,
+                    onValueChange = onTextChanged,
+                    placeholder = { Text("Message Jandal…") },
+                    modifier = Modifier.weight(1f),
+                    maxLines = 5,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Send,
+                    ),
+                    keyboardActions = KeyboardActions(onSend = { if (!isGenerating) onSend() }),
+                )
+
+                AnimatedVisibility(visible = isGenerating, enter = fadeIn(), exit = fadeOut()) {
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.Default.Close, contentDescription = "Stop generation")
+                    }
+                }
+
+                AnimatedVisibility(visible = !isGenerating && text.isNotBlank(), enter = fadeIn(), exit = fadeOut()) {
+                    IconButton(onClick = onSend) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = !isGenerating &&
+                        text.isBlank() &&
+                        voiceCaptureState == ChatViewModel.VoiceCaptureState.Idle &&
+                        voicePlaybackState == ChatViewModel.VoicePlaybackState.Idle,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) {
+                    IconButton(
+                        onClick = onStartVoiceInput,
+                        modifier = Modifier.testTag("chat_voice_start"),
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = "Start voice input")
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = !isGenerating && voiceCaptureState != ChatViewModel.VoiceCaptureState.Idle,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) {
+                    IconButton(
+                        onClick = onStopVoiceInput,
+                        modifier = Modifier.testTag("chat_voice_stop_input"),
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Stop voice input")
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = !isGenerating &&
+                        voiceCaptureState == ChatViewModel.VoiceCaptureState.Idle &&
+                        voicePlaybackState != ChatViewModel.VoicePlaybackState.Idle,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) {
+                    IconButton(
+                        onClick = onStopVoiceOutput,
+                        modifier = Modifier.testTag("chat_voice_stop_output"),
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Stop spoken reply")
+                    }
                 }
             }
         }
