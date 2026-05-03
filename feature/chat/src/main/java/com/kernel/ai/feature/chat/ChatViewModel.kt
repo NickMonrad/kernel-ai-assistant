@@ -111,6 +111,15 @@ class ChatViewModel @Inject constructor(
 ) : ViewModel() {
     private enum class SubmitMode { Text, Voice }
 
+    /**
+     * The explicit voice-interaction mode chosen by the user for the current session.
+     *
+     * - [OneShot]: user speaks once → transcript sends → reply may be spoken → loop ends.
+     * - [BackAndForth]: after the spoken reply finishes, listening re-arms automatically
+     *   until the user explicitly stops the loop or leaves the conversation.
+     */
+    enum class VoiceMode { OneShot, BackAndForth }
+
     sealed interface VoiceCaptureState {
         data object Idle : VoiceCaptureState
         data object Preparing : VoiceCaptureState
@@ -199,6 +208,11 @@ class ChatViewModel @Inject constructor(
 
     private var spokenResponsesEnabled = true
     private var pendingVoiceReply = false
+    private var awaitingVoicePlaybackCompletion = false
+
+    /** Active voice interaction mode, or null when no voice session is running (#741). */
+    private val _voiceMode = MutableStateFlow<VoiceMode?>(null)
+    val voiceMode: StateFlow<VoiceMode?> = _voiceMode.asStateFlow()
 
     /** True once [initializeConversation] has completed and [conversationId] is set. */
     private val _conversationInitialized = MutableStateFlow(false)
@@ -301,7 +315,9 @@ class ChatViewModel @Inject constructor(
                 if (enabled) {
                     voiceOutputController.warmUp()
                 } else {
+                    awaitingVoicePlaybackCompletion = false
                     pendingVoiceReply = false
+                    _voiceMode.value = null
                     _voicePlaybackState.value = VoicePlaybackState.Idle
                     voiceOutputController.stop()
                 }
@@ -323,7 +339,9 @@ class ChatViewModel @Inject constructor(
                         submitVoiceTranscript(event.text)
                     }
                     is VoiceInputEvent.Error -> {
+                        awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
+                        _voiceMode.value = null
                         _voiceCaptureState.value = VoiceCaptureState.Idle
                         _error.value = withVoiceSettingsHint(event.message)
                     }
@@ -331,13 +349,19 @@ class ChatViewModel @Inject constructor(
                         when (val currentState = _voiceCaptureState.value) {
                             is VoiceCaptureState.Listening -> {
                                 if (currentState.transcript.isBlank()) {
+                                    // Blank transcript — conservatively stop the loop even in
+                                    // back-and-forth mode rather than spinning indefinitely.
+                                    _voiceMode.value = null
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
                                 } else {
                                     submitVoiceTranscript(currentState.transcript)
                                 }
                             }
                             is VoiceCaptureState.Processing -> Unit
-                            else -> _voiceCaptureState.value = VoiceCaptureState.Idle
+                            else -> {
+                                _voiceMode.value = null
+                                _voiceCaptureState.value = VoiceCaptureState.Idle
+                            }
                         }
                     }
                 }
@@ -357,6 +381,14 @@ class ChatViewModel @Inject constructor(
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
                         _voicePlaybackState.value = VoicePlaybackState.Idle
+                        val shouldHandleCompletion = awaitingVoicePlaybackCompletion
+                        awaitingVoicePlaybackCompletion = false
+                        if (!shouldHandleCompletion) return@collect
+                        if (_voiceMode.value == VoiceMode.BackAndForth) {
+                            rearmVoiceInput()
+                        } else {
+                            _voiceMode.value = null
+                        }
                     }
                 }
             }
@@ -748,9 +780,20 @@ class ChatViewModel @Inject constructor(
         if (_error.value != null) _error.value = null
     }
 
-    fun startVoiceInput() {
+    /** Starts a one-shot voice capture: user speaks once, reply may be spoken, then loop ends. */
+    fun startVoiceInput() = startVoiceInput(VoiceMode.OneShot)
+
+    /**
+     * Starts back-and-forth conversational voice: after each spoken reply the microphone
+     * re-arms automatically until the user explicitly stops or leaves the conversation.
+     */
+    fun startBackAndForthVoiceInput() = startVoiceInput(VoiceMode.BackAndForth)
+
+    private fun startVoiceInput(mode: VoiceMode) {
         if (inferenceEngine.isGenerating.value || _isLoadingModel.value) return
         if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
+        awaitingVoicePlaybackCompletion = false
+        _voiceMode.value = mode
         viewModelScope.launch {
             if (_voicePlaybackState.value != VoicePlaybackState.Idle) {
                 voiceOutputController.stop()
@@ -764,6 +807,8 @@ class ChatViewModel @Inject constructor(
                     }
                 }
                 is VoiceInputStartResult.Unavailable -> {
+                    awaitingVoicePlaybackCompletion = false
+                    _voiceMode.value = null
                     pendingVoiceReply = false
                     _voiceCaptureState.value = VoiceCaptureState.Idle
                     _error.value = withVoiceSettingsHint(result.message)
@@ -772,13 +817,43 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Re-arms voice listening for the next back-and-forth turn. Only called internally after a
+     * spoken reply finishes; guards against starting if the mode was cleared in the interim.
+     */
+    private fun rearmVoiceInput() {
+        if (_voiceMode.value != VoiceMode.BackAndForth) return
+        if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
+        viewModelScope.launch {
+            _error.value = null
+            _voiceCaptureState.value = VoiceCaptureState.Preparing
+            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
+                VoiceInputStartResult.Started -> {
+                    if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
+                        _voiceCaptureState.value = VoiceCaptureState.Listening()
+                    }
+                }
+                is VoiceInputStartResult.Unavailable -> {
+                    awaitingVoicePlaybackCompletion = false
+                    _voiceMode.value = null
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    _error.value = withVoiceSettingsHint(result.message)
+                }
+            }
+        }
+    }
+
     fun stopVoiceInput() {
+        awaitingVoicePlaybackCompletion = false
+        _voiceMode.value = null
         pendingVoiceReply = false
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
     }
 
     fun stopVoiceOutput() {
+        awaitingVoicePlaybackCompletion = false
+        _voiceMode.value = null
         pendingVoiceReply = false
         voiceOutputController.stop()
         _voicePlaybackState.value = VoicePlaybackState.Idle
@@ -820,6 +895,7 @@ class ChatViewModel @Inject constructor(
         val text = _inputText.value.trim()
         if (text.isBlank() || inferenceEngine.isGenerating.value || _isLoadingModel.value) {
             if (submitMode == SubmitMode.Voice) {
+                _voiceMode.value = null
                 pendingVoiceReply = false
                 _voiceCaptureState.value = VoiceCaptureState.Idle
             }
@@ -1468,6 +1544,7 @@ class ChatViewModel @Inject constructor(
                         }
 
                         is GenerationResult.Error -> {
+                            _voiceMode.value = null
                             pendingVoiceReply = false
                             _voiceCaptureState.value = VoiceCaptureState.Idle
                             _messages.update { msgs ->
@@ -1487,6 +1564,7 @@ class ChatViewModel @Inject constructor(
             } while (needsHallucinationRetry)
 
             } catch (e: Exception) {
+                _voiceMode.value = null
                 pendingVoiceReply = false
                 _voiceCaptureState.value = VoiceCaptureState.Idle
                 _messages.update { msgs ->
@@ -1508,6 +1586,8 @@ class ChatViewModel @Inject constructor(
     }
 
     fun cancelGeneration() {
+        awaitingVoicePlaybackCompletion = false
+        _voiceMode.value = null
         pendingVoiceReply = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
         inferenceEngine.cancelGeneration()
@@ -1555,6 +1635,8 @@ class ChatViewModel @Inject constructor(
 
     fun startNewConversation() {
         viewModelScope.launch {
+            awaitingVoicePlaybackCompletion = false
+            _voiceMode.value = null
             pendingVoiceReply = false
             voiceInputController.stopListening()
             voiceOutputController.stop()
@@ -1707,6 +1789,8 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        awaitingVoicePlaybackCompletion = false
+        _voiceMode.value = null
         pendingVoiceReply = false
         voiceInputController.stopListening()
         voiceOutputController.stop()
@@ -1738,6 +1822,9 @@ class ChatViewModel @Inject constructor(
     private fun submitVoiceTranscript(rawTranscript: String) {
         val transcript = rawTranscript.trim()
         if (transcript.isBlank()) {
+            // Nothing useful captured — stop the loop conservatively regardless of mode.
+            awaitingVoicePlaybackCompletion = false
+            _voiceMode.value = null
             pendingVoiceReply = false
             _voiceCaptureState.value = VoiceCaptureState.Idle
             return
@@ -1747,18 +1834,32 @@ class ChatViewModel @Inject constructor(
         sendMessage(SubmitMode.Voice)
     }
 
+    /** Speaks the assistant reply if this was a voice-originated turn. */
     private suspend fun speakAssistantReplyIfNeeded(content: String) {
         val shouldSpeak = pendingVoiceReply
         pendingVoiceReply = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
-        if (!shouldSpeak || !spokenResponsesEnabled) return
+        if (!shouldSpeak || !spokenResponsesEnabled) {
+            awaitingVoicePlaybackCompletion = false
+            _voiceMode.value = null
+            return
+        }
 
         val spokenText = stripMarkdownForClipboard(content).trim()
-        if (spokenText.isBlank()) return
+        if (spokenText.isBlank()) {
+            awaitingVoicePlaybackCompletion = false
+            _voiceMode.value = null
+            return
+        }
 
+        awaitingVoicePlaybackCompletion = true
         when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = spokenText))) {
             VoiceOutputResult.Spoken -> Unit
-            is VoiceOutputResult.Unavailable -> _error.value = withVoiceSettingsHint(result.message)
+            is VoiceOutputResult.Unavailable -> {
+                awaitingVoicePlaybackCompletion = false
+                _voiceMode.value = null
+                _error.value = withVoiceSettingsHint(result.message)
+            }
         }
     }
 

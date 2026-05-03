@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -134,6 +135,7 @@ fun ChatScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
+    val voiceMode by viewModel.voiceMode.collectAsStateWithLifecycle()
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -177,7 +179,9 @@ fun ChatScreen(
                 onRenameConversation = viewModel::renameConversation,
                 voiceCaptureState = voiceCaptureState,
                 voicePlaybackState = voicePlaybackState,
+                voiceMode = voiceMode,
                 onStartVoiceInput = viewModel::startVoiceInput,
+                onStartBackAndForthVoiceInput = viewModel::startBackAndForthVoiceInput,
                 onStopVoiceInput = viewModel::stopVoiceInput,
                 onStopVoiceOutput = viewModel::stopVoiceOutput,
                 snackbarHostState = snackbarHostState,
@@ -212,7 +216,9 @@ private fun ChatContent(
     onRenameConversation: (String) -> Unit,
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
+    voiceMode: ChatViewModel.VoiceMode?,
     onStartVoiceInput: () -> Unit,
+    onStartBackAndForthVoiceInput: () -> Unit,
     onStopVoiceInput: () -> Unit,
     onStopVoiceOutput: () -> Unit,
     snackbarHostState: SnackbarHostState,
@@ -397,10 +403,12 @@ private fun ChatContent(
                 isGenerating = state.isGenerating,
                 voiceCaptureState = voiceCaptureState,
                 voicePlaybackState = voicePlaybackState,
+                voiceMode = voiceMode,
                 onTextChanged = onInputChanged,
                 onSend = onSend,
                 onCancel = onCancel,
                 onStartVoiceInput = onStartVoiceInput,
+                onStartBackAndForthVoiceInput = onStartBackAndForthVoiceInput,
                 onStopVoiceInput = onStopVoiceInput,
                 onStopVoiceOutput = onStopVoiceOutput,
                 modifier = Modifier.navigationBarsPadding(),
@@ -627,32 +635,48 @@ private fun InputBar(
     isGenerating: Boolean,
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
+    voiceMode: ChatViewModel.VoiceMode?,
     onTextChanged: (String) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit,
     onStartVoiceInput: () -> Unit,
+    onStartBackAndForthVoiceInput: () -> Unit,
     onStopVoiceInput: () -> Unit,
     onStopVoiceOutput: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val voiceStatus = remember(voiceCaptureState, voicePlaybackState) {
+    val voiceStatus = remember(voiceCaptureState, voicePlaybackState, voiceMode) {
         when (voiceCaptureState) {
             ChatViewModel.VoiceCaptureState.Idle -> when (voicePlaybackState) {
                 ChatViewModel.VoicePlaybackState.Idle -> null
                 is ChatViewModel.VoicePlaybackState.Speaking -> VoiceStatusUiModel(
                     title = "Speaking reply",
-                    subtitle = voicePlaybackState.text,
+                    subtitle = if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
+                        "Listening again when done…"
+                    } else {
+                        voicePlaybackState.text
+                    },
                     icon = Icons.Outlined.CheckCircle,
                 )
             }
             ChatViewModel.VoiceCaptureState.Preparing -> VoiceStatusUiModel(
                 title = "Starting voice input",
-                subtitle = "One-shot push-to-talk",
+                subtitle = if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
+                    "Back-and-forth mode"
+                } else {
+                    "One-shot push-to-talk"
+                },
                 icon = Icons.Default.Mic,
             )
             is ChatViewModel.VoiceCaptureState.Listening -> VoiceStatusUiModel(
                 title = "Listening",
-                subtitle = voiceCaptureState.transcript.ifBlank { "One-shot push-to-talk" },
+                subtitle = voiceCaptureState.transcript.ifBlank {
+                    if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
+                        "Back-and-forth mode"
+                    } else {
+                        "One-shot push-to-talk"
+                    }
+                },
                 icon = Icons.Default.Mic,
             )
             is ChatViewModel.VoiceCaptureState.Processing -> VoiceStatusUiModel(
@@ -755,11 +779,22 @@ private fun InputBar(
                     enter = fadeIn(),
                     exit = fadeOut(),
                 ) {
-                    IconButton(
-                        onClick = onStartVoiceInput,
-                        modifier = Modifier.testTag("chat_voice_start"),
-                    ) {
-                        Icon(Icons.Default.Mic, contentDescription = "Start one-shot voice input")
+                    // Two distinct voice-entry controls (#741):
+                    //   • filled Mic  → one-shot (speak once, done)
+                    //   • outlined Mic → back-and-forth (auto-rearming conversation)
+                    Row {
+                        IconButton(
+                            onClick = onStartVoiceInput,
+                            modifier = Modifier.testTag("chat_voice_start"),
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Start one-shot voice input")
+                        }
+                        IconButton(
+                            onClick = onStartBackAndForthVoiceInput,
+                            modifier = Modifier.testTag("chat_voice_start_loop"),
+                        ) {
+                            Icon(Icons.Outlined.Mic, contentDescription = "Start back-and-forth voice conversation")
+                        }
                     }
                 }
 
