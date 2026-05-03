@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -14,7 +15,6 @@ import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -62,6 +62,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -71,6 +72,9 @@ import com.kernel.ai.core.memory.clock.AlarmDraft
 import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockTimer
+import com.kernel.ai.core.memory.clock.ClockStopwatch
+import com.kernel.ai.core.memory.clock.StopwatchLap
+import com.kernel.ai.core.memory.clock.StopwatchStatus
 import com.kernel.ai.core.memory.clock.WorldClock
 import com.kernel.ai.core.memory.clock.WorldClockCandidate
 import com.kernel.ai.core.memory.clock.WorldClockCatalog
@@ -92,6 +96,7 @@ fun SidePanelScreen(
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
     val timers by viewModel.timers.collectAsStateWithLifecycle()
     val recentCompletedTimers by viewModel.recentCompletedTimers.collectAsStateWithLifecycle()
+    val stopwatch by viewModel.stopwatch.collectAsStateWithLifecycle()
     val worldClocks by viewModel.worldClocks.collectAsStateWithLifecycle()
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val isInSelectionMode by viewModel.isInSelectionMode.collectAsStateWithLifecycle()
@@ -109,10 +114,12 @@ fun SidePanelScreen(
     var schedulingError by remember { mutableStateOf<String?>(null) }
 
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var nowElapsedRealtimeMs by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     LaunchedEffect(Unit) {
         while (true) {
-            delay(1_000)
+            delay(100L)
             nowMs = System.currentTimeMillis()
+            nowElapsedRealtimeMs = SystemClock.elapsedRealtime()
         }
     }
 
@@ -123,7 +130,7 @@ fun SidePanelScreen(
     val visibleSelectionIds = when (selectedTab) {
         ClockSurfaceTab.TIMERS -> timers.map { it.id }
         ClockSurfaceTab.ALARMS -> alarms.map { it.id }
-        ClockSurfaceTab.WORLD_CLOCK -> emptyList()
+        ClockSurfaceTab.WORLD_CLOCK, ClockSurfaceTab.STOPWATCH -> emptyList()
     }
 
     fun onTimerScheduled(success: Boolean, closeDialog: Boolean = false) {
@@ -190,7 +197,7 @@ fun SidePanelScreen(
                         onClick = { showAddWorldClockDialog = true },
                     )
 
-                    ClockSurfaceTab.TIMERS -> Unit
+                    ClockSurfaceTab.TIMERS, ClockSurfaceTab.STOPWATCH -> Unit
                 }
             }
         },
@@ -200,29 +207,11 @@ fun SidePanelScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FilterChip(
-                    selected = selectedTab == ClockSurfaceTab.TIMERS,
-                    onClick = { viewModel.setTab(ClockSurfaceTab.TIMERS) },
-                    label = { Text("Timers") },
-                    leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null) },
-                )
-                FilterChip(
-                    selected = selectedTab == ClockSurfaceTab.ALARMS,
-                    onClick = { viewModel.setTab(ClockSurfaceTab.ALARMS) },
-                    label = { Text("Alarms") },
-                    leadingIcon = { Icon(Icons.Default.Alarm, contentDescription = null) },
-                )
-                FilterChip(
-                    selected = selectedTab == ClockSurfaceTab.WORLD_CLOCK,
-                    onClick = { viewModel.setTab(ClockSurfaceTab.WORLD_CLOCK) },
-                    label = { Text("World Clock") },
-                    leadingIcon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
-                )
-            }
+            ClockSurfaceTabs(
+                selectedTab = selectedTab,
+                onTabSelected = viewModel::setTab,
+            )
+
 
             when (selectedTab) {
                 ClockSurfaceTab.TIMERS -> TimerDashboard(
@@ -271,6 +260,38 @@ fun SidePanelScreen(
                         }
                     },
                 )
+
+                ClockSurfaceTab.STOPWATCH -> StopwatchDashboard(
+                    stopwatch = stopwatch,
+                    nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+                    nowWallClockMs = nowMs,
+                    onStart = {
+                        viewModel.startStopwatch(
+                            nowWallClockMillis = nowMs,
+                            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+                        )
+                    },
+                    onPause = {
+                        viewModel.pauseStopwatch(
+                            nowWallClockMillis = nowMs,
+                            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+                        )
+                    },
+                    onResume = {
+                        viewModel.resumeStopwatch(
+                            nowWallClockMillis = nowMs,
+                            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+                        )
+                    },
+                    onReset = viewModel::resetStopwatch,
+                    onLap = {
+                        viewModel.recordStopwatchLap(
+                            nowWallClockMillis = nowMs,
+                            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+                        )
+                    },
+                )
+
 
                 ClockSurfaceTab.WORLD_CLOCK -> WorldClockDashboard(
                     worldClocks = worldClocks,
@@ -485,6 +506,71 @@ private val TIMER_PRESETS = listOf(
     TimerPreset("10 min", 10 * 60_000L),
     TimerPreset("15 min", 15 * 60_000L),
 )
+
+private data class ClockSurfaceOption(
+    val tab: ClockSurfaceTab,
+    val label: String,
+    val icon: ImageVector,
+ )
+
+private val CLOCK_SURFACE_OPTIONS = listOf(
+    ClockSurfaceOption(ClockSurfaceTab.TIMERS, "Timers", Icons.Default.Timer),
+    ClockSurfaceOption(ClockSurfaceTab.ALARMS, "Alarms", Icons.Default.Alarm),
+    ClockSurfaceOption(ClockSurfaceTab.WORLD_CLOCK, "World Clock", Icons.Default.AccessTime),
+    ClockSurfaceOption(ClockSurfaceTab.STOPWATCH, "Stopwatch", Icons.Default.Timer),
+)
+
+
+@Composable
+internal fun ClockSurfaceTabs(
+    selectedTab: ClockSurfaceTab,
+    onTabSelected: (ClockSurfaceTab) -> Unit,
+    modifier: Modifier = Modifier,
+ ) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag("clock_surface_tabs"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        CLOCK_SURFACE_OPTIONS.chunked(2).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                row.forEach { option ->
+                    ClockSurfaceTabChip(
+                        option = option,
+                        selected = selectedTab == option.tab,
+                        onClick = { onTabSelected(option.tab) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                repeat(2 - row.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClockSurfaceTabChip(
+    option: ClockSurfaceOption,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+ ) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 56.dp),
+        label = { Text(option.label, maxLines = 1) },
+        leadingIcon = { Icon(option.icon, contentDescription = null) },
+    )
+}
+
 
 @Composable
 private fun SectionHeader(
@@ -744,6 +830,238 @@ private fun CompletedTimerCard(
 }
 
 @Composable
+internal fun StopwatchDashboard(
+    stopwatch: ClockStopwatch,
+    nowElapsedRealtimeMs: Long,
+    nowWallClockMs: Long,
+    onStart: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onReset: () -> Unit,
+    onLap: () -> Unit,
+ ) {
+    val elapsedMs = stopwatch.elapsedMs(
+        nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+        nowWallClockMillis = nowWallClockMs,
+    )
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 24.dp),
+    ) {
+        item {
+            StopwatchQuickActionCard(
+                stopwatch = stopwatch,
+                onStart = onStart,
+                onResume = onResume,
+            )
+        }
+        item {
+            SectionHeader(
+                title = "Active stopwatch",
+                supportingText = when (stopwatch.status) {
+                    StopwatchStatus.IDLE -> "Jandal currently keeps one app-owned stopwatch active at a time."
+                    StopwatchStatus.RUNNING -> {
+                        val lapCount = stopwatch.laps.size
+                        if (lapCount == 0) "1 stopwatch running now" else "1 stopwatch running now · $lapCount ${if (lapCount == 1) "lap" else "laps"} recorded"
+                    }
+                    StopwatchStatus.PAUSED -> "Paused — resume it or clear it when you're done"
+                },
+            )
+        }
+        if (stopwatch.status == StopwatchStatus.IDLE) {
+            item {
+                EmptyStateCard(
+                    title = "No active stopwatch",
+                    body = "Start the stopwatch from the card above. Laps will appear directly inside the active stopwatch card.",
+                )
+            }
+        } else {
+            item {
+                StopwatchActiveCard(
+                    stopwatch = stopwatch,
+                    elapsedMs = elapsedMs,
+                    onPause = onPause,
+                    onResume = onResume,
+                    onReset = onReset,
+                    onLap = onLap,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StopwatchQuickActionCard(
+    stopwatch: ClockStopwatch,
+    onStart: () -> Unit,
+    onResume: () -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Stopwatch", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                text = when (stopwatch.status) {
+                    StopwatchStatus.IDLE -> "Start a stopwatch and keep its controls and laps in one place."
+                    StopwatchStatus.RUNNING -> "Your active stopwatch stays below as a card with live controls, visible lap history, and reset."
+                    StopwatchStatus.PAUSED -> "Resume the active stopwatch or clear it when you're finished."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            when (stopwatch.status) {
+                StopwatchStatus.IDLE -> Button(
+                    onClick = onStart,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Start stopwatch") }
+                StopwatchStatus.PAUSED -> Button(
+                    onClick = onResume,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Resume stopwatch") }
+                StopwatchStatus.RUNNING -> Text(
+                    text = "Use the active stopwatch card below to record laps, pause, or clear it.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StopwatchActiveCard(
+    stopwatch: ClockStopwatch,
+    elapsedMs: Long,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onReset: () -> Unit,
+    onLap: () -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag("active_stopwatch_card"),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Timer, contentDescription = null)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = formatStopwatchElapsed(elapsedMs),
+                        style = MaterialTheme.typography.displaySmall,
+                    )
+                    Text(
+                        text = when (stopwatch.status) {
+                            StopwatchStatus.RUNNING -> "Running"
+                            StopwatchStatus.PAUSED -> "Paused"
+                            StopwatchStatus.IDLE -> "Ready"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    stopwatchLatestLapSummary(stopwatch)?.let { summary ->
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.testTag("stopwatch_lap_summary"),
+                        )
+                    }
+                }
+                IconButton(onClick = onReset) {
+                    Icon(Icons.Default.Delete, contentDescription = "Reset stopwatch")
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                when (stopwatch.status) {
+                    StopwatchStatus.RUNNING -> {
+                        Button(
+                            onClick = onLap,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Lap") }
+                        Button(
+                            onClick = onPause,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Pause") }
+                    }
+                    StopwatchStatus.PAUSED -> {
+                        Button(
+                            onClick = onResume,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Resume") }
+                    }
+                    StopwatchStatus.IDLE -> Unit
+                }
+            }
+            HorizontalDivider()
+            if (stopwatch.laps.isEmpty()) {
+                Text(
+                    text = "No laps yet. Tap Lap and each split will appear here in the active stopwatch card.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text("Laps", style = MaterialTheme.typography.titleMedium)
+                stopwatch.laps.forEachIndexed { index, lap ->
+                    StopwatchLapRow(lap = lap)
+                    if (index != stopwatch.laps.lastIndex) {
+                        HorizontalDivider()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun stopwatchLatestLapSummary(stopwatch: ClockStopwatch): String? {
+    val latestLap = stopwatch.laps.firstOrNull() ?: return null
+    val lapCount = stopwatch.laps.size
+    val lapLabel = if (lapCount == 1) "lap" else "laps"
+    return "$lapCount $lapLabel recorded · latest split ${formatStopwatchElapsed(latestLap.splitMs)}"
+}
+
+
+@Composable
+private fun StopwatchLapRow(lap: StopwatchLap) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Lap ${lap.lapNumber}", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "Split ${formatStopwatchElapsed(lap.splitMs)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            text = formatStopwatchElapsed(lap.elapsedMs),
+            style = MaterialTheme.typography.headlineSmall,
+        )
+    }
+}
+
+
+@Composable
 private fun AlarmDashboard(
     alarms: List<ClockAlarm>,
     inSelectionMode: Boolean,
@@ -992,6 +1310,21 @@ private fun EmptyStateCard(
         }
     }
 }
+
+private fun formatStopwatchElapsed(elapsedMs: Long): String {
+    val safeElapsedMs = elapsedMs.coerceAtLeast(0L)
+    val totalSeconds = safeElapsedMs / 1_000L
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    val tenths = (safeElapsedMs % 1_000L) / 100L
+    return if (hours > 0L) {
+        "%d:%02d:%02d.%01d".format(hours, minutes, seconds, tenths)
+    } else {
+        "%02d:%02d.%01d".format(minutes, seconds, tenths)
+    }
+}
+
 
 private fun defaultTimerTitle(timer: ClockTimer): String =
     formatDuration(timer.durationMs).removeSuffix(" remaining")

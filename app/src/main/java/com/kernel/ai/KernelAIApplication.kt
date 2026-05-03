@@ -8,6 +8,7 @@ import androidx.work.Configuration
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.kernel.ai.alarm.ClockStopwatchNotificationCoordinator
 import com.kernel.ai.alarm.ClockTimerNotificationCoordinator
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.memory.worker.MemoryEmbeddingWorker
@@ -28,6 +29,7 @@ class KernelAIApplication : Application(), Configuration.Provider {
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var inferenceEngine: InferenceEngine
     @Inject lateinit var clockTimerNotificationCoordinator: ClockTimerNotificationCoordinator
+    @Inject lateinit var clockStopwatchNotificationCoordinator: ClockStopwatchNotificationCoordinator
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
@@ -37,6 +39,7 @@ class KernelAIApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         clockTimerNotificationCoordinator.start()
+        clockStopwatchNotificationCoordinator.start()
         WorkManager.getInstance(this).enqueueUniqueWork(
             WORK_NAME_BACKFILL,
             ExistingWorkPolicy.KEEP,
