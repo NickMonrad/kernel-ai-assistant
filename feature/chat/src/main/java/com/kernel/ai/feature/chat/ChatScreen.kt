@@ -106,7 +106,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -633,20 +635,32 @@ private fun InputBar(
     onStopVoiceOutput: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val voiceStatusText = when (voiceCaptureState) {
-        ChatViewModel.VoiceCaptureState.Idle -> when (voicePlaybackState) {
-            ChatViewModel.VoicePlaybackState.Idle -> null
-            is ChatViewModel.VoicePlaybackState.Speaking -> "Speaking: ${voicePlaybackState.text}"
-        }
-        ChatViewModel.VoiceCaptureState.Preparing -> "Starting voice input…"
-        is ChatViewModel.VoiceCaptureState.Listening -> {
-            if (voiceCaptureState.transcript.isBlank()) {
-                "Listening…"
-            } else {
-                "Listening: ${voiceCaptureState.transcript}"
+    val voiceStatus = remember(voiceCaptureState, voicePlaybackState) {
+        when (voiceCaptureState) {
+            ChatViewModel.VoiceCaptureState.Idle -> when (voicePlaybackState) {
+                ChatViewModel.VoicePlaybackState.Idle -> null
+                is ChatViewModel.VoicePlaybackState.Speaking -> VoiceStatusUiModel(
+                    title = "Speaking reply",
+                    subtitle = voicePlaybackState.text,
+                    icon = Icons.Outlined.CheckCircle,
+                )
             }
+            ChatViewModel.VoiceCaptureState.Preparing -> VoiceStatusUiModel(
+                title = "Starting voice input",
+                subtitle = "One-shot push-to-talk",
+                icon = Icons.Default.Mic,
+            )
+            is ChatViewModel.VoiceCaptureState.Listening -> VoiceStatusUiModel(
+                title = "Listening",
+                subtitle = voiceCaptureState.transcript.ifBlank { "One-shot push-to-talk" },
+                icon = Icons.Default.Mic,
+            )
+            is ChatViewModel.VoiceCaptureState.Processing -> VoiceStatusUiModel(
+                title = "Processing voice input",
+                subtitle = voiceCaptureState.transcript,
+                icon = Icons.Outlined.Bolt,
+            )
         }
-        is ChatViewModel.VoiceCaptureState.Processing -> "Processing: ${voiceCaptureState.transcript}"
     }
 
     Surface(
@@ -655,19 +669,45 @@ private fun InputBar(
     ) {
         Column {
             AnimatedVisibility(
-                visible = voiceStatusText != null,
+                visible = voiceStatus != null,
                 enter = fadeIn(),
                 exit = fadeOut(),
             ) {
-                voiceStatusText?.let { status ->
-                    Text(
-                        text = status,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                voiceStatus?.let { status ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        tonalElevation = 1.dp,
                         modifier = Modifier
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite }
                             .testTag("chat_voice_status"),
-                    )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(
+                                imageVector = status.icon,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = status.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
+                                Text(
+                                    text = status.subtitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.9f),
+                                    maxLines = 2,
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -719,7 +759,7 @@ private fun InputBar(
                         onClick = onStartVoiceInput,
                         modifier = Modifier.testTag("chat_voice_start"),
                     ) {
-                        Icon(Icons.Default.Mic, contentDescription = "Start voice input")
+                        Icon(Icons.Default.Mic, contentDescription = "Start one-shot voice input")
                     }
                 }
 
@@ -754,6 +794,12 @@ private fun InputBar(
         }
     }
 }
+
+private data class VoiceStatusUiModel(
+    val title: String,
+    val subtitle: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+)
 
 @Composable
 private fun EmptyConversationHint(modifier: Modifier = Modifier) {
