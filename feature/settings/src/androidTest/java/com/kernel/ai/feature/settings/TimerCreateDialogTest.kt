@@ -18,12 +18,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 
@@ -33,7 +34,7 @@ class TimerCreateDialogTest {
 
     @Test
     fun timerDialogShowsThreeWheelPickers() {
-        setDialogContent()
+        setActualDialogContent()
 
         composeTestRule.onNodeWithTag("timer_hours_picker").assertIsDisplayed()
         composeTestRule.onNodeWithTag("timer_minutes_picker").assertIsDisplayed()
@@ -42,20 +43,13 @@ class TimerCreateDialogTest {
     }
 
     @Test
-    fun defaultTimerSelectionConfirmsFiveMinutes() {
-        var confirmedDurationMs: Long? = null
-        var confirmedLabel: String? = "unexpected"
-        setDialogContent(
-            onConfirm = { durationMs, label ->
-                confirmedDurationMs = durationMs
-                confirmedLabel = label
-            },
-        )
+    fun defaultTimerSelectionStartsAtZeroAndDisablesStart() {
+        setActualDialogContent()
 
-        composeTestRule.onNodeWithTag("timer_start_button").performClick()
+        composeTestRule.waitForIdle()
 
-        assertEquals(5 * 60 * 1_000L, confirmedDurationMs)
-        assertNull(confirmedLabel)
+        composeTestRule.onNodeWithText("Selected duration: 0s").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("timer_start_button").assertIsNotEnabled()
     }
 
     @Test
@@ -67,6 +61,15 @@ class TimerCreateDialogTest {
         composeTestRule.onNodeWithTag("timer_start_button").performClick()
 
         assertEquals("Pasta", confirmedLabel)
+    }
+
+    private fun setActualDialogContent(
+        onConfirm: (Long, String?) -> Unit = { _, _ -> },
+        onDismiss: () -> Unit = {},
+    ) {
+        composeTestRule.setContent {
+            TimerCreateDialog(onConfirm = onConfirm, onDismiss = onDismiss)
+        }
     }
 
     private fun setDialogContent(
@@ -85,8 +88,8 @@ private fun TimerDialogTestContent(
     onDismiss: () -> Unit,
 ) {
     var hours by remember { mutableIntStateOf(0) }
-    var minutes by remember { mutableIntStateOf(5) }
-    var seconds by remember { mutableIntStateOf(0) }
+    var minutes by remember { mutableIntStateOf(0) }
+    var seconds by remember { mutableIntStateOf(1) }
     var label by remember { mutableStateOf("") }
     val durationMs = (((hours * 60L) + minutes) * 60L + seconds) * 1_000L
 
