@@ -8,7 +8,30 @@ interface ClockRepository {
     fun observeUpcomingAlarms(): Flow<List<ClockAlarm>>
     fun observeActiveTimers(): Flow<List<ClockTimer>>
     fun observeRecentCompletedTimers(): Flow<List<ClockTimer>>
+    fun observeStopwatch(): Flow<ClockStopwatch>
     fun observeWorldClocks(): Flow<List<WorldClock>>
+
+    suspend fun startStopwatch(
+        nowWallClockMillis: Long = System.currentTimeMillis(),
+        nowElapsedRealtimeMs: Long,
+    ): ClockStopwatch
+
+    suspend fun pauseStopwatch(
+        nowWallClockMillis: Long = System.currentTimeMillis(),
+        nowElapsedRealtimeMs: Long,
+    ): ClockStopwatch
+
+    suspend fun resumeStopwatch(
+        nowWallClockMillis: Long = System.currentTimeMillis(),
+        nowElapsedRealtimeMs: Long,
+    ): ClockStopwatch
+
+    suspend fun resetStopwatch()
+
+    suspend fun recordStopwatchLap(
+        nowWallClockMillis: Long = System.currentTimeMillis(),
+        nowElapsedRealtimeMs: Long,
+    ): StopwatchLap?
 
     suspend fun addWorldClock(zoneId: String, displayName: String): WorldClock?
     suspend fun removeWorldClock(worldClockId: String): Boolean

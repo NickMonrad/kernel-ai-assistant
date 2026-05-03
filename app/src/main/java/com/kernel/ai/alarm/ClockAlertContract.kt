@@ -14,11 +14,16 @@ internal object ClockAlertContract {
     const val ACTION_STOP_ALERT = "com.kernel.ai.alarm.action.STOP_ALERT"
     const val ACTION_CANCEL_TIMER = "com.kernel.ai.alarm.action.CANCEL_TIMER"
     const val ACTION_SKIP_ALARM_OCCURRENCE = "com.kernel.ai.alarm.action.SKIP_ALARM_OCCURRENCE"
+    const val ACTION_PAUSE_STOPWATCH = "com.kernel.ai.alarm.action.PAUSE_STOPWATCH"
+    const val ACTION_RESUME_STOPWATCH = "com.kernel.ai.alarm.action.RESUME_STOPWATCH"
+    const val ACTION_RESET_STOPWATCH = "com.kernel.ai.alarm.action.RESET_STOPWATCH"
 
     const val ALERT_CHANNEL_ID = "kernel_clock_alerts"
     const val ACTIVE_TIMER_CHANNEL_ID = "kernel_clock_timers"
+    const val ACTIVE_STOPWATCH_CHANNEL_ID = "kernel_clock_stopwatch"
     const val PRE_ALARM_CHANNEL_ID = "kernel_clock_pre_alarms"
     const val ALERT_NOTIFICATION_ID = 9_300
+    const val STOPWATCH_NOTIFICATION_ID = 40_000
 
     fun timerNotificationId(timerId: String): Int = 20_000 + timerId.hashCode()
     fun preAlarmNotificationId(ownerId: String): Int = 30_000 + ownerId.hashCode()
