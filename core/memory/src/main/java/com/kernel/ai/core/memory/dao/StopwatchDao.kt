@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Upsert
 import com.kernel.ai.core.memory.entity.StopwatchLapEntity
 import com.kernel.ai.core.memory.entity.StopwatchStateEntity
 import kotlinx.coroutines.flow.Flow
@@ -29,7 +30,7 @@ interface StopwatchDao {
     @Query("SELECT elapsed_ms FROM stopwatch_laps WHERE stopwatch_id = :stopwatchId ORDER BY lap_number DESC, id DESC LIMIT 1")
     suspend fun getLastLapElapsedMs(stopwatchId: String): Long?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertState(entity: StopwatchStateEntity)
 
     @Insert(onConflict = OnConflictStrategy.ABORT)

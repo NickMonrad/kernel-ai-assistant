@@ -36,6 +36,13 @@ class ClockStopwatchActionReceiver : BroadcastReceiver() {
                         )
                     }
 
+                    ClockAlertContract.ACTION_LAP_STOPWATCH -> {
+                        clockRepository.recordStopwatchLap(
+                            nowWallClockMillis = System.currentTimeMillis(),
+                            nowElapsedRealtimeMs = SystemClock.elapsedRealtime(),
+                        )
+                    }
+
                     ClockAlertContract.ACTION_RESET_STOPWATCH -> {
                         context.getSystemService(NotificationManager::class.java)
                             .cancel(ClockAlertContract.STOPWATCH_NOTIFICATION_ID)

@@ -16,8 +16,8 @@ internal object ClockAlertContract {
     const val ACTION_SKIP_ALARM_OCCURRENCE = "com.kernel.ai.alarm.action.SKIP_ALARM_OCCURRENCE"
     const val ACTION_PAUSE_STOPWATCH = "com.kernel.ai.alarm.action.PAUSE_STOPWATCH"
     const val ACTION_RESUME_STOPWATCH = "com.kernel.ai.alarm.action.RESUME_STOPWATCH"
+    const val ACTION_LAP_STOPWATCH = "com.kernel.ai.alarm.action.LAP_STOPWATCH"
     const val ACTION_RESET_STOPWATCH = "com.kernel.ai.alarm.action.RESET_STOPWATCH"
-
     const val ALERT_CHANNEL_ID = "kernel_clock_alerts"
     const val ACTIVE_TIMER_CHANNEL_ID = "kernel_clock_timers"
     const val ACTIVE_STOPWATCH_CHANNEL_ID = "kernel_clock_stopwatch"
