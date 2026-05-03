@@ -3,10 +3,13 @@ package com.kernel.ai.feature.settings
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.clock.ClockTimer
+import com.kernel.ai.core.memory.clock.WorldClock
+import com.kernel.ai.core.memory.clock.WorldClockCandidate
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -30,6 +33,7 @@ class SidePanelViewModelTest {
         every { clockRepository.observeManageableAlarms() } returns emptyFlow()
         every { clockRepository.observeActiveTimers() } returns emptyFlow()
         every { clockRepository.observeRecentCompletedTimers() } returns emptyFlow()
+        every { clockRepository.observeWorldClocks() } returns emptyFlow()
     }
 
     @AfterEach
@@ -120,6 +124,46 @@ class SidePanelViewModelTest {
         val result = viewModel.tryEditAlarm(alarm, 2_345L, "Updated")
 
         assertEquals(false, result)
+    }
+
+    @Test
+    fun `addWorldClock forwards candidate to repository`() = runTest {
+        coEvery { clockRepository.addWorldClock("Europe/London", "London") } returns WorldClock(
+            id = "clock-1",
+            zoneId = "Europe/London",
+            displayName = "London",
+            sortOrder = 0,
+            createdAtMillis = 1_000L,
+        )
+        val viewModel = SidePanelViewModel(clockRepository)
+        var success: Boolean? = null
+
+        viewModel.addWorldClock(WorldClockCandidate("Europe/London", "London", "Europe/London")) {
+            success = it
+        }
+        advanceUntilIdle()
+
+        assertEquals(true, success)
+        coVerify(exactly = 1) { clockRepository.addWorldClock("Europe/London", "London") }
+    }
+
+    @Test
+    fun `moveWorldClock reorders current favorites`() = runTest {
+        val london = WorldClock("1", "Europe/London", "London", 0, 1_000L)
+        val tokyo = WorldClock("2", "Asia/Tokyo", "Tokyo", 1, 2_000L)
+        every { clockRepository.observeWorldClocks() } returns kotlinx.coroutines.flow.flowOf(listOf(london, tokyo))
+        coEvery { clockRepository.reorderWorldClocks(listOf("2", "1")) } returns true
+        val viewModel = SidePanelViewModel(clockRepository)
+        val collectionJob = launch { viewModel.worldClocks.collect {} }
+        advanceUntilIdle()
+        var success: Boolean? = null
+
+        viewModel.moveWorldClock(tokyo, direction = -1) { success = it }
+        advanceUntilIdle()
+        collectionJob.cancel()
+
+        assertEquals(true, success)
+        coVerify(exactly = 1) { clockRepository.reorderWorldClocks(listOf("2", "1")) }
     }
 }
 

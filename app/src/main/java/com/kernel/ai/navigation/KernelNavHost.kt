@@ -144,7 +144,7 @@ fun KernelNavHost(
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
                 NavigationDrawerItem(
-                    label = { Text("Timers & Alarms") },
+                    label = { Text("Clock") },
                     icon = { Icon(Icons.Default.Timer, contentDescription = null) },
                     selected = currentBaseRoute == ROUTE_SIDE_PANEL,
                     onClick = {
@@ -440,7 +440,7 @@ fun KernelNavHost(
                 }
 
                 composable(ROUTE_SCHEDULED_ALARMS) {
-                    // Redirected to the unified Timers & Alarms screen (#574)
+                    // Redirected to the unified Clock screen (#574 / #742)
                     SidePanelScreen(
                         onBack = { navController.popBackStack() },
                     )

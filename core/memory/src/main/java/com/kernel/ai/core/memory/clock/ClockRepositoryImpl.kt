@@ -1,7 +1,9 @@
 package com.kernel.ai.core.memory.clock
 
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
+import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
+import com.kernel.ai.core.memory.entity.WorldClockEntity
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -21,6 +23,7 @@ private const val PRE_ALARM_EVENT_SUFFIX = ":pre"
 @Singleton
 class ClockRepositoryImpl @Inject constructor(
     private val scheduledAlarmDao: ScheduledAlarmDao,
+    private val worldClockDao: WorldClockDao,
     private val scheduler: ClockScheduler,
  ) : ClockRepository {
     override fun observeManageableAlarms(): Flow<List<ClockAlarm>> =
@@ -51,6 +54,49 @@ class ClockRepositoryImpl @Inject constructor(
         scheduledAlarmDao.observeRecentCompletedTimers().map { schedules ->
             schedules.mapNotNull { it.toClockTimer() }
         }
+
+    override fun observeWorldClocks(): Flow<List<WorldClock>> =
+        worldClockDao.observeAll().map { clocks ->
+            clocks.map { it.toWorldClock() }
+        }
+
+
+    override suspend fun addWorldClock(zoneId: String, displayName: String): WorldClock? {
+        worldClockDao.getByZoneId(zoneId)?.let { return it.toWorldClock() }
+        val entity = WorldClockEntity(
+            id = UUID.randomUUID().toString(),
+            zoneId = zoneId,
+            displayName = displayName,
+            sortOrder = (worldClockDao.getMaxSortOrder() ?: -1) + 1,
+            createdAt = System.currentTimeMillis(),
+        )
+        return try {
+            worldClockDao.insert(entity)
+            entity.toWorldClock()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    override suspend fun removeWorldClock(worldClockId: String): Boolean =
+        worldClockDao.delete(worldClockId) > 0
+
+    override suspend fun reorderWorldClocks(orderedIds: List<String>): Boolean {
+        val existing = worldClockDao.getAll()
+        val byId = existing.associateBy { it.id }
+        if (existing.isEmpty()) return orderedIds.isEmpty()
+        if (orderedIds.size != existing.size || orderedIds.toSet() != byId.keys) return false
+        return try {
+            worldClockDao.updateAll(
+                orderedIds.mapIndexed { index, id ->
+                    byId.getValue(id).copy(sortOrder = index)
+                },
+            )
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     override fun getPlatformState(): ClockPlatformState = scheduler.getPlatformState()
 
@@ -390,6 +436,15 @@ class ClockRepositoryImpl @Inject constructor(
 private fun ScheduledAlarmEntity.withDefaultOwnerId(): ScheduledAlarmEntity =
     if (ownerId.isNullOrBlank()) copy(ownerId = id) else this
 
+
+private fun WorldClockEntity.toWorldClock(): WorldClock =
+    WorldClock(
+        id = id,
+        zoneId = zoneId,
+        displayName = displayName,
+        sortOrder = sortOrder,
+        createdAtMillis = createdAt,
+    )
 private fun ScheduledAlarmEntity.toClockAlarm(): ClockAlarm? {
     if (entryType != ClockEventType.ALARM.name) return null
     val zoneId = ZoneId.of(timeZoneId ?: ZoneId.systemDefault().id)
