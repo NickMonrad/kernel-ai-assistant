@@ -27,6 +27,9 @@ interface ScheduledAlarmDao {
     @Query("UPDATE scheduled_alarms SET fired = 1 WHERE id = :id")
     suspend fun markFired(id: String)
 
+    @Query("UPDATE scheduled_alarms SET fired = 1, completed_at_ms = :completedAtMillis WHERE id = :id")
+    suspend fun markTimerCompleted(id: String, completedAtMillis: Long)
+
     @Query("DELETE FROM scheduled_alarms WHERE id = :id")
     suspend fun delete(id: String)
 
@@ -35,6 +38,15 @@ interface ScheduledAlarmDao {
 
     @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND enabled = 1 AND entry_type = 'TIMER' ORDER BY started_at_ms DESC")
     suspend fun getAllTimers(): List<ScheduledAlarmEntity>
+
+    @Query("SELECT * FROM scheduled_alarms WHERE entry_type = 'TIMER' AND completed_at_ms IS NOT NULL ORDER BY completed_at_ms DESC")
+    fun observeRecentCompletedTimers(): Flow<List<ScheduledAlarmEntity>>
+
+    @Query("DELETE FROM scheduled_alarms WHERE id = :id AND entry_type = 'TIMER' AND completed_at_ms IS NOT NULL")
+    suspend fun deleteCompletedTimer(id: String): Int
+
+    @Query("DELETE FROM scheduled_alarms WHERE entry_type = 'TIMER' AND completed_at_ms IS NOT NULL")
+    suspend fun deleteCompletedTimers(): Int
 
     @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND entry_type = 'ALARM' ORDER BY triggerAtMillis ASC")
     suspend fun getActiveAlarmSchedules(): List<ScheduledAlarmEntity>

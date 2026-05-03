@@ -39,6 +39,11 @@ class ClockRepositoryImpl @Inject constructor(
                 .mapNotNull { it.toClockTimer() }
         }
 
+    override fun observeRecentCompletedTimers(): Flow<List<ClockTimer>> =
+        scheduledAlarmDao.observeRecentCompletedTimers().map { schedules ->
+            schedules.mapNotNull { it.toClockTimer() }
+        }
+
     override fun getPlatformState(): ClockPlatformState = scheduler.getPlatformState()
 
     override suspend fun scheduleAlarm(triggerAtMillis: Long, label: String?): ClockAlarm? {
@@ -181,10 +186,16 @@ class ClockRepositoryImpl @Inject constructor(
         scheduledAlarmDao.delete(timerId)
     }
 
+    override suspend fun deleteCompletedTimer(timerId: String): Boolean =
+        scheduledAlarmDao.deleteCompletedTimer(timerId) > 0
+
+    override suspend fun clearCompletedTimers(): Int =
+        scheduledAlarmDao.deleteCompletedTimers()
+
     override suspend fun recordDeliveredEvent(eventId: String) {
         val existing = scheduledAlarmDao.getById(eventId)?.withDefaultOwnerId() ?: return
         if (existing.entryType == ClockEventType.TIMER.name) {
-            scheduledAlarmDao.delete(eventId)
+            scheduledAlarmDao.markTimerCompleted(eventId, System.currentTimeMillis())
         } else {
             scheduledAlarmDao.markFired(eventId)
         }
@@ -278,6 +289,7 @@ private fun ScheduledAlarmEntity.toClockTimer(): ClockTimer? {
         createdAtMillis = createdAt,
         durationMs = duration,
         startedAtMillis = startedAt,
+        completedAtMillis = completedAtMs,
     )
 }
 

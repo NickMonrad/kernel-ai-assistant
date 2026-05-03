@@ -48,7 +48,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 24,
+    version = 25,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -283,6 +283,13 @@ abstract class KernelDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN owner_id TEXT DEFAULT NULL")
                 db.execSQL("UPDATE scheduled_alarms SET owner_id = id WHERE owner_id IS NULL")
+            }
+        }
+
+        /** Adds completed_at_ms to scheduled_alarms so fired timers can appear in recent history (#737). */
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN completed_at_ms INTEGER DEFAULT NULL")
             }
         }
     }
