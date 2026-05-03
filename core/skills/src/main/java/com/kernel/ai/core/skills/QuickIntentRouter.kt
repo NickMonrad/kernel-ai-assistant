@@ -2764,6 +2764,21 @@ class QuickIntentRouter(
             val labelMatch = labelRegex.find(cleaned)
             if (labelMatch != null) {
                 params["label"] = labelMatch.groupValues[1].trim()
+            } else {
+                val earliestStructuredIndex = listOfNotNull(
+                    dayMatch?.range?.first,
+                    match.range.first.takeIf { it > 0 },
+                ).minOrNull()
+                val implicitLabel = earliestStructuredIndex
+                    ?.let { cleaned.substring(0, it).trim() }
+                    ?.replace(Regex("""^(?:for|on|at|by)\s+"""), "")
+                    ?.replace(Regex("""\s+(?:for|on|at|by)$"""), "")
+                    ?.replace(Regex("""^(?:the|an?)\s+"""), "")
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                if (implicitLabel != null) {
+                    params["label"] = implicitLabel
+                }
             }
 
             return params

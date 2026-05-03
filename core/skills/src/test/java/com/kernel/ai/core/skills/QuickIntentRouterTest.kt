@@ -306,6 +306,19 @@ class QuickIntentRouterTest {
         }
 
         @Test
+        fun `should infer alarm label before tomorrow time phrase`() {
+            val result = regexOnlyRouter.route("set an alarm for the gym tomorrow at 5:00 a.m.")
+            assertRegexMatch(result, "set_alarm", "set an alarm for the gym tomorrow at 5:00 a.m.")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("5", intent.params["hours"])
+            assertEquals("0", intent.params["minutes"])
+            assertEquals("5:00", intent.params["time"])
+            assertEquals("tomorrow", intent.params["day"])
+            assertEquals("gym", intent.params["label"])
+        }
+
+        @Test
         fun `should recover compact alarm times`() {
             val result = regexOnlyRouter.route("set an alarm for 730am")
             assertRegexMatch(result, "set_alarm", "set an alarm for 730am")

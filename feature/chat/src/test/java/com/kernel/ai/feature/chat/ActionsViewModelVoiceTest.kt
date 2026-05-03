@@ -29,6 +29,7 @@ import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -893,6 +894,40 @@ class ActionsViewModelVoiceTest {
         verify { quickIntentRouter.route("set an alarm for 17:30") }
         verify { quickIntentRouter.route("set an alarm for 19:30") }
         verify { quickIntentRouter.route("set an alarm for 2:30 called dentist") }
+    }
+
+    @Test
+    fun `duplicate voice transcripts do not execute the same action twice`() = runTest(dispatcher) {
+        val directSkill = mockk<Skill>()
+        every { quickIntentRouter.route(any()) } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "set_alarm",
+                    params = mapOf("time" to "11:00 a.m."),
+                ),
+            )
+        every { skillRegistry.get("set_alarm") } returns directSkill
+        every { directSkill.name } returns "set_alarm"
+        every { directSkill.description } returns "Set alarm"
+        every { directSkill.schema } returns SkillSchema()
+        coEvery { directSkill.execute(any()) } coAnswers {
+            delay(100)
+            SkillResult.Success("Alarm set for 11:00am")
+        }
+
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Set an alarm for 11:00 a.m."))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Set an alarm for 11:00 a.m."))
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { directSkill.execute(any()) }
+        coVerify(exactly = 1) {
+            quickActionDao.insert(
+                match {
+                    it.skillName == "set_alarm" &&
+                        it.resultText == "Alarm set for 11:00am"
+                },
+            )
+        }
     }
 
     @Test
