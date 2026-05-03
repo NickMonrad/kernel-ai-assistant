@@ -65,10 +65,13 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.memory.clock.AlarmDraft
+import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockTimer
 import kotlinx.coroutines.delay
 import kotlin.math.abs
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -345,8 +348,8 @@ fun SidePanelScreen(
     if (showCreateAlarmDialog) {
         AlarmCreateEditDialog(
             existingAlarm = null,
-            onConfirm = { triggerAtMillis, label ->
-                viewModel.scheduleAlarm(triggerAtMillis, label) { result ->
+            onConfirm = { draft ->
+                viewModel.scheduleAlarm(draft) { result ->
                     when (result) {
                         AlarmSaveResult.STORED -> {
                             schedulingError = null
@@ -363,8 +366,8 @@ fun SidePanelScreen(
     editingAlarm?.let { alarm ->
         AlarmCreateEditDialog(
             existingAlarm = alarm,
-            onConfirm = { triggerAtMillis, label ->
-                viewModel.editAlarm(alarm, triggerAtMillis, label) { result ->
+            onConfirm = { draft ->
+                viewModel.editAlarm(alarm, draft) { result ->
                     when (result) {
                         AlarmSaveResult.STORED -> {
                             schedulingError = null
@@ -687,7 +690,7 @@ private fun AlarmDashboard(
             SectionHeader(title = "Alarms")
             EmptyStateCard(
                 title = "No active alarms",
-                body = "Create an alarm and it will appear here for edit, toggle, and dismissal.",
+                body = "Create one-time or repeating alarms here. Repeating alarms get a Skip today reminder 30 minutes before they ring.",
                 actionLabel = "New alarm",
                 onAction = onNewAlarm,
             )
@@ -699,7 +702,7 @@ private fun AlarmDashboard(
         item {
             SectionHeader(
                 title = "Alarms",
-                supportingText = "${alarms.size} scheduled",
+                supportingText = alarms.firstOrNull()?.let { "Next: ${formatClockTime(it.triggerAtMillis)}" } ?: "",
             )
         }
         items(alarms, key = { it.id }) { alarm ->
@@ -712,7 +715,6 @@ private fun AlarmDashboard(
                 onDismiss = { onDismissAlarm(alarm) },
                 onToggle = { onToggleAlarm(alarm) },
             )
-            HorizontalDivider()
         }
     }
 }
@@ -798,129 +800,255 @@ private fun AlarmPanelRow(
     onLongPress: () -> Unit,
     onDismiss: () -> Unit,
     onToggle: () -> Unit,
-) {
-    val formatted = remember(alarm.triggerAtMillis) {
+ ) {
+    val nextRing = remember(alarm.triggerAtMillis) {
         DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mma")
             .withZone(ZoneId.systemDefault())
             .format(Instant.ofEpochMilli(alarm.triggerAtMillis))
     }
-    val dimAlpha = if (alarm.enabled) 1f else 0.4f
-    ListItem(
+    ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .combinedClickable(onClick = onTap, onLongClick = onLongPress),
-        headlineContent = {
-            Text(
-                text = alarm.label ?: "Alarm",
-                textDecoration = if (alarm.enabled) null else TextDecoration.LineThrough,
-                modifier = Modifier.alpha(dimAlpha),
-            )
-        },
-        supportingContent = { Text(formatted, modifier = Modifier.alpha(dimAlpha)) },
-        leadingContent = {
-            if (inSelectionMode) {
-                Checkbox(checked = isSelected, onCheckedChange = { onTap() })
-            } else {
-                Icon(
-                    Icons.Default.Alarm,
-                    contentDescription = null,
-                    tint = if (alarm.enabled) MaterialTheme.colorScheme.primary
-                           else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        trailingContent = {
-            if (!inSelectionMode) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (inSelectionMode) {
+                    Checkbox(checked = isSelected, onCheckedChange = { onTap() })
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = alarmTimeLabel(alarm),
+                        style = MaterialTheme.typography.headlineMedium,
+                    )
+                    Text(
+                        text = alarm.repeatRule.summary(),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                if (!inSelectionMode) {
                     Switch(checked = alarm.enabled, onCheckedChange = { onToggle() })
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Delete, contentDescription = "Dismiss alarm")
-                    }
                 }
             }
-        },
-    )
+
+            Text(
+                text = alarm.label ?: "Alarm",
+                style = MaterialTheme.typography.titleMedium,
+                color = if (alarm.enabled) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                textDecoration = if (alarm.enabled) null else TextDecoration.LineThrough,
+            )
+            Text(
+                text = "Next ring: $nextRing",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (alarm.repeatRule !is AlarmRepeatRule.OneOff) {
+                Text(
+                    text = "Skip today reminder appears 30 minutes before this alarm.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (!inSelectionMode) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onTap, modifier = Modifier.weight(1f)) { Text("Edit") }
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Delete") }
+                }
+            }
+        }
+    }
 }
+
+private enum class AlarmEditorStep { TIME, REPEAT, DATE, DETAILS }
+private enum class AlarmRepeatSelection { ONE_OFF, DAILY, WEEKDAYS }
+
+private val AlarmWeekdays = listOf(
+    DayOfWeek.MONDAY,
+    DayOfWeek.TUESDAY,
+    DayOfWeek.WEDNESDAY,
+    DayOfWeek.THURSDAY,
+    DayOfWeek.FRIDAY,
+    DayOfWeek.SATURDAY,
+    DayOfWeek.SUNDAY,
+ )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AlarmCreateEditDialog(
     existingAlarm: ClockAlarm?,
-    onConfirm: (triggerAtMillis: Long, label: String?) -> Unit,
+    onConfirm: (AlarmDraft) -> Unit,
     onDismiss: () -> Unit,
-) {
-    val isEdit = existingAlarm != null
-    val defaultTrigger = remember {
+ ) {
+    val zoneId = remember(existingAlarm) { ZoneId.of(existingAlarm?.timeZoneId ?: ZoneId.systemDefault().id) }
+    val defaultTrigger = remember(existingAlarm, zoneId) {
         if (existingAlarm != null) {
             Instant.ofEpochMilli(existingAlarm.triggerAtMillis)
         } else {
-            LocalDate.now().plusDays(1).atTime(8, 0)
-                .atZone(ZoneId.systemDefault()).toInstant()
+            LocalDate.now(zoneId).plusDays(1).atTime(8, 0).atZone(zoneId).toInstant()
         }
     }
-    val defaultZdt = defaultTrigger.atZone(ZoneId.systemDefault())
+    val defaultZdt = defaultTrigger.atZone(zoneId)
+    val existingRepeatRule = existingAlarm?.repeatRule
     var label by remember { mutableStateOf(existingAlarm?.label ?: "") }
-    var step by remember { mutableStateOf("date") }
-    val dateState = rememberDatePickerState(
-        initialSelectedDateMillis = defaultZdt.toLocalDate()
-            .atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli(),
-    )
+    var step by remember { mutableStateOf(AlarmEditorStep.TIME) }
+    var repeatSelection by remember(existingRepeatRule) { mutableStateOf(existingRepeatRule.toSelection()) }
+    var repeatDaysMask by remember(existingRepeatRule) {
+        mutableIntStateOf((existingRepeatRule as? AlarmRepeatRule.SelectedWeekdays)?.daysMask ?: weekdayMaskFor(defaultZdt.dayOfWeek))
+    }
     val timeState = rememberTimePickerState(
-        initialHour = defaultZdt.hour,
-        initialMinute = defaultZdt.minute,
+        initialHour = existingAlarm?.hour ?: defaultZdt.hour,
+        initialMinute = existingAlarm?.minute ?: defaultZdt.minute,
         is24Hour = false,
     )
+    val initialDateEpochDay = remember(existingRepeatRule, defaultZdt) {
+        when (existingRepeatRule) {
+            is AlarmRepeatRule.OneOff -> existingRepeatRule.dateEpochDay
+            else -> defaultZdt.toLocalDate().toEpochDay()
+        }
+    }
+    val dateState = rememberDatePickerState(
+        initialSelectedDateMillis = LocalDate.ofEpochDay(initialDateEpochDay)
+            .atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli(),
+    )
+    val selectedDateEpochDay = dateState.selectedDateMillis?.let {
+        Instant.ofEpochMilli(it).atZone(ZoneId.of("UTC")).toLocalDate().toEpochDay()
+    }
+    val draft = remember(
+        label,
+        timeState.hour,
+        timeState.minute,
+        repeatSelection,
+        repeatDaysMask,
+        selectedDateEpochDay,
+        zoneId.id,
+    ) {
+        buildAlarmDraft(
+            label = label,
+            hour = timeState.hour,
+            minute = timeState.minute,
+            repeatSelection = repeatSelection,
+            repeatDaysMask = repeatDaysMask,
+            oneOffDateEpochDay = selectedDateEpochDay,
+            timeZoneId = zoneId.id,
+        )
+    }
+
     when (step) {
-        "date" -> {
+        AlarmEditorStep.TIME -> {
+            AlertDialog(
+                onDismissRequest = onDismiss,
+                title = { Text(if (existingAlarm != null) "Edit alarm time" else "Set alarm time") },
+                text = { Column(horizontalAlignment = Alignment.CenterHorizontally) { TimePicker(state = timeState) } },
+                confirmButton = { TextButton(onClick = { step = AlarmEditorStep.REPEAT }) { Text("Next") } },
+                dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+            )
+        }
+
+        AlarmEditorStep.REPEAT -> {
+            AlertDialog(
+                onDismissRequest = onDismiss,
+                icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
+                title = { Text("Repeat") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = repeatSelection == AlarmRepeatSelection.ONE_OFF,
+                                onClick = { repeatSelection = AlarmRepeatSelection.ONE_OFF },
+                                label = { Text("One time") },
+                            )
+                            FilterChip(
+                                selected = repeatSelection == AlarmRepeatSelection.DAILY,
+                                onClick = { repeatSelection = AlarmRepeatSelection.DAILY },
+                                label = { Text("Daily") },
+                            )
+                        }
+                        FilterChip(
+                            selected = repeatSelection == AlarmRepeatSelection.WEEKDAYS,
+                            onClick = { repeatSelection = AlarmRepeatSelection.WEEKDAYS },
+                            label = { Text("Selected weekdays") },
+                        )
+                        if (repeatSelection == AlarmRepeatSelection.WEEKDAYS) {
+                            AlarmWeekdays.chunked(4).forEach { rowDays ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    rowDays.forEach { day ->
+                                        val selected = repeatDaysMask and weekdayMaskFor(day) != 0
+                                        FilterChip(
+                                            selected = selected,
+                                            onClick = { repeatDaysMask = repeatDaysMask.toggleWeekday(day) },
+                                            label = { Text(day.shortLabel()) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            step = if (repeatSelection == AlarmRepeatSelection.ONE_OFF) AlarmEditorStep.DATE
+                            else AlarmEditorStep.DETAILS
+                        },
+                        enabled = repeatSelection != AlarmRepeatSelection.WEEKDAYS || repeatDaysMask != 0,
+                    ) { Text("Next") }
+                },
+                dismissButton = { TextButton(onClick = { step = AlarmEditorStep.TIME }) { Text("Back") } },
+            )
+        }
+
+        AlarmEditorStep.DATE -> {
             DatePickerDialog(
                 onDismissRequest = onDismiss,
                 confirmButton = {
                     TextButton(
-                        onClick = { step = "time" },
+                        onClick = { step = AlarmEditorStep.DETAILS },
                         enabled = dateState.selectedDateMillis != null,
                     ) { Text("Next") }
                 },
-                dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+                dismissButton = { TextButton(onClick = { step = AlarmEditorStep.REPEAT }) { Text("Back") } },
             ) { DatePicker(state = dateState) }
         }
-        "time" -> {
-            AlertDialog(
-                onDismissRequest = onDismiss,
-                title = { Text(if (isEdit) "Edit alarm time" else "Set time") },
-                text = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        TimePicker(state = timeState)
-                    }
-                },
-                confirmButton = { TextButton(onClick = { step = "label" }) { Text("Next") } },
-                dismissButton = { TextButton(onClick = { step = "date" }) { Text("Back") } },
-            )
-        }
-        "label" -> {
-            val selectedDateUtcMillis = dateState.selectedDateMillis ?: return
-            val triggerAtMillis = remember(selectedDateUtcMillis, timeState.hour, timeState.minute) {
-                val localDate = Instant.ofEpochMilli(selectedDateUtcMillis)
-                    .atZone(ZoneId.of("UTC")).toLocalDate()
-                localDate.atTime(LocalTime.of(timeState.hour, timeState.minute))
-                    .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            }
-            val formatted = remember(triggerAtMillis) {
+
+        AlarmEditorStep.DETAILS -> {
+            val preview = draft?.previewTriggerAtMillis()?.let { triggerAtMillis ->
                 DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mma")
-                    .withZone(ZoneId.systemDefault())
+                    .withZone(ZoneId.of(draft.timeZoneId))
                     .format(Instant.ofEpochMilli(triggerAtMillis))
             }
             AlertDialog(
                 onDismissRequest = onDismiss,
                 icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
-                title = { Text(if (isEdit) "Edit alarm" else "New alarm") },
+                title = { Text(if (existingAlarm != null) "Edit alarm" else "New alarm") },
                 text = {
-                    Column {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
-                            text = formatted,
+                            text = draft?.repeatRule?.summary() ?: "Select repeat settings",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = preview?.let { "Next ring: $it" } ?: "Pick a future date and time.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        if (draft != null && draft.repeatRule !is AlarmRepeatRule.OneOff) {
+                            Text(
+                                text = "A Skip today reminder appears 30 minutes before repeating alarms.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         OutlinedTextField(
                             value = label,
                             onValueChange = { label = it },
@@ -931,15 +1059,110 @@ private fun AlarmCreateEditDialog(
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { onConfirm(triggerAtMillis, label.takeIf { it.isNotBlank() }) }) {
-                        Text(if (isEdit) "Save" else "Set alarm")
-                    }
+                    TextButton(
+                        onClick = { draft?.let(onConfirm) },
+                        enabled = draft?.previewTriggerAtMillis() != null,
+                    ) { Text(if (existingAlarm != null) "Save" else "Set alarm") }
                 },
-                dismissButton = { TextButton(onClick = { step = "time" }) { Text("Back") } },
+                dismissButton = {
+                    TextButton(onClick = {
+                        step = if (repeatSelection == AlarmRepeatSelection.ONE_OFF) AlarmEditorStep.DATE
+                        else AlarmEditorStep.REPEAT
+                    }) { Text("Back") }
+                },
             )
         }
     }
 }
+
+private fun ClockAlarm.repeatSummary(): String = repeatRule.summary()
+
+private fun AlarmRepeatRule.summary(): String =
+    when (this) {
+        AlarmRepeatRule.Daily -> "Every day"
+        is AlarmRepeatRule.OneOff -> "One time"
+        is AlarmRepeatRule.SelectedWeekdays -> AlarmWeekdays
+            .filter { includes(it) }
+            .joinToString(separator = ", ") { it.shortLabel() }
+    }
+
+
+private fun AlarmRepeatRule?.toSelection(): AlarmRepeatSelection =
+    when (this) {
+        AlarmRepeatRule.Daily -> AlarmRepeatSelection.DAILY
+        is AlarmRepeatRule.SelectedWeekdays -> AlarmRepeatSelection.WEEKDAYS
+        else -> AlarmRepeatSelection.ONE_OFF
+    }
+
+private fun weekdayMaskFor(day: DayOfWeek): Int = 1 shl (day.value - 1)
+
+private fun Int.toggleWeekday(day: DayOfWeek): Int =
+    if (this and weekdayMaskFor(day) != 0) this and weekdayMaskFor(day).inv()
+    else this or weekdayMaskFor(day)
+
+private fun DayOfWeek.shortLabel(): String =
+    name.lowercase().replaceFirstChar { it.uppercase() }.take(3)
+
+private fun buildAlarmDraft(
+    label: String,
+    hour: Int,
+    minute: Int,
+    repeatSelection: AlarmRepeatSelection,
+    repeatDaysMask: Int,
+    oneOffDateEpochDay: Long?,
+    timeZoneId: String,
+ ): AlarmDraft? {
+    val repeatRule = when (repeatSelection) {
+        AlarmRepeatSelection.ONE_OFF -> {
+            val epochDay = oneOffDateEpochDay ?: return null
+            AlarmRepeatRule.OneOff(epochDay)
+        }
+        AlarmRepeatSelection.DAILY -> AlarmRepeatRule.Daily
+        AlarmRepeatSelection.WEEKDAYS -> {
+            if (repeatDaysMask == 0) return null
+            AlarmRepeatRule.SelectedWeekdays(repeatDaysMask)
+        }
+    }
+    return AlarmDraft(
+        label = label.takeIf { it.isNotBlank() },
+        hour = hour,
+        minute = minute,
+        repeatRule = repeatRule,
+        timeZoneId = timeZoneId,
+    )
+}
+
+private fun AlarmDraft.previewTriggerAtMillis(fromMillis: Long = System.currentTimeMillis()): Long? {
+    val zone = ZoneId.of(timeZoneId)
+    val from = Instant.ofEpochMilli(fromMillis).atZone(zone)
+    return when (val rule = repeatRule) {
+        is AlarmRepeatRule.OneOff -> {
+            val candidate = LocalDate.ofEpochDay(rule.dateEpochDay)
+                .atTime(LocalTime.of(hour, minute))
+                .atZone(zone)
+                .toInstant()
+                .toEpochMilli()
+            candidate.takeIf { it > fromMillis }
+        }
+        AlarmRepeatRule.Daily -> {
+            val todayCandidate = from.toLocalDate().atTime(hour, minute).atZone(zone).toInstant().toEpochMilli()
+            if (todayCandidate > fromMillis) todayCandidate
+            else from.toLocalDate().plusDays(1).atTime(hour, minute).atZone(zone).toInstant().toEpochMilli()
+        }
+        is AlarmRepeatRule.SelectedWeekdays -> {
+            for (offset in 0..7) {
+                val date = from.toLocalDate().plusDays(offset.toLong())
+                if (!rule.includes(date.dayOfWeek)) continue
+                val candidate = date.atTime(hour, minute).atZone(zone).toInstant().toEpochMilli()
+                if (candidate > fromMillis) return candidate
+            }
+            null
+        }
+    }
+}
+
+private fun alarmTimeLabel(alarm: ClockAlarm): String =
+    LocalTime.of(alarm.hour, alarm.minute).format(DateTimeFormatter.ofPattern("h:mm a"))
 
 private const val TimerWheelVisibleItems = 5
 private const val TimerWheelCenterItem = TimerWheelVisibleItems / 2
