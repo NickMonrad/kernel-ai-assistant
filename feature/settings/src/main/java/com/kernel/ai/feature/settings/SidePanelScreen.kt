@@ -853,7 +853,6 @@ internal fun StopwatchDashboard(
                 stopwatch = stopwatch,
                 onStart = onStart,
                 onResume = onResume,
-                onLap = onLap,
             )
         }
         item {
@@ -861,7 +860,10 @@ internal fun StopwatchDashboard(
                 title = "Active stopwatch",
                 supportingText = when (stopwatch.status) {
                     StopwatchStatus.IDLE -> "Jandal currently keeps one app-owned stopwatch active at a time."
-                    StopwatchStatus.RUNNING -> "1 stopwatch running now"
+                    StopwatchStatus.RUNNING -> {
+                        val lapCount = stopwatch.laps.size
+                        if (lapCount == 0) "1 stopwatch running now" else "1 stopwatch running now · $lapCount ${if (lapCount == 1) "lap" else "laps"} recorded"
+                    }
                     StopwatchStatus.PAUSED -> "Paused — resume it or clear it when you're done"
                 },
             )
@@ -893,8 +895,7 @@ private fun StopwatchQuickActionCard(
     stopwatch: ClockStopwatch,
     onStart: () -> Unit,
     onResume: () -> Unit,
-    onLap: () -> Unit,
- ) {
+) {
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -908,7 +909,7 @@ private fun StopwatchQuickActionCard(
             Text(
                 text = when (stopwatch.status) {
                     StopwatchStatus.IDLE -> "Start a stopwatch and keep its controls and laps in one place."
-                    StopwatchStatus.RUNNING -> "Your active stopwatch stays below as a card with live controls and laps."
+                    StopwatchStatus.RUNNING -> "Your active stopwatch stays below as a card with live controls, visible lap history, and reset."
                     StopwatchStatus.PAUSED -> "Resume the active stopwatch or clear it when you're finished."
                 },
                 style = MaterialTheme.typography.bodyMedium,
@@ -923,10 +924,11 @@ private fun StopwatchQuickActionCard(
                     onClick = onResume,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Resume stopwatch") }
-                StopwatchStatus.RUNNING -> Button(
-                    onClick = onLap,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Record lap") }
+                StopwatchStatus.RUNNING -> Text(
+                    text = "Use the active stopwatch card below to record laps, pause, or clear it.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -940,7 +942,7 @@ private fun StopwatchActiveCard(
     onResume: () -> Unit,
     onReset: () -> Unit,
     onLap: () -> Unit,
- ) {
+) {
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -971,6 +973,14 @@ private fun StopwatchActiveCard(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    stopwatchLatestLapSummary(stopwatch)?.let { summary ->
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.testTag("stopwatch_lap_summary"),
+                        )
+                    }
                 }
                 IconButton(onClick = onReset) {
                     Icon(Icons.Default.Delete, contentDescription = "Reset stopwatch")
@@ -1019,6 +1029,14 @@ private fun StopwatchActiveCard(
         }
     }
 }
+
+private fun stopwatchLatestLapSummary(stopwatch: ClockStopwatch): String? {
+    val latestLap = stopwatch.laps.firstOrNull() ?: return null
+    val lapCount = stopwatch.laps.size
+    val lapLabel = if (lapCount == 1) "lap" else "laps"
+    return "$lapCount $lapLabel recorded · latest split ${formatStopwatchElapsed(latestLap.splitMs)}"
+}
+
 
 @Composable
 private fun StopwatchLapRow(lap: StopwatchLap) {

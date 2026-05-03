@@ -1,7 +1,9 @@
 package com.kernel.ai.feature.settings
 
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import com.kernel.ai.core.memory.clock.ClockStopwatch
@@ -53,8 +55,12 @@ class StopwatchDashboardTest {
         }
 
         composeTestRule.onNodeWithTag("active_stopwatch_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("stopwatch_lap_summary").assertIsDisplayed()
+        composeTestRule.onNodeWithText("2 laps recorded · latest split 00:03").assertIsDisplayed()
         composeTestRule.onNodeWithText("Lap 2").assertIsDisplayed()
         composeTestRule.onNodeWithText("Split 00:03").assertIsDisplayed()
         composeTestRule.onNodeWithText("Lap 1").assertIsDisplayed()
-    }
+        composeTestRule.onAllNodesWithText("Record lap").assertCountEquals(0)
+}
+
 }

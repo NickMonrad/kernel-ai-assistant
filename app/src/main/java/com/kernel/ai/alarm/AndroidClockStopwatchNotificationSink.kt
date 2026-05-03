@@ -40,27 +40,18 @@ class AndroidClockStopwatchNotificationSink @Inject constructor(
         val nowWallClockMs = System.currentTimeMillis()
         val nowElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime()
         val elapsedMs = stopwatch.elapsedMs(nowElapsedRealtimeMs, nowWallClockMs)
-        val latestLap = stopwatch.laps.firstOrNull()
-        val contentText = when (stopwatch.status) {
-            StopwatchStatus.RUNNING -> latestLap?.let {
-                "Lap ${it.lapNumber} · split ${formatStopwatchElapsed(it.splitMs)}"
-            } ?: "Tap Lap to capture a split"
-            StopwatchStatus.PAUSED -> buildString {
-                append("Paused at ${formatStopwatchElapsed(elapsedMs)}")
-                if (stopwatch.laps.isNotEmpty()) append(" · ${stopwatch.laps.size} laps")
-            }
-            StopwatchStatus.IDLE -> "Ready"
-        }
+        val contentText = stopwatchNotificationText(stopwatch, elapsedMs)
         return NotificationCompat.Builder(context, ClockAlertContract.ACTIVE_STOPWATCH_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle("Stopwatch")
-            .setContentText(contentText)
+            .setContentTitle(stopwatchNotificationTitle(stopwatch))
+            .apply { if (contentText != null) setContentText(contentText) }
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(stopwatch.status == StopwatchStatus.RUNNING)
             .setWhen(nowWallClockMs - elapsedMs)
             .setUsesChronometer(stopwatch.status == StopwatchStatus.RUNNING)
+            .setChronometerCountDown(false)
             .setContentIntent(buildOpenAppPendingIntent())
             .apply {
                 when (stopwatch.status) {
@@ -148,5 +139,33 @@ class AndroidClockStopwatchNotificationSink @Inject constructor(
                 enableVibration(false)
             },
         )
+    }
+}
+
+internal fun stopwatchNotificationTitle(stopwatch: ClockStopwatch): String = when (stopwatch.status) {
+    StopwatchStatus.RUNNING -> stopwatch.laps.firstOrNull()?.let { "Stopwatch · Lap ${it.lapNumber}" } ?: "Stopwatch"
+    StopwatchStatus.PAUSED -> "Stopwatch paused"
+    StopwatchStatus.IDLE -> "Stopwatch"
+}
+
+internal fun stopwatchNotificationText(stopwatch: ClockStopwatch, elapsedMs: Long): String? = when (stopwatch.status) {
+    StopwatchStatus.RUNNING -> null
+    StopwatchStatus.PAUSED -> buildString {
+        append("Paused at ${formatStopwatchElapsedForNotification(elapsedMs)}")
+        if (stopwatch.laps.isNotEmpty()) append(" · ${stopwatch.laps.size} ${if (stopwatch.laps.size == 1) "lap" else "laps"}")
+    }
+    StopwatchStatus.IDLE -> "Ready"
+}
+
+private fun formatStopwatchElapsedForNotification(elapsedMs: Long): String {
+    val safeElapsedMs = elapsedMs.coerceAtLeast(0L)
+    val totalSeconds = safeElapsedMs / 1_000L
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%02d:%02d".format(minutes, seconds)
     }
 }
