@@ -23,8 +23,11 @@ import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
+import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
@@ -43,6 +46,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkStatic
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -205,6 +209,40 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `save memory router match bypasses llm wrapper`() = runTest(dispatcher) {
+        val saveMemorySkill = object : Skill {
+            override val name = "save_memory"
+            override val description = "Save memory"
+            override val schema = SkillSchema(required = listOf("content"))
+
+            override suspend fun execute(call: com.kernel.ai.core.skills.SkillCall): SkillResult =
+                SkillResult.Success("✓ Saved: \"I have a dog named Xena\".")
+        }
+        every {
+            quickIntentRouter.route("Can you remember that I have a dog named Xena")
+        } returns QuickIntentRouter.RouteResult.RegexMatch(
+            QuickIntentRouter.MatchedIntent(
+                intentName = "save_memory",
+                params = mapOf("content" to "I have a dog named Xena"),
+            )
+        )
+        every { skillRegistry.get("save_memory") } returns saveMemorySkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("Can you remember that I have a dog named Xena")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(
+            "You: Can you remember that I have a dog named Xena\nJandal: ✓ Saved: \"I have a dog named Xena\".",
+            viewModel.getConversationAsText(),
+        )
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
 
     private fun createViewModel(): ChatViewModel = ChatViewModel(
