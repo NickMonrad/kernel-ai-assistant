@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Notification permission (required on API 33+; minSdk=35 so always required) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Location permissions for GetWeatherSkill GPS fallback -->
@@ -16,8 +17,10 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Exact alarm scheduling for date-specific alarms (#327) -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- Re-schedule alarms after device reboot (#327) -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Contact lookup for SMS, email, and call by name -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- Microphone access for offline Quick Actions voice input -->
@@ -120,9 +123,18 @@
             android:foregroundServiceType="specialUse"
             android:exported="false" />
 
+        <service
+            android:name=".alarm.ClockAlertService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
         <!-- Fires when a scheduled exact alarm triggers (#327) -->
         <receiver
             android:name=".alarm.AlarmBroadcastReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".alarm.ClockTimerActionReceiver"
             android:exported="false" />
 
         <!-- Re-schedules exact alarms after device reboot (#327) -->
