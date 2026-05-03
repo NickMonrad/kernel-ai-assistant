@@ -1,7 +1,9 @@
 package com.kernel.ai.core.memory.clock
 
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
+import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
+import com.kernel.ai.core.memory.entity.WorldClockEntity
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -28,12 +30,13 @@ import java.time.ZoneId
 class ClockRepositoryImplTest {
     private val scheduledAlarmDao = mockk<ScheduledAlarmDao>()
     private val scheduler = mockk<ClockScheduler>(relaxed = true)
+    private val worldClockDao = mockk<WorldClockDao>()
 
     private lateinit var repository: ClockRepositoryImpl
 
     @BeforeEach
     fun setUp() {
-        repository = ClockRepositoryImpl(scheduledAlarmDao, scheduler)
+        repository = ClockRepositoryImpl(scheduledAlarmDao, worldClockDao, scheduler)
         every {
             scheduler.getPlatformState()
         } returns ClockPlatformState(
@@ -241,6 +244,42 @@ class ClockRepositoryImplTest {
 
         assertEquals(2, deleted)
         coVerify(exactly = 1) { scheduledAlarmDao.deleteCompletedTimers() }
+    }
+
+    @Test
+    fun `addWorldClock inserts ordered favorite and returns model`() = runTest {
+        coEvery { worldClockDao.getByZoneId("Europe/London") } returns null
+        coEvery { worldClockDao.getMaxSortOrder() } returns 2
+        coEvery { worldClockDao.insert(any()) } just Runs
+
+        val result = repository.addWorldClock("Europe/London", "London")
+
+        assertEquals("London", result?.displayName)
+        coVerify(exactly = 1) {
+            worldClockDao.insert(match {
+                it.zoneId == "Europe/London" &&
+                    it.displayName == "London" &&
+                    it.sortOrder == 3
+            })
+        }
+    }
+
+    @Test
+    fun `reorderWorldClocks rewrites sort order in requested order`() = runTest {
+        val first = WorldClockEntity("1", "Europe/London", "London", 0, 1_000L)
+        val second = WorldClockEntity("2", "Asia/Tokyo", "Tokyo", 1, 2_000L)
+        coEvery { worldClockDao.getAll() } returns listOf(first, second)
+        coEvery { worldClockDao.updateAll(any()) } just Runs
+
+        val reordered = repository.reorderWorldClocks(listOf("2", "1"))
+
+        assertTrue(reordered)
+        coVerify(exactly = 1) {
+            worldClockDao.updateAll(match { entities ->
+                entities[0].id == "2" && entities[0].sortOrder == 0 &&
+                    entities[1].id == "1" && entities[1].sortOrder == 1
+            })
+        }
     }
 
     private fun dailyDraft(label: String, hour: Int, minute: Int) = AlarmDraft(

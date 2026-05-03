@@ -7,6 +7,8 @@ import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.clock.ClockTimer
+import com.kernel.ai.core.memory.clock.WorldClock
+import com.kernel.ai.core.memory.clock.WorldClockCandidate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
 import java.time.ZoneId
@@ -18,7 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-enum class ClockSurfaceTab { TIMERS, ALARMS }
+enum class ClockSurfaceTab { TIMERS, ALARMS, WORLD_CLOCK }
 
 @HiltViewModel
 class SidePanelViewModel @Inject constructor(
@@ -34,6 +36,10 @@ class SidePanelViewModel @Inject constructor(
 
     val recentCompletedTimers: StateFlow<List<ClockTimer>> =
         clockRepository.observeRecentCompletedTimers()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val worldClocks: StateFlow<List<WorldClock>> =
+        clockRepository.observeWorldClocks()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _selectedTab = MutableStateFlow(ClockSurfaceTab.TIMERS)
@@ -201,6 +207,38 @@ class SidePanelViewModel @Inject constructor(
     fun scheduleTimer(durationMs: Long, label: String?, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
             onResult(tryScheduleTimer(durationMs, label))
+        }
+    }
+
+    fun addWorldClock(candidate: WorldClockCandidate, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            onResult(clockRepository.addWorldClock(candidate.zoneId, candidate.displayName) != null)
+        }
+    }
+
+    fun removeWorldClock(worldClock: WorldClock, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            onResult(clockRepository.removeWorldClock(worldClock.id))
+        }
+    }
+
+    fun moveWorldClock(worldClock: WorldClock, direction: Int, onResult: (Boolean) -> Unit = {}) {
+        val clocks = worldClocks.value
+        val currentIndex = clocks.indexOfFirst { it.id == worldClock.id }
+        if (currentIndex == -1) {
+            onResult(false)
+            return
+        }
+        val targetIndex = currentIndex + direction
+        if (targetIndex !in clocks.indices) {
+            onResult(false)
+            return
+        }
+        val reordered = clocks.map { it.id }.toMutableList()
+        val moved = reordered.removeAt(currentIndex)
+        reordered.add(targetIndex, moved)
+        viewModelScope.launch {
+            onResult(clockRepository.reorderWorldClocks(reordered))
         }
     }
 }

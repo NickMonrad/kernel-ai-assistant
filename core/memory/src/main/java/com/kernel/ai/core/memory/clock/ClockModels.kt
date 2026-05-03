@@ -53,6 +53,14 @@ data class ClockTimer(
     val completedAtMillis: Long? = null,
  )
 
+data class WorldClock(
+    val id: String,
+    val zoneId: String,
+    val displayName: String,
+    val sortOrder: Int,
+    val createdAtMillis: Long,
+ )
+
 data class ClockScheduledEvent(
     val eventId: String,
     val ownerId: String,

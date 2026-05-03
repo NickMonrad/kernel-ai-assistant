@@ -17,6 +17,7 @@ import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.dao.ModelSettingsDao
 import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
+import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.entity.ContactAliasEntity
 import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
@@ -30,6 +31,7 @@ import com.kernel.ai.core.memory.entity.MessageEntity
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
+import com.kernel.ai.core.memory.entity.WorldClockEntity
 import com.kernel.ai.core.memory.entity.UserProfileEntity
 import java.time.ZoneId
 
@@ -45,11 +47,12 @@ import java.time.ZoneId
         ModelSettingsEntity::class,
         QuickActionEntity::class,
         ScheduledAlarmEntity::class,
+        WorldClockEntity::class,
         ContactAliasEntity::class,
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 26,
+    version = 27,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -65,6 +68,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun modelSettingsDao(): ModelSettingsDao
     abstract fun quickActionDao(): QuickActionDao
     abstract fun scheduledAlarmDao(): ScheduledAlarmDao
+    abstract fun worldClockDao(): WorldClockDao
     abstract fun contactAliasDao(): ContactAliasDao
     abstract fun listItemDao(): ListItemDao
     abstract fun listNameDao(): ListNameDao
@@ -308,6 +312,25 @@ abstract class KernelDatabase : RoomDatabase() {
                     WHERE entry_type = 'ALARM'
                     """.trimIndent(),
                 )
+            }
+        }
+
+        /** Creates world_clocks for first-class world clock favorites (#742). */
+        val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `world_clocks` (
+                        `id` TEXT NOT NULL,
+                        `zone_id` TEXT NOT NULL,
+                        `display_name` TEXT NOT NULL,
+                        `sort_order` INTEGER NOT NULL,
+                        `created_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_world_clocks_zone_id` ON `world_clocks` (`zone_id`)")
             }
         }
 

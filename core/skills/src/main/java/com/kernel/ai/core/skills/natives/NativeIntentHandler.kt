@@ -21,6 +21,8 @@ import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.clock.AlarmDraft
 import com.kernel.ai.core.memory.clock.AlarmRepeatRule
+import com.kernel.ai.core.memory.clock.WorldClockCatalog
+import com.kernel.ai.core.memory.clock.WorldClockResolution
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
@@ -555,6 +557,35 @@ class NativeIntentHandler @Inject constructor(
     // ── Time / Date ───────────────────────────────────────────────────────────
 
     private fun getTime(params: Map<String, String> = emptyMap()): SkillResult {
+        val location = params["location"]?.trim()?.takeIf { it.isNotBlank() }
+        if (location != null) {
+            return when (val resolution = WorldClockCatalog.resolve(location)) {
+                is WorldClockResolution.Resolved -> {
+                    val zonedNow = Instant.ofEpochMilli(System.currentTimeMillis())
+                        .atZone(ZoneId.of(resolution.candidate.zoneId))
+                    when (params["query_type"]) {
+                        "date" -> SkillResult.DirectReply(
+                            "In ${resolution.candidate.displayName}, today is ${zonedNow.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
+                        )
+
+                        else -> SkillResult.DirectReply(
+                            "In ${resolution.candidate.displayName}, it's ${zonedNow.format(DateTimeFormatter.ofPattern("h:mm a"))} on ${zonedNow.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
+                        )
+                    }
+                }
+
+                is WorldClockResolution.Ambiguous -> SkillResult.Failure(
+                    "run_intent",
+                    "I found multiple matches for '$location': ${resolution.options.joinToString { it.displayName }}. Try a more specific timezone.",
+                )
+
+                WorldClockResolution.Unknown -> SkillResult.Failure(
+                    "run_intent",
+                    "I couldn't find a timezone for '$location'. Try a city like London or a timezone like Europe/Paris.",
+                )
+            }
+        }
+
         val now = LocalDateTime.now()
         // DirectReply: factual time/date data — LLM wrapping risks corrupting values
         // (e.g. "3:47 PM" → "nearly four o'clock") and adds no value for a simple query.

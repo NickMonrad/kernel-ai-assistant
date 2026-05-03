@@ -740,6 +740,42 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
+                """what\s+time\s+is\s+it\s+in\s+(.+?)\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                parseWorldTimeLocation(match.groupValues[1])?.let { location ->
+                    mapOf("query_type" to "time", "location" to location)
+                } ?: mapOf("query_type" to "time")
+            },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?time\s+in\s+(.+?)\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                parseWorldTimeLocation(match.groupValues[1])?.let { location ->
+                    mapOf("query_type" to "time", "location" to location)
+                } ?: mapOf("query_type" to "time")
+            },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """(?:current\s+)?time\s+in\s+(.+?)\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                parseWorldTimeLocation(match.groupValues[1])?.let { location ->
+                    mapOf("query_type" to "time", "location" to location)
+                } ?: mapOf("query_type" to "time")
+            },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
                 """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(time|date|day)""",
                 RegexOption.IGNORE_CASE,
             ),
@@ -2900,6 +2936,13 @@ class QuickIntentRouter(
             "sun" -> "sunday"
             else -> day
         }
+
+        private fun parseWorldTimeLocation(raw: String): String? =
+            raw
+                .replace(Regex("""\b(right\s+now|currently|now)\b""", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("""[?!.]+$"""), "")
+                .trim()
+                .takeIf { it.isNotBlank() }
 
         // ── Public surface for tests and callers ─────────────────────────────
 

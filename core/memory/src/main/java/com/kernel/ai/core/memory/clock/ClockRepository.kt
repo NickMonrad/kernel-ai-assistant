@@ -8,6 +8,11 @@ interface ClockRepository {
     fun observeUpcomingAlarms(): Flow<List<ClockAlarm>>
     fun observeActiveTimers(): Flow<List<ClockTimer>>
     fun observeRecentCompletedTimers(): Flow<List<ClockTimer>>
+    fun observeWorldClocks(): Flow<List<WorldClock>>
+
+    suspend fun addWorldClock(zoneId: String, displayName: String): WorldClock?
+    suspend fun removeWorldClock(worldClockId: String): Boolean
+    suspend fun reorderWorldClocks(orderedIds: List<String>): Boolean
 
     fun getPlatformState(): ClockPlatformState
 

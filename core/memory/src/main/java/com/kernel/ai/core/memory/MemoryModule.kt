@@ -14,6 +14,7 @@ import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.dao.ModelSettingsDao
 import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
+import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.clock.ClockRepositoryImpl
@@ -80,6 +81,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_23_24,
                     KernelDatabase.MIGRATION_24_25,
                     KernelDatabase.MIGRATION_25_26,
+                    KernelDatabase.MIGRATION_26_27,
                 )
                 .build()
 
@@ -109,6 +111,9 @@ abstract class MemoryModule {
 
         @Provides
         fun provideScheduledAlarmDao(db: KernelDatabase): ScheduledAlarmDao = db.scheduledAlarmDao()
+
+        @Provides
+        fun provideWorldClockDao(db: KernelDatabase): WorldClockDao = db.worldClockDao()
 
         @Provides
         fun provideContactAliasDao(db: KernelDatabase): ContactAliasDao = db.contactAliasDao()

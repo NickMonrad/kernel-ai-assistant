@@ -585,6 +585,16 @@ class QuickIntentRouterTest {
         }
     }
 
+        @Test
+        fun `should extract location for world time query`() {
+            val result = regexOnlyRouter.route("what time is it in London right now")
+            assertRegexMatch(result, "get_time", "what time is it in London right now")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("time", intent.params["query_type"])
+            assertEquals("London", intent.params["location"])
+        }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // E4B FALLTHROUGH — these should NEVER match Tier 2
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1884,6 +1894,9 @@ class QuickIntentRouterTest {
             Arguments.of("what time is it"),
             Arguments.of("what's the time"),
             Arguments.of("what is the time"),
+            Arguments.of("what time is it in London"),
+            Arguments.of("what time is it in New York right now"),
+            Arguments.of("current time in Auckland"),
             Arguments.of("what's the date"),
             Arguments.of("what is the date"),
             Arguments.of("what's the current time"),
