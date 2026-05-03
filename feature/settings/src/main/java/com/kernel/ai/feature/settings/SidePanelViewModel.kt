@@ -6,6 +6,7 @@ import com.kernel.ai.core.memory.clock.AlarmDraft
 import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
+import com.kernel.ai.core.memory.clock.ClockStopwatch
 import com.kernel.ai.core.memory.clock.ClockTimer
 import com.kernel.ai.core.memory.clock.WorldClock
 import com.kernel.ai.core.memory.clock.WorldClockCandidate
@@ -20,7 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-enum class ClockSurfaceTab { TIMERS, ALARMS, WORLD_CLOCK }
+enum class ClockSurfaceTab { TIMERS, ALARMS, WORLD_CLOCK, STOPWATCH }
 
 @HiltViewModel
 class SidePanelViewModel @Inject constructor(
@@ -37,6 +38,20 @@ class SidePanelViewModel @Inject constructor(
     val recentCompletedTimers: StateFlow<List<ClockTimer>> =
         clockRepository.observeRecentCompletedTimers()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val stopwatch: StateFlow<ClockStopwatch> =
+        clockRepository.observeStopwatch()
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                ClockStopwatch(
+                    id = "primary",
+                    status = com.kernel.ai.core.memory.clock.StopwatchStatus.IDLE,
+                    accumulatedElapsedMs = 0L,
+                    updatedAtMillis = 0L,
+                ),
+            )
+
 
     val worldClocks: StateFlow<List<WorldClock>> =
         clockRepository.observeWorldClocks()
@@ -209,6 +224,49 @@ class SidePanelViewModel @Inject constructor(
             onResult(tryScheduleTimer(durationMs, label))
         }
     }
+
+    fun startStopwatch(nowWallClockMillis: Long, nowElapsedRealtimeMs: Long) {
+        viewModelScope.launch {
+            clockRepository.startStopwatch(
+                nowWallClockMillis = nowWallClockMillis,
+                nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+            )
+        }
+    }
+
+    fun pauseStopwatch(nowWallClockMillis: Long, nowElapsedRealtimeMs: Long) {
+        viewModelScope.launch {
+            clockRepository.pauseStopwatch(
+                nowWallClockMillis = nowWallClockMillis,
+                nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+            )
+        }
+    }
+
+    fun resumeStopwatch(nowWallClockMillis: Long, nowElapsedRealtimeMs: Long) {
+        viewModelScope.launch {
+            clockRepository.resumeStopwatch(
+                nowWallClockMillis = nowWallClockMillis,
+                nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+            )
+        }
+    }
+
+    fun resetStopwatch() {
+        viewModelScope.launch {
+            clockRepository.resetStopwatch()
+        }
+    }
+
+    fun recordStopwatchLap(nowWallClockMillis: Long, nowElapsedRealtimeMs: Long) {
+        viewModelScope.launch {
+            clockRepository.recordStopwatchLap(
+                nowWallClockMillis = nowWallClockMillis,
+                nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+            )
+        }
+    }
+
 
     fun addWorldClock(candidate: WorldClockCandidate, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
