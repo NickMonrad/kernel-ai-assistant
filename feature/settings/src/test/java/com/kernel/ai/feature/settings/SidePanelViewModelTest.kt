@@ -39,7 +39,7 @@ class SidePanelViewModelTest {
 
     @Test
     fun `scheduleAlarm returns false when repository rejects exact alarm`() = runTest {
-        coEvery { clockRepository.scheduleAlarm(any(), any()) } returns null
+        coEvery { clockRepository.createAlarm(any()) } returns null
         val viewModel = SidePanelViewModel(clockRepository)
 
         val result = viewModel.tryScheduleAlarm(1_234L, "Wake")
@@ -49,7 +49,7 @@ class SidePanelViewModelTest {
 
     @Test
     fun `scheduleAlarm reports failure when repository cannot store alarm`() = runTest {
-        coEvery { clockRepository.scheduleAlarm(any(), any()) } returns null
+        coEvery { clockRepository.createAlarm(any()) } returns null
         val viewModel = SidePanelViewModel(clockRepository)
         var result: AlarmSaveResult? = null
 
@@ -113,14 +113,8 @@ class SidePanelViewModelTest {
 
     @Test
     fun `editAlarm returns false when repository rejects update`() = runTest {
-        val alarm = ClockAlarm(
-            id = "alarm-1",
-            triggerAtMillis = 1_234L,
-            label = "Wake",
-            createdAtMillis = 100L,
-            enabled = true,
-        )
-        coEvery { clockRepository.editAlarm(alarm.id, any(), any()) } returns null
+        val alarm = sampleAlarm()
+        coEvery { clockRepository.updateAlarm(alarm.id, any()) } returns null
         val viewModel = SidePanelViewModel(clockRepository)
 
         val result = viewModel.tryEditAlarm(alarm, 2_345L, "Updated")
@@ -128,3 +122,15 @@ class SidePanelViewModelTest {
         assertEquals(false, result)
     }
 }
+
+private fun sampleAlarm() = ClockAlarm(
+    id = "alarm-1",
+    label = "Wake",
+    createdAtMillis = 100L,
+    enabled = true,
+    hour = 7,
+    minute = 0,
+    repeatRule = com.kernel.ai.core.memory.clock.AlarmRepeatRule.OneOff(19_000L),
+    timeZoneId = java.time.ZoneId.systemDefault().id,
+    triggerAtMillis = 1_234L,
+ )

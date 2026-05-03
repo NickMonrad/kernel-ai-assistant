@@ -54,6 +54,9 @@ class AlarmManagerClockScheduler @Inject constructor(
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
         )
         pendingIntent?.let(alarmManager::cancel)
+        if (event.type == ClockEventType.PRE_ALARM) {
+            notificationManager.cancel(ClockAlertContract.preAlarmNotificationId(event.ownerId))
+        }
     }
 
     private fun buildBroadcastIntent(event: ClockScheduledEvent): Intent =
@@ -63,6 +66,10 @@ class AlarmManagerClockScheduler @Inject constructor(
             putExtra(ClockAlertContract.EXTRA_OWNER_ID, event.ownerId)
             putExtra(ClockAlertContract.EXTRA_TITLE, defaultTitle(event.type))
             putExtra(ClockAlertContract.EXTRA_EVENT_TYPE, event.type.name)
+            putExtra(
+                ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS,
+                event.occurrenceTriggerAtMillis ?: event.triggerAtMillis,
+            )
         }
 
     private fun defaultLabel(type: ClockEventType): String =

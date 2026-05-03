@@ -167,7 +167,17 @@ class ClockAlertService : Service() {
         val type = getStringExtra(ClockAlertContract.EXTRA_EVENT_TYPE)
             ?.let(ClockEventType::valueOf)
             ?: ClockEventType.ALARM
-        return TriggeredClockAlert(ownerId = ownerId, type = type, title = title, label = label)
+        val occurrenceTriggerAtMillis = getLongExtra(
+            ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS,
+            -1L,
+        ).takeIf { it > 0L }
+        return TriggeredClockAlert(
+            ownerId = ownerId,
+            type = type,
+            title = title,
+            label = label,
+            occurrenceTriggerAtMillis = occurrenceTriggerAtMillis,
+        )
     }
 
     companion object {
@@ -180,6 +190,10 @@ class ClockAlertService : Service() {
                     putExtra(ClockAlertContract.EXTRA_LABEL, alert.label)
                     putExtra(ClockAlertContract.EXTRA_TITLE, alert.title)
                     putExtra(ClockAlertContract.EXTRA_EVENT_TYPE, alert.type.name)
+                    putExtra(
+                        ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS,
+                        alert.occurrenceTriggerAtMillis ?: -1L,
+                    )
                 },
             )
         }
