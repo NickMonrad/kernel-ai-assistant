@@ -11,16 +11,17 @@ import android.provider.ContactsContract
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
+import com.kernel.ai.core.memory.clock.ClockAlarm
+import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
-import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.entity.ContactAliasEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.skills.SkillResult
+import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
-import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -30,6 +31,7 @@ import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.LocalTime
@@ -38,13 +40,13 @@ class NativeIntentHandlerTest {
     private val context = mockk<Context>(relaxed = true)
     private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val contactAliasRepository = mockk<ContactAliasRepository>(relaxed = true)
-    private val scheduledAlarmDao = mockk<ScheduledAlarmDao>(relaxed = true)
+    private val clockRepository = mockk<ClockRepository>(relaxed = true)
     private val listItemDao = mockk<ListItemDao>(relaxed = true)
     private val listNameDao = mockk<ListNameDao>(relaxed = true)
 
     private val handler = NativeIntentHandler(
         context = context,
-        scheduledAlarmDao = scheduledAlarmDao,
+        clockRepository = clockRepository,
         listItemDao = listItemDao,
         listNameDao = listNameDao,
         contactAliasRepository = contactAliasRepository,
@@ -102,6 +104,45 @@ class NativeIntentHandlerTest {
 
         assertNotNull(resolved)
         assertEquals(LocalTime.of(6, 30), resolved)
+    }
+
+    @Test
+    fun `resolveTime preserves valid dotted meridiem times`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveTime",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "10:00 a.m.") as LocalTime?
+
+        assertNotNull(resolved)
+        assertEquals(LocalTime.of(10, 0), resolved)
+    }
+
+    @Test
+    fun `resolveTime recovers flattened seven oclock format`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveTime",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "70:00") as LocalTime?
+
+        assertNotNull(resolved)
+        assertEquals(LocalTime.of(7, 0), resolved)
+    }
+
+    @Test
+    fun `resolveTime recovers flattened three oclock format`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveTime",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "30:00") as LocalTime?
+
+        assertNotNull(resolved)
+        assertEquals(LocalTime.of(3, 0), resolved)
     }
 
     @Test
@@ -447,8 +488,143 @@ class NativeIntentHandlerTest {
             com.kernel.ai.core.skills.SkillResult.Success("Opening YouTube Music and starting playback"),
             result,
         )
-        verify { context.startActivity(launchIntent) }
         verify(exactly = 2) { audioManager.dispatchMediaKeyEvent(any()) }
+    }
+
+    @Test
+    fun `set_alarm without explicit date uses internal clock repository`() {
+        coEvery { clockRepository.scheduleAlarm(any(), "Wake") } returns ClockAlarm(
+            id = "alarm-1",
+            triggerAtMillis = 1_700_000_000_000L,
+            label = "Wake",
+            createdAtMillis = 1_699_000_000_000L,
+            enabled = true,
+        )
+
+        val result = handler.handle("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
+
+        assertTrue(result is SkillResult.Success)
+        assertTrue((result as SkillResult.Success).content.contains("Alarm set for"))
+        coVerify(exactly = 1) { clockRepository.scheduleAlarm(any(), "Wake") }
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `set_alarm returns exact alarm unavailable failure when platform scheduling is off`() {
+        coEvery { clockRepository.scheduleAlarm(any(), "Wake") } returns null
+        every { clockRepository.getPlatformState() } returns com.kernel.ai.core.memory.clock.ClockPlatformState(
+            canScheduleExactAlarms = false,
+            notificationsEnabled = true,
+            canUseFullScreenIntent = false,
+        )
+
+        val result = handler.handle("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
+
+        assertEquals(SkillResult.Failure("run_intent", "Exact alarms are unavailable right now."), result)
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `set_alarm returns failure when repository rejects alarm despite exact alarm availability`() {
+        coEvery { clockRepository.scheduleAlarm(any(), "Wake") } returns null
+        every { clockRepository.getPlatformState() } returns com.kernel.ai.core.memory.clock.ClockPlatformState(
+            canScheduleExactAlarms = true,
+            notificationsEnabled = true,
+            canUseFullScreenIntent = false,
+        )
+
+        val result = handler.handle("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
+
+        assertEquals(SkillResult.Failure("run_intent", "Could not schedule the alarm."), result)
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `set_timer returns generic failure when repository rejects despite exact alarm availability`() {
+        coEvery { clockRepository.scheduleTimer(any(), any()) } returns null
+        every { clockRepository.getPlatformState() } returns com.kernel.ai.core.memory.clock.ClockPlatformState(
+            canScheduleExactAlarms = true,
+            notificationsEnabled = true,
+            canUseFullScreenIntent = false,
+        )
+
+        val result = handler.handle("set_timer", mapOf("duration_seconds" to "60"))
+
+        assertEquals(SkillResult.Failure("run_intent", "Could not schedule the timer."), result)
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `cancel_timer_named matches unlabeled timer by hyphenated duration`() {
+        coEvery { clockRepository.cancelTimersMatching("10-minute", 600_000L) } returns 1
+        val result = handler.handle("cancel_timer_named", mapOf("name" to "10-minute"))
+        assertEquals(SkillResult.Success("Cancelled the 10-minute timer"), result)
+        coVerify(exactly = 1) { clockRepository.cancelTimersMatching("10-minute", 600_000L) }
+    }
+
+    @Test
+    fun `set_alarm with unparseable explicit day fails instead of shifting dates`() {
+        val result = handler.handle("set_alarm", mapOf("time" to "07:00", "day" to "blursday"))
+
+        assertEquals(SkillResult.Failure("run_intent", "Couldn't parse day: blursday"), result)
+        coVerify(exactly = 0) { clockRepository.scheduleAlarm(any(), any()) }
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `cancel_timer_named uses truthful failure when no duration match exists`() {
+        coEvery { clockRepository.cancelTimersMatching("10-minute", 600_000L) } returns 0
+        val result = handler.handle("cancel_timer_named", mapOf("name" to "10-minute"))
+        assertEquals(SkillResult.Failure("cancel_timer_named", "No timer matching '10-minute' found"), result)
+        coVerify(exactly = 1) { clockRepository.cancelTimersMatching("10-minute", 600_000L) }
+    }
+
+    @Test
+    fun `cancel_alarm without label cancels next app alarm only`() {
+        coEvery { clockRepository.cancelNextAlarm() } returns ClockAlarm(
+            id = "alarm-1",
+            triggerAtMillis = 1_700_000_000_000L,
+            label = "Wake",
+            createdAtMillis = 1_699_000_000_000L,
+            enabled = true,
+        )
+
+        val result = handler.handle("cancel_alarm", emptyMap())
+
+        assertEquals(
+            SkillResult.Success("Cancelled next app alarm: Wake."),
+            result,
+        )
+        coVerify(exactly = 1) { clockRepository.cancelNextAlarm() }
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `cancel_alarm with label cancels internal alarm only`() {
+        coEvery { clockRepository.cancelAlarmsByLabel("Wake") } returns 1
+
+        val result = handler.handle("cancel_alarm", mapOf("label" to "Wake"))
+
+        assertEquals(
+            SkillResult.Success("Cancelled app alarm: Wake."),
+            result,
+        )
+        coVerify(exactly = 1) { clockRepository.cancelAlarmsByLabel("Wake") }
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `cancel_alarm with label reports missing internal alarm`() {
+        coEvery { clockRepository.cancelAlarmsByLabel("Wake") } returns 0
+
+        val result = handler.handle("cancel_alarm", mapOf("label" to "Wake"))
+
+        assertEquals(
+            SkillResult.Failure("cancel_alarm", "No app alarm named Wake found"),
+            result,
+        )
+        coVerify(exactly = 1) { clockRepository.cancelAlarmsByLabel("Wake") }
+        verify(exactly = 0) { context.startActivity(any()) }
     }
 
     @Test

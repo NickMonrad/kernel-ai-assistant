@@ -15,6 +15,8 @@ import com.kernel.ai.core.memory.dao.ModelSettingsDao
 import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
+import com.kernel.ai.core.memory.clock.ClockRepository
+import com.kernel.ai.core.memory.clock.ClockRepositoryImpl
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.MemoryRepositoryImpl
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
@@ -40,6 +42,10 @@ abstract class MemoryModule {
     @Binds
     @Singleton
     abstract fun bindMemoryRepository(impl: MemoryRepositoryImpl): MemoryRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindClockRepository(impl: ClockRepositoryImpl): ClockRepository
 
     @Binds
     @Singleton
@@ -71,6 +77,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_20_21,
                     KernelDatabase.MIGRATION_21_22,
                     KernelDatabase.MIGRATION_22_23,
+                    KernelDatabase.MIGRATION_23_24,
                 )
                 .build()
 
