@@ -2353,7 +2353,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """(?:save|store|keep)\s+(?:to\s+memory|in\s+memory|that|this|it)\s*[:\-–]?\s*(.+)""",
+                """(?:save|store|keep)\s+(?:(?:to|in)\s+memory(?:\s+that)?|that|this|it)\s*[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
