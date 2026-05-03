@@ -20,6 +20,13 @@ class WorldClockCatalogTest {
     }
 
     @Test
+    fun `resolve handles ottawa city alias`() {
+        val resolution = WorldClockCatalog.resolve("Ottawa")
+        assertTrue(resolution is WorldClockResolution.Resolved)
+        assertEquals("America/Toronto", (resolution as WorldClockResolution.Resolved).candidate.zoneId)
+    }
+
+    @Test
     fun `search returns popular clocks when blank`() {
         val results = WorldClockCatalog.search("")
         assertTrue(results.isNotEmpty())

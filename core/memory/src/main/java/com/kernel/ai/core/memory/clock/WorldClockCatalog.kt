@@ -20,6 +20,7 @@ object WorldClockCatalog {
         "jst" to "Asia/Tokyo",
         "utc" to "UTC",
         "gmt" to "Etc/GMT",
+        "ottawa" to "America/Toronto",
     )
 
     private val popularZoneIds = listOf(
