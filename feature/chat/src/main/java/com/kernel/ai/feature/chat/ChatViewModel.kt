@@ -325,7 +325,7 @@ class ChatViewModel @Inject constructor(
                     is VoiceInputEvent.Error -> {
                         pendingVoiceReply = false
                         _voiceCaptureState.value = VoiceCaptureState.Idle
-                        _error.value = event.message
+                        _error.value = withVoiceSettingsHint(event.message)
                     }
                     is VoiceInputEvent.ListeningStopped -> {
                         when (val currentState = _voiceCaptureState.value) {
@@ -766,7 +766,7 @@ class ChatViewModel @Inject constructor(
                 is VoiceInputStartResult.Unavailable -> {
                     pendingVoiceReply = false
                     _voiceCaptureState.value = VoiceCaptureState.Idle
-                    _error.value = result.message
+                    _error.value = withVoiceSettingsHint(result.message)
                 }
             }
         }
@@ -1067,6 +1067,17 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         is com.kernel.ai.core.skills.SkillResult.Success -> {
+                            if (matchedIntent.intentName == "save_memory") {
+                                appendAssistantMessageWithToolCall(
+                                    convId = convId,
+                                    content = skillResult.content,
+                                    skillName = matchedIntent.intentName,
+                                    requestJson = callParams.toString(),
+                                    isSuccess = true,
+                                    presentation = skillResult.presentation,
+                                )
+                                return@launch
+                            }
                             systemContext = "[System: ${matchedIntent.intentName} — ${skillResult.content}]"
                             // E4B not loaded yet: show action result directly and skip the wrapper.
                             if (!inferenceEngine.isReady.value) {
@@ -1747,8 +1758,13 @@ class ChatViewModel @Inject constructor(
 
         when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = spokenText))) {
             VoiceOutputResult.Spoken -> Unit
-            is VoiceOutputResult.Unavailable -> _error.value = result.message
+            is VoiceOutputResult.Unavailable -> _error.value = withVoiceSettingsHint(result.message)
         }
+    }
+
+    private fun withVoiceSettingsHint(message: String): String {
+        if (message.contains("Settings -> Voice")) return message
+        return "$message Check Settings -> Voice if this keeps happening."
     }
 
     /**
