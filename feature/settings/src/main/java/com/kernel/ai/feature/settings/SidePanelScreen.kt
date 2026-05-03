@@ -7,11 +7,15 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Alarm
@@ -45,17 +49,18 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -63,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockTimer
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -935,67 +941,248 @@ private fun AlarmCreateEditDialog(
     }
 }
 
+private const val TimerWheelVisibleItems = 5
+private const val TimerWheelCenterItem = TimerWheelVisibleItems / 2
+private const val TimerWheelRepeatCount = 100
+private val TimerHourRange = 0..99
+private val TimerMinuteSecondRange = 0..59
+private val TimerWheelItemHeight = 44.dp
+
 @Composable
 private fun TimerCreateDialog(
     onConfirm: (durationMs: Long, label: String?) -> Unit,
     onDismiss: () -> Unit,
-) {
+ ) {
+    var hours by remember { mutableIntStateOf(0) }
     var minutes by remember { mutableIntStateOf(5) }
     var seconds by remember { mutableIntStateOf(0) }
     var label by remember { mutableStateOf("") }
-    var minutesText by remember { mutableStateOf("5") }
-    var secondsText by remember { mutableStateOf("0") }
+    val durationMs = remember(hours, minutes, seconds) {
+        (((hours * 60L) + minutes) * 60L + seconds) * 1_000L
+    }
 
     AlertDialog(
+        modifier = Modifier.testTag("timer_dialog"),
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Default.Timer, contentDescription = null) },
         title = { Text("New Timer") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = minutesText,
-                        onValueChange = { v ->
-                            minutesText = v
-                            minutes = v.toIntOrNull()?.coerceIn(0, 999) ?: 0
-                        },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("Minutes") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
-                        ),
-                    )
-                    OutlinedTextField(
-                        value = secondsText,
-                        onValueChange = { v ->
-                            secondsText = v
-                            seconds = v.toIntOrNull()?.coerceIn(0, 59) ?: 0
-                        },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("Seconds") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
-                        ),
-                    )
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    text = "Spin to set hours, minutes, and seconds.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TimerDurationPicker(
+                    hours = hours,
+                    minutes = minutes,
+                    seconds = seconds,
+                    onHoursChanged = { hours = it },
+                    onMinutesChanged = { minutes = it },
+                    onSecondsChanged = { seconds = it },
+                )
+                Text(
+                    text = "Selected duration: ${formatDuration(durationMs)}",
+                    style = MaterialTheme.typography.titleSmall,
+                )
                 OutlinedTextField(
                     value = label,
                     onValueChange = { label = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("timer_label_input"),
                     placeholder = { Text("Label (optional)") },
                     singleLine = true,
                 )
             }
         },
         confirmButton = {
-            val durationMs = (minutes * 60L + seconds) * 1_000L
             TextButton(
                 onClick = { onConfirm(durationMs, label.takeIf { it.isNotBlank() }) },
                 enabled = durationMs > 0,
+                modifier = Modifier.testTag("timer_start_button"),
             ) { Text("Start Timer") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+@Composable
+internal fun TimerDurationPicker(
+    hours: Int,
+    minutes: Int,
+    seconds: Int,
+    onHoursChanged: (Int) -> Unit,
+    onMinutesChanged: (Int) -> Unit,
+    onSecondsChanged: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+ ) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TimerUnitWheel(
+            label = "Hours",
+            value = hours,
+            range = TimerHourRange,
+            onValueChange = onHoursChanged,
+            modifier = Modifier.weight(1f),
+            testTag = "timer_hours_picker",
+        )
+        Text(
+	        text = ":",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TimerUnitWheel(
+            label = "Minutes",
+            value = minutes,
+            range = TimerMinuteSecondRange,
+            onValueChange = onMinutesChanged,
+            modifier = Modifier.weight(1f),
+            testTag = "timer_minutes_picker",
+        )
+        Text(
+            text = ":",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TimerUnitWheel(
+            label = "Seconds",
+            value = seconds,
+            range = TimerMinuteSecondRange,
+            onValueChange = onSecondsChanged,
+            modifier = Modifier.weight(1f),
+            testTag = "timer_seconds_picker",
+        )
+    }
+}
+
+@Composable
+private fun TimerUnitWheel(
+    label: String,
+    value: Int,
+    range: IntRange,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    testTag: String,
+ ) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        TimerNumberWheel(
+            value = value,
+            range = range,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            formatValue = { "%02d".format(it) },
+            testTag = testTag,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun TimerNumberWheel(
+    value: Int,
+    range: IntRange,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    formatValue: (Int) -> String,
+    testTag: String,
+ ) {
+    val values = remember(range.first, range.last) { range.toList() }
+    val repeatedItemCount = remember(values) { values.size * TimerWheelRepeatCount }
+    val middleRepeatStart = remember(values) { values.size * (TimerWheelRepeatCount / 2) }
+    val initialCenteredIndex = remember(value, values) {
+        middleRepeatStart + (value - range.first)
+    }
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = (initialCenteredIndex - TimerWheelCenterItem).coerceAtLeast(0),
+    )
+    val selectedIndex by remember(listState) {
+        derivedStateOf { centeredTimerWheelIndex(listState) }
+    }
+
+    LaunchedEffect(listState, values) {
+        snapshotFlow { centeredTimerWheelIndex(listState) }
+            .collect { centeredIndex ->
+                if (centeredIndex != null) {
+                    onValueChange(values[centeredIndex % values.size])
+                }
+            }
+    }
+
+    LaunchedEffect(value, values) {
+        val centeredIndex = centeredTimerWheelIndex(listState) ?: return@LaunchedEffect
+        val centeredValue = values[centeredIndex % values.size]
+        if (centeredValue != value) {
+            val targetCenteredIndex = middleRepeatStart + (value - range.first)
+            listState.scrollToItem((targetCenteredIndex - TimerWheelCenterItem).coerceAtLeast(0))
+        }
+    }
+
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
+                .height(TimerWheelItemHeight)
+                .background(
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f),
+                ),
+        )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(TimerWheelItemHeight * TimerWheelVisibleItems)
+                .testTag(testTag),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            contentPadding = PaddingValues(vertical = TimerWheelItemHeight * TimerWheelCenterItem),
+            flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
+        ) {
+            items(count = repeatedItemCount, key = { it }) { index ->
+                val wheelValue = values[index % values.size]
+                val isSelected = index == selectedIndex
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(TimerWheelItemHeight),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = formatValue(wheelValue),
+                        style = if (isSelected) {
+                            MaterialTheme.typography.titleLarge
+                        } else {
+                            MaterialTheme.typography.titleMedium
+                        },
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.alpha(if (isSelected) 1f else 0.55f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun centeredTimerWheelIndex(listState: LazyListState): Int? {
+    val layoutInfo = listState.layoutInfo
+    val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+    return layoutInfo.visibleItemsInfo.minByOrNull { item ->
+        abs((item.offset + item.size / 2) - viewportCenter)
+    }?.index
 }
