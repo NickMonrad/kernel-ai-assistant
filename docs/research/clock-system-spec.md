@@ -45,12 +45,12 @@ Current implementation anchors:
 
 ### 2.2 Why the current behavior is insufficient
 
-The current repo still uses a hybrid model:
+The current repo has completed the core alarm/timer ownership cutover, but alert-path gaps remain:
 
-- alarms still fall back to `AlarmClock.ACTION_SET_ALARM`
-- alarm cancellation still uses `AlarmClock.ACTION_DISMISS_ALARM`
-- scheduling/cancellation logic is duplicated in multiple call sites
-- `AlarmBroadcastReceiver` posts a notification but does not own a long-lived ringing session
+- alarm and timer creation/cancellation now stay inside the app-owned clock backend
+- `AlarmBroadcastReceiver` still posts a notification but does not own a long-lived ringing session
+- active timer countdown notifications are still missing
+- full-screen alarm/timer parity still needs a dedicated alert service
 
 This explains the current user-visible problem for the internal alert path:
 
@@ -664,13 +664,12 @@ This must be productized before OEM `AlarmClock.*` fallback removal for core ala
 
 ### 12.1 Required cleanup
 
-When the new clock domain is ready, delete hybrid behavior as part of the cutover wave:
+When the new alert domain is ready, delete the remaining lightweight fallback behavior as part of the next wave:
 
-- `AlarmClock.ACTION_SET_ALARM` for core alarm creation
-- `AlarmClock.ACTION_DISMISS_ALARM` for core alarm cancellation
-- duplicated raw scheduling code in view models and native handlers
-
-UI waves should build on the fully internal backend rather than extending the hybrid model.
+- notification-only trigger handling in `AlarmBroadcastReceiver`
+- duplicated alert UX responsibilities that should move into a dedicated alert service
+- any remaining gaps between alarms and timers for ringing/full-screen/countdown UX
+UI waves should build on the fully internal backend rather than extending the current lightweight trigger path.
 
 ### 12.2 Migration note
 

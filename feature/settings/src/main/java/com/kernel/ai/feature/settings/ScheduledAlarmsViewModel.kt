@@ -1,117 +1,70 @@
 package com.kernel.ai.feature.settings
 
-import android.app.AlarmManager
-import android.app.PendingIntent
-import android.content.Context
-import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
-import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
+import com.kernel.ai.core.memory.clock.ClockAlarm
+import com.kernel.ai.core.memory.clock.ClockRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.UUID
-import javax.inject.Inject
 
 @HiltViewModel
 class ScheduledAlarmsViewModel @Inject constructor(
-    private val dao: ScheduledAlarmDao,
-    @ApplicationContext private val context: Context,
+    private val clockRepository: ClockRepository,
 ) : ViewModel() {
 
-    // Filter by current time on every emission so past-due alarms disappear immediately
-    val alarms: StateFlow<List<ScheduledAlarmEntity>> =
-        dao.observeAllUnfired()
-            .map { list -> list.filter { it.triggerAtMillis > System.currentTimeMillis() } }
+    val alarms: StateFlow<List<ClockAlarm>> =
+        clockRepository.observeUpcomingAlarms()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun scheduleAlarm(triggerAtMillis: Long, label: String?) {
-        viewModelScope.launch {
-            val alarmId = UUID.randomUUID().toString()
-            val entity = ScheduledAlarmEntity(
-                id = alarmId,
-                triggerAtMillis = triggerAtMillis,
-                label = label?.takeIf { it.isNotBlank() },
-                createdAt = System.currentTimeMillis(),
-                enabled = true,
-            )
-            dao.insert(entity)
-            scheduleAlarmBroadcast(entity)
-        }
-    }
+    suspend fun tryScheduleAlarm(triggerAtMillis: Long, label: String?): Boolean =
+        clockRepository.scheduleAlarm(triggerAtMillis, label) != null
 
-    fun editAlarm(alarm: ScheduledAlarmEntity, newTriggerAtMillis: Long, newLabel: String?) {
+    fun scheduleAlarm(triggerAtMillis: Long, label: String?, onResult: (AlarmSaveResult) -> Unit = {}) {
         viewModelScope.launch {
-            cancelAlarmBroadcast(alarm)
-            val updated = alarm.copy(
-                triggerAtMillis = newTriggerAtMillis,
-                label = newLabel?.takeIf { it.isNotBlank() },
-            )
-            dao.insert(updated)
-            if (updated.enabled) scheduleAlarmBroadcast(updated)
-        }
-    }
-
-    fun toggleEnabled(alarm: ScheduledAlarmEntity) {
-        viewModelScope.launch {
-            val newEnabled = !alarm.enabled
-            dao.setEnabled(alarm.id, newEnabled)
-            if (newEnabled) {
-                scheduleAlarmBroadcast(alarm.copy(enabled = true))
+            val result = if (tryScheduleAlarm(triggerAtMillis, label)) {
+                AlarmSaveResult.STORED
             } else {
-                cancelAlarmBroadcast(alarm)
+                AlarmSaveResult.FAILED
             }
+            onResult(result)
         }
     }
 
-    fun cancelAlarm(alarm: ScheduledAlarmEntity) {
+    suspend fun tryEditAlarm(alarm: ClockAlarm, newTriggerAtMillis: Long, newLabel: String?): Boolean =
+        clockRepository.editAlarm(alarm.id, newTriggerAtMillis, newLabel) != null
+
+    fun editAlarm(
+        alarm: ClockAlarm,
+        newTriggerAtMillis: Long,
+        newLabel: String?,
+        onResult: (AlarmSaveResult) -> Unit = {},
+    ) {
         viewModelScope.launch {
-            cancelAlarmBroadcast(alarm)
-            dao.delete(alarm.id)
+            val result = if (tryEditAlarm(alarm, newTriggerAtMillis, newLabel)) {
+                AlarmSaveResult.STORED
+            } else {
+                AlarmSaveResult.FAILED
+            }
+            onResult(result)
         }
     }
 
-    private fun scheduleAlarmBroadcast(alarm: ScheduledAlarmEntity) {
-        val alarmManager = context.getSystemService(AlarmManager::class.java)
-        val broadcastIntent = Intent().apply {
-            component = android.content.ComponentName(
-                context.packageName,
-                "com.kernel.ai.alarm.AlarmBroadcastReceiver",
-            )
-            putExtra("alarm_label", alarm.label ?: "Alarm")
-            putExtra("alarm_id", alarm.id)
+    suspend fun tryToggleEnabled(alarm: ClockAlarm): Boolean =
+        clockRepository.setAlarmEnabled(alarm.id, !alarm.enabled)
+
+    fun toggleEnabled(alarm: ClockAlarm, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            onResult(tryToggleEnabled(alarm))
         }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            alarm.id.hashCode(),
-            broadcastIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, alarm.triggerAtMillis, pendingIntent)
     }
 
-    private fun cancelAlarmBroadcast(alarm: ScheduledAlarmEntity) {
-        val alarmManager = context.getSystemService(AlarmManager::class.java)
-        val broadcastIntent = Intent().apply {
-            component = android.content.ComponentName(
-                context.packageName,
-                "com.kernel.ai.alarm.AlarmBroadcastReceiver",
-            )
-            putExtra("alarm_label", alarm.label ?: "Alarm")
-            putExtra("alarm_id", alarm.id)
+    fun cancelAlarm(alarm: ClockAlarm) {
+        viewModelScope.launch {
+            clockRepository.cancelAlarm(alarm.id)
         }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            alarm.id.hashCode(),
-            broadcastIntent,
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
-        )
-        pendingIntent?.let { alarmManager.cancel(it) }
     }
 }
-
