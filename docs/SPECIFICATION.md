@@ -381,8 +381,8 @@ has safe defaults, including current-location behavior and optional forecast fie
 | Pattern | Action | OS API |
 |---------|--------|--------|
 | "turn on/off torch/flashlight" | Torch toggle | `CameraManager.setTorchMode()` |
-| "set a timer for X minutes" | Timer | `AlarmClock.ACTION_SET_TIMER` + `EXTRA_SKIP_UI` |
-| "set an alarm for X:XX" | Alarm | `AlarmClock.ACTION_SET_ALARM` |
+| "set a timer for X minutes" | Timer | App-owned clock scheduler + notification pipeline |
+| "set an alarm for X:XX" | Alarm | App-owned clock scheduler + notification pipeline |
 | "turn on/off do not disturb/dnd" | DND | `NotificationManager.setInterruptionFilter()` |
 | "turn on/off bluetooth" | Bluetooth | `BluetoothAdapter.enable()/disable()` |
 | "turn on/off wifi" | Wi-Fi | `WifiManager.setWifiEnabled()` |
@@ -471,8 +471,8 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 | `send_email` | Email composer | `ACTION_SEND` + `message/rfc822` | ✅ |
 | `send_sms` | SMS composer | `ACTION_SENDTO` + `smsto:` | ✅ |
 | `make_call` | Dialer / call handoff | `ACTION_DIAL` | ✅ |
-| `set_alarm` | Set alarm | `AlarmClock.ACTION_SET_ALARM` | ✅ |
-| `set_timer` | Countdown timer | `AlarmClock.ACTION_SET_TIMER` | ✅ |
+| `set_alarm` | Set alarm | `ClockRepository.scheduleAlarm()` | ✅ |
+| `set_timer` | Countdown timer | `ClockRepository.scheduleTimer()` | ✅ |
 | `create_calendar_event` | Add calendar event | `ACTION_INSERT` + `CONTENT_URI` | ✅ |
 | `toggle_dnd_on/off` | Do Not Disturb | `NotificationManager.setInterruptionFilter()` | ✅ |
 | `toggle_wifi` / `toggle_bluetooth` | Connectivity toggles | Settings / adapter bridge | ✅ |
@@ -484,21 +484,9 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 | `get_date_diff` | Deterministic date arithmetic | `LocalDate` calculation | ✅ |
 | `add_to_list` / `bulk_add_to_list` / `create_list` / `get_list_items` / `remove_from_list` | Room-backed list management | `NativeIntentHandler` + Room DAOs | ✅ |
 
-> **Package visibility (Android 11+):** `ACTION_SET_ALARM` and `ACTION_SET_TIMER` are declared
-> in a `<queries>` block in `AndroidManifest.xml` so `PackageManager.resolveActivity()` returns
-> non-null (#262). Without this, the guard always triggers "No clock app found" regardless of
-> whether a clock app is installed.
-
-> **Alarm hallucination guard:** The per-turn `[Tool Use]` section includes an explicit
-> "Alarm rule" forcing `run_intent` for alarm requests (#263), matching the pattern used for
-> `save_memory`. The model's Siri/Google training bias would otherwise cause it to verbally
-> confirm alarms without ever calling the tool.
-
-> **`set_alarm` tomorrow limitation:** `ACTION_SET_ALARM` has no date parameter — only hour and
-> minute. When the model passes `day: "tomorrow"`, `NativeIntentHandler` prefixes the alarm
-> label with "TOMORROW:" and returns a ⚠ warning in the success message. A full date-specific
-> alarm (#327) requires `AlarmManager.setExact()` + BroadcastReceiver + BOOT_COMPLETED receiver
-> and is tracked as a separate feature.
+> **Alarm/timer ownership:** Core alarm and timer behavior now stays inside the app-owned
+> clock backend. If exact alarms are unavailable, the action fails truthfully instead of
+> bouncing the user into a system clock app that Jandal cannot track.
 
 > **`resolveDate` / `resolveTime` natural language parsing:** `NativeIntentHandler` normalises
 > free-text date/time before passing to `SimpleDateFormat`. `resolveDate` handles formats like

@@ -620,6 +620,7 @@ class ActionsViewModel @Inject constructor(
             result.error == PHONE_PERMISSION_REQUIRED_ERROR
     }
 
+
     private fun startVoiceCapture(
         mode: VoiceCaptureMode,
         interruptPlayback: Boolean = true,

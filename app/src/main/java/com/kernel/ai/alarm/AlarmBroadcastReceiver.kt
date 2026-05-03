@@ -8,7 +8,14 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
+import com.kernel.ai.core.memory.clock.ClockRepository
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
+@AndroidEntryPoint
 class AlarmBroadcastReceiver : BroadcastReceiver() {
     companion object {
         const val EXTRA_LABEL = "alarm_label"
@@ -17,10 +24,21 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
         const val NOTIFICATION_CHANNEL_ID = "kernel_alarm"
     }
 
+    @Inject lateinit var clockRepository: ClockRepository
+
     override fun onReceive(context: Context, intent: Intent) {
         val label = intent.getStringExtra(EXTRA_LABEL) ?: "Alarm"
         val alarmId = intent.getStringExtra(EXTRA_ALARM_ID) ?: return
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "Alarm"
+
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                clockRepository.recordDeliveredEvent(alarmId)
+            } finally {
+                pendingResult.finish()
+            }
+        }
 
         val notificationManager = context.getSystemService(NotificationManager::class.java)
 
