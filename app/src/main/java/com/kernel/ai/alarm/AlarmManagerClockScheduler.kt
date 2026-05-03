@@ -59,9 +59,10 @@ class AlarmManagerClockScheduler @Inject constructor(
     private fun buildBroadcastIntent(event: ClockScheduledEvent): Intent =
         Intent().apply {
             component = ComponentName(context.packageName, "com.kernel.ai.alarm.AlarmBroadcastReceiver")
-            putExtra(AlarmBroadcastReceiver.EXTRA_LABEL, event.label ?: defaultLabel(event.type))
-            putExtra(AlarmBroadcastReceiver.EXTRA_ALARM_ID, event.ownerId)
-            putExtra(AlarmBroadcastReceiver.EXTRA_TITLE, defaultTitle(event.type))
+            putExtra(ClockAlertContract.EXTRA_LABEL, event.label ?: defaultLabel(event.type))
+            putExtra(ClockAlertContract.EXTRA_OWNER_ID, event.ownerId)
+            putExtra(ClockAlertContract.EXTRA_TITLE, defaultTitle(event.type))
+            putExtra(ClockAlertContract.EXTRA_EVENT_TYPE, event.type.name)
         }
 
     private fun defaultLabel(type: ClockEventType): String =

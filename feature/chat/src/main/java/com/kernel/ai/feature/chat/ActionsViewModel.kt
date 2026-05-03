@@ -37,6 +37,7 @@ import javax.inject.Inject
 private const val TAG = "KernelAI"
 private const val SLOT_REPLY_REARM_DELAY_MS = 350L
 private const val VOICE_REPLY_TTS_DELAY_MS = 150L
+private const val VOICE_COMMAND_DUPLICATE_WINDOW_MS = 2_000L
 private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
 
 /** Input modality for an action. Carried through slot-fill state for voice-readiness (#350/#588). */
@@ -136,6 +137,8 @@ class ActionsViewModel @Inject constructor(
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
+    private var recentVoiceCommand: String? = null
+    private var recentVoiceCommandAtMs: Long = 0L
     private var spokenResponsesEnabled = true
 
     init {
@@ -315,6 +318,11 @@ class ActionsViewModel @Inject constructor(
     fun executeAction(query: String, inputMode: InputMode = InputMode.Text) {
         val normalizedQuery = if (inputMode == InputMode.Voice) normalizeVoiceCommand(query) else query.trim()
         if (normalizedQuery.isBlank()) return
+        if (inputMode == InputMode.Voice && shouldSuppressDuplicateVoiceCommand(normalizedQuery)) {
+            Log.w(TAG, "ActionsViewModel: suppressing duplicate rapid voice command \"$normalizedQuery\"")
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+            return
+        }
         cancelPendingVoiceSpeech()
         if (_pendingSlot.value != null) {
             // A slot-fill is already in progress — ignore until the user replies or cancels.
@@ -676,6 +684,15 @@ class ActionsViewModel @Inject constructor(
     private fun cancelPendingVoiceSpeech() {
         pendingVoiceSpeechJob?.cancel()
         pendingVoiceSpeechJob = null
+    }
+
+    private fun shouldSuppressDuplicateVoiceCommand(query: String, nowMs: Long = System.nanoTime() / 1_000_000L): Boolean {
+        val isDuplicate =
+            recentVoiceCommand == query &&
+                nowMs - recentVoiceCommandAtMs < VOICE_COMMAND_DUPLICATE_WINDOW_MS
+        recentVoiceCommand = query
+        recentVoiceCommandAtMs = nowMs
+        return isDuplicate
     }
 
     private fun toSpokenSummary(text: String): String {

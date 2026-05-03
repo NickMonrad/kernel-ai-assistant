@@ -622,6 +622,31 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `duplicate rapid voice commands execute only once`() = runTest(dispatcher) {
+        val timerSkill = mockk<Skill>()
+        every { quickIntentRouter.route("set a timer for 5 seconds") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "set_timer",
+                    params = mapOf("duration_seconds" to "5"),
+                ),
+            )
+        every { skillRegistry.get("set_timer") } returns timerSkill
+        every { timerSkill.name } returns "set_timer"
+        every { timerSkill.description } returns "Set timer"
+        every { timerSkill.schema } returns SkillSchema()
+        coEvery { timerSkill.execute(any()) } returns SkillResult.Success("Timer set for 5 seconds.")
+
+        viewModel.executeAction("set a timer for 5 seconds", InputMode.Voice)
+        viewModel.executeAction("set a timer for 5 seconds", InputMode.Voice)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { timerSkill.execute(any()) }
+        coVerify(exactly = 1) { quickActionDao.insert(any()) }
+        coVerify(exactly = 1) { voiceOutputController.speak(any()) }
+    }
+
+    @Test
     fun `disabling spoken responses during slot prompt does not reopen microphone`() = runTest(dispatcher) {
         every { quickIntentRouter.route("send a text message to my wife") } returns
             QuickIntentRouter.RouteResult.NeedsSlot(
