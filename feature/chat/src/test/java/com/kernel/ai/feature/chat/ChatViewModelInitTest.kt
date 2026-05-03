@@ -28,6 +28,9 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.voice.VoiceInputController
+import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -69,6 +72,9 @@ class ChatViewModelInitTest {
     private val kernelAIToolSet: KernelAIToolSet = mockk(relaxed = true)
     private val toolProvider: ToolProvider = mockk(relaxed = true)
     private val embeddingEngine: EmbeddingEngine = mockk(relaxed = true)
+    private val voiceInputController: VoiceInputController = mockk(relaxed = true)
+    private val voiceOutputController: VoiceOutputController = mockk(relaxed = true)
+    private val voiceOutputPreferences: VoiceOutputPreferences = mockk(relaxed = true)
     private val jandalPersona: JandalPersona = mockk(relaxed = true)
     private val nzTruthSeedingService: NzTruthSeedingService = mockk(relaxed = true)
     private val verboseLoggingPreferenceUseCase: VerboseLoggingPreferenceUseCase = mockk(relaxed = true)
@@ -102,6 +108,7 @@ class ChatViewModelInitTest {
 
         every { jandalPersona.personaMode } returns MutableStateFlow(PersonaMode.FULL)
         every { jandalPersona.currentPersonaMode } returns PersonaMode.FULL
+        every { voiceOutputPreferences.spokenResponsesEnabled } returns MutableStateFlow(false)
         every { nzTruthSeedingService.isSeeding } returns MutableStateFlow(false)
         every { nzTruthSeedingService.seedIfNeeded() } just runs
         coEvery { verboseLoggingPreferenceUseCase.loadAndApplyVerboseLoggingPreference() } just runs
@@ -132,6 +139,9 @@ class ChatViewModelInitTest {
             kernelAIToolSet = kernelAIToolSet,
             toolProvider = toolProvider,
             embeddingEngine = embeddingEngine,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
             jandalPersona = jandalPersona,
             nzTruthSeedingService = nzTruthSeedingService,
             verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
@@ -162,6 +172,9 @@ class ChatViewModelInitTest {
             kernelAIToolSet = kernelAIToolSet,
             toolProvider = toolProvider,
             embeddingEngine = embeddingEngine,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
             jandalPersona = jandalPersona,
             nzTruthSeedingService = nzTruthSeedingService,
             verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
@@ -211,6 +224,9 @@ class ChatViewModelInitTest {
             kernelAIToolSet = kernelAIToolSet,
             toolProvider = toolProvider,
             embeddingEngine = embeddingEngine,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
             jandalPersona = jandalPersona,
             nzTruthSeedingService = nzTruthSeedingService,
             verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
@@ -265,6 +281,9 @@ class ChatViewModelInitTest {
             kernelAIToolSet = kernelAIToolSet,
             toolProvider = toolProvider,
             embeddingEngine = embeddingEngine,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
             jandalPersona = jandalPersona,
             nzTruthSeedingService = nzTruthSeedingService,
             verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
@@ -309,6 +328,9 @@ class ChatViewModelInitTest {
             kernelAIToolSet = kernelAIToolSet,
             toolProvider = toolProvider,
             embeddingEngine = embeddingEngine,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
             jandalPersona = jandalPersona,
             nzTruthSeedingService = nzTruthSeedingService,
             verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
@@ -369,6 +391,9 @@ class ChatViewModelInitTest {
             kernelAIToolSet = kernelAIToolSet,
             toolProvider = toolProvider,
             embeddingEngine = embeddingEngine,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
             jandalPersona = jandalPersona,
             nzTruthSeedingService = nzTruthSeedingService,
             verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
