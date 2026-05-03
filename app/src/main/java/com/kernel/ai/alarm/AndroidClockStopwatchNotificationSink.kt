@@ -40,10 +40,16 @@ class AndroidClockStopwatchNotificationSink @Inject constructor(
         val nowWallClockMs = System.currentTimeMillis()
         val nowElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime()
         val elapsedMs = stopwatch.elapsedMs(nowElapsedRealtimeMs, nowWallClockMs)
+        val latestLap = stopwatch.laps.firstOrNull()
         val contentText = when (stopwatch.status) {
-            StopwatchStatus.RUNNING -> "${formatStopwatchElapsed(elapsedMs)} elapsed"
-            StopwatchStatus.PAUSED -> "Paused at ${formatStopwatchElapsed(elapsedMs)}"
-            StopwatchStatus.IDLE -> formatStopwatchElapsed(elapsedMs)
+            StopwatchStatus.RUNNING -> latestLap?.let {
+                "Lap ${it.lapNumber} · split ${formatStopwatchElapsed(it.splitMs)}"
+            } ?: "Tap Lap to capture a split"
+            StopwatchStatus.PAUSED -> buildString {
+                append("Paused at ${formatStopwatchElapsed(elapsedMs)}")
+                if (stopwatch.laps.isNotEmpty()) append(" · ${stopwatch.laps.size} laps")
+            }
+            StopwatchStatus.IDLE -> "Ready"
         }
         return NotificationCompat.Builder(context, ClockAlertContract.ACTIVE_STOPWATCH_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
@@ -59,6 +65,11 @@ class AndroidClockStopwatchNotificationSink @Inject constructor(
             .apply {
                 when (stopwatch.status) {
                     StopwatchStatus.RUNNING -> {
+                        addAction(
+                            android.R.drawable.ic_menu_recent_history,
+                            "Lap",
+                            buildBroadcastPendingIntent(ClockAlertContract.ACTION_LAP_STOPWATCH),
+                        )
                         addAction(
                             android.R.drawable.ic_media_pause,
                             "Pause",

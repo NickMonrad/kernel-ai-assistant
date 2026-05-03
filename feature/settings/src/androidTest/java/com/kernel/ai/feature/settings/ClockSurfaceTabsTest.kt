@@ -5,15 +5,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasScrollAction
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollToNode
 import org.junit.Rule
 import org.junit.Test
 
@@ -22,7 +18,7 @@ class ClockSurfaceTabsTest {
     val composeTestRule = createComposeRule()
 
     @Test
-    fun clockTabsAreHorizontallyScrollableAndReachStopwatch() {
+    fun clockTabsShowAllFourSurfacesWithoutScrolling() {
         composeTestRule.setContent {
             var selectedTab by mutableStateOf(ClockSurfaceTab.TIMERS)
             Column {
@@ -34,8 +30,10 @@ class ClockSurfaceTabsTest {
             }
         }
 
-        composeTestRule.onNodeWithTag("clock_surface_tabs").assert(hasScrollAction())
-        composeTestRule.onNodeWithTag("clock_surface_tabs").performScrollToNode(hasText("Stopwatch"))
+        composeTestRule.onNodeWithTag("clock_surface_tabs").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Timers").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Alarms").assertIsDisplayed()
+        composeTestRule.onNodeWithText("World Clock").assertIsDisplayed()
         composeTestRule.onNodeWithText("Stopwatch").assertIsDisplayed().performClick()
         composeTestRule.onNodeWithText("Selected: STOPWATCH").assertIsDisplayed()
     }
