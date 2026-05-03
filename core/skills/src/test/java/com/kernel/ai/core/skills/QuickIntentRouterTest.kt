@@ -429,6 +429,14 @@ class QuickIntentRouterTest {
         }
 
         @Test
+        fun `cancel the 10-minute timer should keep the hyphenated duration name`() {
+            val result = regexOnlyRouter.route("cancel the 10-minute timer")
+            assertRegexMatch(result, "cancel_timer_named", "cancel the 10-minute timer")
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("10-minute", intent.params["name"], "name param should preserve the spoken duration token")
+        }
+
+        @Test
         fun `stop the pasta timer should route to cancel_timer_named`() {
             val result = regexOnlyRouter.route("stop the pasta timer")
             assertRegexMatch(result, "cancel_timer_named", "stop the pasta timer")

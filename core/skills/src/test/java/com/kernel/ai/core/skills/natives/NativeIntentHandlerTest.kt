@@ -555,12 +555,28 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `cancel_timer_named matches unlabeled timer by hyphenated duration`() {
+        coEvery { clockRepository.cancelTimersMatching("10-minute", 600_000L) } returns 1
+        val result = handler.handle("cancel_timer_named", mapOf("name" to "10-minute"))
+        assertEquals(SkillResult.Success("Cancelled the 10-minute timer"), result)
+        coVerify(exactly = 1) { clockRepository.cancelTimersMatching("10-minute", 600_000L) }
+    }
+
+    @Test
     fun `set_alarm with unparseable explicit day fails instead of shifting dates`() {
         val result = handler.handle("set_alarm", mapOf("time" to "07:00", "day" to "blursday"))
 
         assertEquals(SkillResult.Failure("run_intent", "Couldn't parse day: blursday"), result)
         coVerify(exactly = 0) { clockRepository.scheduleAlarm(any(), any()) }
         verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `cancel_timer_named uses truthful failure when no duration match exists`() {
+        coEvery { clockRepository.cancelTimersMatching("10-minute", 600_000L) } returns 0
+        val result = handler.handle("cancel_timer_named", mapOf("name" to "10-minute"))
+        assertEquals(SkillResult.Failure("cancel_timer_named", "No timer matching '10-minute' found"), result)
+        coVerify(exactly = 1) { clockRepository.cancelTimersMatching("10-minute", 600_000L) }
     }
 
     @Test

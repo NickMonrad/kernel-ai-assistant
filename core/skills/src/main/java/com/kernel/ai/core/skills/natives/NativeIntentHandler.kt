@@ -410,7 +410,7 @@ class NativeIntentHandler @Inject constructor(
         val name = params["name"] ?: return cancelTimer()
         val durationMs = parseDurationToMs(name)
         val cancelled = runBlocking { clockRepository.cancelTimersMatching(name, durationMs) }
-        if (cancelled == 0) return SkillResult.Failure("cancel_timer_named", "No timer named '$name' found")
+        if (cancelled == 0) return SkillResult.Failure("cancel_timer_named", "No timer matching '$name' found")
         return SkillResult.Success(
             if (cancelled == 1) "Cancelled the $name timer"
             else "Cancelled $cancelled timers matching $name"
@@ -461,12 +461,15 @@ class NativeIntentHandler @Inject constructor(
     }
 
     private fun parseDurationToMs(text: String): Long? {
-        val match = Regex("""(\d+)\s*(minute|min|hour|hr|second|sec)""", RegexOption.IGNORE_CASE).find(text)
-            ?: return null
+        val normalized = text.replace('-', ' ').trim()
+        val match = Regex(
+            """(\d+)\s*(hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec)""",
+            RegexOption.IGNORE_CASE,
+        ).find(normalized) ?: return null
         val amount = match.groupValues[1].toLongOrNull() ?: return null
         return when (match.groupValues[2].lowercase()) {
-            "hour", "hr" -> amount * 3_600_000L
-            "minute", "min" -> amount * 60_000L
+            "hour", "hours", "hr", "hrs" -> amount * 3_600_000L
+            "minute", "minutes", "min", "mins" -> amount * 60_000L
             else -> amount * 1_000L
         }
     }
