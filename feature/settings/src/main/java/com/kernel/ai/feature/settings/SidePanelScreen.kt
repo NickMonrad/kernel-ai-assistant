@@ -7,21 +7,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -32,13 +28,14 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -52,17 +49,18 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -70,12 +68,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockTimer
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -85,19 +83,20 @@ fun SidePanelScreen(
 ) {
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
     val timers by viewModel.timers.collectAsStateWithLifecycle()
-    val filterType by viewModel.filterType.collectAsStateWithLifecycle()
+    val recentCompletedTimers by viewModel.recentCompletedTimers.collectAsStateWithLifecycle()
+    val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val isInSelectionMode by viewModel.isInSelectionMode.collectAsStateWithLifecycle()
     val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
     val showBulkDeleteConfirmation by viewModel.showBulkDeleteConfirmation.collectAsStateWithLifecycle()
     var pendingDismiss by remember { mutableStateOf<ClockAlarm?>(null) }
     var pendingCancel by remember { mutableStateOf<ClockTimer?>(null) }
+    var pendingDeleteCompleted by remember { mutableStateOf<ClockTimer?>(null) }
+    var pendingClearCompleted by remember { mutableStateOf(false) }
     var editingAlarm by remember { mutableStateOf<ClockAlarm?>(null) }
     var showCreateAlarmDialog by remember { mutableStateOf(false) }
     var showCreateTimerDialog by remember { mutableStateOf(false) }
-    var fabExpanded by remember { mutableStateOf(false) }
     var schedulingError by remember { mutableStateOf<String?>(null) }
 
-    // Tick every second so countdown labels stay live
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -110,9 +109,19 @@ fun SidePanelScreen(
         viewModel.clearSelection()
     }
 
-    val visibleTimers = if (filterType != AlarmTimerFilter.ALARMS) timers else emptyList()
-    val visibleAlarms = if (filterType != AlarmTimerFilter.TIMERS) alarms else emptyList()
-    val allVisibleIds = visibleTimers.map { it.id } + visibleAlarms.map { it.id }
+    val visibleSelectionIds = when (selectedTab) {
+        ClockSurfaceTab.TIMERS -> timers.map { it.id }
+        ClockSurfaceTab.ALARMS -> alarms.map { it.id }
+    }
+
+    fun onTimerScheduled(success: Boolean, closeDialog: Boolean = false) {
+        if (success) {
+            schedulingError = null
+            if (closeDialog) showCreateTimerDialog = false
+        } else {
+            schedulingError = "Couldn't schedule the timer."
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -120,7 +129,7 @@ fun SidePanelScreen(
                 TopAppBar(
                     title = {
                         val n = selectedIds.size
-                        Text("$n / ${allVisibleIds.size} ${if (n == 1) "item" else "items"} selected")
+                        Text("$n / ${visibleSelectionIds.size} ${if (n == 1) "item" else "items"} selected")
                     },
                     navigationIcon = {
                         IconButton(onClick = viewModel::clearSelection) {
@@ -128,7 +137,7 @@ fun SidePanelScreen(
                         }
                     },
                     actions = {
-                        TextButton(onClick = { viewModel.selectAll(allVisibleIds) }) {
+                        TextButton(onClick = { viewModel.selectAll(visibleSelectionIds) }) {
                             Text("Select All")
                         }
                         Button(
@@ -155,43 +164,12 @@ fun SidePanelScreen(
             }
         },
         floatingActionButton = {
-            if (!isInSelectionMode) {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    AnimatedVisibility(
-                        visible = fabExpanded,
-                        enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
-                        exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom),
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.End,
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            ExtendedFloatingActionButton(
-                                text = { Text("New Alarm") },
-                                icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
-                                onClick = { fabExpanded = false; showCreateAlarmDialog = true },
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            )
-                            ExtendedFloatingActionButton(
-                                text = { Text("New Timer") },
-                                icon = { Icon(Icons.Default.Timer, contentDescription = null) },
-                                onClick = { fabExpanded = false; showCreateTimerDialog = true },
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            )
-                        }
-                    }
-                    FloatingActionButton(onClick = { fabExpanded = !fabExpanded }) {
-                        Icon(
-                            if (fabExpanded) Icons.Default.Close else Icons.Default.Add,
-                            contentDescription = if (fabExpanded) "Close" else "New alarm or timer",
-                        )
-                    }
-                }
+            if (!isInSelectionMode && selectedTab == ClockSurfaceTab.ALARMS) {
+                ExtendedFloatingActionButton(
+                    text = { Text("New Alarm") },
+                    icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
+                    onClick = { showCreateAlarmDialog = true },
+                )
             }
         },
     ) { innerPadding ->
@@ -200,119 +178,71 @@ fun SidePanelScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            // Filter chips
-            LazyRow(
+            Row(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                item {
-                    FilterChip(
-                        selected = filterType == AlarmTimerFilter.ALL,
-                        onClick = { viewModel.setFilter(AlarmTimerFilter.ALL) },
-                        label = { Text("All") },
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = filterType == AlarmTimerFilter.TIMERS,
-                        onClick = { viewModel.setFilter(AlarmTimerFilter.TIMERS) },
-                        label = { Text("Timers") },
-                        leadingIcon = {
-                            Icon(Icons.Default.Timer, contentDescription = null)
-                        },
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = filterType == AlarmTimerFilter.ALARMS,
-                        onClick = { viewModel.setFilter(AlarmTimerFilter.ALARMS) },
-                        label = { Text("Alarms") },
-                        leadingIcon = {
-                            Icon(Icons.Default.Alarm, contentDescription = null)
-                        },
-                    )
-                }
+                FilterChip(
+                    selected = selectedTab == ClockSurfaceTab.TIMERS,
+                    onClick = { viewModel.setTab(ClockSurfaceTab.TIMERS) },
+                    label = { Text("Timers") },
+                    leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null) },
+                )
+                FilterChip(
+                    selected = selectedTab == ClockSurfaceTab.ALARMS,
+                    onClick = { viewModel.setTab(ClockSurfaceTab.ALARMS) },
+                    label = { Text("Alarms") },
+                    leadingIcon = { Icon(Icons.Default.Alarm, contentDescription = null) },
+                )
             }
 
-            val hasContent = visibleTimers.isNotEmpty() || visibleAlarms.isNotEmpty()
-            if (!hasContent) {
-                Spacer(modifier = Modifier.height(32.dp))
-                Text(
-                    text = when (filterType) {
-                        AlarmTimerFilter.ALL -> "No active timers or alarms."
-                        AlarmTimerFilter.ALARMS -> "No active alarms."
-                        AlarmTimerFilter.TIMERS -> "No active timers."
+            when (selectedTab) {
+                ClockSurfaceTab.TIMERS -> TimerDashboard(
+                    timers = timers,
+                    recentCompletedTimers = recentCompletedTimers,
+                    nowMs = nowMs,
+                    inSelectionMode = isInSelectionMode,
+                    selectedIds = selectedIds,
+                    onCreateCustomTimer = { showCreateTimerDialog = true },
+                    onPresetTimer = { durationMs ->
+                        viewModel.scheduleTimer(durationMs, null) { success ->
+                            onTimerScheduled(success)
+                        }
                     },
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Ask Jandal to set a timer or alarm — they'll appear here while running.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    if (visibleTimers.isNotEmpty()) {
-                        item { SectionHeader(title = "Timers") }
-                        items(visibleTimers, key = { it.id }) { timer ->
-                            TimerRow(
-                                timer = timer,
-                                nowMs = nowMs,
-                                inSelectionMode = isInSelectionMode,
-                                isSelected = timer.id in selectedIds,
-                                onTap = {
-                                    if (isInSelectionMode) {
-                                        viewModel.toggleSelection(timer.id)
-                                    } else {
-                                        pendingCancel = timer
-                                    }
-                                },
-                                onLongPress = {
-                                    if (!isInSelectionMode) viewModel.enterSelectionMode(timer.id)
-                                },
-                                onCancel = { pendingCancel = timer },
-                            )
-                            HorizontalDivider()
+                    onTimerTap = { timer ->
+                        if (isInSelectionMode) viewModel.toggleSelection(timer.id) else pendingCancel = timer
+                    },
+                    onTimerLongPress = { timer ->
+                        if (!isInSelectionMode) viewModel.enterSelectionMode(timer.id)
+                    },
+                    onCancelTimer = { timer -> pendingCancel = timer },
+                    onRestartTimer = { timer ->
+                        viewModel.restartTimer(timer) { success ->
+                            onTimerScheduled(success)
                         }
-                    }
+                    },
+                    onDeleteCompletedTimer = { timer -> pendingDeleteCompleted = timer },
+                    onClearCompletedTimers = { pendingClearCompleted = true },
+                )
 
-                    if (visibleAlarms.isNotEmpty()) {
-                        item {
-                            if (visibleTimers.isNotEmpty()) Spacer(modifier = Modifier.height(8.dp))
-                            SectionHeader(title = "Alarms")
+                ClockSurfaceTab.ALARMS -> AlarmDashboard(
+                    alarms = alarms,
+                    inSelectionMode = isInSelectionMode,
+                    selectedIds = selectedIds,
+                    onNewAlarm = { showCreateAlarmDialog = true },
+                    onAlarmTap = { alarm ->
+                        if (isInSelectionMode) viewModel.toggleSelection(alarm.id) else editingAlarm = alarm
+                    },
+                    onAlarmLongPress = { alarm ->
+                        if (!isInSelectionMode) viewModel.enterSelectionMode(alarm.id)
+                    },
+                    onDismissAlarm = { alarm -> pendingDismiss = alarm },
+                    onToggleAlarm = { alarm ->
+                        viewModel.toggleEnabled(alarm) { success ->
+                            if (!success) schedulingError = "Couldn't update the alarm."
                         }
-                        items(visibleAlarms, key = { it.id }) { alarm ->
-                            AlarmPanelRow(
-                                alarm = alarm,
-                                inSelectionMode = isInSelectionMode,
-                                isSelected = alarm.id in selectedIds,
-                                onTap = {
-                                    if (isInSelectionMode) {
-                                        viewModel.toggleSelection(alarm.id)
-                                    } else {
-                                        editingAlarm = alarm
-                                    }
-                                },
-                                onLongPress = {
-                                    if (!isInSelectionMode) viewModel.enterSelectionMode(alarm.id)
-                                },
-                                onDismiss = { pendingDismiss = alarm },
-                                onToggle = {
-                                    viewModel.toggleEnabled(alarm) { success ->
-                                        if (!success) {
-                                            schedulingError = "Couldn't update the alarm."
-                                        }
-                                    }
-                                },
-                            )
-                            HorizontalDivider()
-                        }
-                    }
-                }
+                    },
+                )
             }
         }
     }
@@ -322,7 +252,7 @@ fun SidePanelScreen(
             onDismissRequest = { pendingCancel = null },
             icon = { Icon(Icons.Default.Timer, contentDescription = null) },
             title = { Text("Cancel timer?") },
-            text = { Text("Cancel \"${timer.label ?: "Timer"}\"?") },
+            text = { Text("Cancel \"${timer.label ?: defaultTimerTitle(timer)}\"?") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.cancelTimer(timer)
@@ -331,6 +261,42 @@ fun SidePanelScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingCancel = null }) { Text("Keep") }
+            },
+        )
+    }
+
+    pendingDeleteCompleted?.let { timer ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteCompleted = null },
+            icon = { Icon(Icons.Default.Delete, contentDescription = null) },
+            title = { Text("Remove timer from history?") },
+            text = { Text("Remove \"${timer.label ?: defaultTimerTitle(timer)}\" from Recent & Completed?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteCompletedTimer(timer)
+                    pendingDeleteCompleted = null
+                }) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteCompleted = null }) { Text("Keep") }
+            },
+        )
+    }
+
+    if (pendingClearCompleted) {
+        AlertDialog(
+            onDismissRequest = { pendingClearCompleted = false },
+            icon = { Icon(Icons.Default.Delete, contentDescription = null) },
+            title = { Text("Clear completed timers?") },
+            text = { Text("Remove all completed timers from Recent & Completed?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.clearCompletedTimers()
+                    pendingClearCompleted = false
+                }) { Text("Clear") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingClearCompleted = false }) { Text("Cancel") }
             },
         )
     }
@@ -364,7 +330,7 @@ fun SidePanelScreen(
             onDismissRequest = viewModel::dismissBulkDeleteConfirmation,
             icon = { Icon(Icons.Default.Delete, contentDescription = null) },
             title = { Text("Delete $count ${if (count == 1) "item" else "items"}?") },
-            text = { Text("This will permanently cancel the selected timers and alarms.") },
+            text = { Text("This will permanently cancel the selected timers or alarms.") },
             confirmButton = {
                 TextButton(onClick = viewModel::deleteSelected) {
                     Text("Delete", color = MaterialTheme.colorScheme.error)
@@ -386,9 +352,7 @@ fun SidePanelScreen(
                             schedulingError = null
                             showCreateAlarmDialog = false
                         }
-                        AlarmSaveResult.FAILED -> {
-                            schedulingError = "Couldn't save the alarm."
-                        }
+                        AlarmSaveResult.FAILED -> schedulingError = "Couldn't save the alarm."
                     }
                 }
             },
@@ -406,9 +370,7 @@ fun SidePanelScreen(
                             schedulingError = null
                             editingAlarm = null
                         }
-                        AlarmSaveResult.FAILED -> {
-                            schedulingError = "Couldn't save the alarm."
-                        }
+                        AlarmSaveResult.FAILED -> schedulingError = "Couldn't save the alarm."
                     }
                 }
             },
@@ -420,12 +382,7 @@ fun SidePanelScreen(
         TimerCreateDialog(
             onConfirm = { durationMs, label ->
                 viewModel.scheduleTimer(durationMs, label) { success ->
-                    if (success) {
-                        schedulingError = null
-                        showCreateTimerDialog = false
-                    } else {
-                        schedulingError = "Couldn't schedule the timer."
-                    }
+                    onTimerScheduled(success, closeDialog = true)
                 }
             },
             onDismiss = { showCreateTimerDialog = false },
@@ -445,19 +402,179 @@ fun SidePanelScreen(
     }
 }
 
+private data class TimerPreset(
+    val label: String,
+    val durationMs: Long,
+)
+
+private val TIMER_PRESETS = listOf(
+    TimerPreset("1 min", 60_000L),
+    TimerPreset("5 min", 5 * 60_000L),
+    TimerPreset("10 min", 10 * 60_000L),
+    TimerPreset("15 min", 15 * 60_000L),
+)
+
 @Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-    )
+private fun SectionHeader(
+    title: String,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    supportingText: String? = null,
+ ) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            if (supportingText != null) {
+                Text(
+                    text = supportingText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (actionLabel != null && onAction != null) {
+            TextButton(onClick = onAction) { Text(actionLabel) }
+        }
+    }
+}
+
+@Composable
+private fun TimerDashboard(
+    timers: List<ClockTimer>,
+    recentCompletedTimers: List<ClockTimer>,
+    nowMs: Long,
+    inSelectionMode: Boolean,
+    selectedIds: Set<String>,
+    onCreateCustomTimer: () -> Unit,
+    onPresetTimer: (Long) -> Unit,
+    onTimerTap: (ClockTimer) -> Unit,
+    onTimerLongPress: (ClockTimer) -> Unit,
+    onCancelTimer: (ClockTimer) -> Unit,
+    onRestartTimer: (ClockTimer) -> Unit,
+    onDeleteCompletedTimer: (ClockTimer) -> Unit,
+    onClearCompletedTimers: () -> Unit,
+ ) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 24.dp),
+    ) {
+        item {
+            TimerQuickStartCard(
+                onCreateCustomTimer = onCreateCustomTimer,
+                onPresetTimer = onPresetTimer,
+            )
+        }
+
+        item {
+            SectionHeader(
+                title = "Active timers",
+                supportingText = if (timers.isEmpty()) null else "${timers.size} running now",
+            )
+        }
+
+        if (timers.isEmpty()) {
+            item {
+                EmptyStateCard(
+                    title = "No active timers",
+                    body = "Start a preset or custom timer and it will appear here with live progress.",
+                )
+            }
+        } else {
+            items(timers, key = { it.id }) { timer ->
+                TimerCard(
+                    timer = timer,
+                    nowMs = nowMs,
+                    inSelectionMode = inSelectionMode,
+                    isSelected = timer.id in selectedIds,
+                    onTap = { onTimerTap(timer) },
+                    onLongPress = { onTimerLongPress(timer) },
+                    onCancel = { onCancelTimer(timer) },
+                )
+            }
+        }
+
+        if (recentCompletedTimers.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    title = "Recent & Completed",
+                    supportingText = "Completed timers stay here until you restart or clear them.",
+                    actionLabel = "Clear all",
+                    onAction = onClearCompletedTimers,
+                )
+            }
+            items(recentCompletedTimers, key = { it.id }) { timer ->
+                CompletedTimerCard(
+                    timer = timer,
+                    onRestart = { onRestartTimer(timer) },
+                    onDelete = { onDeleteCompletedTimer(timer) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimerQuickStartCard(
+    onCreateCustomTimer: () -> Unit,
+    onPresetTimer: (Long) -> Unit,
+ ) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Timers", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                text = "Start a timer fast, keep multiple timers running, and revisit finished timers without retyping durations.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TIMER_PRESETS.take(2).forEach { preset ->
+                    Button(
+                        onClick = { onPresetTimer(preset.durationMs) },
+                        modifier = Modifier.weight(1f),
+                    ) { Text(preset.label) }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TIMER_PRESETS.drop(2).forEach { preset ->
+                    Button(
+                        onClick = { onPresetTimer(preset.durationMs) },
+                        modifier = Modifier.weight(1f),
+                    ) { Text(preset.label) }
+                }
+            }
+            Button(
+                onClick = onCreateCustomTimer,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ),
+            ) {
+                Text("Custom timer")
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TimerRow(
+private fun TimerCard(
     timer: ClockTimer,
     nowMs: Long,
     inSelectionMode: Boolean,
@@ -465,54 +582,210 @@ private fun TimerRow(
     onTap: () -> Unit,
     onLongPress: () -> Unit,
     onCancel: () -> Unit,
-) {
-    val startedAtMs = timer.startedAtMillis
-    val durationMs = timer.durationMs
-    val remainingMs = startedAtMs + durationMs - nowMs
-    val countdownText = if (remainingMs <= 0) {
-        "Time's up!"
-    } else {
-        val totalSeconds = remainingMs / 1_000
-        val hours = totalSeconds / 3600
-        val minutes = (totalSeconds % 3600) / 60
-        val seconds = totalSeconds % 60
-        if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds)
-        else "%d:%02d".format(minutes, seconds)
-    }
+ ) {
+    val remainingMs = (timer.triggerAtMillis - nowMs).coerceAtLeast(0L)
+    val elapsedMs = (nowMs - timer.startedAtMillis).coerceAtLeast(0L)
+    val progress = if (timer.durationMs <= 0) 0f else (elapsedMs.toFloat() / timer.durationMs.toFloat()).coerceIn(0f, 1f)
 
-    ListItem(
+    ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
             .combinedClickable(onClick = onTap, onLongClick = onLongPress),
-        headlineContent = { Text(timer.label ?: "Timer") },
-        supportingContent = {
-            Text(
-                text = countdownText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (remainingMs <= 0) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        leadingContent = {
-            if (inSelectionMode) {
-                Checkbox(checked = isSelected, onCheckedChange = { onTap() })
-            } else {
-                Icon(
-                    Icons.Default.Timer,
-                    contentDescription = null,
-                    tint = if (remainingMs <= 0) MaterialTheme.colorScheme.error
-                           else MaterialTheme.colorScheme.primary,
-                )
-            }
-        },
-        trailingContent = {
-            if (!inSelectionMode) {
-                IconButton(onClick = onCancel) {
-                    Icon(Icons.Default.Delete, contentDescription = "Cancel timer")
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (inSelectionMode) {
+                    Checkbox(checked = isSelected, onCheckedChange = { onTap() })
+                } else {
+                    Icon(Icons.Default.Timer, contentDescription = null)
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(timer.label ?: defaultTimerTitle(timer), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = "${formatDuration(timer.durationMs)} total · ends ${formatClockTime(timer.triggerAtMillis)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                if (!inSelectionMode) {
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.Default.Delete, contentDescription = "Cancel timer")
+                    }
                 }
             }
-        },
-    )
+
+            Text(formatCountdown(remainingMs), style = MaterialTheme.typography.headlineMedium)
+            LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
+            Text(
+                text = if (remainingMs > 0) "${formatDuration(remainingMs)} remaining" else "Time's up!",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompletedTimerCard(
+    timer: ClockTimer,
+    onRestart: () -> Unit,
+    onDelete: () -> Unit,
+ ) {
+    val completedAt = timer.completedAtMillis ?: timer.triggerAtMillis
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(timer.label ?: defaultTimerTitle(timer), style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "Completed ${formatRelativeTimestamp(completedAt)} · ${formatDuration(timer.durationMs)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onRestart,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Restart") }
+                TextButton(
+                    onClick = onDelete,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Remove") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlarmDashboard(
+    alarms: List<ClockAlarm>,
+    inSelectionMode: Boolean,
+    selectedIds: Set<String>,
+    onNewAlarm: () -> Unit,
+    onAlarmTap: (ClockAlarm) -> Unit,
+    onAlarmLongPress: (ClockAlarm) -> Unit,
+    onDismissAlarm: (ClockAlarm) -> Unit,
+    onToggleAlarm: (ClockAlarm) -> Unit,
+ ) {
+    if (alarms.isEmpty()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            SectionHeader(title = "Alarms")
+            EmptyStateCard(
+                title = "No active alarms",
+                body = "Create an alarm and it will appear here for edit, toggle, and dismissal.",
+                actionLabel = "New alarm",
+                onAction = onNewAlarm,
+            )
+        }
+        return
+    }
+
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item {
+            SectionHeader(
+                title = "Alarms",
+                supportingText = "${alarms.size} scheduled",
+            )
+        }
+        items(alarms, key = { it.id }) { alarm ->
+            AlarmPanelRow(
+                alarm = alarm,
+                inSelectionMode = inSelectionMode,
+                isSelected = alarm.id in selectedIds,
+                onTap = { onAlarmTap(alarm) },
+                onLongPress = { onAlarmLongPress(alarm) },
+                onDismiss = { onDismissAlarm(alarm) },
+                onToggle = { onToggleAlarm(alarm) },
+            )
+            HorizontalDivider()
+        }
+    }
+}
+
+@Composable
+private fun EmptyStateCard(
+    title: String,
+    body: String,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+ ) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (actionLabel != null && onAction != null) {
+                Button(onClick = onAction) { Text(actionLabel) }
+            }
+        }
+    }
+}
+
+private fun defaultTimerTitle(timer: ClockTimer): String =
+    formatDuration(timer.durationMs).removeSuffix(" remaining")
+
+private fun formatCountdown(remainingMs: Long): String {
+    val totalSeconds = remainingMs / 1_000
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds)
+    else "%d:%02d".format(minutes, seconds)
+}
+
+private fun formatDuration(durationMs: Long): String {
+    val totalSeconds = (durationMs / 1_000).coerceAtLeast(0L)
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return when {
+        hours > 0L && seconds == 0L -> "%dh %02dm".format(hours, minutes)
+        hours > 0L -> "%dh %02dm %02ds".format(hours, minutes, seconds)
+        minutes > 0L && seconds == 0L -> "%dm".format(minutes)
+        minutes > 0L -> "%dm %02ds".format(minutes, seconds)
+        else -> "%ds".format(seconds)
+    }
+}
+
+private fun formatClockTime(epochMillis: Long): String =
+    DateTimeFormatter.ofPattern("h:mma")
+        .withZone(ZoneId.systemDefault())
+        .format(Instant.ofEpochMilli(epochMillis))
+
+private fun formatRelativeTimestamp(epochMillis: Long, nowMillis: Long = System.currentTimeMillis()): String {
+    val deltaMs = (nowMillis - epochMillis).coerceAtLeast(0L)
+    val totalMinutes = deltaMs / 60_000L
+    return when {
+        totalMinutes <= 0L -> "just now"
+        totalMinutes < 60L -> "$totalMinutes min ago"
+        totalMinutes < 1_440L -> "${totalMinutes / 60L} hr ago"
+        else -> "${totalMinutes / 1_440L} day ago"
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -668,67 +941,248 @@ private fun AlarmCreateEditDialog(
     }
 }
 
+private const val TimerWheelVisibleItems = 5
+private const val TimerWheelCenterItem = TimerWheelVisibleItems / 2
+private const val TimerWheelRepeatCount = 100
+private val TimerHourRange = 0..99
+private val TimerMinuteSecondRange = 0..59
+private val TimerWheelItemHeight = 44.dp
+
 @Composable
 private fun TimerCreateDialog(
     onConfirm: (durationMs: Long, label: String?) -> Unit,
     onDismiss: () -> Unit,
-) {
+ ) {
+    var hours by remember { mutableIntStateOf(0) }
     var minutes by remember { mutableIntStateOf(5) }
     var seconds by remember { mutableIntStateOf(0) }
     var label by remember { mutableStateOf("") }
-    var minutesText by remember { mutableStateOf("5") }
-    var secondsText by remember { mutableStateOf("0") }
+    val durationMs = remember(hours, minutes, seconds) {
+        (((hours * 60L) + minutes) * 60L + seconds) * 1_000L
+    }
 
     AlertDialog(
+        modifier = Modifier.testTag("timer_dialog"),
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Default.Timer, contentDescription = null) },
         title = { Text("New Timer") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = minutesText,
-                        onValueChange = { v ->
-                            minutesText = v
-                            minutes = v.toIntOrNull()?.coerceIn(0, 999) ?: 0
-                        },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("Minutes") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
-                        ),
-                    )
-                    OutlinedTextField(
-                        value = secondsText,
-                        onValueChange = { v ->
-                            secondsText = v
-                            seconds = v.toIntOrNull()?.coerceIn(0, 59) ?: 0
-                        },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("Seconds") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
-                        ),
-                    )
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    text = "Spin to set hours, minutes, and seconds.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TimerDurationPicker(
+                    hours = hours,
+                    minutes = minutes,
+                    seconds = seconds,
+                    onHoursChanged = { hours = it },
+                    onMinutesChanged = { minutes = it },
+                    onSecondsChanged = { seconds = it },
+                )
+                Text(
+                    text = "Selected duration: ${formatDuration(durationMs)}",
+                    style = MaterialTheme.typography.titleSmall,
+                )
                 OutlinedTextField(
                     value = label,
                     onValueChange = { label = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("timer_label_input"),
                     placeholder = { Text("Label (optional)") },
                     singleLine = true,
                 )
             }
         },
         confirmButton = {
-            val durationMs = (minutes * 60L + seconds) * 1_000L
             TextButton(
                 onClick = { onConfirm(durationMs, label.takeIf { it.isNotBlank() }) },
                 enabled = durationMs > 0,
+                modifier = Modifier.testTag("timer_start_button"),
             ) { Text("Start Timer") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+@Composable
+internal fun TimerDurationPicker(
+    hours: Int,
+    minutes: Int,
+    seconds: Int,
+    onHoursChanged: (Int) -> Unit,
+    onMinutesChanged: (Int) -> Unit,
+    onSecondsChanged: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+ ) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TimerUnitWheel(
+            label = "Hours",
+            value = hours,
+            range = TimerHourRange,
+            onValueChange = onHoursChanged,
+            modifier = Modifier.weight(1f),
+            testTag = "timer_hours_picker",
+        )
+        Text(
+	        text = ":",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TimerUnitWheel(
+            label = "Minutes",
+            value = minutes,
+            range = TimerMinuteSecondRange,
+            onValueChange = onMinutesChanged,
+            modifier = Modifier.weight(1f),
+            testTag = "timer_minutes_picker",
+        )
+        Text(
+            text = ":",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TimerUnitWheel(
+            label = "Seconds",
+            value = seconds,
+            range = TimerMinuteSecondRange,
+            onValueChange = onSecondsChanged,
+            modifier = Modifier.weight(1f),
+            testTag = "timer_seconds_picker",
+        )
+    }
+}
+
+@Composable
+private fun TimerUnitWheel(
+    label: String,
+    value: Int,
+    range: IntRange,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    testTag: String,
+ ) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        TimerNumberWheel(
+            value = value,
+            range = range,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            formatValue = { "%02d".format(it) },
+            testTag = testTag,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun TimerNumberWheel(
+    value: Int,
+    range: IntRange,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    formatValue: (Int) -> String,
+    testTag: String,
+ ) {
+    val values = remember(range.first, range.last) { range.toList() }
+    val repeatedItemCount = remember(values) { values.size * TimerWheelRepeatCount }
+    val middleRepeatStart = remember(values) { values.size * (TimerWheelRepeatCount / 2) }
+    val initialCenteredIndex = remember(value, values) {
+        middleRepeatStart + (value - range.first)
+    }
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = (initialCenteredIndex - TimerWheelCenterItem).coerceAtLeast(0),
+    )
+    val selectedIndex by remember(listState) {
+        derivedStateOf { centeredTimerWheelIndex(listState) }
+    }
+
+    LaunchedEffect(listState, values) {
+        snapshotFlow { centeredTimerWheelIndex(listState) }
+            .collect { centeredIndex ->
+                if (centeredIndex != null) {
+                    onValueChange(values[centeredIndex % values.size])
+                }
+            }
+    }
+
+    LaunchedEffect(value, values) {
+        val centeredIndex = centeredTimerWheelIndex(listState) ?: return@LaunchedEffect
+        val centeredValue = values[centeredIndex % values.size]
+        if (centeredValue != value) {
+            val targetCenteredIndex = middleRepeatStart + (value - range.first)
+            listState.scrollToItem((targetCenteredIndex - TimerWheelCenterItem).coerceAtLeast(0))
+        }
+    }
+
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
+                .height(TimerWheelItemHeight)
+                .background(
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f),
+                ),
+        )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(TimerWheelItemHeight * TimerWheelVisibleItems)
+                .testTag(testTag),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            contentPadding = PaddingValues(vertical = TimerWheelItemHeight * TimerWheelCenterItem),
+            flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
+        ) {
+            items(count = repeatedItemCount, key = { it }) { index ->
+                val wheelValue = values[index % values.size]
+                val isSelected = index == selectedIndex
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(TimerWheelItemHeight),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = formatValue(wheelValue),
+                        style = if (isSelected) {
+                            MaterialTheme.typography.titleLarge
+                        } else {
+                            MaterialTheme.typography.titleMedium
+                        },
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.alpha(if (isSelected) 1f else 0.55f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun centeredTimerWheelIndex(listState: LazyListState): Int? {
+    val layoutInfo = listState.layoutInfo
+    val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+    return layoutInfo.visibleItemsInfo.minByOrNull { item ->
+        abs((item.offset + item.size / 2) - viewportCenter)
+    }?.index
 }

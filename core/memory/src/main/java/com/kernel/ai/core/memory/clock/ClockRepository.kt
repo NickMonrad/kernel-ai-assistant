@@ -9,6 +9,7 @@ interface ClockRepository {
 
     fun observeUpcomingAlarms(): Flow<List<ClockAlarm>>
     fun observeActiveTimers(): Flow<List<ClockTimer>>
+    fun observeRecentCompletedTimers(): Flow<List<ClockTimer>>
 
     fun getPlatformState(): ClockPlatformState
 
@@ -28,6 +29,8 @@ interface ClockRepository {
 
     suspend fun scheduleTimer(durationMs: Long, label: String?): ClockTimer?
     suspend fun cancelTimer(timerId: String)
+    suspend fun deleteCompletedTimer(timerId: String): Boolean
+    suspend fun clearCompletedTimers(): Int
     suspend fun recordDeliveredEvent(eventId: String)
     suspend fun cancelTimers(timerIds: Collection<String>)
     suspend fun cancelAllTimers(): Int

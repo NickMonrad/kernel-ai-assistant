@@ -4,6 +4,7 @@ import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.clock.ClockTimer
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +27,9 @@ class SidePanelViewModelTest {
     @BeforeEach
     fun setUp() {
         Dispatchers.setMain(dispatcher)
+        every { clockRepository.observeManageableAlarms() } returns emptyFlow()
+        every { clockRepository.observeActiveTimers() } returns emptyFlow()
+        every { clockRepository.observeRecentCompletedTimers() } returns emptyFlow()
     }
 
     @AfterEach
@@ -35,8 +39,6 @@ class SidePanelViewModelTest {
 
     @Test
     fun `scheduleAlarm returns false when repository rejects exact alarm`() = runTest {
-        every { clockRepository.observeManageableAlarms() } returns emptyFlow()
-        every { clockRepository.observeActiveTimers() } returns emptyFlow()
         coEvery { clockRepository.scheduleAlarm(any(), any()) } returns null
         val viewModel = SidePanelViewModel(clockRepository)
 
@@ -47,8 +49,6 @@ class SidePanelViewModelTest {
 
     @Test
     fun `scheduleAlarm reports failure when repository cannot store alarm`() = runTest {
-        every { clockRepository.observeManageableAlarms() } returns emptyFlow()
-        every { clockRepository.observeActiveTimers() } returns emptyFlow()
         coEvery { clockRepository.scheduleAlarm(any(), any()) } returns null
         val viewModel = SidePanelViewModel(clockRepository)
         var result: AlarmSaveResult? = null
@@ -61,8 +61,6 @@ class SidePanelViewModelTest {
 
     @Test
     fun `scheduleTimer returns true when repository accepts timer`() = runTest {
-        every { clockRepository.observeManageableAlarms() } returns emptyFlow()
-        every { clockRepository.observeActiveTimers() } returns emptyFlow()
         coEvery { clockRepository.scheduleTimer(any(), any()) } returns ClockTimer(
             id = "timer-1",
             triggerAtMillis = 5_000L,
@@ -79,6 +77,41 @@ class SidePanelViewModelTest {
     }
 
     @Test
+    fun `restartTimer reuses timer duration and label`() = runTest {
+        val timer = ClockTimer(
+            id = "timer-1",
+            triggerAtMillis = 5_000L,
+            label = "Tea",
+            createdAtMillis = 1_000L,
+            durationMs = 60_000L,
+            startedAtMillis = 2_000L,
+            completedAtMillis = 5_000L,
+        )
+        coEvery { clockRepository.scheduleTimer(60_000L, "Tea") } returns timer
+        val viewModel = SidePanelViewModel(clockRepository)
+        var success: Boolean? = null
+
+        viewModel.restartTimer(timer) { success = it }
+        advanceUntilIdle()
+
+        assertEquals(true, success)
+        coVerify(exactly = 1) { clockRepository.scheduleTimer(60_000L, "Tea") }
+    }
+
+    @Test
+    fun `clearCompletedTimers reports deleted count`() = runTest {
+        coEvery { clockRepository.clearCompletedTimers() } returns 3
+        val viewModel = SidePanelViewModel(clockRepository)
+        var deleted: Int? = null
+
+        viewModel.clearCompletedTimers { deleted = it }
+        advanceUntilIdle()
+
+        assertEquals(3, deleted)
+        coVerify(exactly = 1) { clockRepository.clearCompletedTimers() }
+    }
+
+    @Test
     fun `editAlarm returns false when repository rejects update`() = runTest {
         val alarm = ClockAlarm(
             id = "alarm-1",
@@ -87,8 +120,6 @@ class SidePanelViewModelTest {
             createdAtMillis = 100L,
             enabled = true,
         )
-        every { clockRepository.observeManageableAlarms() } returns emptyFlow()
-        every { clockRepository.observeActiveTimers() } returns emptyFlow()
         coEvery { clockRepository.editAlarm(alarm.id, any(), any()) } returns null
         val viewModel = SidePanelViewModel(clockRepository)
 

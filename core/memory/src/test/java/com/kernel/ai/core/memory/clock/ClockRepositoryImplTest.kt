@@ -205,6 +205,39 @@ class ClockRepositoryImplTest {
     }
 
     @Test
+    fun `recordDeliveredEvent marks timers completed instead of deleting them`() = runTest {
+        val existing = scheduleRow(
+            id = "timer-1",
+            triggerAtMillis = 6_000L,
+            enabled = true,
+            entryType = ClockEventType.TIMER.name,
+        ).copy(durationMs = 60_000L, startedAtMs = 1_000L)
+        coEvery { scheduledAlarmDao.getById("timer-1") } returns existing
+        coEvery { scheduledAlarmDao.markTimerCompleted(eq("timer-1"), any()) } just Runs
+
+        repository.recordDeliveredEvent("timer-1")
+
+        coVerify(exactly = 1) { scheduledAlarmDao.markTimerCompleted(eq("timer-1"), any()) }
+        coVerify(exactly = 0) { scheduledAlarmDao.delete("timer-1") }
+    }
+
+    @Test
+    fun `observeRecentCompletedTimers maps completed timer history`() = runTest {
+        val completed = scheduleRow(
+            id = "timer-history",
+            triggerAtMillis = 8_000L,
+            enabled = true,
+            entryType = ClockEventType.TIMER.name,
+        ).copy(durationMs = 120_000L, startedAtMs = 6_000L, completedAtMs = 8_100L)
+        every { scheduledAlarmDao.observeRecentCompletedTimers() } returns flowOf(listOf(completed))
+
+        val timers = repository.observeRecentCompletedTimers().first()
+
+        assertEquals(listOf("timer-history"), timers.map { it.id })
+        assertEquals(8_100L, timers.single().completedAtMillis)
+    }
+
+    @Test
     fun `editAlarm returns null when row is already gone`() = runTest {
         coEvery { scheduledAlarmDao.getById("missing") } returns null
 
@@ -248,6 +281,16 @@ class ClockRepositoryImplTest {
         coVerify(exactly = 1) { scheduledAlarmDao.setEnabled("future-alarm", false) }
         coVerify(exactly = 1) { scheduledAlarmDao.markFired("future-timer") }
         verify(exactly = 0) { scheduler.schedule(any()) }
+    }
+
+    @Test
+    fun `clearCompletedTimers delegates to dao delete completed timers`() = runTest {
+        coEvery { scheduledAlarmDao.deleteCompletedTimers() } returns 2
+
+        val deleted = repository.clearCompletedTimers()
+
+        assertEquals(2, deleted)
+        coVerify(exactly = 1) { scheduledAlarmDao.deleteCompletedTimers() }
     }
     private fun scheduleRow(
         id: String,
