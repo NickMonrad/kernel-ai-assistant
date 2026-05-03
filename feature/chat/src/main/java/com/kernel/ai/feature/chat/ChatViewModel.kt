@@ -48,6 +48,15 @@ import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
 import com.kernel.ai.feature.chat.model.ToolCallInfo
 import com.kernel.ai.feature.chat.model.toJsonString
 import com.kernel.ai.feature.chat.model.toolCallInfoFromJson
+import com.kernel.ai.core.voice.VoiceCaptureMode
+import com.kernel.ai.core.voice.VoiceInputController
+import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputEvent
+import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoiceOutputResult
+import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -93,10 +102,26 @@ class ChatViewModel @Inject constructor(
     private val kernelAIToolSet: KernelAIToolSet,
     private val toolProvider: ToolProvider,
     private val embeddingEngine: EmbeddingEngine,
+    private val voiceInputController: VoiceInputController,
+    private val voiceOutputController: VoiceOutputController,
+    private val voiceOutputPreferences: VoiceOutputPreferences,
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
     private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
 ) : ViewModel() {
+    private enum class SubmitMode { Text, Voice }
+
+    sealed interface VoiceCaptureState {
+        data object Idle : VoiceCaptureState
+        data object Preparing : VoiceCaptureState
+        data class Listening(val transcript: String = "") : VoiceCaptureState
+        data class Processing(val transcript: String) : VoiceCaptureState
+    }
+
+    sealed interface VoicePlaybackState {
+        data object Idle : VoicePlaybackState
+        data class Speaking(val text: String) : VoicePlaybackState
+    }
 
     val isSeeding: StateFlow<Boolean> = nzTruthSeedingService.isSeeding
 
@@ -165,6 +190,15 @@ class ChatViewModel @Inject constructor(
 
     /** True while Gemma-4 is being lazily initialised in response to a [sendMessage] call. */
     private val _isLoadingModel = MutableStateFlow(false)
+
+    private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
+    val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
+
+    private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
+    val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
+
+    private var spokenResponsesEnabled = true
+    private var pendingVoiceReply = false
 
     /** True once [initializeConversation] has completed and [conversationId] is set. */
     private val _conversationInitialized = MutableStateFlow(false)
@@ -260,6 +294,72 @@ class ChatViewModel @Inject constructor(
         // Load verbose logging preference from DataStore (safe in core:memory module)
         viewModelScope.launch {
             verboseLoggingPreferenceUseCase.loadAndApplyVerboseLoggingPreference()
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.spokenResponsesEnabled.collect { enabled ->
+                spokenResponsesEnabled = enabled
+                if (enabled) {
+                    voiceOutputController.warmUp()
+                } else {
+                    pendingVoiceReply = false
+                    _voicePlaybackState.value = VoicePlaybackState.Idle
+                    voiceOutputController.stop()
+                }
+            }
+        }
+        viewModelScope.launch {
+            voiceInputController.events.collect { event ->
+                when (event) {
+                    is VoiceInputEvent.ListeningStarted -> {
+                        val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
+                            ?.transcript
+                            .orEmpty()
+                        _voiceCaptureState.value = VoiceCaptureState.Listening(currentTranscript)
+                    }
+                    is VoiceInputEvent.PartialTranscript -> {
+                        _voiceCaptureState.value = VoiceCaptureState.Listening(event.text)
+                    }
+                    is VoiceInputEvent.Transcript -> {
+                        submitVoiceTranscript(event.text)
+                    }
+                    is VoiceInputEvent.Error -> {
+                        pendingVoiceReply = false
+                        _voiceCaptureState.value = VoiceCaptureState.Idle
+                        _error.value = event.message
+                    }
+                    is VoiceInputEvent.ListeningStopped -> {
+                        when (val currentState = _voiceCaptureState.value) {
+                            is VoiceCaptureState.Listening -> {
+                                if (currentState.transcript.isBlank()) {
+                                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                                } else {
+                                    submitVoiceTranscript(currentState.transcript)
+                                }
+                            }
+                            is VoiceCaptureState.Processing -> Unit
+                            else -> _voiceCaptureState.value = VoiceCaptureState.Idle
+                        }
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputController.events.collect { event ->
+                when (event) {
+                    is VoiceOutputEvent.SpeakingStarted -> {
+                        if (
+                            _voiceCaptureState.value !is VoiceCaptureState.Preparing &&
+                            _voiceCaptureState.value !is VoiceCaptureState.Listening
+                        ) {
+                            _voiceCaptureState.value = VoiceCaptureState.Idle
+                        }
+                        _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
+                    }
+                    VoiceOutputEvent.SpeakingStopped -> {
+                        _voicePlaybackState.value = VoicePlaybackState.Idle
+                    }
+                }
+            }
         }
         viewModelScope.launch { initializeConversation() }
         nzTruthSeedingService.seedIfNeeded()
@@ -602,6 +702,7 @@ class ChatViewModel @Inject constructor(
         _messages.update { it + msg }
         val savedId = conversationRepository.addMessage(convId, "assistant", content)
         if (shouldIndex) ragRepository.indexMessage(savedId, convId, content)
+        speakAssistantReplyIfNeeded(content)
     }
 
     /** Like [appendAssistantMessage] but also attaches a [ToolCallInfo] chip so the UI shows
@@ -635,6 +736,7 @@ class ChatViewModel @Inject constructor(
             toolCallJson = toolCall.toJsonString(),
         )
         if (shouldIndexToolCallResult(skillName)) ragRepository.indexMessage(savedId, convId, content)
+        speakAssistantReplyIfNeeded(content)
     }
 
     fun retryDownload(model: KernelModel) {
@@ -644,6 +746,42 @@ class ChatViewModel @Inject constructor(
     fun onInputChanged(text: String) {
         _inputText.value = text
         if (_error.value != null) _error.value = null
+    }
+
+    fun startVoiceInput() {
+        if (inferenceEngine.isGenerating.value || _isLoadingModel.value) return
+        if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
+        viewModelScope.launch {
+            if (_voicePlaybackState.value != VoicePlaybackState.Idle) {
+                voiceOutputController.stop()
+            }
+            _error.value = null
+            _voiceCaptureState.value = VoiceCaptureState.Preparing
+            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
+                VoiceInputStartResult.Started -> {
+                    if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
+                        _voiceCaptureState.value = VoiceCaptureState.Listening()
+                    }
+                }
+                is VoiceInputStartResult.Unavailable -> {
+                    pendingVoiceReply = false
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    _error.value = result.message
+                }
+            }
+        }
+    }
+
+    fun stopVoiceInput() {
+        pendingVoiceReply = false
+        voiceInputController.stopListening()
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+    }
+
+    fun stopVoiceOutput() {
+        pendingVoiceReply = false
+        voiceOutputController.stop()
+        _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
     fun submitInitialQueryIfNeeded(initialQuery: String) {
@@ -675,11 +813,22 @@ class ChatViewModel @Inject constructor(
     }
 
     fun sendMessage() {
+        sendMessage(SubmitMode.Text)
+    }
+
+    private fun sendMessage(submitMode: SubmitMode) {
         val text = _inputText.value.trim()
-        if (text.isBlank() || inferenceEngine.isGenerating.value || _isLoadingModel.value) return
+        if (text.isBlank() || inferenceEngine.isGenerating.value || _isLoadingModel.value) {
+            if (submitMode == SubmitMode.Voice) {
+                pendingVoiceReply = false
+                _voiceCaptureState.value = VoiceCaptureState.Idle
+            }
+            return
+        }
 
         _inputText.value = ""
         val convId = conversationId ?: return
+        pendingVoiceReply = submitMode == SubmitMode.Voice
 
         // Synchronous flag set — collapses the TOCTOU window before coroutine dispatch
         if (!inferenceEngine.isReady.value) {
@@ -1193,6 +1342,7 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(resultContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
+                                speakAssistantReplyIfNeeded(resultContent)
                                 // Do NOT set needsHistoryReplay here — KV cache remains valid after
                                 // native tool calls and forcing a replay drops prior turns from the
                                 // tight history budget, causing context amnesia (#446).
@@ -1282,6 +1432,7 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(displayContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
+                                speakAssistantReplyIfNeeded(displayContent)
                             }
 
                             // Clear streaming tracking now that the message is fully persisted.
@@ -1306,6 +1457,8 @@ class ChatViewModel @Inject constructor(
                         }
 
                         is GenerationResult.Error -> {
+                            pendingVoiceReply = false
+                            _voiceCaptureState.value = VoiceCaptureState.Idle
                             _messages.update { msgs ->
                                 msgs.map { msg ->
                                     if (msg.id == assistantMsgId) {
@@ -1323,6 +1476,8 @@ class ChatViewModel @Inject constructor(
             } while (needsHallucinationRetry)
 
             } catch (e: Exception) {
+                pendingVoiceReply = false
+                _voiceCaptureState.value = VoiceCaptureState.Idle
                 _messages.update { msgs ->
                     msgs.map { msg ->
                         if (msg.id == assistantMsgId) {
@@ -1342,6 +1497,8 @@ class ChatViewModel @Inject constructor(
     }
 
     fun cancelGeneration() {
+        pendingVoiceReply = false
+        _voiceCaptureState.value = VoiceCaptureState.Idle
         inferenceEngine.cancelGeneration()
         val partialContent = activeStreamingContent.toString()
         val partialThinking = activeStreamingThinking.toString().takeIf { it.isNotBlank() }
@@ -1387,6 +1544,11 @@ class ChatViewModel @Inject constructor(
 
     fun startNewConversation() {
         viewModelScope.launch {
+            pendingVoiceReply = false
+            voiceInputController.stopListening()
+            voiceOutputController.stop()
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+            _voicePlaybackState.value = VoicePlaybackState.Idle
             val id = conversationRepository.createConversation()
             conversationId = id
             _messages.value = emptyList()
@@ -1534,6 +1696,9 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        pendingVoiceReply = false
+        voiceInputController.stopListening()
+        voiceOutputController.stop()
         // Flush any in-progress streamed content to Room before the ViewModel is destroyed.
         // runBlocking is acceptable here — called once on ViewModel teardown,
         // Room insert is fast (<10ms), main thread briefly blocked on nav back.
@@ -1557,6 +1722,33 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { inferenceEngine.shutdown() }
+    }
+
+    private fun submitVoiceTranscript(rawTranscript: String) {
+        val transcript = rawTranscript.trim()
+        if (transcript.isBlank()) {
+            pendingVoiceReply = false
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+            return
+        }
+        _voiceCaptureState.value = VoiceCaptureState.Processing(transcript)
+        onInputChanged(transcript)
+        sendMessage(SubmitMode.Voice)
+    }
+
+    private suspend fun speakAssistantReplyIfNeeded(content: String) {
+        val shouldSpeak = pendingVoiceReply
+        pendingVoiceReply = false
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+        if (!shouldSpeak || !spokenResponsesEnabled) return
+
+        val spokenText = stripMarkdownForClipboard(content).trim()
+        if (spokenText.isBlank()) return
+
+        when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = spokenText))) {
+            VoiceOutputResult.Spoken -> Unit
+            is VoiceOutputResult.Unavailable -> _error.value = result.message
+        }
     }
 
     /**
