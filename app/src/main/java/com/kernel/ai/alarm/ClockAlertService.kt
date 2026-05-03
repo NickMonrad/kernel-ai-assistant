@@ -9,7 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
-import android.media.AudioManager
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.os.IBinder
@@ -24,9 +23,6 @@ import com.kernel.ai.core.memory.clock.ClockEventType
 class ClockAlertService : Service() {
     private val notificationManager: NotificationManager
         get() = getSystemService(NotificationManager::class.java)
-
-    private val audioManager: AudioManager
-        get() = getSystemService(AudioManager::class.java)
 
     private val vibratorManager: VibratorManager
         get() = getSystemService(VibratorManager::class.java)
@@ -93,22 +89,16 @@ class ClockAlertService : Service() {
 
     private fun startAlertPlayback() {
         stopPlayback()
-        when (audioManager.ringerMode) {
-            AudioManager.RINGER_MODE_SILENT -> Unit
-            AudioManager.RINGER_MODE_VIBRATE -> startVibration()
-            else -> {
-                startVibration()
-                ringtone = RingtoneManager.getRingtone(
-                    this,
-                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
-                )?.apply {
-                    audioAttributes = AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .build()
-                    isLooping = true
-                    play()
-                }
-            }
+        startVibration()
+        ringtone = RingtoneManager.getRingtone(
+            this,
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+        )?.apply {
+            audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .build()
+            isLooping = true
+            play()
         }
     }
 
