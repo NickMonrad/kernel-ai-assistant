@@ -1176,12 +1176,12 @@ private val TimerMinuteSecondRange = 0..59
 private val TimerWheelItemHeight = 44.dp
 
 @Composable
-private fun TimerCreateDialog(
+internal fun TimerCreateDialog(
     onConfirm: (durationMs: Long, label: String?) -> Unit,
     onDismiss: () -> Unit,
  ) {
     var hours by remember { mutableIntStateOf(0) }
-    var minutes by remember { mutableIntStateOf(5) }
+    var minutes by remember { mutableIntStateOf(0) }
     var seconds by remember { mutableIntStateOf(0) }
     var label by remember { mutableStateOf("") }
     val durationMs = remember(hours, minutes, seconds) {
@@ -1329,10 +1329,10 @@ private fun TimerNumberWheel(
     val repeatedItemCount = remember(values) { values.size * TimerWheelRepeatCount }
     val middleRepeatStart = remember(values) { values.size * (TimerWheelRepeatCount / 2) }
     val initialCenteredIndex = remember(value, values) {
-        middleRepeatStart + (value - range.first)
+        timerWheelCenteredIndexForValue(range, value)
     }
     val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = (initialCenteredIndex - TimerWheelCenterItem).coerceAtLeast(0),
+        initialFirstVisibleItemIndex = initialCenteredIndex,
     )
     val selectedIndex by remember(listState) {
         derivedStateOf { centeredTimerWheelIndex(listState) }
@@ -1351,8 +1351,8 @@ private fun TimerNumberWheel(
         val centeredIndex = centeredTimerWheelIndex(listState) ?: return@LaunchedEffect
         val centeredValue = values[centeredIndex % values.size]
         if (centeredValue != value) {
-            val targetCenteredIndex = middleRepeatStart + (value - range.first)
-            listState.scrollToItem((targetCenteredIndex - TimerWheelCenterItem).coerceAtLeast(0))
+            val targetCenteredIndex = timerWheelCenteredIndexForValue(range, value)
+            listState.scrollToItem(targetCenteredIndex)
         }
     }
 
@@ -1404,6 +1404,11 @@ private fun TimerNumberWheel(
             }
         }
     }
+}
+
+internal fun timerWheelCenteredIndexForValue(range: IntRange, value: Int): Int {
+    require(value in range) { "Value $value outside $range" }
+    return range.count() * (TimerWheelRepeatCount / 2) + (value - range.first)
 }
 
 private fun centeredTimerWheelIndex(listState: LazyListState): Int? {
