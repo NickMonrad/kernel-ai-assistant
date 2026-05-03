@@ -17,6 +17,7 @@ import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.dao.ModelSettingsDao
 import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
+import com.kernel.ai.core.memory.dao.StopwatchDao
 import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.entity.ContactAliasEntity
@@ -31,6 +32,8 @@ import com.kernel.ai.core.memory.entity.MessageEntity
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
+import com.kernel.ai.core.memory.entity.StopwatchLapEntity
+import com.kernel.ai.core.memory.entity.StopwatchStateEntity
 import com.kernel.ai.core.memory.entity.WorldClockEntity
 import com.kernel.ai.core.memory.entity.UserProfileEntity
 import java.time.ZoneId
@@ -48,11 +51,13 @@ import java.time.ZoneId
         QuickActionEntity::class,
         ScheduledAlarmEntity::class,
         WorldClockEntity::class,
+        StopwatchStateEntity::class,
+        StopwatchLapEntity::class,
         ContactAliasEntity::class,
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 27,
+    version = 28,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -69,6 +74,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun quickActionDao(): QuickActionDao
     abstract fun scheduledAlarmDao(): ScheduledAlarmDao
     abstract fun worldClockDao(): WorldClockDao
+    abstract fun stopwatchDao(): StopwatchDao
     abstract fun contactAliasDao(): ContactAliasDao
     abstract fun listItemDao(): ListItemDao
     abstract fun listNameDao(): ListNameDao
@@ -331,6 +337,40 @@ abstract class KernelDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_world_clocks_zone_id` ON `world_clocks` (`zone_id`)")
+            }
+        }
+
+        /** Creates stopwatch state + lap tables for first-class stopwatch UI (#745). */
+        val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `stopwatch_state` (
+                        `id` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `accumulated_elapsed_ms` INTEGER NOT NULL,
+                        `running_since_elapsed_realtime_ms` INTEGER,
+                        `running_since_wall_clock_ms` INTEGER,
+                        `updated_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `stopwatch_laps` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `stopwatch_id` TEXT NOT NULL,
+                        `lap_number` INTEGER NOT NULL,
+                        `elapsed_ms` INTEGER NOT NULL,
+                        `split_ms` INTEGER NOT NULL,
+                        `created_at` INTEGER NOT NULL,
+                        FOREIGN KEY(`stopwatch_id`) REFERENCES `stopwatch_state`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_stopwatch_laps_stopwatch_id` ON `stopwatch_laps` (`stopwatch_id`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_stopwatch_laps_stopwatch_id_lap_number` ON `stopwatch_laps` (`stopwatch_id`, `lap_number`)")
             }
         }
 

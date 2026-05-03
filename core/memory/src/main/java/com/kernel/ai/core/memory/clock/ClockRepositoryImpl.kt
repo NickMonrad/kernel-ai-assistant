@@ -1,8 +1,11 @@
 package com.kernel.ai.core.memory.clock
 
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
+import com.kernel.ai.core.memory.dao.StopwatchDao
 import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
+import com.kernel.ai.core.memory.entity.StopwatchLapEntity
+import com.kernel.ai.core.memory.entity.StopwatchStateEntity
 import com.kernel.ai.core.memory.entity.WorldClockEntity
 import java.time.Instant
 import java.time.ZoneId
@@ -19,11 +22,13 @@ import kotlinx.coroutines.flow.map
 private const val PRE_ALARM_LEAD_MS = 30 * 60 * 1_000L
 private const val PRE_ALARM_MIN_NOTICE_MS = 1_000L
 private const val PRE_ALARM_EVENT_SUFFIX = ":pre"
+private const val STOPWATCH_ID = "primary"
 
 @Singleton
 class ClockRepositoryImpl @Inject constructor(
     private val scheduledAlarmDao: ScheduledAlarmDao,
     private val worldClockDao: WorldClockDao,
+    private val stopwatchDao: StopwatchDao,
     private val scheduler: ClockScheduler,
  ) : ClockRepository {
     override fun observeManageableAlarms(): Flow<List<ClockAlarm>> =
@@ -55,11 +60,113 @@ class ClockRepositoryImpl @Inject constructor(
             schedules.mapNotNull { it.toClockTimer() }
         }
 
+    override fun observeStopwatch(): Flow<ClockStopwatch> =
+        combine(
+            stopwatchDao.observeState(STOPWATCH_ID),
+            stopwatchDao.observeLaps(STOPWATCH_ID),
+        ) { state, laps ->
+            state?.toClockStopwatch(laps.map { it.toStopwatchLap() }) ?: defaultStopwatch()
+        }
+
     override fun observeWorldClocks(): Flow<List<WorldClock>> =
         worldClockDao.observeAll().map { clocks ->
             clocks.map { it.toWorldClock() }
         }
 
+
+    override suspend fun startStopwatch(
+        nowWallClockMillis: Long,
+        nowElapsedRealtimeMs: Long,
+    ): ClockStopwatch {
+        val existing = stopwatchDao.getState(STOPWATCH_ID)
+        if (existing?.status == StopwatchStatus.RUNNING.name) {
+            return existing.toClockStopwatch(stopwatchDao.getLaps(STOPWATCH_ID).map { it.toStopwatchLap() })
+        }
+        val state = StopwatchStateEntity(
+            id = STOPWATCH_ID,
+            status = StopwatchStatus.RUNNING.name,
+            accumulatedElapsedMs = 0L,
+            runningSinceElapsedRealtimeMs = nowElapsedRealtimeMs,
+            runningSinceWallClockMs = nowWallClockMillis,
+            updatedAt = nowWallClockMillis,
+        )
+        stopwatchDao.deleteLaps(STOPWATCH_ID)
+        stopwatchDao.upsertState(state)
+        return state.toClockStopwatch(emptyList())
+    }
+
+    override suspend fun pauseStopwatch(
+        nowWallClockMillis: Long,
+        nowElapsedRealtimeMs: Long,
+    ): ClockStopwatch {
+        val existing = stopwatchDao.getState(STOPWATCH_ID) ?: return defaultStopwatch()
+        if (existing.status != StopwatchStatus.RUNNING.name) {
+            return existing.toClockStopwatch(stopwatchDao.getLaps(STOPWATCH_ID).map { it.toStopwatchLap() })
+        }
+        val laps = stopwatchDao.getLaps(STOPWATCH_ID).map { it.toStopwatchLap() }
+        val updated = existing.copy(
+            status = StopwatchStatus.PAUSED.name,
+            accumulatedElapsedMs = existing.toClockStopwatch(laps).elapsedMs(
+                nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+                nowWallClockMillis = nowWallClockMillis,
+            ),
+            runningSinceElapsedRealtimeMs = null,
+            runningSinceWallClockMs = null,
+            updatedAt = nowWallClockMillis,
+        )
+        stopwatchDao.upsertState(updated)
+        return updated.toClockStopwatch(laps)
+    }
+
+    override suspend fun resumeStopwatch(
+        nowWallClockMillis: Long,
+        nowElapsedRealtimeMs: Long,
+    ): ClockStopwatch {
+        val existing = stopwatchDao.getState(STOPWATCH_ID) ?: return startStopwatch(
+            nowWallClockMillis = nowWallClockMillis,
+            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+        )
+        if (existing.status != StopwatchStatus.PAUSED.name) {
+            return existing.toClockStopwatch(stopwatchDao.getLaps(STOPWATCH_ID).map { it.toStopwatchLap() })
+        }
+        val laps = stopwatchDao.getLaps(STOPWATCH_ID).map { it.toStopwatchLap() }
+        val updated = existing.copy(
+            status = StopwatchStatus.RUNNING.name,
+            runningSinceElapsedRealtimeMs = nowElapsedRealtimeMs,
+            runningSinceWallClockMs = nowWallClockMillis,
+            updatedAt = nowWallClockMillis,
+        )
+        stopwatchDao.upsertState(updated)
+        return updated.toClockStopwatch(laps)
+    }
+
+    override suspend fun resetStopwatch() {
+        stopwatchDao.resetStopwatch(STOPWATCH_ID)
+    }
+
+    override suspend fun recordStopwatchLap(
+        nowWallClockMillis: Long,
+        nowElapsedRealtimeMs: Long,
+    ): StopwatchLap? {
+        val existing = stopwatchDao.getState(STOPWATCH_ID) ?: return null
+        if (existing.status != StopwatchStatus.RUNNING.name) return null
+        val laps = stopwatchDao.getLaps(STOPWATCH_ID).map { it.toStopwatchLap() }
+        val elapsedMs = existing.toClockStopwatch(laps).elapsedMs(
+            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+            nowWallClockMillis = nowWallClockMillis,
+        )
+        val lastElapsedMs = stopwatchDao.getLastLapElapsedMs(STOPWATCH_ID) ?: 0L
+        val lap = StopwatchLapEntity(
+            stopwatchId = STOPWATCH_ID,
+            lapNumber = (stopwatchDao.getMaxLapNumber(STOPWATCH_ID) ?: 0) + 1,
+            elapsedMs = elapsedMs,
+            splitMs = (elapsedMs - lastElapsedMs).coerceAtLeast(0L),
+            createdAt = nowWallClockMillis,
+        )
+        val lapId = stopwatchDao.insertLap(lap)
+        stopwatchDao.upsertState(existing.copy(updatedAt = nowWallClockMillis))
+        return lap.copy(id = lapId).toStopwatchLap()
+    }
 
     override suspend fun addWorldClock(zoneId: String, displayName: String): WorldClock? {
         worldClockDao.getByZoneId(zoneId)?.let { return it.toWorldClock() }
@@ -445,6 +552,36 @@ private fun WorldClockEntity.toWorldClock(): WorldClock =
         sortOrder = sortOrder,
         createdAtMillis = createdAt,
     )
+
+private fun defaultStopwatch(): ClockStopwatch =
+    ClockStopwatch(
+        id = STOPWATCH_ID,
+        status = StopwatchStatus.IDLE,
+        accumulatedElapsedMs = 0L,
+        updatedAtMillis = 0L,
+        laps = emptyList(),
+    )
+
+private fun StopwatchStateEntity.toClockStopwatch(laps: List<StopwatchLap>): ClockStopwatch =
+    ClockStopwatch(
+        id = id,
+        status = StopwatchStatus.valueOf(status),
+        accumulatedElapsedMs = accumulatedElapsedMs,
+        runningSinceElapsedRealtimeMs = runningSinceElapsedRealtimeMs,
+        runningSinceWallClockMs = runningSinceWallClockMs,
+        updatedAtMillis = updatedAt,
+        laps = laps,
+    )
+
+private fun StopwatchLapEntity.toStopwatchLap(): StopwatchLap =
+    StopwatchLap(
+        id = id,
+        lapNumber = lapNumber,
+        elapsedMs = elapsedMs,
+        splitMs = splitMs,
+        createdAtMillis = createdAt,
+    )
+
 private fun ScheduledAlarmEntity.toClockAlarm(): ClockAlarm? {
     if (entryType != ClockEventType.ALARM.name) return null
     val zoneId = ZoneId.of(timeZoneId ?: ZoneId.systemDefault().id)

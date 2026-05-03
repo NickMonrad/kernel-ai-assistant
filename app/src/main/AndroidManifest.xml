@@ -137,6 +137,10 @@
             android:name=".alarm.ClockTimerActionReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".alarm.ClockStopwatchActionReceiver"
+            android:exported="false" />
+
         <!-- Re-schedules exact alarms after device reboot (#327) -->
         <receiver
             android:name=".alarm.BootCompletedReceiver"

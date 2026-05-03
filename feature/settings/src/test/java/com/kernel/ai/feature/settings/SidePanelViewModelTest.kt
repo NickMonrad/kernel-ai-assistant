@@ -2,7 +2,9 @@ package com.kernel.ai.feature.settings
 
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
+import com.kernel.ai.core.memory.clock.ClockStopwatch
 import com.kernel.ai.core.memory.clock.ClockTimer
+import com.kernel.ai.core.memory.clock.StopwatchStatus
 import com.kernel.ai.core.memory.clock.WorldClock
 import com.kernel.ai.core.memory.clock.WorldClockCandidate
 import io.mockk.coEvery
@@ -34,6 +36,14 @@ class SidePanelViewModelTest {
         every { clockRepository.observeActiveTimers() } returns emptyFlow()
         every { clockRepository.observeRecentCompletedTimers() } returns emptyFlow()
         every { clockRepository.observeWorldClocks() } returns emptyFlow()
+        every { clockRepository.observeStopwatch() } returns kotlinx.coroutines.flow.flowOf(
+            ClockStopwatch(
+                id = "primary",
+                status = StopwatchStatus.IDLE,
+                accumulatedElapsedMs = 0L,
+                updatedAtMillis = 0L,
+            ),
+        )
     }
 
     @AfterEach
@@ -43,21 +53,23 @@ class SidePanelViewModelTest {
 
     @Test
     fun `scheduleAlarm returns false when repository rejects exact alarm`() = runTest {
-        coEvery { clockRepository.createAlarm(any()) } returns null
+        val draft = sampleAlarmDraft(label = "Wake")
+        coEvery { clockRepository.createAlarm(draft) } returns null
         val viewModel = SidePanelViewModel(clockRepository)
 
-        val result = viewModel.tryScheduleAlarm(1_234L, "Wake")
+        val result = viewModel.tryScheduleAlarm(draft)
 
         assertEquals(false, result)
     }
 
     @Test
     fun `scheduleAlarm reports failure when repository cannot store alarm`() = runTest {
-        coEvery { clockRepository.createAlarm(any()) } returns null
+        val draft = sampleAlarmDraft(label = "Wake")
+        coEvery { clockRepository.createAlarm(draft) } returns null
         val viewModel = SidePanelViewModel(clockRepository)
         var result: AlarmSaveResult? = null
 
-        viewModel.scheduleAlarm(System.currentTimeMillis() + 172_800_000L, "Wake") { result = it }
+        viewModel.scheduleAlarm(draft) { result = it }
         advanceUntilIdle()
 
         assertEquals(AlarmSaveResult.FAILED, result)
@@ -65,7 +77,7 @@ class SidePanelViewModelTest {
 
     @Test
     fun `scheduleTimer returns true when repository accepts timer`() = runTest {
-        coEvery { clockRepository.scheduleTimer(any(), any()) } returns ClockTimer(
+        coEvery { clockRepository.scheduleTimer(60_000L, "Tea") } returns ClockTimer(
             id = "timer-1",
             triggerAtMillis = 5_000L,
             label = "Tea",
@@ -116,12 +128,43 @@ class SidePanelViewModelTest {
     }
 
     @Test
-    fun `editAlarm returns false when repository rejects update`() = runTest {
-        val alarm = sampleAlarm()
-        coEvery { clockRepository.updateAlarm(alarm.id, any()) } returns null
+    fun `startStopwatch forwards wall and elapsed clocks to repository`() = runTest {
+        coEvery { clockRepository.startStopwatch(10_000L, 5_000L) } returns ClockStopwatch(
+            id = "primary",
+            status = StopwatchStatus.RUNNING,
+            accumulatedElapsedMs = 0L,
+            runningSinceElapsedRealtimeMs = 5_000L,
+            runningSinceWallClockMs = 10_000L,
+            updatedAtMillis = 10_000L,
+        )
         val viewModel = SidePanelViewModel(clockRepository)
 
-        val result = viewModel.tryEditAlarm(alarm, 2_345L, "Updated")
+        viewModel.startStopwatch(nowWallClockMillis = 10_000L, nowElapsedRealtimeMs = 5_000L)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { clockRepository.startStopwatch(10_000L, 5_000L) }
+    }
+
+    @Test
+    fun `recordStopwatchLap delegates to repository`() = runTest {
+        coEvery { clockRepository.recordStopwatchLap(12_000L, 6_000L) } returns null
+        val viewModel = SidePanelViewModel(clockRepository)
+
+        viewModel.recordStopwatchLap(nowWallClockMillis = 12_000L, nowElapsedRealtimeMs = 6_000L)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { clockRepository.recordStopwatchLap(12_000L, 6_000L) }
+    }
+
+
+    @Test
+    fun `editAlarm returns false when repository rejects update`() = runTest {
+        val alarm = sampleAlarm()
+        val draft = sampleAlarmDraft(label = "Updated")
+        coEvery { clockRepository.updateAlarm(alarm.id, draft) } returns null
+        val viewModel = SidePanelViewModel(clockRepository)
+
+        val result = viewModel.tryEditAlarm(alarm, draft)
 
         assertEquals(false, result)
     }
@@ -166,6 +209,15 @@ class SidePanelViewModelTest {
         coVerify(exactly = 1) { clockRepository.reorderWorldClocks(listOf("2", "1")) }
     }
 }
+
+private fun sampleAlarmDraft(label: String?) = com.kernel.ai.core.memory.clock.AlarmDraft(
+    label = label,
+    hour = 7,
+    minute = 0,
+    repeatRule = com.kernel.ai.core.memory.clock.AlarmRepeatRule.OneOff(19_000L),
+    timeZoneId = java.time.ZoneId.systemDefault().id,
+ )
+
 
 private fun sampleAlarm() = ClockAlarm(
     id = "alarm-1",

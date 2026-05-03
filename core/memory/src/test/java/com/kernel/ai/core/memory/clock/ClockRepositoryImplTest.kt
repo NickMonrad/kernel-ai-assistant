@@ -1,8 +1,11 @@
 package com.kernel.ai.core.memory.clock
 
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
+import com.kernel.ai.core.memory.dao.StopwatchDao
 import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
+import com.kernel.ai.core.memory.entity.StopwatchLapEntity
+import com.kernel.ai.core.memory.entity.StopwatchStateEntity
 import com.kernel.ai.core.memory.entity.WorldClockEntity
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -30,13 +33,14 @@ import java.time.ZoneId
 class ClockRepositoryImplTest {
     private val scheduledAlarmDao = mockk<ScheduledAlarmDao>()
     private val scheduler = mockk<ClockScheduler>(relaxed = true)
+    private val stopwatchDao = mockk<StopwatchDao>()
     private val worldClockDao = mockk<WorldClockDao>()
 
     private lateinit var repository: ClockRepositoryImpl
 
     @BeforeEach
     fun setUp() {
-        repository = ClockRepositoryImpl(scheduledAlarmDao, worldClockDao, scheduler)
+        repository = ClockRepositoryImpl(scheduledAlarmDao, worldClockDao, stopwatchDao, scheduler)
         every {
             scheduler.getPlatformState()
         } returns ClockPlatformState(
@@ -245,6 +249,103 @@ class ClockRepositoryImplTest {
         assertEquals(2, deleted)
         coVerify(exactly = 1) { scheduledAlarmDao.deleteCompletedTimers() }
     }
+
+    @Test
+    fun `observeStopwatch falls back to idle state when nothing is persisted`() = runTest {
+        every { stopwatchDao.observeState("primary") } returns flowOf(null)
+        every { stopwatchDao.observeLaps("primary") } returns flowOf(emptyList())
+
+        val stopwatch = repository.observeStopwatch().first()
+
+        assertEquals(StopwatchStatus.IDLE, stopwatch.status)
+        assertTrue(stopwatch.laps.isEmpty())
+        assertEquals(0L, stopwatch.accumulatedElapsedMs)
+    }
+
+    @Test
+    fun `startStopwatch clears old laps and persists running anchors`() = runTest {
+        coEvery { stopwatchDao.getState("primary") } returns null
+        coEvery { stopwatchDao.deleteLaps("primary") } just Runs
+        coEvery { stopwatchDao.upsertState(any()) } just Runs
+
+        val stopwatch = repository.startStopwatch(
+            nowWallClockMillis = 100_000L,
+            nowElapsedRealtimeMs = 25_000L,
+        )
+
+        assertEquals(StopwatchStatus.RUNNING, stopwatch.status)
+        assertEquals(0L, stopwatch.accumulatedElapsedMs)
+        coVerify(exactly = 1) { stopwatchDao.deleteLaps("primary") }
+        coVerify(exactly = 1) {
+            stopwatchDao.upsertState(match {
+                it.status == StopwatchStatus.RUNNING.name &&
+                    it.accumulatedElapsedMs == 0L &&
+                    it.runningSinceElapsedRealtimeMs == 25_000L &&
+                    it.runningSinceWallClockMs == 100_000L
+            })
+        }
+    }
+
+    @Test
+    fun `pauseStopwatch snapshots elapsed time truthfully`() = runTest {
+        val running = StopwatchStateEntity(
+            id = "primary",
+            status = StopwatchStatus.RUNNING.name,
+            accumulatedElapsedMs = 2_000L,
+            runningSinceElapsedRealtimeMs = 10_000L,
+            runningSinceWallClockMs = 90_000L,
+            updatedAt = 90_000L,
+        )
+        coEvery { stopwatchDao.getState("primary") } returns running
+        coEvery { stopwatchDao.getLaps("primary") } returns emptyList()
+        coEvery { stopwatchDao.upsertState(any()) } just Runs
+
+        val stopwatch = repository.pauseStopwatch(
+            nowWallClockMillis = 112_000L,
+            nowElapsedRealtimeMs = 20_500L,
+        )
+
+        assertEquals(StopwatchStatus.PAUSED, stopwatch.status)
+        assertEquals(12_500L, stopwatch.accumulatedElapsedMs)
+        coVerify(exactly = 1) {
+            stopwatchDao.upsertState(match {
+                it.status == StopwatchStatus.PAUSED.name &&
+                    it.accumulatedElapsedMs == 12_500L &&
+                    it.runningSinceElapsedRealtimeMs == null &&
+                    it.runningSinceWallClockMs == null
+            })
+        }
+    }
+
+    @Test
+    fun `recordStopwatchLap stores cumulative and split times`() = runTest {
+        val running = StopwatchStateEntity(
+            id = "primary",
+            status = StopwatchStatus.RUNNING.name,
+            accumulatedElapsedMs = 3_000L,
+            runningSinceElapsedRealtimeMs = 10_000L,
+            runningSinceWallClockMs = 50_000L,
+            updatedAt = 50_000L,
+        )
+        coEvery { stopwatchDao.getState("primary") } returns running
+        coEvery { stopwatchDao.getLaps("primary") } returns emptyList()
+        coEvery { stopwatchDao.getLastLapElapsedMs("primary") } returns 0L
+        coEvery { stopwatchDao.getMaxLapNumber("primary") } returns 0
+        coEvery { stopwatchDao.insertLap(any()) } returns 42L
+        coEvery { stopwatchDao.upsertState(any()) } just Runs
+
+        val lap = repository.recordStopwatchLap(
+            nowWallClockMillis = 56_000L,
+            nowElapsedRealtimeMs = 14_500L,
+        )
+
+        assertNotNull(lap)
+        assertEquals(42L, lap?.id)
+        assertEquals(1, lap?.lapNumber)
+        assertEquals(7_500L, lap?.elapsedMs)
+        assertEquals(7_500L, lap?.splitMs)
+    }
+
 
     @Test
     fun `addWorldClock inserts ordered favorite and returns model`() = runTest {

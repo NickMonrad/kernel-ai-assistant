@@ -8,6 +8,8 @@ enum class ClockEventType {
     PRE_ALARM,
 }
 
+enum class StopwatchStatus { IDLE, RUNNING, PAUSED }
+
 sealed interface AlarmRepeatRule {
     data class OneOff(val dateEpochDay: Long) : AlarmRepeatRule
     data object Daily : AlarmRepeatRule
@@ -52,6 +54,48 @@ data class ClockTimer(
     val startedAtMillis: Long,
     val completedAtMillis: Long? = null,
  )
+
+data class StopwatchLap(
+    val id: Long,
+    val lapNumber: Int,
+    val elapsedMs: Long,
+    val splitMs: Long,
+    val createdAtMillis: Long,
+)
+
+data class ClockStopwatch(
+    val id: String,
+    val status: StopwatchStatus,
+    val accumulatedElapsedMs: Long,
+    val runningSinceElapsedRealtimeMs: Long? = null,
+    val runningSinceWallClockMs: Long? = null,
+    val updatedAtMillis: Long,
+    val laps: List<StopwatchLap> = emptyList(),
+) {
+    fun elapsedMs(
+        nowElapsedRealtimeMs: Long,
+        nowWallClockMillis: Long,
+    ): Long = when (status) {
+        StopwatchStatus.IDLE -> 0L
+        StopwatchStatus.PAUSED -> accumulatedElapsedMs
+        StopwatchStatus.RUNNING -> accumulatedElapsedMs + runningSegmentElapsedMs(
+            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+            nowWallClockMillis = nowWallClockMillis,
+        )
+    }
+
+    private fun runningSegmentElapsedMs(
+        nowElapsedRealtimeMs: Long,
+        nowWallClockMillis: Long,
+    ): Long {
+        val elapsedRealtimeAnchor = runningSinceElapsedRealtimeMs
+        if (elapsedRealtimeAnchor != null && nowElapsedRealtimeMs >= elapsedRealtimeAnchor) {
+            return nowElapsedRealtimeMs - elapsedRealtimeAnchor
+        }
+        val wallClockAnchor = runningSinceWallClockMs ?: return 0L
+        return (nowWallClockMillis - wallClockAnchor).coerceAtLeast(0L)
+    }
+}
 
 data class WorldClock(
     val id: String,
