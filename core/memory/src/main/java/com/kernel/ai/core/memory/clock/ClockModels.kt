@@ -21,7 +21,8 @@ data class ClockTimer(
     val createdAtMillis: Long,
     val durationMs: Long,
     val startedAtMillis: Long,
-)
+    val completedAtMillis: Long? = null,
+ )
 
 data class ClockScheduledEvent(
     val eventId: String,

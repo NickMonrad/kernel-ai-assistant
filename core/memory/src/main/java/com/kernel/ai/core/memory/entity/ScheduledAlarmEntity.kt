@@ -16,4 +16,5 @@ data class ScheduledAlarmEntity(
     @ColumnInfo(name = "entry_type") val entryType: String = "ALARM",
     @ColumnInfo(name = "duration_ms") val durationMs: Long? = null,
     @ColumnInfo(name = "started_at_ms") val startedAtMs: Long? = null,
+    @ColumnInfo(name = "completed_at_ms") val completedAtMs: Long? = null,
 )
