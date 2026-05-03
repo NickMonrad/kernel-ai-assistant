@@ -15,13 +15,12 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class AlarmTimerFilter { ALL, ALARMS, TIMERS }
+enum class ClockSurfaceTab { TIMERS, ALARMS }
 
 @HiltViewModel
 class SidePanelViewModel @Inject constructor(
     private val clockRepository: ClockRepository,
-) : ViewModel() {
-
+ ) : ViewModel() {
     val alarms: StateFlow<List<ClockAlarm>> =
         clockRepository.observeManageableAlarms()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -30,9 +29,12 @@ class SidePanelViewModel @Inject constructor(
         clockRepository.observeActiveTimers()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val _filterType = MutableStateFlow(AlarmTimerFilter.ALL)
-    val filterType: StateFlow<AlarmTimerFilter> = _filterType.asStateFlow()
+    val recentCompletedTimers: StateFlow<List<ClockTimer>> =
+        clockRepository.observeRecentCompletedTimers()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val _selectedTab = MutableStateFlow(ClockSurfaceTab.TIMERS)
+    val selectedTab: StateFlow<ClockSurfaceTab> = _selectedTab.asStateFlow()
     private val _isInSelectionMode = MutableStateFlow(false)
     val isInSelectionMode: StateFlow<Boolean> = _isInSelectionMode.asStateFlow()
 
@@ -42,8 +44,8 @@ class SidePanelViewModel @Inject constructor(
     private val _showBulkDeleteConfirmation = MutableStateFlow(false)
     val showBulkDeleteConfirmation: StateFlow<Boolean> = _showBulkDeleteConfirmation.asStateFlow()
 
-    fun setFilter(filter: AlarmTimerFilter) {
-        _filterType.value = filter
+    fun setTab(tab: ClockSurfaceTab) {
+        _selectedTab.value = tab
         clearSelection()
     }
 
@@ -109,6 +111,24 @@ class SidePanelViewModel @Inject constructor(
     fun cancelTimer(timer: ClockTimer) {
         viewModelScope.launch {
             clockRepository.cancelTimer(timer.id)
+        }
+    }
+
+    fun restartTimer(timer: ClockTimer, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            onResult(tryScheduleTimer(timer.durationMs, timer.label))
+        }
+    }
+
+    fun deleteCompletedTimer(timer: ClockTimer) {
+        viewModelScope.launch {
+            clockRepository.deleteCompletedTimer(timer.id)
+        }
+    }
+
+    fun clearCompletedTimers(onResult: (Int) -> Unit = {}) {
+        viewModelScope.launch {
+            onResult(clockRepository.clearCompletedTimers())
         }
     }
 
