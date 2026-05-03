@@ -882,7 +882,7 @@ private val AlarmWeekdays = listOf(
     DayOfWeek.SUNDAY,
  )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun AlarmCreateEditDialog(
     existingAlarm: ClockAlarm?,
@@ -961,7 +961,10 @@ private fun AlarmCreateEditDialog(
                 title = { Text("Repeat") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             FilterChip(
                                 selected = repeatSelection == AlarmRepeatSelection.ONE_OFF,
                                 onClick = { repeatSelection = AlarmRepeatSelection.ONE_OFF },
@@ -972,23 +975,24 @@ private fun AlarmCreateEditDialog(
                                 onClick = { repeatSelection = AlarmRepeatSelection.DAILY },
                                 label = { Text("Daily") },
                             )
+                            FilterChip(
+                                selected = repeatSelection == AlarmRepeatSelection.WEEKDAYS,
+                                onClick = { repeatSelection = AlarmRepeatSelection.WEEKDAYS },
+                                label = { Text("Selected weekdays") },
+                            )
                         }
-                        FilterChip(
-                            selected = repeatSelection == AlarmRepeatSelection.WEEKDAYS,
-                            onClick = { repeatSelection = AlarmRepeatSelection.WEEKDAYS },
-                            label = { Text("Selected weekdays") },
-                        )
                         if (repeatSelection == AlarmRepeatSelection.WEEKDAYS) {
-                            AlarmWeekdays.chunked(4).forEach { rowDays ->
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    rowDays.forEach { day ->
-                                        val selected = repeatDaysMask and weekdayMaskFor(day) != 0
-                                        FilterChip(
-                                            selected = selected,
-                                            onClick = { repeatDaysMask = repeatDaysMask.toggleWeekday(day) },
-                                            label = { Text(day.shortLabel()) },
-                                        )
-                                    }
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                AlarmWeekdays.forEach { day ->
+                                    val selected = repeatDaysMask and weekdayMaskFor(day) != 0
+                                    FilterChip(
+                                        selected = selected,
+                                        onClick = { repeatDaysMask = repeatDaysMask.toggleWeekday(day) },
+                                        label = { Text(day.shortLabel(), maxLines = 1) },
+                                    )
                                 }
                             }
                         }
