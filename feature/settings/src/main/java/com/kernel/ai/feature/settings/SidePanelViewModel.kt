@@ -2,10 +2,14 @@ package com.kernel.ai.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.memory.clock.AlarmDraft
+import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.clock.ClockTimer
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Instant
+import java.time.ZoneId
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -14,7 +18,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
 enum class ClockSurfaceTab { TIMERS, ALARMS }
 
 @HiltViewModel
@@ -132,12 +135,15 @@ class SidePanelViewModel @Inject constructor(
         }
     }
 
-    suspend fun tryScheduleAlarm(triggerAtMillis: Long, label: String?): Boolean =
-        clockRepository.scheduleAlarm(triggerAtMillis, label) != null
+    suspend fun tryScheduleAlarm(draft: AlarmDraft): Boolean =
+        clockRepository.createAlarm(draft) != null
 
-    fun scheduleAlarm(triggerAtMillis: Long, label: String?, onResult: (AlarmSaveResult) -> Unit = {}) {
+    suspend fun tryScheduleAlarm(triggerAtMillis: Long, label: String?): Boolean =
+        tryScheduleAlarm(triggerAtMillis.toOneOffAlarmDraft(label))
+
+    fun scheduleAlarm(draft: AlarmDraft, onResult: (AlarmSaveResult) -> Unit = {}) {
         viewModelScope.launch {
-            val result = if (tryScheduleAlarm(triggerAtMillis, label)) {
+            val result = if (tryScheduleAlarm(draft)) {
                 AlarmSaveResult.STORED
             } else {
                 AlarmSaveResult.FAILED
@@ -146,8 +152,30 @@ class SidePanelViewModel @Inject constructor(
         }
     }
 
+    fun scheduleAlarm(triggerAtMillis: Long, label: String?, onResult: (AlarmSaveResult) -> Unit = {}) {
+        scheduleAlarm(triggerAtMillis.toOneOffAlarmDraft(label), onResult)
+    }
+
+    suspend fun tryEditAlarm(alarm: ClockAlarm, draft: AlarmDraft): Boolean =
+        clockRepository.updateAlarm(alarm.id, draft) != null
+
     suspend fun tryEditAlarm(alarm: ClockAlarm, newTriggerAtMillis: Long, newLabel: String?): Boolean =
-        clockRepository.editAlarm(alarm.id, newTriggerAtMillis, newLabel) != null
+        tryEditAlarm(alarm, newTriggerAtMillis.toOneOffAlarmDraft(newLabel))
+
+    fun editAlarm(
+        alarm: ClockAlarm,
+        draft: AlarmDraft,
+        onResult: (AlarmSaveResult) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            val result = if (tryEditAlarm(alarm, draft)) {
+                AlarmSaveResult.STORED
+            } else {
+                AlarmSaveResult.FAILED
+            }
+            onResult(result)
+        }
+    }
 
     fun editAlarm(
         alarm: ClockAlarm,
@@ -155,14 +183,7 @@ class SidePanelViewModel @Inject constructor(
         newLabel: String?,
         onResult: (AlarmSaveResult) -> Unit = {},
     ) {
-        viewModelScope.launch {
-            val result = if (tryEditAlarm(alarm, newTriggerAtMillis, newLabel)) {
-                AlarmSaveResult.STORED
-            } else {
-                AlarmSaveResult.FAILED
-            }
-            onResult(result)
-        }
+        editAlarm(alarm, newTriggerAtMillis.toOneOffAlarmDraft(newLabel), onResult)
     }
 
     suspend fun tryToggleEnabled(alarm: ClockAlarm): Boolean =
@@ -182,4 +203,16 @@ class SidePanelViewModel @Inject constructor(
             onResult(tryScheduleTimer(durationMs, label))
         }
     }
+}
+
+private fun Long.toOneOffAlarmDraft(label: String?): AlarmDraft {
+    val zone = ZoneId.systemDefault()
+    val trigger = Instant.ofEpochMilli(this).atZone(zone)
+    return AlarmDraft(
+        label = label,
+        hour = trigger.hour,
+        minute = trigger.minute,
+        repeatRule = AlarmRepeatRule.OneOff(trigger.toLocalDate().toEpochDay()),
+        timeZoneId = zone.id,
+    )
 }

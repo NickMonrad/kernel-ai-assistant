@@ -31,6 +31,7 @@ import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
 import com.kernel.ai.core.memory.entity.UserProfileEntity
+import java.time.ZoneId
 
 @Database(
     entities = [
@@ -48,7 +49,7 @@ import com.kernel.ai.core.memory.entity.UserProfileEntity
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 25,
+    version = 26,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -283,6 +284,30 @@ abstract class KernelDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN owner_id TEXT DEFAULT NULL")
                 db.execSQL("UPDATE scheduled_alarms SET owner_id = id WHERE owner_id IS NULL")
+            }
+        }
+
+        /** Adds repeating-alarm fields to scheduled_alarms for first-class alarms UI (#739). */
+        val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val systemZoneId = ZoneId.systemDefault().id
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN alarm_hour INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN alarm_minute INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN repeat_type TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN repeat_days_mask INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN one_off_date_epoch_day INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN time_zone_id TEXT DEFAULT NULL")
+                db.execSQL(
+                    """
+                    UPDATE scheduled_alarms
+                    SET alarm_hour = CAST(strftime('%H', triggerAtMillis / 1000, 'unixepoch', 'localtime') AS INTEGER),
+                        alarm_minute = CAST(strftime('%M', triggerAtMillis / 1000, 'unixepoch', 'localtime') AS INTEGER),
+                        repeat_type = 'ONE_OFF',
+                        one_off_date_epoch_day = CAST(julianday(date(triggerAtMillis / 1000, 'unixepoch', 'localtime')) - julianday('1970-01-01') AS INTEGER),
+                        time_zone_id = '$systemZoneId'
+                    WHERE entry_type = 'ALARM'
+                    """.trimIndent(),
+                )
             }
         }
 

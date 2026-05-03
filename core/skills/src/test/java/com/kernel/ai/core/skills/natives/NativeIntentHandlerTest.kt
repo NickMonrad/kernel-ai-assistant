@@ -493,25 +493,29 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `set_alarm without explicit date uses internal clock repository`() {
-        coEvery { clockRepository.scheduleAlarm(any(), "Wake") } returns ClockAlarm(
+        coEvery { clockRepository.createAlarm(any()) } returns ClockAlarm(
             id = "alarm-1",
-            triggerAtMillis = 1_700_000_000_000L,
             label = "Wake",
             createdAtMillis = 1_699_000_000_000L,
             enabled = true,
+            hour = 7,
+            minute = 0,
+            repeatRule = com.kernel.ai.core.memory.clock.AlarmRepeatRule.OneOff(19_000L),
+            timeZoneId = java.time.ZoneId.systemDefault().id,
+            triggerAtMillis = 1_700_000_000_000L,
         )
 
         val result = handler.handle("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
 
         assertTrue(result is SkillResult.Success)
         assertTrue((result as SkillResult.Success).content.contains("Alarm set for"))
-        coVerify(exactly = 1) { clockRepository.scheduleAlarm(any(), "Wake") }
+        coVerify(exactly = 1) { clockRepository.createAlarm(any()) }
         verify(exactly = 0) { context.startActivity(any()) }
     }
 
     @Test
     fun `set_alarm returns exact alarm unavailable failure when platform scheduling is off`() {
-        coEvery { clockRepository.scheduleAlarm(any(), "Wake") } returns null
+        coEvery { clockRepository.createAlarm(any()) } returns null
         every { clockRepository.getPlatformState() } returns com.kernel.ai.core.memory.clock.ClockPlatformState(
             canScheduleExactAlarms = false,
             notificationsEnabled = true,
@@ -526,7 +530,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `set_alarm returns failure when repository rejects alarm despite exact alarm availability`() {
-        coEvery { clockRepository.scheduleAlarm(any(), "Wake") } returns null
+        coEvery { clockRepository.createAlarm(any()) } returns null
         every { clockRepository.getPlatformState() } returns com.kernel.ai.core.memory.clock.ClockPlatformState(
             canScheduleExactAlarms = true,
             notificationsEnabled = true,
@@ -567,7 +571,7 @@ class NativeIntentHandlerTest {
         val result = handler.handle("set_alarm", mapOf("time" to "07:00", "day" to "blursday"))
 
         assertEquals(SkillResult.Failure("run_intent", "Couldn't parse day: blursday"), result)
-        coVerify(exactly = 0) { clockRepository.scheduleAlarm(any(), any()) }
+        coVerify(exactly = 0) { clockRepository.createAlarm(any()) }
         verify(exactly = 0) { context.startActivity(any()) }
     }
 
@@ -583,10 +587,14 @@ class NativeIntentHandlerTest {
     fun `cancel_alarm without label cancels next app alarm only`() {
         coEvery { clockRepository.cancelNextAlarm() } returns ClockAlarm(
             id = "alarm-1",
-            triggerAtMillis = 1_700_000_000_000L,
             label = "Wake",
             createdAtMillis = 1_699_000_000_000L,
             enabled = true,
+            hour = 7,
+            minute = 0,
+            repeatRule = com.kernel.ai.core.memory.clock.AlarmRepeatRule.OneOff(19_000L),
+            timeZoneId = java.time.ZoneId.systemDefault().id,
+            triggerAtMillis = 1_700_000_000_000L,
         )
 
         val result = handler.handle("cancel_alarm", emptyMap())

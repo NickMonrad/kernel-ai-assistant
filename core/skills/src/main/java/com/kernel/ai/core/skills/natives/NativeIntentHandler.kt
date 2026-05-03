@@ -19,6 +19,8 @@ import android.util.Log
 import android.view.KeyEvent
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
+import com.kernel.ai.core.memory.clock.AlarmDraft
+import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
@@ -319,29 +321,26 @@ class NativeIntentHandler @Inject constructor(
             return SkillResult.Failure("run_intent", "Couldn't parse day: $day")
         }
 
-        val triggerAt = if (resolvedDate != null) {
-            resolvedDate
-                .atTime(resolvedTime)
-                .atZone(ZoneId.systemDefault())
-                .toInstant()
-                .toEpochMilli()
+        val zone = ZoneId.systemDefault()
+        val now = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(zone)
+        val targetDate = resolvedDate ?: if (
+            now.toLocalDate().atTime(resolvedTime).atZone(zone).toInstant().toEpochMilli() > System.currentTimeMillis()
+        ) {
+            now.toLocalDate()
         } else {
-            val zone = ZoneId.systemDefault()
-            val now = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(zone)
-            val candidate = now.toLocalDate().atTime(resolvedTime).atZone(zone)
-            if (candidate.toInstant().toEpochMilli() > System.currentTimeMillis()) {
-                candidate.toInstant().toEpochMilli()
-            } else {
-                candidate.plusDays(1).toInstant().toEpochMilli()
-            }
+            now.toLocalDate().plusDays(1)
         }
 
-        if (triggerAt <= System.currentTimeMillis()) {
-            return SkillResult.Failure("run_intent", "That time has already passed.")
-        }
+        val draft = AlarmDraft(
+            label = label,
+            hour = resolvedTime.hour,
+            minute = resolvedTime.minute,
+            repeatRule = AlarmRepeatRule.OneOff(targetDate.toEpochDay()),
+            timeZoneId = zone.id,
+        )
 
         val scheduled = runBlocking {
-            clockRepository.scheduleAlarm(triggerAt, label)
+            clockRepository.createAlarm(draft)
         }
         if (scheduled != null) {
             val formatter = DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mma")
