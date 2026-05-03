@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.*
@@ -18,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -69,6 +71,9 @@ import com.kernel.ai.core.memory.clock.AlarmDraft
 import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockTimer
+import com.kernel.ai.core.memory.clock.WorldClock
+import com.kernel.ai.core.memory.clock.WorldClockCandidate
+import com.kernel.ai.core.memory.clock.WorldClockCatalog
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import java.time.DayOfWeek
@@ -87,6 +92,7 @@ fun SidePanelScreen(
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
     val timers by viewModel.timers.collectAsStateWithLifecycle()
     val recentCompletedTimers by viewModel.recentCompletedTimers.collectAsStateWithLifecycle()
+    val worldClocks by viewModel.worldClocks.collectAsStateWithLifecycle()
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val isInSelectionMode by viewModel.isInSelectionMode.collectAsStateWithLifecycle()
     val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
@@ -95,9 +101,11 @@ fun SidePanelScreen(
     var pendingCancel by remember { mutableStateOf<ClockTimer?>(null) }
     var pendingDeleteCompleted by remember { mutableStateOf<ClockTimer?>(null) }
     var pendingClearCompleted by remember { mutableStateOf(false) }
+    var pendingRemoveWorldClock by remember { mutableStateOf<WorldClock?>(null) }
     var editingAlarm by remember { mutableStateOf<ClockAlarm?>(null) }
     var showCreateAlarmDialog by remember { mutableStateOf(false) }
     var showCreateTimerDialog by remember { mutableStateOf(false) }
+    var showAddWorldClockDialog by remember { mutableStateOf(false) }
     var schedulingError by remember { mutableStateOf<String?>(null) }
 
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -115,6 +123,7 @@ fun SidePanelScreen(
     val visibleSelectionIds = when (selectedTab) {
         ClockSurfaceTab.TIMERS -> timers.map { it.id }
         ClockSurfaceTab.ALARMS -> alarms.map { it.id }
+        ClockSurfaceTab.WORLD_CLOCK -> emptyList()
     }
 
     fun onTimerScheduled(success: Boolean, closeDialog: Boolean = false) {
@@ -157,7 +166,7 @@ fun SidePanelScreen(
                 )
             } else {
                 TopAppBar(
-                    title = { Text("Timers & Alarms") },
+                    title = { Text("Clock") },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -167,12 +176,22 @@ fun SidePanelScreen(
             }
         },
         floatingActionButton = {
-            if (!isInSelectionMode && selectedTab == ClockSurfaceTab.ALARMS) {
-                ExtendedFloatingActionButton(
-                    text = { Text("New Alarm") },
-                    icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
-                    onClick = { showCreateAlarmDialog = true },
-                )
+            if (!isInSelectionMode) {
+                when (selectedTab) {
+                    ClockSurfaceTab.ALARMS -> ExtendedFloatingActionButton(
+                        text = { Text("New Alarm") },
+                        icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
+                        onClick = { showCreateAlarmDialog = true },
+                    )
+
+                    ClockSurfaceTab.WORLD_CLOCK -> ExtendedFloatingActionButton(
+                        text = { Text("Add City") },
+                        icon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
+                        onClick = { showAddWorldClockDialog = true },
+                    )
+
+                    ClockSurfaceTab.TIMERS -> Unit
+                }
             }
         },
     ) { innerPadding ->
@@ -196,6 +215,12 @@ fun SidePanelScreen(
                     onClick = { viewModel.setTab(ClockSurfaceTab.ALARMS) },
                     label = { Text("Alarms") },
                     leadingIcon = { Icon(Icons.Default.Alarm, contentDescription = null) },
+                )
+                FilterChip(
+                    selected = selectedTab == ClockSurfaceTab.WORLD_CLOCK,
+                    onClick = { viewModel.setTab(ClockSurfaceTab.WORLD_CLOCK) },
+                    label = { Text("World Clock") },
+                    leadingIcon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
                 )
             }
 
@@ -246,6 +271,15 @@ fun SidePanelScreen(
                         }
                     },
                 )
+
+                ClockSurfaceTab.WORLD_CLOCK -> WorldClockDashboard(
+                    worldClocks = worldClocks,
+                    nowMs = nowMs,
+                    onAddWorldClock = { showAddWorldClockDialog = true },
+                    onMoveUp = { worldClock -> viewModel.moveWorldClock(worldClock, direction = -1) },
+                    onMoveDown = { worldClock -> viewModel.moveWorldClock(worldClock, direction = 1) },
+                    onRemove = { worldClock -> pendingRemoveWorldClock = worldClock },
+                )
             }
         }
     }
@@ -282,6 +316,24 @@ fun SidePanelScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingDeleteCompleted = null }) { Text("Keep") }
+            },
+        )
+    }
+
+    pendingRemoveWorldClock?.let { worldClock ->
+        AlertDialog(
+            onDismissRequest = { pendingRemoveWorldClock = null },
+            icon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
+            title = { Text("Remove city?") },
+            text = { Text("Remove ${worldClock.displayName} from World Clock?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.removeWorldClock(worldClock)
+                    pendingRemoveWorldClock = null
+                }) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRemoveWorldClock = null }) { Text("Keep") }
             },
         )
     }
@@ -392,11 +444,28 @@ fun SidePanelScreen(
         )
     }
 
+    if (showAddWorldClockDialog) {
+        AddWorldClockDialog(
+            existingZoneIds = worldClocks.map { it.zoneId }.toSet(),
+            onConfirm = { candidate ->
+                viewModel.addWorldClock(candidate) { success ->
+                    if (success) {
+                        schedulingError = null
+                        showAddWorldClockDialog = false
+                    } else {
+                        schedulingError = "Couldn't add that city to World Clock."
+                    }
+                }
+            },
+            onDismiss = { showAddWorldClockDialog = false },
+        )
+    }
+
     schedulingError?.let { message ->
         AlertDialog(
             onDismissRequest = { schedulingError = null },
-            icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
-            title = { Text("Couldn't save timer or alarm") },
+            icon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
+            title = { Text("Couldn't update the clock") },
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = { schedulingError = null }) { Text("OK") }
@@ -720,6 +789,182 @@ private fun AlarmDashboard(
 }
 
 @Composable
+private fun WorldClockDashboard(
+    worldClocks: List<WorldClock>,
+    nowMs: Long,
+    onAddWorldClock: () -> Unit,
+    onMoveUp: (WorldClock) -> Unit,
+    onMoveDown: (WorldClock) -> Unit,
+    onRemove: (WorldClock) -> Unit,
+ ) {
+    if (worldClocks.isEmpty()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            SectionHeader(title = "World Clock")
+            EmptyStateCard(
+                title = "No saved cities",
+                body = "Add cities here to track their local time and date in one place.",
+                actionLabel = "Add city",
+                onAction = onAddWorldClock,
+            )
+        }
+        return
+    }
+
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item {
+            SectionHeader(
+                title = "World Clock",
+                supportingText = "Saved cities update live.",
+            )
+        }
+        items(worldClocks, key = { it.id }) { worldClock ->
+            WorldClockCard(
+                worldClock = worldClock,
+                nowMs = nowMs,
+                canMoveUp = worldClocks.firstOrNull()?.id != worldClock.id,
+                canMoveDown = worldClocks.lastOrNull()?.id != worldClock.id,
+                onMoveUp = { onMoveUp(worldClock) },
+                onMoveDown = { onMoveDown(worldClock) },
+                onRemove = { onRemove(worldClock) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun WorldClockCard(
+    worldClock: WorldClock,
+    nowMs: Long,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onRemove: () -> Unit,
+ ) {
+    val instant = remember(nowMs) { Instant.ofEpochMilli(nowMs) }
+    val zone = remember(worldClock.zoneId) { ZoneId.of(worldClock.zoneId) }
+    val zonedNow = remember(instant, zone) { instant.atZone(zone) }
+    val localNow = remember(instant) { instant.atZone(ZoneId.systemDefault()) }
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(worldClock.displayName, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = zonedNow.format(DateTimeFormatter.ofPattern("h:mm a")),
+                style = MaterialTheme.typography.headlineMedium,
+            )
+            Text(
+                text = buildString {
+                    append(zonedNow.format(DateTimeFormatter.ofPattern("EEE, d MMM")))
+                    append(" · ")
+                    append(formatUtcOffset(zonedNow.offset.id))
+                    worldClockRelativeDayLabel(localNow.toLocalDate(), zonedNow.toLocalDate())?.let {
+                        append(" · ")
+                        append(it)
+                    }
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = worldClock.zoneId,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = onMoveUp,
+                    enabled = canMoveUp,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Move up") }
+                TextButton(
+                    onClick = onMoveDown,
+                    enabled = canMoveDown,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Move down") }
+                TextButton(
+                    onClick = onRemove,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Remove") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddWorldClockDialog(
+    existingZoneIds: Set<String>,
+    onConfirm: (WorldClockCandidate) -> Unit,
+    onDismiss: () -> Unit,
+ ) {
+    var query by remember { mutableStateOf("") }
+    var selectedCandidate by remember { mutableStateOf<WorldClockCandidate?>(null) }
+    val results = remember(query, existingZoneIds) {
+        WorldClockCatalog.search(query).filterNot { it.zoneId in existingZoneIds }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
+        title = { Text("Add city") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = {
+                        query = it
+                        selectedCandidate = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Search by city or timezone") },
+                    singleLine = true,
+                )
+                if (results.isEmpty()) {
+                    Text(
+                        text = "No matching cities or timezones.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 280.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(results, key = { it.zoneId }) { candidate ->
+                            val selected = candidate.zoneId == selectedCandidate?.zoneId
+                            ListItem(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        if (selected) MaterialTheme.colorScheme.secondaryContainer
+                                        else MaterialTheme.colorScheme.surface,
+                                    )
+                                    .clickable { selectedCandidate = candidate },
+                                headlineContent = { Text(candidate.displayName) },
+                                supportingContent = { Text(candidate.subtitle) },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { selectedCandidate?.let(onConfirm) },
+                enabled = selectedCandidate != null,
+            ) { Text("Add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
 private fun EmptyStateCard(
     title: String,
     body: String,
@@ -789,6 +1034,16 @@ private fun formatRelativeTimestamp(epochMillis: Long, nowMillis: Long = System.
         else -> "${totalMinutes / 1_440L} day ago"
     }
 }
+
+private fun formatUtcOffset(offsetId: String): String =
+    if (offsetId == "Z") "UTC" else "UTC$offsetId"
+
+private fun worldClockRelativeDayLabel(localDate: LocalDate, targetDate: LocalDate): String? =
+    when {
+        targetDate.isEqual(localDate) -> null
+        targetDate.isAfter(localDate) -> "Tomorrow"
+        else -> "Yesterday"
+    }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

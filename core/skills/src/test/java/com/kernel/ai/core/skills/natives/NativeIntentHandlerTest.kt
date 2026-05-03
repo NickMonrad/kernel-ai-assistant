@@ -159,6 +159,22 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `get_time resolves world clock city queries`() {
+        val result = handler.handle("get_time", mapOf("query_type" to "time", "location" to "London"))
+
+        assertTrue(result is SkillResult.DirectReply)
+        assertTrue((result as SkillResult.DirectReply).content.contains("In London"))
+    }
+
+    @Test
+    fun `get_time reports unknown world clock locations truthfully`() {
+        val result = handler.handle("get_time", mapOf("query_type" to "time", "location" to "Middle Earth"))
+
+        assertTrue(result is SkillResult.Failure)
+        assertTrue((result as SkillResult.Failure).error.contains("couldn't find a timezone", ignoreCase = true))
+    }
+
+    @Test
     fun `make_call resolves direct contact names with punctuation-insensitive matching`() {
         coEvery { contactAliasRepository.getByAlias(any()) } returns null
         every {
