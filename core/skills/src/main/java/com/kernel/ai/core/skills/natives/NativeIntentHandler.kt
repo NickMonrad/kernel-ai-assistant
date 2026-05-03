@@ -10,7 +10,6 @@ import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.BatteryManager
-import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.MediaStore
@@ -93,7 +92,7 @@ private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is require
  *   get_list_items          — Retrieve unchecked items from a list (params: list_name?)
  *   remove_from_list        — Remove an item from a list (params: item, list_name?)
  *   smart_home_on/off       — Stub pending HA/Google Home (#311/#312) (params: device)
- *   cancel_alarm            — AlarmClock.ACTION_DISMISS_ALARM (params: label?)
+ *   cancel_alarm            — App-owned alarm cancellation (params: label?)
  *   get_weather             — Opens Google search for weather (params: location?)
  *   get_system_info         — Returns storage and RAM info — returns DirectReply
  *   get_date_diff           — Native date arithmetic: days/weeks until or since a date (params: target_date, from_date?) — returns DirectReply
@@ -352,35 +351,14 @@ class NativeIntentHandler @Inject constructor(
                 "Alarm set for $formattedTime${if (label != null) " — $label" else ""}"
             )
         }
-        if (clockRepository.getPlatformState().canScheduleExactAlarms) {
-            return SkillResult.Failure("run_intent", "Could not schedule the alarm.")
+        if (!clockRepository.getPlatformState().canScheduleExactAlarms) {
+            return SkillResult.Failure(
+                "run_intent",
+                "Exact alarms are unavailable right now.",
+            )
         }
 
-        val (hours, minutes) = resolvedTime.hour to resolvedTime.minute
-        val dayDisplay = day?.replaceFirstChar { it.uppercase() }
-        val messageLabel = when {
-            dayDisplay != null && label != null -> "$dayDisplay: $label"
-            dayDisplay != null -> dayDisplay
-            else -> label
-        }
-        val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
-            putExtra(AlarmClock.EXTRA_HOUR, hours)
-            putExtra(AlarmClock.EXTRA_MINUTES, minutes)
-            messageLabel?.let { putExtra(AlarmClock.EXTRA_MESSAGE, it) }
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        return try {
-            context.startActivity(intent)
-            val dayLabel = dayDisplay?.let { " for $it" } ?: ""
-            val dayWarning = dayDisplay?.let {
-                " Exact alarms are unavailable, so please verify the date is set to $it before confirming."
-            } ?: ""
-            SkillResult.Success(
-                "Clock app opened — alarm$dayLabel at %02d:%02d.$dayWarning".format(hours, minutes)
-            )
-        } catch (e: ActivityNotFoundException) {
-            SkillResult.Failure("run_intent", "No clock app found to set an alarm.")
-        }
+        return SkillResult.Failure("run_intent", "Could not schedule the alarm.")
     }
 
     // ── Timer ─────────────────────────────────────────────────────────────────
@@ -1529,47 +1507,18 @@ class NativeIntentHandler @Inject constructor(
         val label = params["label"]?.takeIf { it.isNotBlank() }
         if (label != null) {
             val cancelled = runBlocking { clockRepository.cancelAlarmsByLabel(label) }
-            if (cancelled > 0) {
-                val internalMessage = if (cancelled > 1) {
-                    "Cancelled $cancelled app alarms matching $label."
-                } else {
-                    "Cancelled app alarm: $label."
-                }
-                return dismissAlarmInClockApp(label, internalMessage)
-            }
-        } else {
-            val nextAlarm = runBlocking { clockRepository.cancelNextAlarm() }
-            if (nextAlarm != null) {
-                val internalMessage = "Cancelled next app alarm${nextAlarm.label?.let { value -> ": $value" } ?: ""}."
-                return nextAlarm.label?.let { dismissAlarmInClockApp(it, internalMessage) }
-                    ?: SkillResult.Success(internalMessage)
+            return when {
+                cancelled > 1 -> SkillResult.Success("Cancelled $cancelled app alarms matching $label.")
+                cancelled == 1 -> SkillResult.Success("Cancelled app alarm: $label.")
+                else -> SkillResult.Failure("cancel_alarm", "No app alarm named $label found")
             }
         }
-        return dismissAlarmInClockApp(label)
-    }
 
-    private fun dismissAlarmInClockApp(label: String?, prefixMessage: String? = null): SkillResult {
-        val intent = Intent(AlarmClock.ACTION_DISMISS_ALARM).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            if (label != null) {
-                putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE, AlarmClock.ALARM_SEARCH_MODE_LABEL)
-                putExtra(AlarmClock.EXTRA_MESSAGE, label)
-            } else {
-                putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE, AlarmClock.ALARM_SEARCH_MODE_NEXT)
-            }
-        }
-        return try {
-            context.startActivity(intent)
-            val clockMessage = if (label != null) {
-                "Cancelling alarm in clock app: $label"
-            } else {
-                "Opening alarms to cancel"
-            }
-            SkillResult.Success(listOfNotNull(prefixMessage, clockMessage).joinToString(" "))
-        } catch (e: ActivityNotFoundException) {
-            prefixMessage?.let { SkillResult.Success(it) }
-                ?: SkillResult.Failure("cancel_alarm", "No clock app found")
-        }
+        val nextAlarm = runBlocking { clockRepository.cancelNextAlarm() }
+            ?: return SkillResult.Failure("cancel_alarm", "No app alarms to cancel")
+        return SkillResult.Success(
+            "Cancelled next app alarm${nextAlarm.label?.let { value -> ": $value" } ?: ""}.",
+        )
     }
 
     // ── Get Weather ───────────────────────────────────────────────────────────

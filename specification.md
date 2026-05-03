@@ -54,9 +54,8 @@ To ensure the assistant can perform tasks, it uses a decoupled skill registry.
 Zero-overhead deterministic matching for simple device actions. A pure-Kotlin `QuickIntentRouter` uses regex/keyword patterns to match user input without loading any ML model. Matched actions execute directly via OS APIs. Latency: <5ms from text to action.
 
 **Supported actions:**
-* Flashlight on/off (`CameraManager.setTorchMode`)
-* Timer (`AlarmClock.ACTION_SET_TIMER`)
-* Alarm (`AlarmClock.ACTION_SET_ALARM`)
+* Timer (app-owned clock scheduler + notification pipeline)
+* Alarm (app-owned clock scheduler + notification pipeline)
 * Do Not Disturb toggle (`NotificationManager.setInterruptionFilter`)
 * Bluetooth / Wi-Fi toggle
 * Get current time / date

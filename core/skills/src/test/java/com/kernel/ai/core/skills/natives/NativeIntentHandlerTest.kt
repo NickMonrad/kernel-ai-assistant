@@ -25,9 +25,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
-import io.mockk.mockkConstructor
 import io.mockk.mockkStatic
-import io.mockk.unmockkConstructor
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
@@ -512,6 +510,21 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `set_alarm returns exact alarm unavailable failure when platform scheduling is off`() {
+        coEvery { clockRepository.scheduleAlarm(any(), "Wake") } returns null
+        every { clockRepository.getPlatformState() } returns com.kernel.ai.core.memory.clock.ClockPlatformState(
+            canScheduleExactAlarms = false,
+            notificationsEnabled = true,
+            canUseFullScreenIntent = false,
+        )
+
+        val result = handler.handle("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
+
+        assertEquals(SkillResult.Failure("run_intent", "Exact alarms are unavailable right now."), result)
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
     fun `set_alarm returns failure when repository rejects alarm despite exact alarm availability`() {
         coEvery { clockRepository.scheduleAlarm(any(), "Wake") } returns null
         every { clockRepository.getPlatformState() } returns com.kernel.ai.core.memory.clock.ClockPlatformState(
@@ -551,7 +564,7 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `cancel_alarm without label dismisses matching clock alarm when label is known`() {
+    fun `cancel_alarm without label cancels next app alarm only`() {
         coEvery { clockRepository.cancelNextAlarm() } returns ClockAlarm(
             id = "alarm-1",
             triggerAtMillis = 1_700_000_000_000L,
@@ -559,42 +572,43 @@ class NativeIntentHandlerTest {
             createdAtMillis = 1_699_000_000_000L,
             enabled = true,
         )
-        mockkConstructor(Intent::class)
-        every { anyConstructed<Intent>().setFlags(any()) } answers { self as Intent }
-        every { anyConstructed<Intent>().putExtra(any<String>(), any<String>()) } answers { self as Intent }
-        try {
-            val result = handler.handle("cancel_alarm", emptyMap())
 
-            assertEquals(
-                SkillResult.Success("Cancelled next app alarm: Wake. Cancelling alarm in clock app: Wake"),
-                result,
-            )
-            coVerify(exactly = 1) { clockRepository.cancelNextAlarm() }
-            verify(exactly = 1) { context.startActivity(any()) }
-        } finally {
-            unmockkConstructor(Intent::class)
-        }
+        val result = handler.handle("cancel_alarm", emptyMap())
+
+        assertEquals(
+            SkillResult.Success("Cancelled next app alarm: Wake."),
+            result,
+        )
+        coVerify(exactly = 1) { clockRepository.cancelNextAlarm() }
+        verify(exactly = 0) { context.startActivity(any()) }
     }
 
+    @Test
+    fun `cancel_alarm with label cancels internal alarm only`() {
+        coEvery { clockRepository.cancelAlarmsByLabel("Wake") } returns 1
+
+        val result = handler.handle("cancel_alarm", mapOf("label" to "Wake"))
+
+        assertEquals(
+            SkillResult.Success("Cancelled app alarm: Wake."),
+            result,
+        )
+        coVerify(exactly = 1) { clockRepository.cancelAlarmsByLabel("Wake") }
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
 
     @Test
-    fun `cancel_alarm with label preserves clock app dismissal in mixed state`() {
-        coEvery { clockRepository.cancelAlarmsByLabel("Wake") } returns 1
-        mockkConstructor(Intent::class)
-        every { anyConstructed<Intent>().setFlags(any()) } answers { self as Intent }
-        every { anyConstructed<Intent>().putExtra(any<String>(), any<String>()) } answers { self as Intent }
-        try {
-            val result = handler.handle("cancel_alarm", mapOf("label" to "Wake"))
+    fun `cancel_alarm with label reports missing internal alarm`() {
+        coEvery { clockRepository.cancelAlarmsByLabel("Wake") } returns 0
 
-            assertEquals(
-                SkillResult.Success("Cancelled app alarm: Wake. Cancelling alarm in clock app: Wake"),
-                result,
-            )
-            coVerify(exactly = 1) { clockRepository.cancelAlarmsByLabel("Wake") }
-            verify(exactly = 1) { context.startActivity(any()) }
-        } finally {
-            unmockkConstructor(Intent::class)
-        }
+        val result = handler.handle("cancel_alarm", mapOf("label" to "Wake"))
+
+        assertEquals(
+            SkillResult.Failure("cancel_alarm", "No app alarm named Wake found"),
+            result,
+        )
+        coVerify(exactly = 1) { clockRepository.cancelAlarmsByLabel("Wake") }
+        verify(exactly = 0) { context.startActivity(any()) }
     }
 
     @Test

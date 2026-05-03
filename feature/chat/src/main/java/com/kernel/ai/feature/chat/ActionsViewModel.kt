@@ -136,7 +136,6 @@ class ActionsViewModel @Inject constructor(
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
-    private val inFlightQueries = mutableSetOf<String>()
     private var spokenResponsesEnabled = true
 
     init {
@@ -323,7 +322,6 @@ class ActionsViewModel @Inject constructor(
             Log.w(TAG, "ActionsViewModel: executeAction called while slot-fill pending — ignoring \"$normalizedQuery\"")
             return
         }
-        if (!registerInFlightQuery("executeAction", normalizedQuery)) return
         _error.value = null
 
         viewModelScope.launch {
@@ -392,7 +390,6 @@ class ActionsViewModel @Inject constructor(
             } finally {
                 _voiceCaptureState.value = VoiceCaptureState.Idle
                 _uiState.value = UiState.Idle
-                inFlightQueries.remove(normalizedQuery)
             }
         }
     }
@@ -623,13 +620,6 @@ class ActionsViewModel @Inject constructor(
             result.error == PHONE_PERMISSION_REQUIRED_ERROR
     }
 
-    private fun registerInFlightQuery(source: String, query: String): Boolean {
-        if (!inFlightQueries.add(query)) {
-            Log.w(TAG, "ActionsViewModel: $source ignored duplicate in-flight query — \"$query\"")
-            return false
-        }
-        return true
-    }
 
     private fun startVoiceCapture(
         mode: VoiceCaptureMode,

@@ -386,10 +386,6 @@ fun SidePanelScreen(
                             schedulingError = null
                             showCreateAlarmDialog = false
                         }
-                        AlarmSaveResult.CLOCK_APP_FALLBACK -> {
-                            showCreateAlarmDialog = false
-                            schedulingError = "Clock app opened. Because exact alarms are unavailable, this alarm will be managed by your system clock and won't appear in Jandal's managed list."
-                        }
                         AlarmSaveResult.FAILED -> {
                             schedulingError = "Couldn't save the alarm."
                         }
@@ -409,10 +405,6 @@ fun SidePanelScreen(
                         AlarmSaveResult.STORED -> {
                             schedulingError = null
                             editingAlarm = null
-                        }
-                        AlarmSaveResult.CLOCK_APP_FALLBACK -> {
-                            editingAlarm = null
-                            schedulingError = "Clock app opened. The existing Jandal alarm was left unchanged; delete or disable it manually if you no longer want it."
                         }
                         AlarmSaveResult.FAILED -> {
                             schedulingError = "Couldn't save the alarm."
