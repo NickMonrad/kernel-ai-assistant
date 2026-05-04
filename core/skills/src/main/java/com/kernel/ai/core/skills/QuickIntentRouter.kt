@@ -551,6 +551,57 @@ class QuickIntentRouter(
         ),
 
 
+        // ── Stopwatch ──
+        IntentPattern(
+            intentName = "start_stopwatch",
+            regex = Regex(
+                """(?:start|begin|create|launch)\s+(?:the\s+)?stopwatch\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "pause_stopwatch",
+            regex = Regex(
+                """(?:pause|stop)\s+(?:the\s+)?stopwatch\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "resume_stopwatch",
+            regex = Regex(
+                """(?:resume|continue)\s+(?:the\s+)?stopwatch\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "lap_stopwatch",
+            regex = Regex(
+                """(?:(?:record|take|capture)\s+(?:a\s+)?)?(?:lap|split)\s+(?:the\s+)?stopwatch\b|(?:record|take|capture)\s+(?:a\s+)?(?:lap|split)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "reset_stopwatch",
+            regex = Regex(
+                """(?:reset|clear)\s+(?:the\s+)?stopwatch\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "get_stopwatch_status",
+            regex = Regex(
+                """(?:what(?:'s|\s+is)\s+(?:my\s+|the\s+)stopwatch(?:\s+status)?|stopwatch\s+status|how\s+long\s+has\s+(?:my\s+|the\s+)?stopwatch\s+been\s+running|elapsed\s+time\s+(?:on|for)\s+(?:my\s+|the\s+)?stopwatch)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+
 
         // ── Calendar ──
         // "add/create/schedule/set up a [dentist/gym/meeting/event] [for/on] [date] [at time]"
@@ -2662,6 +2713,9 @@ class QuickIntentRouter(
             // Timer / Alarm — query and cancel (no required params)
             "list_timers", "get_timer_remaining",
             "cancel_alarm", "cancel_timer",
+            // Stopwatch
+            "start_stopwatch", "pause_stopwatch", "resume_stopwatch",
+            "lap_stopwatch", "reset_stopwatch", "get_stopwatch_status",
         )
 
         /**

@@ -56,6 +56,25 @@ class QuickIntentRouterTest {
                 "set a timer", "start a countdown", "timer for", "countdown",
                 "start timer", "time me for", "count down",
             ),
+            "start_stopwatch" to listOf(
+                "start the stopwatch", "begin stopwatch", "launch stopwatch",
+            ),
+            "pause_stopwatch" to listOf(
+                "pause the stopwatch", "stop the stopwatch",
+            ),
+            "resume_stopwatch" to listOf(
+                "resume the stopwatch", "continue stopwatch",
+            ),
+            "lap_stopwatch" to listOf(
+                "record lap", "lap stopwatch", "split the stopwatch",
+            ),
+            "reset_stopwatch" to listOf(
+                "reset stopwatch", "clear the stopwatch",
+            ),
+            "get_stopwatch_status" to listOf(
+                "stopwatch status", "what's my stopwatch status", "how long has the stopwatch been running",
+            ),
+
             "toggle_dnd_on" to listOf(
                 "do not disturb", "silent mode", "quiet mode", "mute notifications",
                 "dnd on", "silence my phone", "go quiet", "no notifications",
@@ -466,6 +485,36 @@ class QuickIntentRouterTest {
             assertRegexMatch(result, "set_timer", "10 minute tea timer")
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STOPWATCH TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Stopwatch")
+    inner class Stopwatch {
+
+        @Test
+        fun `start stopwatch routes via regex`() {
+            assertRegexMatch(regexOnlyRouter.route("start the stopwatch"), "start_stopwatch", "start the stopwatch")
+        }
+
+        @Test
+        fun `pause stopwatch routes via regex before media pause fallback`() {
+            assertRegexMatch(regexOnlyRouter.route("pause the stopwatch"), "pause_stopwatch", "pause the stopwatch")
+        }
+
+        @Test
+        fun `record lap routes to stopwatch lap intent`() {
+            assertRegexMatch(regexOnlyRouter.route("record lap"), "lap_stopwatch", "record lap")
+        }
+
+        @Test
+        fun `stopwatch status routes via regex`() {
+            assertRegexMatch(regexOnlyRouter.route("what's my stopwatch status"), "get_stopwatch_status", "what's my stopwatch status")
+        }
+    }
+
 
     // ═══════════════════════════════════════════════════════════════════════════
     // VOICE REGRESSION TESTS
