@@ -58,7 +58,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         return withContext(Dispatchers.Main.immediate) {
             stopListeningInternal(emitStopped = false)
 
-            val availability = recognitionSupport.getAvailability()
+            val availability = recognitionSupport.getCaptureAvailability()
             availability.blockingReason?.let { reason ->
                 Log.w(
                     TAG,

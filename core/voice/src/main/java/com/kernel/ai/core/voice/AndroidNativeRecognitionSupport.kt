@@ -61,6 +61,43 @@ class AndroidNativeRecognitionSupport @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     suspend fun getAvailability(): AndroidNativeRecognitionAvailability {
+        val baseAvailability = currentRecognitionAvailability()
+        val localeStatus = if (
+            baseAvailability.isRecognitionAvailable &&
+            baseAvailability.isOnDeviceRecognitionAvailable
+        ) {
+            checkLocaleSupport(baseAvailability.languageTag)
+        } else {
+            AndroidNativeRecognitionLocaleStatus.Unknown
+        }
+        val availability = baseAvailability.copy(localeStatus = localeStatus)
+
+        Log.i(
+            TAG,
+            "Android native availability: language=${availability.languageTag} " +
+                "displayName=${availability.languageDisplayName} " +
+                "recognitionAvailable=${availability.isRecognitionAvailable} " +
+                "onDeviceAvailable=${availability.isOnDeviceRecognitionAvailable} " +
+                "localeStatus=${availability.localeStatus}",
+        )
+
+        return availability
+    }
+
+    fun getCaptureAvailability(): AndroidNativeRecognitionAvailability {
+        val availability = currentRecognitionAvailability()
+        Log.i(
+            TAG,
+            "Android native capture availability: language=${availability.languageTag} " +
+                "displayName=${availability.languageDisplayName} " +
+                "recognitionAvailable=${availability.isRecognitionAvailable} " +
+                "onDeviceAvailable=${availability.isOnDeviceRecognitionAvailable} " +
+                "localeStatus=${availability.localeStatus}",
+        )
+        return availability
+    }
+
+    private fun currentRecognitionAvailability(): AndroidNativeRecognitionAvailability {
         val locale = context.resources.configuration.locales[0] ?: Locale.getDefault()
         val isRecognitionAvailable = SpeechRecognizer.isRecognitionAvailable(context)
         val isOnDeviceRecognitionAvailable = SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
@@ -69,27 +106,14 @@ class AndroidNativeRecognitionSupport @Inject constructor(
             if (char.isLowerCase()) char.titlecase(locale) else char.toString()
         }
 
-        val localeStatus = if (isRecognitionAvailable && isOnDeviceRecognitionAvailable) {
-            checkLocaleSupport(languageTag)
-        } else {
-            AndroidNativeRecognitionLocaleStatus.Unknown
-        }
-
-        Log.i(
-            TAG,
-            "Android native availability: language=$languageTag displayName=$languageDisplayName " +
-                "recognitionAvailable=$isRecognitionAvailable " +
-                "onDeviceAvailable=$isOnDeviceRecognitionAvailable localeStatus=$localeStatus",
-        )
-
-        return AndroidNativeRecognitionAvailability(
+        return createRecognitionAvailability(
             isRecognitionAvailable = isRecognitionAvailable,
             isOnDeviceRecognitionAvailable = isOnDeviceRecognitionAvailable,
-            languageTag = locale.toLanguageTag(),
+            languageTag = languageTag,
             languageDisplayName = languageDisplayName,
-            localeStatus = localeStatus,
         )
     }
+
 
     fun createOnDeviceSpeechRecognizer(): SpeechRecognizer =
         SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
@@ -108,17 +132,22 @@ class AndroidNativeRecognitionSupport @Inject constructor(
                         putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
                     }
 
+                    fun cleanupRecognizer() {
+                        runCatching { recognizer.cancel() }
+                        runCatching { recognizer.destroy() }
+                    }
+
                     fun complete(status: AndroidNativeRecognitionLocaleStatus) {
                         if (continuation.isActive) {
-                            recognizer.destroy()
+                            cleanupRecognizer()
                             continuation.resume(status)
                         } else {
-                            recognizer.destroy()
+                            cleanupRecognizer()
                         }
                     }
 
                     continuation.invokeOnCancellation {
-                        recognizer.destroy()
+                        cleanupRecognizer()
                     }
 
                     recognizer.checkRecognitionSupport(
@@ -158,6 +187,21 @@ class AndroidNativeRecognitionSupport @Inject constructor(
             }
         }
 }
+
+internal fun createRecognitionAvailability(
+    isRecognitionAvailable: Boolean,
+    isOnDeviceRecognitionAvailable: Boolean,
+    languageTag: String,
+    languageDisplayName: String,
+    localeStatus: AndroidNativeRecognitionLocaleStatus = AndroidNativeRecognitionLocaleStatus.Unknown,
+): AndroidNativeRecognitionAvailability = AndroidNativeRecognitionAvailability(
+    isRecognitionAvailable = isRecognitionAvailable,
+    isOnDeviceRecognitionAvailable = isOnDeviceRecognitionAvailable,
+    languageTag = languageTag,
+    languageDisplayName = languageDisplayName,
+    localeStatus = localeStatus,
+)
+
 
 internal fun resolveLocaleStatus(
     languageTag: String,
