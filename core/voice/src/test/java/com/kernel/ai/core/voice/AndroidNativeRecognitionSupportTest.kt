@@ -97,6 +97,19 @@ class AndroidNativeRecognitionSupportTest {
     }
 
     @Test
+    fun `capture startup still forces the requested language when locale support is unknown`() {
+        val availability = createRecognitionAvailability(
+            isRecognitionAvailable = true,
+            isOnDeviceRecognitionAvailable = true,
+            languageTag = "en-NZ",
+            languageDisplayName = "English (New Zealand)",
+        )
+
+        assertEquals(true, shouldForceRecognizerLanguage(availability))
+    }
+
+
+    @Test
     fun `ready locale has no warning or blocking reason`() {
         val availability = AndroidNativeRecognitionAvailability(
             isRecognitionAvailable = true,
