@@ -8,31 +8,70 @@ internal enum class ClockAlertVoiceCommand {
     ADD_ONE_MINUTE,
 }
 
+private val dismissCommandPhrases = listOf(
+    listOf("stop"),
+    listOf("dismiss"),
+    listOf("stop", "alarm"),
+    listOf("dismiss", "alarm"),
+    listOf("stop", "timer"),
+    listOf("dismiss", "timer"),
+)
+
+private val snoozeCommandPhrases = listOf(
+    listOf("snooze"),
+    listOf("snooze", "alarm"),
+)
+
+private val addOneMinuteCommandPhrases = listOf(
+    listOf("add", "one", "minute"),
+    listOf("add", "a", "minute"),
+    listOf("add", "1", "minute"),
+    listOf("one", "more", "minute"),
+    listOf("another", "minute"),
+)
+
+private val alertCommandPhrases = listOf(
+    ClockAlertVoiceCommand.DISMISS to dismissCommandPhrases,
+    ClockAlertVoiceCommand.SNOOZE to snoozeCommandPhrases,
+    ClockAlertVoiceCommand.ADD_ONE_MINUTE to addOneMinuteCommandPhrases,
+)
+
 internal fun parseClockAlertVoiceCommand(raw: String): ClockAlertVoiceCommand? {
-    val normalized = raw
+    val tokens = raw
         .lowercase()
         .replace(Regex("[^a-z0-9 ]"), " ")
         .replace(Regex("\\s+"), " ")
         .trim()
-    if (normalized.isBlank()) return null
-    return when {
-        normalized == "stop" ||
-            normalized == "dismiss" ||
-            normalized == "stop alarm" ||
-            normalized == "dismiss alarm" ||
-            normalized == "stop timer" ||
-            normalized == "dismiss timer" -> ClockAlertVoiceCommand.DISMISS
+        .split(" ")
+        .filter { it.isNotBlank() }
+    if (tokens.isEmpty()) return null
 
-        normalized == "snooze" || normalized == "snooze alarm" -> ClockAlertVoiceCommand.SNOOZE
+    return alertCommandPhrases
+        .flatMap { (command, phrases) ->
+            phrases.mapNotNull { phrase ->
+                findPhraseStart(tokens, phrase)?.let { start ->
+                    MatchedAlertVoiceCommand(command = command, startIndex = start, phraseLength = phrase.size)
+                }
+            }
+        }
+        .maxWithOrNull(compareBy<MatchedAlertVoiceCommand>({ it.startIndex }, { it.phraseLength }))
+        ?.command
+}
 
-        normalized == "add one minute" ||
-            normalized == "add a minute" ||
-            normalized == "add 1 minute" ||
-            normalized == "one more minute" ||
-            normalized == "another minute" -> ClockAlertVoiceCommand.ADD_ONE_MINUTE
+private data class MatchedAlertVoiceCommand(
+    val command: ClockAlertVoiceCommand,
+    val startIndex: Int,
+    val phraseLength: Int,
+    )
 
-        else -> null
+private fun findPhraseStart(tokens: List<String>, phrase: List<String>): Int? {
+    if (phrase.size > tokens.size) return null
+    for (startIndex in 0..tokens.size - phrase.size) {
+        if (tokens.subList(startIndex, startIndex + phrase.size) == phrase) {
+            return startIndex
+        }
     }
+    return null
 }
 
 internal fun alertVoiceListeningPrompt(type: ClockEventType): String =
