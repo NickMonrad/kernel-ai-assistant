@@ -13,6 +13,14 @@ class NativeAndroidVoiceInputControllerTest {
 
 
     @Test
+    fun `sessionResultTimeoutMs shortens alert command watchdog`() {
+        assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.Command))
+        assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.SlotReply))
+        assertEquals(2_500L, sessionResultTimeoutMs(VoiceCaptureMode.AlertCommand))
+    }
+
+
+    @Test
     fun `shouldRetryWithPlatformAfterWatchdogTimeout retries only on-device sessions without partials`() {
         assertEquals(true, shouldRetryWithPlatformAfterWatchdogTimeout(RecognizerBackend.OnDevice, false))
         assertEquals(false, shouldRetryWithPlatformAfterWatchdogTimeout(RecognizerBackend.OnDevice, true))

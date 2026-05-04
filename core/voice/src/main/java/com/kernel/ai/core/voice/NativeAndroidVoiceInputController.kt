@@ -26,6 +26,11 @@ import kotlinx.coroutines.withContext
 private const val TAG = "NativeVoiceInput"
 private const val ON_DEVICE_READY_TIMEOUT_MS = 1_500L
 private const val SESSION_RESULT_TIMEOUT_MS = 6_000L
+private const val ALERT_SESSION_RESULT_TIMEOUT_MS = 2_500L
+
+internal fun sessionResultTimeoutMs(mode: VoiceCaptureMode): Long =
+    if (mode == VoiceCaptureMode.AlertCommand) ALERT_SESSION_RESULT_TIMEOUT_MS else SESSION_RESULT_TIMEOUT_MS
+
 
 
 internal fun shouldForceRecognizerLanguage(availability: AndroidNativeRecognitionAvailability): Boolean =
@@ -290,7 +295,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         private fun resetSessionWatchdog() {
             sessionWatchdogJob?.cancel()
             sessionWatchdogJob = kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
-                delay(SESSION_RESULT_TIMEOUT_MS)
+                delay(sessionResultTimeoutMs(mode))
                 if (sessionCompleted || activeSessionId != sessionId) return@launch
                 if (
                     shouldRetryWithPlatformAfterWatchdogTimeout(
