@@ -32,6 +32,10 @@ internal fun shouldForceRecognizerLanguage(availability: AndroidNativeRecognitio
         availability.localeStatus != AndroidNativeRecognitionLocaleStatus.Unknown
 
 
+internal fun shouldUseCachedCaptureAvailability(mode: VoiceCaptureMode): Boolean =
+    mode == VoiceCaptureMode.AlertCommand
+
+
 internal enum class RecognizerBackend {
     OnDevice,
     Platform,
@@ -91,7 +95,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
         return withContext(Dispatchers.Main.immediate) {
             stopListeningInternal(emitStopped = false)
 
-            val availability = recognitionSupport.getCaptureAvailability()
+            val availability = if (shouldUseCachedCaptureAvailability(mode)) {
+                recognitionSupport.getCaptureAvailability()
+            } else {
+                recognitionSupport.getAvailability()
+            }
             availability.blockingReason?.let { reason ->
                 Log.w(
                     TAG,

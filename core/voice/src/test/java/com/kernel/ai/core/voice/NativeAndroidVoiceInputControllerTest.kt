@@ -5,6 +5,14 @@ import org.junit.jupiter.api.Test
 
 class NativeAndroidVoiceInputControllerTest {
     @Test
+    fun `shouldUseCachedCaptureAvailability only for alert commands`() {
+        assertEquals(false, shouldUseCachedCaptureAvailability(VoiceCaptureMode.Command))
+        assertEquals(false, shouldUseCachedCaptureAvailability(VoiceCaptureMode.SlotReply))
+        assertEquals(true, shouldUseCachedCaptureAvailability(VoiceCaptureMode.AlertCommand))
+    }
+
+
+    @Test
     fun `shouldRetryWithPlatformAfterStartupTimeout retries only on-device recognizer`() {
         assertEquals(true, shouldRetryWithPlatformAfterStartupTimeout(RecognizerBackend.OnDevice))
         assertEquals(false, shouldRetryWithPlatformAfterStartupTimeout(RecognizerBackend.Platform))
