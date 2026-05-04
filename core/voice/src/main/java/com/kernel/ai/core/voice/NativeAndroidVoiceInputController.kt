@@ -22,6 +22,10 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "NativeVoiceInput"
 
+internal fun shouldForceRecognizerLanguage(availability: AndroidNativeRecognitionAvailability): Boolean =
+    availability.languageTag.isNotBlank()
+
+
 private enum class RecognizerBackend {
     OnDevice,
     Platform,
@@ -127,7 +131,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            if (availability.localeStatus != AndroidNativeRecognitionLocaleStatus.Unknown) {
+            if (shouldForceRecognizerLanguage(availability)) {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, availability.languageTag)
             }
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
@@ -149,7 +153,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             "Starting Android native STT: sessionId=$sessionId mode=$mode " +
                 "backend=$backend language=${availability.languageSummary} " +
                 "localeStatus=${availability.localeStatus} " +
-                "forceLanguage=${availability.localeStatus != AndroidNativeRecognitionLocaleStatus.Unknown}",
+                "forceLanguage=${shouldForceRecognizerLanguage(availability)}",
         )
         recognizer.setRecognitionListener(
             SessionRecognitionListener(
