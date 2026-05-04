@@ -46,12 +46,14 @@ class NativeIntentHandlerTest {
     private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val contactAliasRepository = mockk<ContactAliasRepository>(relaxed = true)
     private val clockRepository = mockk<ClockRepository>(relaxed = true)
+    private val clockAlertController = mockk<ClockAlertController>(relaxed = true)
     private val listItemDao = mockk<ListItemDao>(relaxed = true)
     private val listNameDao = mockk<ListNameDao>(relaxed = true)
 
     private val handler = NativeIntentHandler(
         context = context,
         clockRepository = clockRepository,
+        clockAlertController = clockAlertController,
         listItemDao = listItemDao,
         listNameDao = listNameDao,
         contactAliasRepository = contactAliasRepository,
@@ -671,6 +673,34 @@ class NativeIntentHandlerTest {
         assertEquals(SkillResult.Failure("run_intent", "Could not schedule the timer."), result)
         verify(exactly = 0) { context.startActivity(any()) }
     }
+
+    @Test
+    fun `cancel_timer dismisses active timer alert when no running timers remain`() {
+        coEvery { clockRepository.cancelAllTimers() } returns 0
+        every { clockAlertController.dismissActiveTimerAlerts() } returns true
+
+        val result = handler.handle("cancel_timer", emptyMap())
+
+        assertEquals(SkillResult.Success("Dismissed the active timer alert."), result)
+        coVerify(exactly = 1) { clockRepository.cancelAllTimers() }
+        verify(exactly = 1) { clockAlertController.dismissActiveTimerAlerts() }
+    }
+
+    @Test
+    fun `cancel_timer reports cancelling timers and dismissing active alert`() {
+        coEvery { clockRepository.cancelAllTimers() } returns 1
+        every { clockAlertController.dismissActiveTimerAlerts() } returns true
+
+        val result = handler.handle("cancel_timer", emptyMap())
+
+        assertEquals(
+            SkillResult.Success("Cancelled 1 timer and dismissed the active timer alert."),
+            result,
+        )
+        coVerify(exactly = 1) { clockRepository.cancelAllTimers() }
+        verify(exactly = 1) { clockAlertController.dismissActiveTimerAlerts() }
+    }
+
 
     @Test
     fun `cancel_timer_named matches unlabeled timer by hyphenated duration`() {

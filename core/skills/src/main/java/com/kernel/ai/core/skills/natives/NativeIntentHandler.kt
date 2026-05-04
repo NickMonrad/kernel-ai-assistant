@@ -55,6 +55,11 @@ import kotlinx.coroutines.runBlocking
 private const val TAG = "KernelAI"
 private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
 
+interface ClockAlertController {
+    fun dismissActiveTimerAlerts(): Boolean
+}
+
+
 /**
  * Central dispatcher for all native Android operations triggered via the [run_intent][RunIntentSkill] gateway.
  *
@@ -110,6 +115,7 @@ private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is require
 class NativeIntentHandler @Inject constructor(
     @ApplicationContext private val context: Context,
     private val clockRepository: ClockRepository,
+    private val clockAlertController: ClockAlertController,
     private val listItemDao: ListItemDao,
     private val listNameDao: ListNameDao,
     private val contactAliasRepository: ContactAliasRepository,
@@ -398,8 +404,17 @@ class NativeIntentHandler @Inject constructor(
 
     private fun cancelTimer(): SkillResult {
         val cancelled = runBlocking { clockRepository.cancelAllTimers() }
-        if (cancelled == 0) return SkillResult.DirectReply("No timers running.")
-        return SkillResult.Success("Cancelled $cancelled timer${if (cancelled == 1) "" else "s"}.")
+        val dismissedActiveAlert = clockAlertController.dismissActiveTimerAlerts()
+        return when {
+            cancelled > 0 && dismissedActiveAlert ->
+                SkillResult.Success(
+                    "Cancelled $cancelled timer${if (cancelled == 1) "" else "s"} and dismissed the active timer alert.",
+                )
+            cancelled > 0 ->
+                SkillResult.Success("Cancelled $cancelled timer${if (cancelled == 1) "" else "s"}.")
+            dismissedActiveAlert -> SkillResult.Success("Dismissed the active timer alert.")
+            else -> SkillResult.DirectReply("No timers running.")
+        }
     }
 
     // ── Timer Registry ────────────────────────────────────────────────────────
