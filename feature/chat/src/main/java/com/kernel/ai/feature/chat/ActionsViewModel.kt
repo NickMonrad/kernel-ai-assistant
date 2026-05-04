@@ -159,6 +159,7 @@ class ActionsViewModel @Inject constructor(
             voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
+                        if (!ownsVoiceCapture(event.mode)) return@collect
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
                             ?.takeIf { it.mode == event.mode }
                             ?.transcript
@@ -166,21 +167,26 @@ class ActionsViewModel @Inject constructor(
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, currentTranscript)
                     }
                     is VoiceInputEvent.PartialTranscript -> {
+                        if (!ownsVoiceCapture(event.mode)) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, event.text)
                     }
                     is VoiceInputEvent.Transcript -> {
+                        if (!ownsVoiceCapture(event.mode)) return@collect
                         val normalizedTranscript = normalizeVoiceCommand(event.text)
                         _voiceCaptureState.value = VoiceCaptureState.Processing(event.mode, normalizedTranscript)
                         when (event.mode) {
                             VoiceCaptureMode.Command -> executeAction(normalizedTranscript, InputMode.Voice)
                             VoiceCaptureMode.SlotReply -> onSlotReply(normalizedTranscript)
+                            VoiceCaptureMode.AlertCommand -> Unit
                         }
                     }
                     is VoiceInputEvent.Error -> {
+                        if (!ownsVoiceCapture(event.mode)) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Idle
                         _error.value = event.message
                     }
                     is VoiceInputEvent.ListeningStopped -> {
+                        if (!ownsVoiceCapture(event.mode)) return@collect
                         val currentState = _voiceCaptureState.value
                         when (currentState) {
                             is VoiceCaptureState.Listening -> {
@@ -627,6 +633,15 @@ class ActionsViewModel @Inject constructor(
             result is SkillResult.Failure &&
             result.error == PHONE_PERMISSION_REQUIRED_ERROR
     }
+
+
+    private fun ownsVoiceCapture(mode: VoiceCaptureMode): Boolean =
+        when (val state = _voiceCaptureState.value) {
+            is VoiceCaptureState.Preparing -> state.mode == mode
+            is VoiceCaptureState.Listening -> state.mode == mode
+            is VoiceCaptureState.Processing -> state.mode == mode
+            VoiceCaptureState.Idle -> false
+        }
 
 
     private fun startVoiceCapture(

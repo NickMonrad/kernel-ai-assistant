@@ -155,6 +155,26 @@ class ClockRepositoryImplTest {
     }
 
     @Test
+    fun `snoozeAlarm stores one off snooze without rescheduling the expired primary alarm`() = runTest {
+        val now = System.currentTimeMillis()
+        val snoozeAt = now + 10 * 60_000L
+        val firedOneOff = scheduleRow(
+            id = "alarm-1",
+            triggerAtMillis = now - 60_000L,
+        ).copy(fired = true)
+        coEvery { scheduledAlarmDao.getById("alarm-1") } returns firedOneOff
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
+
+        val snoozed = repository.snoozeAlarm("alarm-1", snoozeAt)
+
+        assertTrue(snoozed)
+        coVerify(exactly = 1) { scheduledAlarmDao.insert(match { it.snoozedUntilMs == snoozeAt && !it.fired }) }
+        verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM && it.triggerAtMillis == snoozeAt }) }
+        verify(exactly = 0) { scheduler.schedule(match { it.type == ClockEventType.ALARM && it.triggerAtMillis == firedOneOff.triggerAtMillis }) }
+    }
+
+
+    @Test
     fun `handleScheduledEvent advances repeating alarms after delivery`() = runTest {
         val weekdayMask = weekdayMaskFor(DayOfWeek.MONDAY) or weekdayMaskFor(DayOfWeek.FRIDAY)
         val repeating = scheduleRow(
@@ -184,6 +204,44 @@ class ClockRepositoryImplTest {
 
         coVerify(exactly = 1) { scheduledAlarmDao.markFired("alarm-1") }
     }
+
+    @Test
+    fun `handleScheduledEvent clears repeating alarm snooze after snoozed fire`() = runTest {
+        val now = System.currentTimeMillis()
+        val snoozeAt = now + 60_000L
+        val repeating = scheduleRow(
+            id = "alarm-1",
+            triggerAtMillis = now + 24 * 60 * 60_000L,
+            repeatType = "DAILY",
+            alarmHour = 7,
+            alarmMinute = 30,
+        ).copy(snoozedUntilMs = snoozeAt)
+        coEvery { scheduledAlarmDao.getById("alarm-1") } returns repeating
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
+
+        repository.handleScheduledEvent("alarm-1", ClockEventType.ALARM, snoozeAt)
+
+        coVerify(exactly = 1) { scheduledAlarmDao.insert(match { it.snoozedUntilMs == null && !it.fired && it.triggerAtMillis == repeating.triggerAtMillis }) }
+    }
+
+    @Test
+    fun `observeActiveAlarms prefers snoozed trigger time when present`() = runTest {
+        val now = System.currentTimeMillis()
+        val snoozeAt = now + 60_000L
+        val repeating = scheduleRow(
+            id = "alarm-1",
+            triggerAtMillis = now + 24 * 60 * 60_000L,
+            repeatType = "DAILY",
+            alarmHour = 7,
+            alarmMinute = 30,
+        ).copy(snoozedUntilMs = snoozeAt)
+        every { scheduledAlarmDao.observeAllAlarmSchedules() } returns flowOf(listOf(repeating))
+
+        val alarms = repository.observeActiveAlarms().first()
+
+        assertEquals(snoozeAt, alarms.single().triggerAtMillis)
+    }
+
 
     @Test
     fun `handleScheduledEvent marks timers completed instead of deleting them`() = runTest {

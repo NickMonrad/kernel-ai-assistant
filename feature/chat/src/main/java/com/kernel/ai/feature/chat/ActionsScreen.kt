@@ -140,6 +140,7 @@ fun ActionsScreen(
         when (mode) {
             VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
             VoiceCaptureMode.SlotReply -> viewModel.startVoiceSlotReply()
+            VoiceCaptureMode.AlertCommand -> Unit
             null -> Unit
         }
     }
@@ -162,6 +163,7 @@ fun ActionsScreen(
             when (mode) {
                 VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
                 VoiceCaptureMode.SlotReply -> viewModel.startVoiceSlotReply()
+                VoiceCaptureMode.AlertCommand -> Unit
             }
             return
         }
@@ -861,6 +863,7 @@ private fun VoiceCaptureCard(
         is ActionsViewModel.VoiceCaptureState.Listening -> when (state.mode) {
             VoiceCaptureMode.Command -> "Ready — speak your quick action"
             VoiceCaptureMode.SlotReply -> "Ready — speak your reply"
+            VoiceCaptureMode.AlertCommand -> "Listening for alert command…"
         }
         is ActionsViewModel.VoiceCaptureState.Processing -> "Processing speech…"
         ActionsViewModel.VoiceCaptureState.Idle -> return

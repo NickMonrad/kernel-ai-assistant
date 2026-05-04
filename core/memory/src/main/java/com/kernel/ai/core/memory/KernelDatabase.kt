@@ -57,7 +57,7 @@ import java.time.ZoneId
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 28,
+    version = 29,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -378,6 +378,13 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_24_25 = object : Migration(24, 25) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN completed_at_ms INTEGER DEFAULT NULL")
+            }
+        }
+
+        /** Adds snoozed_until_ms to scheduled_alarms for alert-time snooze handling (#752). */
+        val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN snoozed_until_ms INTEGER DEFAULT NULL")
             }
         }
     }

@@ -148,6 +148,32 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `alert command transcript does not reach chat llm flow`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "stop"))
+        advanceUntilIdle()
+
+        assertEquals("", viewModel.getConversationAsText())
+        verify(exactly = 0) { quickIntentRouter.route(any()) }
+    }
+
+
+    @Test
+    fun `idle chat viewmodel ignores command transcript it did not start`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "cancel timer"))
+        advanceUntilIdle()
+
+        assertEquals("", viewModel.getConversationAsText())
+        verify(exactly = 0) { quickIntentRouter.route(any()) }
+    }
+
+
+    @Test
     fun `voice transcript submits chat message and speaks assistant reply`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Hello there") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Hello there")
