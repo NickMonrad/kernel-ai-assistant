@@ -25,6 +25,7 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "NativeVoiceInput"
 private const val ON_DEVICE_READY_TIMEOUT_MS = 1_500L
+private const val SESSION_RESULT_TIMEOUT_MS = 6_000L
 
 
 internal fun shouldForceRecognizerLanguage(availability: AndroidNativeRecognitionAvailability): Boolean =
@@ -58,6 +59,11 @@ internal fun shouldRetryWithPlatformAfterRecognitionError(
             -> !heardSpeech && !sawPartialTranscript
             else -> false
         }
+
+internal fun shouldRetryWithPlatformAfterWatchdogTimeout(
+    backend: RecognizerBackend,
+    sawPartialTranscript: Boolean,
+): Boolean = backend == RecognizerBackend.OnDevice && !sawPartialTranscript
 
 @Singleton
 class NativeAndroidVoiceInputController @Inject constructor(
@@ -273,11 +279,62 @@ class NativeAndroidVoiceInputController @Inject constructor(
         private var sessionCompleted = false
         private var heardSpeech = false
         private var sawPartialTranscript = false
+        private var sessionWatchdogJob: Job? = null
+
+        private fun resetSessionWatchdog() {
+            sessionWatchdogJob?.cancel()
+            sessionWatchdogJob = kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
+                delay(SESSION_RESULT_TIMEOUT_MS)
+                if (sessionCompleted || activeSessionId != sessionId) return@launch
+                if (
+                    shouldRetryWithPlatformAfterWatchdogTimeout(
+                        backend = backend,
+                        sawPartialTranscript = sawPartialTranscript,
+                    ) &&
+                    retryWithPlatformRecognizer(
+                        sessionId = sessionId,
+                        mode = mode,
+                        availability = availability,
+                    )
+                ) {
+                    sessionCompleted = true
+                    Log.w(
+                        TAG,
+                        "Android native STT watchdog retried with platform recognizer for sessionId=$sessionId " +
+                            "mode=$mode backend=$backend heardSpeech=$heardSpeech " +
+                            "sawPartialTranscript=$sawPartialTranscript",
+                    )
+                    return@launch
+                }
+
+                sessionCompleted = true
+                Log.w(
+                    TAG,
+                    "Android native STT stopped responding before returning a result: " +
+                        "sessionId=$sessionId mode=$mode backend=$backend heardSpeech=$heardSpeech " +
+                        "sawPartialTranscript=$sawPartialTranscript",
+                )
+                _events.tryEmit(
+                    VoiceInputEvent.Error(
+                        mode = mode,
+                        message = "Android speech recognition stopped responding before it returned a result.",
+                    ),
+                )
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+                stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
+            }
+        }
+
+        private fun cancelSessionWatchdog() {
+            sessionWatchdogJob?.cancel()
+            sessionWatchdogJob = null
+        }
 
 
         override fun onReadyForSpeech(params: Bundle?) {
             if (sessionCompleted || activeSessionId != sessionId) return
             cancelStartupFallback()
+            resetSessionWatchdog()
             Log.i(TAG, "Android native STT ready: sessionId=$sessionId mode=$mode backend=$backend")
             _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
         }
@@ -285,6 +342,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         override fun onBeginningOfSpeech() {
             if (sessionCompleted || activeSessionId != sessionId) return
             heardSpeech = true
+            resetSessionWatchdog()
             Log.d(TAG, "Android native STT speech began: sessionId=$sessionId mode=$mode backend=$backend")
         }
 
@@ -319,6 +377,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             }
             sessionCompleted = true
             cancelStartupFallback()
+            cancelSessionWatchdog()
             Log.w(
                 TAG,
                 "Android native STT error: sessionId=$sessionId mode=$mode error=$error " +
@@ -340,6 +399,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             val transcript = extractBestTranscript(results)
             sessionCompleted = true
             cancelStartupFallback()
+            cancelSessionWatchdog()
             Log.i(
                 TAG,
                 "Android native STT result: sessionId=$sessionId mode=$mode transcript='$transcript' " +
@@ -364,6 +424,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             val transcript = extractBestTranscript(partialResults)
             if (transcript.isNotBlank()) {
                 sawPartialTranscript = true
+                resetSessionWatchdog()
                 Log.d(
                     TAG,
                     "Android native STT partial: sessionId=$sessionId mode=$mode transcript='$transcript'",

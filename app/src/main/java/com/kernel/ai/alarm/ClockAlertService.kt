@@ -88,6 +88,7 @@ class ClockAlertService : Service() {
                 val alert = intent.toTriggeredClockAlert() ?: return START_NOT_STICKY
                 activeAlerts.removeAll { it.ownerId == alert.ownerId }
                 activeAlerts += alert
+                syncActiveAlertSnapshot()
                 isVoiceListening = false
                 handledVoiceTranscript = false
                 voiceStatusMessage = null
@@ -102,6 +103,11 @@ class ClockAlertService : Service() {
 
             ClockAlertContract.ACTION_STOP_ALERT -> {
                 intent.toTriggeredClockAlert()?.let(::dismissAlert) ?: stopAlertSession()
+            }
+
+            ClockAlertContract.ACTION_STOP_TIMER_ALERTS -> {
+                val dismissed = dismissAlertsMatching { it.type == ClockEventType.TIMER }
+                if (dismissed == 0 && activeAlerts.isEmpty()) stopSelf()
             }
 
             ClockAlertContract.ACTION_SNOOZE_ALERT -> {
@@ -135,6 +141,8 @@ class ClockAlertService : Service() {
         autoStartVoiceJob?.cancel()
         serviceScope.cancel()
         stopPlayback()
+        activeAlerts.clear()
+        syncActiveAlertSnapshot()
         super.onDestroy()
     }
 
@@ -226,6 +234,7 @@ class ClockAlertService : Service() {
 
     private fun stopAlertSession() {
         activeAlerts.clear()
+        syncActiveAlertSnapshot()
         autoStartVoiceJob?.cancel()
         autoStartVoiceJob = null
         isVoiceListening = false
@@ -238,8 +247,16 @@ class ClockAlertService : Service() {
     }
 
     private fun dismissAlert(alert: TriggeredClockAlert) {
-        activeAlerts.removeAll { it.ownerId == alert.ownerId }
-        cancelAutoStartVoiceControl(alert.ownerId)
+        dismissAlertsMatching { it.ownerId == alert.ownerId }
+    }
+
+    private fun dismissAlertsMatching(predicate: (TriggeredClockAlert) -> Boolean): Int {
+        val dismissed = activeAlerts.count(predicate)
+        if (dismissed == 0) return 0
+
+        activeAlerts.removeAll(predicate)
+        syncActiveAlertSnapshot()
+        cancelAutoStartVoiceControl()
         isVoiceListening = false
         handledVoiceTranscript = false
         voiceStatusMessage = null
@@ -254,6 +271,7 @@ class ClockAlertService : Service() {
                 ?.takeIf { shouldAutoStartAlertVoiceControl(autoStartAlertVoiceCommandsEnabled, it.type) }
                 ?.let(::scheduleAutoStartVoiceControl)
         }
+        return dismissed
     }
 
     private fun stopPlayback() {
@@ -331,6 +349,10 @@ class ClockAlertService : Service() {
 
     private fun findActiveAlert(ownerId: String): TriggeredClockAlert? =
         activeAlerts.firstOrNull { it.ownerId == ownerId }
+
+    private fun syncActiveAlertSnapshot() {
+        activeAlertSnapshot = activeAlerts.toSet()
+    }
 
     private fun startVoiceControl(alert: TriggeredClockAlert, autoStarted: Boolean = false) {
         if (isVoiceListening) return
@@ -463,6 +485,12 @@ class ClockAlertService : Service() {
     }
 
     companion object {
+        @Volatile
+        private var activeAlertSnapshot: Set<TriggeredClockAlert> = emptySet()
+
+        internal fun hasActiveTimerAlerts(): Boolean =
+            activeAlertSnapshot.any { it.type == ClockEventType.TIMER }
+
         internal fun trigger(context: Context, alert: TriggeredClockAlert) {
             ContextCompat.startForegroundService(
                 context,

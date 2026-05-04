@@ -13,6 +13,14 @@ class NativeAndroidVoiceInputControllerTest {
 
 
     @Test
+    fun `shouldRetryWithPlatformAfterWatchdogTimeout retries only on-device sessions without partials`() {
+        assertEquals(true, shouldRetryWithPlatformAfterWatchdogTimeout(RecognizerBackend.OnDevice, false))
+        assertEquals(false, shouldRetryWithPlatformAfterWatchdogTimeout(RecognizerBackend.OnDevice, true))
+        assertEquals(false, shouldRetryWithPlatformAfterWatchdogTimeout(RecognizerBackend.Platform, false))
+    }
+
+
+    @Test
     fun `shouldRetryWithPlatformAfterStartupTimeout retries only on-device recognizer`() {
         assertEquals(true, shouldRetryWithPlatformAfterStartupTimeout(RecognizerBackend.OnDevice))
         assertEquals(false, shouldRetryWithPlatformAfterStartupTimeout(RecognizerBackend.Platform))
