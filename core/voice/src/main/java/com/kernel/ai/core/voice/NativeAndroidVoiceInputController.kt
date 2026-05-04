@@ -2,6 +2,10 @@ package com.kernel.ai.core.voice
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -60,6 +64,14 @@ class NativeAndroidVoiceInputController @Inject constructor(
     override val events: Flow<VoiceInputEvent> = _events.asSharedFlow()
 
 
+    private val audioManager by lazy {
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
+
+    @Volatile
+    private var audioFocusRequest: AudioFocusRequest? = null
+
+
     @Volatile
     private var speechRecognizer: SpeechRecognizer? = null
 
@@ -91,6 +103,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             }
 
             try {
+                requestAudioFocus()
                 val sessionId = ++nextSessionId
                 currentMode = mode
                 activeSessionId = sessionId
@@ -135,6 +148,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             runCatching { cancel() }
             runCatching { destroy() }
         }
+        releaseAudioFocus()
 
         if (emitStopped && mode != null) {
             _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
@@ -381,4 +395,36 @@ class NativeAndroidVoiceInputController @Inject constructor(
             else -> "Android speech recognition failed with error code $error."
         }
 
+    private fun requestAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                )
+                .setOnAudioFocusChangeListener { }
+                .build()
+            audioFocusRequest = request
+            audioManager.requestAudioFocus(request)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(
+                { },
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
+            )
+        }
+    }
+
+    private fun releaseAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            audioFocusRequest = null
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(null)
+        }
+    }
 }
