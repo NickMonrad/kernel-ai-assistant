@@ -35,6 +35,7 @@ class VoiceViewModelTest {
     private val voiceInputPreferences: VoiceInputPreferences = mockk()
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Vosk)
+    private val autoStartAlertVoiceCommandsEnabled = MutableStateFlow(true)
     private val spokenResponsesEnabled = MutableStateFlow(true)
     private val selectedOutputEngine = MutableStateFlow(VoiceOutputEngine.AndroidTts)
     private val selectedSherpaVoice = MutableStateFlow(SherpaPiperVoice.JennyDioco)
@@ -53,7 +54,9 @@ class VoiceViewModelTest {
                 localeStatus = AndroidNativeRecognitionLocaleStatus.Ready,
             )
         every { voiceInputPreferences.selectedEngine } returns selectedInputEngine
+        every { voiceInputPreferences.autoStartAlertVoiceCommandsEnabled } returns autoStartAlertVoiceCommandsEnabled
         coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
+        coEvery { voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(any()) } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         every { voiceOutputPreferences.selectedEngine } returns selectedOutputEngine
         every { voiceOutputPreferences.selectedSherpaVoice } returns selectedSherpaVoice
@@ -71,6 +74,13 @@ class VoiceViewModelTest {
     fun tearDown() {
         Dispatchers.resetMain()
     }
+
+    @Test
+    fun `alert voice auto start defaults to enabled when preference flow emits true`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.autoStartAlertVoiceCommandsEnabled)
+    }
+
 
     @Test
     fun `spoken responses default to enabled when preference flow emits true`() = runTest {
@@ -174,6 +184,16 @@ class VoiceViewModelTest {
         assertEquals(VoiceInputEngine.AndroidNative, viewModel.uiState.value.selectedInputEngine)
         coVerify { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.AndroidNative) }
     }
+
+    @Test
+    fun `setAutoStartAlertVoiceCommandsEnabled updates ui state immediately`() = runTest {
+        viewModel.setAutoStartAlertVoiceCommandsEnabled(false)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(false, viewModel.uiState.value.autoStartAlertVoiceCommandsEnabled)
+        coVerify { voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(false) }
+    }
+
 
     @Test
     fun `setSpokenResponsesEnabled updates ui state immediately`() = runTest {

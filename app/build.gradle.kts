@@ -85,6 +85,7 @@ dependencies {
     // Project modules
     implementation(project(":core:inference"))
     implementation(project(":core:memory"))
+    implementation(project(":core:voice"))
     implementation(project(":core:wasm"))
     implementation(project(":core:ui"))
     implementation(project(":core:skills"))
@@ -104,7 +105,6 @@ dependencies {
         implementation(files(sherpaAar.absolutePath))
     }
     // ────────────────────────────────────────────────────────────────────────────────
-
     // Compose
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

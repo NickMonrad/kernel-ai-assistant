@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.map
 private const val PRE_ALARM_LEAD_MS = 30 * 60 * 1_000L
 private const val PRE_ALARM_MIN_NOTICE_MS = 1_000L
 private const val PRE_ALARM_EVENT_SUFFIX = ":pre"
+private const val SNOOZE_EVENT_SUFFIX = ":snooze"
 private const val STOPWATCH_ID = "primary"
 
 @Singleton
@@ -252,6 +253,7 @@ class ClockRepositoryImpl @Inject constructor(
             repeatDaysMask = draft.repeatDaysMask(),
             oneOffDateEpochDay = draft.oneOffDateEpochDay(),
             timeZoneId = draft.timeZoneId,
+            snoozedUntilMs = null,
         )
         cancelAlarmEvents(existing, now)
         scheduleAlarmEvents(updated, now)
@@ -287,6 +289,7 @@ class ClockRepositoryImpl @Inject constructor(
             enabled = true,
             fired = false,
             triggerAtMillis = nextTriggerAtMillis,
+            snoozedUntilMs = null,
         )
         scheduleAlarmEvents(updated, now)
         return try {
@@ -343,19 +346,42 @@ class ClockRepositoryImpl @Inject constructor(
         val existing = scheduledAlarmDao.getById(alarmId)?.withDefaultOwnerId() ?: return false
         if (existing.entryType != ClockEventType.ALARM.name || !existing.enabled) return false
         if (!existing.isRepeatingAlarm() || existing.triggerAtMillis != occurrenceTriggerAtMillis) return false
+        val now = System.currentTimeMillis()
         val nextTriggerAtMillis = existing.nextRepeatingTriggerAfter(occurrenceTriggerAtMillis) ?: return false
-        val updated = existing.copy(triggerAtMillis = nextTriggerAtMillis, fired = false)
-        cancelAlarmEvents(existing, System.currentTimeMillis())
-        scheduleAlarmEvents(updated, System.currentTimeMillis())
+        val updated = existing.copy(triggerAtMillis = nextTriggerAtMillis, fired = false, snoozedUntilMs = null)
+        cancelAlarmEvents(existing, now)
+        scheduleAlarmEvents(updated, now)
         return try {
             scheduledAlarmDao.insert(updated)
             true
         } catch (_: Exception) {
-            cancelAlarmEvents(updated, System.currentTimeMillis())
-            scheduleAlarmEvents(existing, System.currentTimeMillis())
+            cancelAlarmEvents(updated, now)
+            scheduleAlarmEvents(existing, now)
             false
         }
     }
+
+    override suspend fun snoozeAlarm(alarmId: String, snoozedUntilMillis: Long): Boolean {
+        val existing = scheduledAlarmDao.getById(alarmId)?.withDefaultOwnerId() ?: return false
+        if (existing.entryType != ClockEventType.ALARM.name || !existing.enabled) return false
+        val now = System.currentTimeMillis()
+        if (snoozedUntilMillis <= now) return false
+        val updated = existing.copy(
+            fired = false,
+            snoozedUntilMs = snoozedUntilMillis,
+        )
+        cancelAlarmEvents(existing, now)
+        scheduleAlarmEvents(updated, now)
+        return try {
+            scheduledAlarmDao.insert(updated)
+            true
+        } catch (_: Exception) {
+            cancelAlarmEvents(updated, now)
+            scheduleAlarmEvents(existing, now)
+            false
+        }
+    }
+
 
     override suspend fun scheduleTimer(durationMs: Long, label: String?): ClockTimer? {
         if (!scheduler.getPlatformState().canScheduleExactAlarms) return null
@@ -408,15 +434,32 @@ class ClockRepositoryImpl @Inject constructor(
 
             ClockEventType.ALARM -> {
                 if (existing.entryType != ClockEventType.ALARM.name) return
+                val now = System.currentTimeMillis()
+                if (occurrenceTriggerAtMillis != null && existing.snoozedUntilMs == occurrenceTriggerAtMillis) {
+                    val updated = if (existing.isRepeatingAlarm()) {
+                        existing.copy(snoozedUntilMs = null, fired = false)
+                    } else {
+                        existing.copy(snoozedUntilMs = null, fired = true)
+                    }
+                    cancelAlarmEvents(existing, now)
+                    scheduledAlarmDao.insert(updated)
+                    scheduleAlarmEvents(updated, now)
+                    return
+                }
                 if (occurrenceTriggerAtMillis != null && existing.triggerAtMillis != occurrenceTriggerAtMillis) return
                 if (!existing.isRepeatingAlarm()) {
                     scheduledAlarmDao.markFired(ownerId)
                     return
                 }
                 val nextTriggerAtMillis = existing.nextRepeatingTriggerAfter(existing.triggerAtMillis) ?: return
-                val updated = existing.copy(triggerAtMillis = nextTriggerAtMillis, fired = false)
-                scheduleAlarmEvents(updated, System.currentTimeMillis())
+                val updated = existing.copy(
+                    triggerAtMillis = nextTriggerAtMillis,
+                    fired = false,
+                    snoozedUntilMs = existing.snoozedUntilMs,
+                )
+                cancelAlarmEvents(existing, now)
                 scheduledAlarmDao.insert(updated)
+                scheduleAlarmEvents(updated, now)
             }
         }
     }
@@ -497,7 +540,11 @@ class ClockRepositoryImpl @Inject constructor(
                         expiredCount += 1
                     } else {
                         val nextTriggerAtMillis = schedule.nextRepeatingTriggerAfter(nowMillis) ?: return@forEach
-                        val updated = schedule.copy(triggerAtMillis = nextTriggerAtMillis, fired = false)
+                        val updated = schedule.copy(
+                            triggerAtMillis = nextTriggerAtMillis,
+                            fired = false,
+                            snoozedUntilMs = null,
+                        )
                         scheduledAlarmDao.insert(updated)
                         scheduleAlarmEvents(updated, nowMillis)
                         restoredCount += 1
@@ -529,12 +576,14 @@ class ClockRepositoryImpl @Inject constructor(
     }
 
     private fun scheduleAlarmEvents(entity: ScheduledAlarmEntity, nowMillis: Long) {
-        scheduler.schedule(entity.toScheduledEvent())
+        entity.toPrimaryAlarmScheduledEvent(nowMillis)?.let(scheduler::schedule)
+        entity.toSnoozeScheduledEvent(nowMillis)?.let(scheduler::schedule)
         entity.toPreAlarmScheduledEvent(nowMillis)?.let(scheduler::schedule)
     }
 
     private fun cancelAlarmEvents(entity: ScheduledAlarmEntity, nowMillis: Long) {
-        scheduler.cancel(entity.toScheduledEvent())
+        scheduler.cancel(entity.toPrimaryAlarmCancellationEvent())
+        entity.toSnoozeCancellationEvent()?.let(scheduler::cancel)
         entity.toPreAlarmScheduledEvent(nowMillis)?.let(scheduler::cancel)
         scheduler.cancel(entity.toPreAlarmCancellationEvent())
     }
@@ -596,7 +645,7 @@ private fun ScheduledAlarmEntity.toClockAlarm(): ClockAlarm? {
         minute = alarmMinute ?: trigger.minute,
         repeatRule = repeatRule,
         timeZoneId = zoneId.id,
-        triggerAtMillis = triggerAtMillis,
+        triggerAtMillis = snoozedUntilMs ?: triggerAtMillis,
     )
 }
 
@@ -625,6 +674,47 @@ private fun ScheduledAlarmEntity.toScheduledEvent(): ClockScheduledEvent =
         startedAtMillis = startedAtMs,
         occurrenceTriggerAtMillis = triggerAtMillis,
     )
+
+private fun ScheduledAlarmEntity.toPrimaryAlarmScheduledEvent(nowMillis: Long): ClockScheduledEvent? {
+    if (entryType != ClockEventType.ALARM.name || !enabled || fired || triggerAtMillis <= nowMillis) return null
+    return toScheduledEvent()
+}
+
+private fun ScheduledAlarmEntity.toPrimaryAlarmCancellationEvent(): ClockScheduledEvent =
+    ClockScheduledEvent(
+        eventId = id,
+        ownerId = ownerId ?: id,
+        type = ClockEventType.ALARM,
+        triggerAtMillis = triggerAtMillis,
+        label = label,
+        occurrenceTriggerAtMillis = triggerAtMillis,
+    )
+
+private fun ScheduledAlarmEntity.toSnoozeScheduledEvent(nowMillis: Long): ClockScheduledEvent? {
+    if (entryType != ClockEventType.ALARM.name || !enabled) return null
+    val snoozeAt = snoozedUntilMs?.takeIf { it > nowMillis } ?: return null
+    return ClockScheduledEvent(
+        eventId = "${ownerId ?: id}$SNOOZE_EVENT_SUFFIX",
+        ownerId = ownerId ?: id,
+        type = ClockEventType.ALARM,
+        triggerAtMillis = snoozeAt,
+        label = label,
+        occurrenceTriggerAtMillis = snoozeAt,
+    )
+}
+
+private fun ScheduledAlarmEntity.toSnoozeCancellationEvent(): ClockScheduledEvent? {
+    if (entryType != ClockEventType.ALARM.name) return null
+    val snoozeAt = snoozedUntilMs ?: triggerAtMillis
+    return ClockScheduledEvent(
+        eventId = "${ownerId ?: id}$SNOOZE_EVENT_SUFFIX",
+        ownerId = ownerId ?: id,
+        type = ClockEventType.ALARM,
+        triggerAtMillis = snoozeAt,
+        label = label,
+        occurrenceTriggerAtMillis = snoozeAt,
+    )
+}
 
 private fun ScheduledAlarmEntity.toPreAlarmScheduledEvent(nowMillis: Long): ClockScheduledEvent? {
     if (entryType != ClockEventType.ALARM.name || !enabled || !isRepeatingAlarm()) return null

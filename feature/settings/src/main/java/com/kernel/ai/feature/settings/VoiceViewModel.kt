@@ -21,6 +21,7 @@ data class VoiceUiState(
     val selectedInputEngine: VoiceInputEngine = VoiceInputEngine.Vosk,
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
+    val autoStartAlertVoiceCommandsEnabled: Boolean = true,
     val androidNativeAvailabilityMessage: String? = null,
     val androidNativeLanguageSummary: String? = null,
 )
@@ -65,6 +66,11 @@ class VoiceViewModel @Inject constructor(
                 _uiState.update { it.copy(selectedSherpaVoice = voice) }
             }
         }
+        viewModelScope.launch {
+            voiceInputPreferences.autoStartAlertVoiceCommandsEnabled.collect { enabled ->
+                _uiState.update { it.copy(autoStartAlertVoiceCommandsEnabled = enabled) }
+            }
+        }
     }
 
     fun setVoiceInputEngine(engine: VoiceInputEngine) {
@@ -92,6 +98,13 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(selectedSherpaVoice = voice) }
         viewModelScope.launch {
             voiceOutputPreferences.setSelectedSherpaVoice(voice)
+        }
+    }
+
+    fun setAutoStartAlertVoiceCommandsEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(autoStartAlertVoiceCommandsEnabled = enabled) }
+        viewModelScope.launch {
+            voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(enabled)
         }
     }
 }
