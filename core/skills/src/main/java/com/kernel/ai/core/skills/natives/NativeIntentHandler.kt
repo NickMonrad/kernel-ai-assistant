@@ -10,6 +10,7 @@ import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.BatteryManager
+import android.os.SystemClock
 import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.MediaStore
@@ -48,6 +49,7 @@ import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
 private const val TAG = "KernelAI"
@@ -66,8 +68,9 @@ private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is require
  *   send_sms                — ACTION_SENDTO SMS composer (params: message)
  *   set_alarm               — App-owned alarm scheduling (params: hours, minutes, label)
  *   set_timer               — App-owned timer scheduling (params: duration_seconds, label)
- *   create_calendar_event   — CalendarContract ACTION_INSERT edit screen (params: title, date, time?, duration_minutes?, description?)
- *   get_battery             — BatteryManager capacity + charging state
+ *   start_stopwatch         — Start a new app-owned stopwatch
+ *   pause_stopwatch         — Pause the active app-owned stopwatch
+ *   resume_stopwatch        — Resume the paused app-owned stopwatch
  *   get_time / get_date     — LocalDateTime formatted display
  *   toggle_dnd_on/off       — NotificationManager interruption filter (requests permission if needed)
  *   set_volume              — AudioManager STREAM_MUSIC (params: value, is_percent)
@@ -132,6 +135,12 @@ class NativeIntentHandler @Inject constructor(
                 "list_timers" -> listTimers()
                 "cancel_timer_named" -> cancelTimerNamed(params)
                 "get_timer_remaining" -> getTimerRemaining(params)
+                "start_stopwatch" -> startStopwatch()
+                "pause_stopwatch" -> pauseStopwatch()
+                "resume_stopwatch" -> resumeStopwatch()
+                "lap_stopwatch" -> lapStopwatch()
+                "reset_stopwatch" -> resetStopwatch()
+                "get_stopwatch_status" -> getStopwatchStatus()
                 "cancel_alarm" -> cancelAlarm(params)
                 "create_calendar_event" -> createCalendarEvent(params)
                 "get_battery" -> getBattery()
@@ -211,6 +220,7 @@ class NativeIntentHandler @Inject constructor(
             "send_email", "send_sms", "make_call",
             "set_alarm", "cancel_alarm",
             "set_timer", "cancel_timer", "cancel_timer_named", "list_timers", "get_timer_remaining",
+            "start_stopwatch", "pause_stopwatch", "resume_stopwatch", "lap_stopwatch", "reset_stopwatch", "get_stopwatch_status",
             "create_calendar_event",
             "get_battery", "get_time", "get_date",
             "toggle_dnd_on", "toggle_dnd_off",
@@ -435,6 +445,115 @@ class NativeIntentHandler @Inject constructor(
             SkillResult.DirectReply("Timer has finished.")
         }
     }
+
+    // ── Stopwatch ─────────────────────────────────────────────────────────────
+
+    private fun startStopwatch(): SkillResult {
+        val existing = currentStopwatch()
+        if (existing.status == com.kernel.ai.core.memory.clock.StopwatchStatus.RUNNING) {
+            return SkillResult.DirectReply(
+                "Stopwatch is already running at ${formatStopwatchElapsed(existing.elapsedMs(SystemClock.elapsedRealtime(), System.currentTimeMillis()))}.",
+            )
+        }
+        runBlocking {
+            clockRepository.startStopwatch(
+                nowWallClockMillis = System.currentTimeMillis(),
+                nowElapsedRealtimeMs = SystemClock.elapsedRealtime(),
+            )
+        }
+        return SkillResult.Success("Started the stopwatch.")
+    }
+
+    private fun pauseStopwatch(): SkillResult {
+        val existing = currentStopwatch()
+        if (existing.status != com.kernel.ai.core.memory.clock.StopwatchStatus.RUNNING) {
+            return SkillResult.Failure("pause_stopwatch", "No running stopwatch to pause.")
+        }
+        val paused = runBlocking {
+            clockRepository.pauseStopwatch(
+                nowWallClockMillis = System.currentTimeMillis(),
+                nowElapsedRealtimeMs = SystemClock.elapsedRealtime(),
+            )
+        }
+        return SkillResult.Success("Paused the stopwatch at ${formatStopwatchElapsed(paused.accumulatedElapsedMs)}.")
+    }
+
+    private fun resumeStopwatch(): SkillResult {
+        val existing = currentStopwatch()
+        if (existing.status != com.kernel.ai.core.memory.clock.StopwatchStatus.PAUSED) {
+            return SkillResult.Failure("resume_stopwatch", "No paused stopwatch to resume.")
+        }
+        runBlocking {
+            clockRepository.resumeStopwatch(
+                nowWallClockMillis = System.currentTimeMillis(),
+                nowElapsedRealtimeMs = SystemClock.elapsedRealtime(),
+            )
+        }
+        return SkillResult.Success("Resumed the stopwatch.")
+    }
+
+    private fun lapStopwatch(): SkillResult {
+        val existing = currentStopwatch()
+        if (existing.status != com.kernel.ai.core.memory.clock.StopwatchStatus.RUNNING) {
+            return SkillResult.Failure("lap_stopwatch", "No running stopwatch to record a lap.")
+        }
+        val lap = runBlocking {
+            clockRepository.recordStopwatchLap(
+                nowWallClockMillis = System.currentTimeMillis(),
+                nowElapsedRealtimeMs = SystemClock.elapsedRealtime(),
+            )
+        } ?: return SkillResult.Failure("lap_stopwatch", "Could not record a lap.")
+        return SkillResult.Success(
+            "Recorded lap ${lap.lapNumber} at ${formatStopwatchElapsed(lap.elapsedMs)}. Split ${formatStopwatchElapsed(lap.splitMs)}.",
+        )
+    }
+
+    private fun resetStopwatch(): SkillResult {
+        val existing = currentStopwatch()
+        if (existing.status == com.kernel.ai.core.memory.clock.StopwatchStatus.IDLE) {
+            return SkillResult.DirectReply("Stopwatch is already cleared.")
+        }
+        runBlocking { clockRepository.resetStopwatch() }
+        return SkillResult.Success("Reset the stopwatch.")
+    }
+
+    private fun getStopwatchStatus(): SkillResult {
+        val stopwatch = currentStopwatch()
+        return when (stopwatch.status) {
+            com.kernel.ai.core.memory.clock.StopwatchStatus.IDLE -> SkillResult.DirectReply("No active stopwatch.")
+            com.kernel.ai.core.memory.clock.StopwatchStatus.RUNNING -> {
+                val elapsed = stopwatch.elapsedMs(SystemClock.elapsedRealtime(), System.currentTimeMillis())
+                SkillResult.DirectReply(
+                    "Stopwatch running for ${formatStopwatchElapsed(elapsed)}${formatStopwatchLapSuffix(stopwatch.laps.size)}.",
+                )
+            }
+            com.kernel.ai.core.memory.clock.StopwatchStatus.PAUSED -> SkillResult.DirectReply(
+                "Stopwatch paused at ${formatStopwatchElapsed(stopwatch.accumulatedElapsedMs)}${formatStopwatchLapSuffix(stopwatch.laps.size)}.",
+            )
+        }
+    }
+
+    private fun currentStopwatch(): com.kernel.ai.core.memory.clock.ClockStopwatch =
+        runBlocking { clockRepository.observeStopwatch().first() }
+
+    private fun formatStopwatchLapSuffix(lapCount: Int): String = when (lapCount) {
+        0 -> ""
+        1 -> " with 1 lap recorded"
+        else -> " with $lapCount laps recorded"
+    }
+
+    private fun formatStopwatchElapsed(elapsedMs: Long): String {
+        val totalSeconds = elapsedMs.coerceAtLeast(0L) / 1_000L
+        val hours = totalSeconds / 3_600L
+        val minutes = (totalSeconds % 3_600L) / 60L
+        val seconds = totalSeconds % 60L
+        return if (hours > 0L) {
+            "%d:%02d:%02d".format(hours, minutes, seconds)
+        } else {
+            "%02d:%02d".format(minutes, seconds)
+        }
+    }
+
 
     private fun formatDuration(seconds: Long): String {
         val hrs = seconds / 3600

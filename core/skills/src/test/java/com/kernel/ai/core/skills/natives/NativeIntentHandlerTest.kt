@@ -7,12 +7,16 @@ import android.content.pm.PackageManager
 import android.database.Cursor
 import android.media.AudioManager
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.ContactsContract
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
+import com.kernel.ai.core.memory.clock.ClockStopwatch
+import com.kernel.ai.core.memory.clock.StopwatchLap
+import com.kernel.ai.core.memory.clock.StopwatchStatus
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ContactAliasEntity
@@ -35,6 +39,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.LocalTime
+import kotlinx.coroutines.flow.flowOf
 
 class NativeIntentHandlerTest {
     private val context = mockk<Context>(relaxed = true)
@@ -58,6 +63,7 @@ class NativeIntentHandlerTest {
     fun setUp() {
         mockkStatic(Log::class)
         mockkStatic(Uri::class)
+        mockkStatic(SystemClock::class)
         every { Uri.encode(any()) } answers {
             java.net.URLEncoder.encode(firstArg<String>(), java.nio.charset.StandardCharsets.UTF_8)
                 .replace("+", "%20")
@@ -73,10 +79,22 @@ class NativeIntentHandlerTest {
         every { Log.e(any<String>(), any<String>(), any()) } returns 0
         every { context.contentResolver } returns contentResolver
         every { context.startActivity(any()) } just Runs
+        every { SystemClock.elapsedRealtime() } returns 12_000L
+
+        every { clockRepository.observeStopwatch() } returns flowOf(
+            ClockStopwatch(
+                id = "primary",
+                status = StopwatchStatus.IDLE,
+                accumulatedElapsedMs = 0L,
+                updatedAtMillis = 0L,
+            ),
+        )
+
     }
 
     @AfterEach
     fun tearDown() {
+        unmockkStatic(SystemClock::class)
         unmockkStatic(Uri::class)
         unmockkStatic(Log::class)
     }
@@ -558,6 +576,86 @@ class NativeIntentHandlerTest {
         assertEquals(SkillResult.Failure("run_intent", "Could not schedule the alarm."), result)
         verify(exactly = 0) { context.startActivity(any()) }
     }
+
+    @Test
+    fun `start_stopwatch starts a new stopwatch when idle`() {
+        coEvery { clockRepository.startStopwatch(any(), any()) } returns ClockStopwatch(
+            id = "primary",
+            status = StopwatchStatus.RUNNING,
+            accumulatedElapsedMs = 0L,
+            runningSinceElapsedRealtimeMs = 10_000L,
+            runningSinceWallClockMs = 20_000L,
+            updatedAtMillis = 20_000L,
+        )
+
+        val result = handler.handle("start_stopwatch", emptyMap())
+
+        assertEquals(SkillResult.Success("Started the stopwatch."), result)
+        coVerify(exactly = 1) { clockRepository.startStopwatch(any(), any()) }
+    }
+
+    @Test
+    fun `lap_stopwatch records a lap when stopwatch is running`() {
+        every { clockRepository.observeStopwatch() } returns flowOf(
+            ClockStopwatch(
+                id = "primary",
+                status = StopwatchStatus.RUNNING,
+                accumulatedElapsedMs = 3_000L,
+                runningSinceElapsedRealtimeMs = 10_000L,
+                runningSinceWallClockMs = 20_000L,
+                updatedAtMillis = 20_000L,
+            ),
+        )
+        coEvery { clockRepository.recordStopwatchLap(any(), any()) } returns StopwatchLap(
+            id = 1L,
+            lapNumber = 1,
+            elapsedMs = 7_500L,
+            splitMs = 7_500L,
+            createdAtMillis = 27_500L,
+        )
+
+        val result = handler.handle("lap_stopwatch", emptyMap())
+
+        assertEquals(SkillResult.Success("Recorded lap 1 at 00:07. Split 00:07."), result)
+        coVerify(exactly = 1) { clockRepository.recordStopwatchLap(any(), any()) }
+    }
+
+    @Test
+    fun `lap_stopwatch fails truthfully when stopwatch is not running`() {
+        every { clockRepository.observeStopwatch() } returns flowOf(
+            ClockStopwatch(
+                id = "primary",
+                status = StopwatchStatus.PAUSED,
+                accumulatedElapsedMs = 7_500L,
+                updatedAtMillis = 27_500L,
+            ),
+        )
+
+        val result = handler.handle("lap_stopwatch", emptyMap())
+
+        assertEquals(SkillResult.Failure("lap_stopwatch", "No running stopwatch to record a lap."), result)
+        coVerify(exactly = 0) { clockRepository.recordStopwatchLap(any(), any()) }
+    }
+
+    @Test
+    fun `get_stopwatch_status reports paused stopwatch with lap count`() {
+        every { clockRepository.observeStopwatch() } returns flowOf(
+            ClockStopwatch(
+                id = "primary",
+                status = StopwatchStatus.PAUSED,
+                accumulatedElapsedMs = 12_000L,
+                updatedAtMillis = 12_000L,
+                laps = listOf(
+                    StopwatchLap(id = 1L, lapNumber = 1, elapsedMs = 12_000L, splitMs = 12_000L, createdAtMillis = 12_000L),
+                ),
+            ),
+        )
+
+        val result = handler.handle("get_stopwatch_status", emptyMap())
+
+        assertEquals(SkillResult.DirectReply("Stopwatch paused at 00:12 with 1 lap recorded."), result)
+    }
+
 
     @Test
     fun `set_timer returns generic failure when repository rejects despite exact alarm availability`() {
