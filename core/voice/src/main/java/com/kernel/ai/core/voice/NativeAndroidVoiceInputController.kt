@@ -28,7 +28,8 @@ private const val ON_DEVICE_READY_TIMEOUT_MS = 1_500L
 
 
 internal fun shouldForceRecognizerLanguage(availability: AndroidNativeRecognitionAvailability): Boolean =
-    availability.languageTag.isNotBlank()
+    availability.languageTag.isNotBlank() &&
+        availability.localeStatus != AndroidNativeRecognitionLocaleStatus.Unknown
 
 
 internal enum class RecognizerBackend {
@@ -90,7 +91,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         return withContext(Dispatchers.Main.immediate) {
             stopListeningInternal(emitStopped = false)
 
-            val availability = recognitionSupport.getCaptureAvailability()
+            val availability = recognitionSupport.getAvailability()
             availability.blockingReason?.let { reason ->
                 Log.w(
                     TAG,
