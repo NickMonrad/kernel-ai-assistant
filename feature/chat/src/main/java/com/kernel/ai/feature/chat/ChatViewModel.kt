@@ -327,22 +327,22 @@ class ChatViewModel @Inject constructor(
             voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
-                        if (event.mode != VoiceCaptureMode.Command) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
                             ?.transcript
                             .orEmpty()
                         _voiceCaptureState.value = VoiceCaptureState.Listening(currentTranscript)
                     }
                     is VoiceInputEvent.PartialTranscript -> {
-                        if (event.mode != VoiceCaptureMode.Command) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.text)
                     }
                     is VoiceInputEvent.Transcript -> {
-                        if (event.mode != VoiceCaptureMode.Command) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         submitVoiceTranscript(event.text)
                     }
                     is VoiceInputEvent.Error -> {
-                        if (event.mode != VoiceCaptureMode.Command) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
                         _voiceMode.value = null
@@ -350,7 +350,7 @@ class ChatViewModel @Inject constructor(
                         _error.value = withVoiceSettingsHint(event.message)
                     }
                     is VoiceInputEvent.ListeningStopped -> {
-                        if (event.mode != VoiceCaptureMode.Command) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         when (val currentState = _voiceCaptureState.value) {
                             is VoiceCaptureState.Listening -> {
                                 if (currentState.transcript.isBlank()) {
@@ -793,6 +793,10 @@ class ChatViewModel @Inject constructor(
      * re-arms automatically until the user explicitly stops or leaves the conversation.
      */
     fun startBackAndForthVoiceInput() = startVoiceInput(VoiceMode.BackAndForth)
+
+    private fun ownsCommandVoiceCapture(): Boolean =
+        _voiceCaptureState.value != VoiceCaptureState.Idle
+
 
     private fun startVoiceInput(mode: VoiceMode) {
         if (inferenceEngine.isGenerating.value || _isLoadingModel.value) return

@@ -126,6 +126,16 @@ class ActionsViewModelVoiceTest {
 
 
     @Test
+    fun `idle actions viewmodel ignores command transcript it did not start`() = runTest(dispatcher) {
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "cancel timer"))
+        advanceUntilIdle()
+
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        verify(exactly = 0) { quickIntentRouter.route(any()) }
+    }
+
+
+    @Test
     fun `executeAction in voice mode speaks slot prompt for NeedsSlot`() = runTest(dispatcher) {
         every { quickIntentRouter.route("send a message to Laurelle") } returns
             QuickIntentRouter.RouteResult.NeedsSlot(
