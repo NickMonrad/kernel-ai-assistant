@@ -1,5 +1,7 @@
 package com.kernel.ai.feature.chat
 
+import android.media.AudioManager
+import android.media.ToneGenerator
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -51,6 +53,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Memory
@@ -66,6 +69,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -83,6 +87,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -134,6 +139,7 @@ fun ChatScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
+    val voiceMode by viewModel.voiceMode.collectAsStateWithLifecycle()
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -177,7 +183,9 @@ fun ChatScreen(
                 onRenameConversation = viewModel::renameConversation,
                 voiceCaptureState = voiceCaptureState,
                 voicePlaybackState = voicePlaybackState,
+                voiceMode = voiceMode,
                 onStartVoiceInput = viewModel::startVoiceInput,
+                onStartBackAndForthVoiceInput = viewModel::startBackAndForthVoiceInput,
                 onStopVoiceInput = viewModel::stopVoiceInput,
                 onStopVoiceOutput = viewModel::stopVoiceOutput,
                 snackbarHostState = snackbarHostState,
@@ -212,7 +220,9 @@ private fun ChatContent(
     onRenameConversation: (String) -> Unit,
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
+    voiceMode: ChatViewModel.VoiceMode?,
     onStartVoiceInput: () -> Unit,
+    onStartBackAndForthVoiceInput: () -> Unit,
     onStopVoiceInput: () -> Unit,
     onStopVoiceOutput: () -> Unit,
     snackbarHostState: SnackbarHostState,
@@ -222,6 +232,34 @@ private fun ChatContent(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
+    val loopListeningCue = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 65) }
+    var lastVoiceCaptureState by remember { mutableStateOf<ChatViewModel.VoiceCaptureState>(ChatViewModel.VoiceCaptureState.Idle) }
+    val view = androidx.compose.ui.platform.LocalView.current
+    val keepScreenAwake = voiceMode == ChatViewModel.VoiceMode.BackAndForth
+
+    DisposableEffect(Unit) {
+        onDispose { loopListeningCue.release() }
+    }
+
+    DisposableEffect(view, keepScreenAwake) {
+        val previousKeepScreenOn = view.keepScreenOn
+        view.keepScreenOn = keepScreenAwake || previousKeepScreenOn
+        onDispose {
+            view.keepScreenOn = previousKeepScreenOn
+        }
+    }
+
+    LaunchedEffect(voiceCaptureState, voiceMode) {
+        val startedLoopListening =
+            voiceMode == ChatViewModel.VoiceMode.BackAndForth &&
+                voiceCaptureState is ChatViewModel.VoiceCaptureState.Preparing &&
+                lastVoiceCaptureState !is ChatViewModel.VoiceCaptureState.Preparing &&
+                lastVoiceCaptureState !is ChatViewModel.VoiceCaptureState.Listening
+        if (startedLoopListening) {
+            loopListeningCue.startTone(ToneGenerator.TONE_PROP_BEEP2, 120)
+        }
+        lastVoiceCaptureState = voiceCaptureState
+    }
 
     // Auto-scroll when a new message is appended, but only if the user is already
     // near the bottom (within 2 items). If they've scrolled up to read history,
@@ -397,10 +435,12 @@ private fun ChatContent(
                 isGenerating = state.isGenerating,
                 voiceCaptureState = voiceCaptureState,
                 voicePlaybackState = voicePlaybackState,
+                voiceMode = voiceMode,
                 onTextChanged = onInputChanged,
                 onSend = onSend,
                 onCancel = onCancel,
                 onStartVoiceInput = onStartVoiceInput,
+                onStartBackAndForthVoiceInput = onStartBackAndForthVoiceInput,
                 onStopVoiceInput = onStopVoiceInput,
                 onStopVoiceOutput = onStopVoiceOutput,
                 modifier = Modifier.navigationBarsPadding(),
@@ -627,32 +667,48 @@ private fun InputBar(
     isGenerating: Boolean,
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
+    voiceMode: ChatViewModel.VoiceMode?,
     onTextChanged: (String) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit,
     onStartVoiceInput: () -> Unit,
+    onStartBackAndForthVoiceInput: () -> Unit,
     onStopVoiceInput: () -> Unit,
     onStopVoiceOutput: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val voiceStatus = remember(voiceCaptureState, voicePlaybackState) {
+    val voiceStatus = remember(voiceCaptureState, voicePlaybackState, voiceMode) {
         when (voiceCaptureState) {
             ChatViewModel.VoiceCaptureState.Idle -> when (voicePlaybackState) {
                 ChatViewModel.VoicePlaybackState.Idle -> null
                 is ChatViewModel.VoicePlaybackState.Speaking -> VoiceStatusUiModel(
                     title = "Speaking reply",
-                    subtitle = voicePlaybackState.text,
+                    subtitle = if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
+                        "Listening again when done…"
+                    } else {
+                        voicePlaybackState.text
+                    },
                     icon = Icons.Outlined.CheckCircle,
                 )
             }
             ChatViewModel.VoiceCaptureState.Preparing -> VoiceStatusUiModel(
                 title = "Starting voice input",
-                subtitle = "One-shot push-to-talk",
+                subtitle = if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
+                    "Back-and-forth mode"
+                } else {
+                    "One-shot push-to-talk"
+                },
                 icon = Icons.Default.Mic,
             )
             is ChatViewModel.VoiceCaptureState.Listening -> VoiceStatusUiModel(
                 title = "Listening",
-                subtitle = voiceCaptureState.transcript.ifBlank { "One-shot push-to-talk" },
+                subtitle = voiceCaptureState.transcript.ifBlank {
+                    if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
+                        "Back-and-forth mode"
+                    } else {
+                        "One-shot push-to-talk"
+                    }
+                },
                 icon = Icons.Default.Mic,
             )
             is ChatViewModel.VoiceCaptureState.Processing -> VoiceStatusUiModel(
@@ -755,11 +811,48 @@ private fun InputBar(
                     enter = fadeIn(),
                     exit = fadeOut(),
                 ) {
-                    IconButton(
-                        onClick = onStartVoiceInput,
-                        modifier = Modifier.testTag("chat_voice_start"),
-                    ) {
-                        Icon(Icons.Default.Mic, contentDescription = "Start one-shot voice input")
+                    // Make the difference explicit in the idle composer: "PTT" vs "Loop".
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Surface(
+                            onClick = onStartVoiceInput,
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            tonalElevation = 1.dp,
+                            modifier = Modifier.testTag("chat_voice_start"),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.Mic,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                                Text(
+                                    text = "PTT",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = onStartBackAndForthVoiceInput,
+                            modifier = Modifier.testTag("chat_voice_start_loop"),
+                        ) {
+                            Icon(
+                                Icons.Default.Repeat,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = "Loop",
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
+                        }
                     }
                 }
 
