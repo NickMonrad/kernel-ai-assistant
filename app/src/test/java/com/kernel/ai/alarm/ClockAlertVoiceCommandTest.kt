@@ -16,6 +16,19 @@ class ClockAlertVoiceCommandTest {
     }
 
     @Test
+    fun `parseClockAlertVoiceCommand accepts repeated accumulated transcript`() {
+        assertEquals(
+            ClockAlertVoiceCommand.DISMISS,
+            parseClockAlertVoiceCommand("Stop stop dismiss"),
+        )
+        assertEquals(
+            ClockAlertVoiceCommand.ADD_ONE_MINUTE,
+            parseClockAlertVoiceCommand("could you add one minute please"),
+        )
+    }
+
+
+    @Test
     fun `parseClockAlertVoiceCommand rejects unsupported phrases`() {
         assertNull(parseClockAlertVoiceCommand("pause stopwatch"))
         assertNull(parseClockAlertVoiceCommand("what time is it"))
