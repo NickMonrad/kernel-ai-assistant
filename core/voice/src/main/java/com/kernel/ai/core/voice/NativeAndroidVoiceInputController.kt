@@ -15,21 +15,29 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "NativeVoiceInput"
+private const val ON_DEVICE_READY_TIMEOUT_MS = 1_500L
+
 
 internal fun shouldForceRecognizerLanguage(availability: AndroidNativeRecognitionAvailability): Boolean =
     availability.languageTag.isNotBlank()
 
 
-private enum class RecognizerBackend {
+internal enum class RecognizerBackend {
     OnDevice,
     Platform,
 }
+
+internal fun shouldRetryWithPlatformAfterStartupTimeout(backend: RecognizerBackend): Boolean =
+    backend == RecognizerBackend.OnDevice
 
 @Singleton
 class NativeAndroidVoiceInputController @Inject constructor(
@@ -55,6 +63,9 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
     @Volatile
     private var activeSessionId: Long = 0L
+
+    @Volatile
+    private var startupFallbackJob: Job? = null
 
     private var nextSessionId: Long = 0L
 
@@ -85,7 +96,6 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     availability = availability,
                     backend = RecognizerBackend.OnDevice,
                 )
-                _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
                 VoiceInputStartResult.Started
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start Android native voice capture", e)
@@ -110,6 +120,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
         val mode = currentMode
         val recognizer = speechRecognizer
+        startupFallbackJob?.cancel()
+        startupFallbackJob = null
         speechRecognizer = null
         currentMode = null
         activeSessionId = 0L
@@ -164,7 +176,40 @@ class NativeAndroidVoiceInputController @Inject constructor(
             ),
         )
         recognizer.startListening(buildRecognizerIntent(availability))
+        scheduleStartupFallback(sessionId, mode, availability, backend)
     }
+
+    private fun scheduleStartupFallback(
+        sessionId: Long,
+        mode: VoiceCaptureMode,
+        availability: AndroidNativeRecognitionAvailability,
+        backend: RecognizerBackend,
+    ) {
+        startupFallbackJob?.cancel()
+        if (!shouldRetryWithPlatformAfterStartupTimeout(backend)) {
+            startupFallbackJob = null
+            return
+        }
+        startupFallbackJob = kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
+            delay(ON_DEVICE_READY_TIMEOUT_MS)
+            if (activeSessionId != sessionId) return@launch
+            Log.w(
+                TAG,
+                "On-device recognizer never became ready for sessionId=$sessionId; retrying with platform recognizer",
+            )
+            retryWithPlatformRecognizer(
+                sessionId = sessionId,
+                mode = mode,
+                availability = availability,
+            )
+        }
+    }
+
+    private fun cancelStartupFallback() {
+        startupFallbackJob?.cancel()
+        startupFallbackJob = null
+    }
+
 
     private fun retryWithPlatformRecognizer(
         sessionId: Long,
@@ -174,6 +219,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         if (activeSessionId != sessionId) return false
 
         return runCatching {
+            cancelStartupFallback()
             speechRecognizer?.apply {
                 runCatching { cancel() }
                 runCatching { destroy() }
@@ -200,7 +246,12 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
         private var sessionCompleted = false
 
-        override fun onReadyForSpeech(params: Bundle?) = Unit
+        override fun onReadyForSpeech(params: Bundle?) {
+            if (sessionCompleted || activeSessionId != sessionId) return
+            cancelStartupFallback()
+            Log.i(TAG, "Android native STT ready: sessionId=$sessionId mode=$mode backend=$backend")
+            _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
+        }
 
         override fun onBeginningOfSpeech() = Unit
 
@@ -229,6 +280,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 return
             }
             sessionCompleted = true
+            cancelStartupFallback()
             Log.w(
                 TAG,
                 "Android native STT error: sessionId=$sessionId mode=$mode error=$error " +
@@ -249,6 +301,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             if (sessionCompleted || activeSessionId != sessionId) return
             val transcript = extractBestTranscript(results)
             sessionCompleted = true
+            cancelStartupFallback()
             Log.i(
                 TAG,
                 "Android native STT result: sessionId=$sessionId mode=$mode transcript='$transcript' " +
