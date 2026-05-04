@@ -42,14 +42,22 @@ class NativeAndroidVoiceInputControllerTest {
     }
 
     @Test
-    fun `shouldForceRecognizerLanguage keeps requested locale for native capture`() {
-        val availability = createRecognitionAvailability(
+    fun `shouldForceRecognizerLanguage only forces verified locale`() {
+        val unknownAvailability = createRecognitionAvailability(
             isRecognitionAvailable = true,
             isOnDeviceRecognitionAvailable = true,
             languageTag = "en-AU",
             languageDisplayName = "English (Australia)",
         )
+        val readyAvailability = createRecognitionAvailability(
+            isRecognitionAvailable = true,
+            isOnDeviceRecognitionAvailable = true,
+            languageTag = "en-AU",
+            languageDisplayName = "English (Australia)",
+            localeStatus = AndroidNativeRecognitionLocaleStatus.Ready,
+        )
 
-        assertEquals(true, shouldForceRecognizerLanguage(availability))
+        assertEquals(false, shouldForceRecognizerLanguage(unknownAvailability))
+        assertEquals(true, shouldForceRecognizerLanguage(readyAvailability))
     }
 }
