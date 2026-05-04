@@ -101,7 +101,7 @@ class VoicePackDownloadWorker(
             extractTarBz2(tmpFile, destDir)
             tmpFile.delete()
 
-            if (!voice.isDownloaded(applicationContext)) {
+            if (!hasRequiredSherpaVoicePackFiles(destDir)) {
                 Log.e(TAG, "Extraction appeared to succeed but required files are missing for $voiceName")
                 return@withContext Result.failure(errorData("Extraction incomplete — required files missing"))
             }
@@ -202,6 +202,9 @@ class VoicePackDownloadWorker(
      *   `vits-piper-en_GB-jenny_dioco-medium/model.onnx` → `destDir/model.onnx`
      */
     private fun extractTarBz2(tarBz2: File, destDir: File) {
+        if (destDir.exists()) {
+            destDir.deleteRecursively()
+        }
         destDir.mkdirs()
         tarBz2.inputStream().buffered().use { fis ->
             BZip2CompressorInputStream(fis).use { bzip2 ->
@@ -235,6 +238,7 @@ class VoicePackDownloadWorker(
                 }
             }
         }
+        normalizeExtractedSherpaVoicePack(destDir)
     }
 
     // ── Foreground / notification ─────────────────────────────────────────────

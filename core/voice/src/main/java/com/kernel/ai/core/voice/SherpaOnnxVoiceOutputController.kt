@@ -243,9 +243,9 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
 
         // OfflineTtsVitsModelConfig — all-defaults constructor
         val vitsConfig = newInstance(vitsClass)
-        setProperty(vitsConfig, "model", File(modelDir, MODEL_ONNX_FILE).absolutePath)
-        setProperty(vitsConfig, "tokens", File(modelDir, TOKENS_FILE).absolutePath)
-        setProperty(vitsConfig, "dataDir", File(modelDir, ESPEAK_DATA_DIR).absolutePath)
+        setProperty(vitsConfig, "model", File(modelDir, SHERPA_MODEL_ONNX_FILE).absolutePath)
+        setProperty(vitsConfig, "tokens", File(modelDir, SHERPA_TOKENS_FILE).absolutePath)
+        setProperty(vitsConfig, "dataDir", File(modelDir, SHERPA_ESPEAK_DATA_DIR).absolutePath)
 
         // OfflineTtsModelConfig
         val modelConfig = newInstance(modelConfigClass)
@@ -469,10 +469,6 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         const val SHERPA_OFFLINE_TTS_CONFIG_CLASS = "$SHERPA_PKG.OfflineTtsConfig"
         const val SHERPA_MODEL_CONFIG_CLASS = "$SHERPA_PKG.OfflineTtsModelConfig"
         const val SHERPA_VITS_MODEL_CONFIG_CLASS = "$SHERPA_PKG.OfflineTtsVitsModelConfig"
-
-        const val MODEL_ONNX_FILE = "model.onnx"
-        const val TOKENS_FILE = "tokens.txt"
-        const val ESPEAK_DATA_DIR = "espeak-ng-data"
 
         /** Floats per AudioTrack write chunk (~92 ms at 22050 Hz). */
         const val AUDIO_CHUNK_FLOATS = 2048

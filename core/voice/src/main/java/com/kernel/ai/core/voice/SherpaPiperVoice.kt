@@ -49,10 +49,7 @@ enum class SherpaPiperVoice(
     /** Returns true when the voice pack is fully extracted to internal storage. */
     fun isDownloaded(context: Context): Boolean {
         val dir = voiceDir(context)
-        return dir.isDirectory &&
-            File(dir, "model.onnx").exists() &&
-            File(dir, "tokens.txt").exists() &&
-            File(dir, "espeak-ng-data").isDirectory
+        return hasRequiredSherpaVoicePackFiles(dir)
     }
 
     companion object {
