@@ -232,19 +232,30 @@ private fun ChatContent(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
-    val loopListeningCue = remember { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 55) }
+    val loopListeningCue = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 65) }
     var lastVoiceCaptureState by remember { mutableStateOf<ChatViewModel.VoiceCaptureState>(ChatViewModel.VoiceCaptureState.Idle) }
+    val view = androidx.compose.ui.platform.LocalView.current
+    val keepScreenAwake = voiceMode == ChatViewModel.VoiceMode.BackAndForth
 
     DisposableEffect(Unit) {
         onDispose { loopListeningCue.release() }
     }
 
+    DisposableEffect(view, keepScreenAwake) {
+        val previousKeepScreenOn = view.keepScreenOn
+        view.keepScreenOn = keepScreenAwake || previousKeepScreenOn
+        onDispose {
+            view.keepScreenOn = previousKeepScreenOn
+        }
+    }
+
     LaunchedEffect(voiceCaptureState, voiceMode) {
-        val enteredListening =
+        val startedLoopListening =
             voiceMode == ChatViewModel.VoiceMode.BackAndForth &&
-                voiceCaptureState is ChatViewModel.VoiceCaptureState.Listening &&
+                voiceCaptureState is ChatViewModel.VoiceCaptureState.Preparing &&
+                lastVoiceCaptureState !is ChatViewModel.VoiceCaptureState.Preparing &&
                 lastVoiceCaptureState !is ChatViewModel.VoiceCaptureState.Listening
-        if (enteredListening) {
+        if (startedLoopListening) {
             loopListeningCue.startTone(ToneGenerator.TONE_PROP_BEEP2, 120)
         }
         lastVoiceCaptureState = voiceCaptureState
