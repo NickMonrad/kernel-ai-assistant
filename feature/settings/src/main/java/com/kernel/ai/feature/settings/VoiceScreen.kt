@@ -119,6 +119,28 @@ fun VoiceScreen(
             }
 
             Text(
+                text = "Clock alerts",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                headlineContent = { Text("Automatically listen when alarms or timers ring") },
+                supportingContent = {
+                    Text("Start local voice command capture for stop, dismiss, snooze, or add one minute as soon as an alert begins")
+                },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.autoStartAlertVoiceCommandsEnabled,
+                        onCheckedChange = { viewModel.setAutoStartAlertVoiceCommandsEnabled(it) },
+                    )
+                },
+            )
+            HorizontalDivider()
+
+            Text(
                 text = "Quick Actions output",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,

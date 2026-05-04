@@ -22,6 +22,15 @@ class ClockAlertVoiceCommandTest {
     }
 
     @Test
+    fun `shouldAutoStartAlertVoiceControl only enables ringing voice capture for alarms and timers`() {
+        assertEquals(true, shouldAutoStartAlertVoiceControl(true, ClockEventType.ALARM))
+        assertEquals(true, shouldAutoStartAlertVoiceControl(true, ClockEventType.TIMER))
+        assertEquals(false, shouldAutoStartAlertVoiceControl(false, ClockEventType.ALARM))
+        assertEquals(false, shouldAutoStartAlertVoiceControl(true, ClockEventType.PRE_ALARM))
+    }
+
+
+    @Test
     fun `alertVoiceUnsupportedMessage is truthful for timer snooze`() {
         assertEquals(
             "Snooze is only available for alarms.",
