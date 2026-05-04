@@ -27,11 +27,12 @@ class NativeAndroidVoiceInputControllerTest {
     }
 
     @Test
-    fun `shouldRetryWithPlatformAfterRecognitionError retries startup silence on-device only`() {
+    fun `shouldRetryWithPlatformAfterRecognitionError keeps normal command fallback conservative`() {
         assertEquals(
             true,
             shouldRetryWithPlatformAfterRecognitionError(
                 backend = RecognizerBackend.OnDevice,
+                mode = VoiceCaptureMode.Command,
                 error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
                 heardSpeech = false,
                 sawPartialTranscript = false,
@@ -41,6 +42,7 @@ class NativeAndroidVoiceInputControllerTest {
             false,
             shouldRetryWithPlatformAfterRecognitionError(
                 backend = RecognizerBackend.OnDevice,
+                mode = VoiceCaptureMode.Command,
                 error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
                 heardSpeech = true,
                 sawPartialTranscript = false,
@@ -50,9 +52,34 @@ class NativeAndroidVoiceInputControllerTest {
             false,
             shouldRetryWithPlatformAfterRecognitionError(
                 backend = RecognizerBackend.Platform,
+                mode = VoiceCaptureMode.Command,
                 error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
                 heardSpeech = false,
                 sawPartialTranscript = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `shouldRetryWithPlatformAfterRecognitionError retries alert no-match after speech without partials`() {
+        assertEquals(
+            true,
+            shouldRetryWithPlatformAfterRecognitionError(
+                backend = RecognizerBackend.OnDevice,
+                mode = VoiceCaptureMode.AlertCommand,
+                error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                heardSpeech = true,
+                sawPartialTranscript = false,
+            ),
+        )
+        assertEquals(
+            false,
+            shouldRetryWithPlatformAfterRecognitionError(
+                backend = RecognizerBackend.OnDevice,
+                mode = VoiceCaptureMode.AlertCommand,
+                error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                heardSpeech = true,
+                sawPartialTranscript = true,
             ),
         )
     }
