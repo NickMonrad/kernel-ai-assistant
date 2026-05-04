@@ -11,10 +11,13 @@ internal enum class ClockAlertVoiceCommand {
 private val dismissCommandPhrases = listOf(
     listOf("stop"),
     listOf("dismiss"),
+    listOf("cancel"),
     listOf("stop", "alarm"),
     listOf("dismiss", "alarm"),
+    listOf("cancel", "alarm"),
     listOf("stop", "timer"),
     listOf("dismiss", "timer"),
+    listOf("cancel", "timer"),
 )
 
 private val snoozeCommandPhrases = listOf(

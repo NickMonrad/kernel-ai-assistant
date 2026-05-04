@@ -10,6 +10,7 @@ class ClockAlertVoiceCommandTest {
     fun `parseClockAlertVoiceCommand matches supported alert phrases`() {
         assertEquals(ClockAlertVoiceCommand.DISMISS, parseClockAlertVoiceCommand("stop"))
         assertEquals(ClockAlertVoiceCommand.DISMISS, parseClockAlertVoiceCommand("dismiss timer"))
+        assertEquals(ClockAlertVoiceCommand.DISMISS, parseClockAlertVoiceCommand("cancel"))
         assertEquals(ClockAlertVoiceCommand.SNOOZE, parseClockAlertVoiceCommand("snooze alarm"))
         assertEquals(ClockAlertVoiceCommand.ADD_ONE_MINUTE, parseClockAlertVoiceCommand("add one minute"))
         assertEquals(ClockAlertVoiceCommand.ADD_ONE_MINUTE, parseClockAlertVoiceCommand("another minute"))
@@ -20,6 +21,10 @@ class ClockAlertVoiceCommandTest {
         assertEquals(
             ClockAlertVoiceCommand.DISMISS,
             parseClockAlertVoiceCommand("Stop stop dismiss"),
+        )
+        assertEquals(
+            ClockAlertVoiceCommand.DISMISS,
+            parseClockAlertVoiceCommand("cancel cancel timer"),
         )
         assertEquals(
             ClockAlertVoiceCommand.ADD_ONE_MINUTE,
