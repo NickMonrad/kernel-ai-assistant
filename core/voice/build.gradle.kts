@@ -44,6 +44,12 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.vosk.android)
 
+    // WorkManager — required for VoicePackDownloadWorker / SherpaVoicePackDownloadManager
+    implementation(libs.work.runtime.ktx)
+
+    // Apache Commons Compress — BZip2 + Tar extraction for Sherpa Piper voice packs
+    implementation(libs.commons.compress)
+
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
 

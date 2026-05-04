@@ -144,38 +144,49 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     }
 
     private fun doInitialize(voice: SherpaPiperVoice): VoiceOutputResult {
-        val assetsSubdir = voice.assetsSubdirectory
-
         // 1. Check AAR is on classpath via Class.forName (no import needed)
         val ttsClass = try {
             Class.forName(SHERPA_OFFLINE_TTS_CLASS)
         } catch (e: ClassNotFoundException) {
-            Log.i(TAG, "Sherpa-ONNX not on classpath — AAR not downloaded. " +
-                "Run scripts/setup-sherpa-tts-spike.sh then rebuild.")
+            Log.i(TAG, "Sherpa-ONNX not on classpath — AAR not present in APK.")
             initState = InitState.UNAVAILABLE
             return VoiceOutputResult.Unavailable(
-                "Sherpa-ONNX AAR not present for ${voice.displayName}. Run scripts/setup-sherpa-tts-spike.sh."
+                "Sherpa-ONNX runtime not available for ${voice.displayName}."
             )
         }
 
-        // 2. Check model assets are bundled in APK
-        val assetsPresent = runCatching {
-            context.assets.list(assetsSubdir)?.isNotEmpty() == true
-        }.getOrDefault(false)
+        // 2. Prefer voice pack downloaded to internal storage over APK assets
+        val downloadedDir = voice.voiceDir(context)
+        val modelDir: File = when {
+            voice.isDownloaded(context) -> {
+                Log.i(TAG, "Using downloaded voice pack at ${downloadedDir.absolutePath}")
+                downloadedDir
+            }
+            else -> {
+                // 3. Fall back to APK assets (local dev path — assets are gitignored)
+                val assetsSubdir = voice.assetsSubdirectory
+                val assetsPresent = runCatching {
+                    context.assets.list(assetsSubdir)?.isNotEmpty() == true
+                }.getOrDefault(false)
 
-        if (!assetsPresent) {
-            Log.i(TAG, "Sherpa-ONNX model assets missing at assets/$assetsSubdir. " +
-                "Run scripts/setup-sherpa-tts-spike.sh then rebuild.")
-            initState = InitState.UNAVAILABLE
-            return VoiceOutputResult.Unavailable(
-                "Sherpa-ONNX model assets missing for ${voice.displayName}. Run scripts/setup-sherpa-tts-spike.sh."
-            )
+                if (!assetsPresent) {
+                    Log.i(TAG, "Voice pack not downloaded and not in APK assets: $assetsSubdir. " +
+                        "Use Settings → Voice to download the voice pack.")
+                    initState = InitState.UNAVAILABLE
+                    return VoiceOutputResult.Unavailable(
+                        "Voice pack not yet downloaded for ${voice.displayName}. " +
+                            "Tap Download in Settings → Voice."
+                    )
+                }
+
+                // Extract assets to filesystem so Sherpa gets real paths
+                val extractedDir = File(context.filesDir, assetsSubdir)
+                extractAssetsIfNeeded(assetsSubdir, extractedDir)
+                extractedDir
+            }
         }
 
-        // 3. Extract assets to filesystem (Sherpa needs real paths)
-        val modelDir = File(context.filesDir, assetsSubdir)
         return try {
-            extractAssetsIfNeeded(assetsSubdir, modelDir)
             val config = buildOfflineTtsConfig(modelDir)
             val configClass = Class.forName(SHERPA_OFFLINE_TTS_CONFIG_CLASS)
             val ctor = ttsClass.getConstructor(
@@ -193,7 +204,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             ttsInstance = instance
             generateMethod = gen
             initState = InitState.AVAILABLE
-            Log.i(TAG, "Sherpa-ONNX TTS initialised — voice: ${voice.downloadKey}")
+            Log.i(TAG, "Sherpa-ONNX TTS initialised — voice: ${voice.downloadKey} at ${modelDir.absolutePath}")
             VoiceOutputResult.Spoken
         } catch (e: Exception) {
             Log.e(TAG, "Sherpa-ONNX TTS init failed", e)
@@ -431,7 +442,22 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     }
 
     private fun unavailableMessage(voice: SherpaPiperVoice): String =
-        "Sherpa-ONNX TTS is not available for ${voice.displayName}. Run scripts/setup-sherpa-tts-spike.sh."
+        "Sherpa-ONNX TTS is not available for ${voice.displayName}. " +
+            "Download the voice pack in Settings → Voice."
+
+    /**
+     * Called by [SherpaVoicePackDownloadManager] after a voice pack is successfully downloaded.
+     *
+     * If this voice was previously [InitState.UNAVAILABLE] (pack was missing), resets the
+     * state to [InitState.UNINITIALIZED] so the next [speak] call re-initialises Sherpa
+     * using the newly extracted files — without requiring a voice-selection change.
+     */
+    fun markVoiceAvailable(voice: SherpaPiperVoice) {
+        if (initState == InitState.UNAVAILABLE && (initializedVoice == voice || initializedVoice == null)) {
+            Log.i(TAG, "Voice pack available for ${voice.displayName} — resetting init state for retry.")
+            resetForVoice(voice)
+        }
+    }
 
     // ── Constants ────────────────────────────────────────────────────────────
 

@@ -144,6 +144,24 @@ class FallbackVoiceOutputControllerTest {
     }
 
     @Test
+    fun `speak falls back to Android TTS when the selected Sherpa voice pack is not downloaded`() =
+        runTest(dispatcher) {
+            selectedEngine.value = VoiceOutputEngine.SherpaExperimental
+            val request = VoiceSpeakRequest("Fallback voice pack")
+            coEvery { sherpa.warmUp() } returns VoiceOutputResult.Unavailable("Voice pack not downloaded")
+            coEvery { androidTts.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { androidTts.speak(request) } returns VoiceOutputResult.Spoken
+
+            val controller = buildController()
+            val result = controller.speak(request)
+
+            assertEquals(VoiceOutputResult.Spoken, result)
+            coVerify(exactly = 1) { sherpa.warmUp() }
+            coVerify(exactly = 1) { androidTts.warmUp() }
+            coVerify(exactly = 1) { androidTts.speak(request) }
+        }
+
+    @Test
     fun `speak falls back to Android TTS when Sherpa speak fails`() = runTest(dispatcher) {
         selectedEngine.value = VoiceOutputEngine.SherpaExperimental
         val request = VoiceSpeakRequest("Fallback after Sherpa error")
