@@ -47,6 +47,9 @@ internal enum class RecognizerBackend {
     Platform,
 }
 
+internal fun initialRecognizerBackend(mode: VoiceCaptureMode): RecognizerBackend =
+    if (mode == VoiceCaptureMode.AlertCommand) RecognizerBackend.Platform else RecognizerBackend.OnDevice
+
 internal fun shouldRetryWithPlatformAfterStartupTimeout(backend: RecognizerBackend): Boolean =
     backend == RecognizerBackend.OnDevice
 
@@ -137,7 +140,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     sessionId = sessionId,
                     mode = mode,
                     availability = availability,
-                    backend = RecognizerBackend.OnDevice,
+                    backend = initialRecognizerBackend(mode),
                 )
                 VoiceInputStartResult.Started
             } catch (e: Exception) {

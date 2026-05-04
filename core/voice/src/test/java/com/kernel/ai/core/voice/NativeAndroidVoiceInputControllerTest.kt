@@ -13,6 +13,14 @@ class NativeAndroidVoiceInputControllerTest {
 
 
     @Test
+    fun `initialRecognizerBackend starts alert commands on platform`() {
+        assertEquals(RecognizerBackend.OnDevice, initialRecognizerBackend(VoiceCaptureMode.Command))
+        assertEquals(RecognizerBackend.OnDevice, initialRecognizerBackend(VoiceCaptureMode.SlotReply))
+        assertEquals(RecognizerBackend.Platform, initialRecognizerBackend(VoiceCaptureMode.AlertCommand))
+    }
+
+
+    @Test
     fun `sessionResultTimeoutMs shortens alert command watchdog`() {
         assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.Command))
         assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.SlotReply))
