@@ -50,8 +50,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Memory
@@ -67,6 +67,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -779,21 +780,47 @@ private fun InputBar(
                     enter = fadeIn(),
                     exit = fadeOut(),
                 ) {
-                    // Two distinct voice-entry controls (#741):
-                    //   • filled Mic  → one-shot (speak once, done)
-                    //   • outlined Mic → back-and-forth (auto-rearming conversation)
-                    Row {
-                        IconButton(
+                    // Make the difference explicit in the idle composer: "PTT" vs "Loop".
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Surface(
                             onClick = onStartVoiceInput,
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            tonalElevation = 1.dp,
                             modifier = Modifier.testTag("chat_voice_start"),
                         ) {
-                            Icon(Icons.Default.Mic, contentDescription = "Start one-shot voice input")
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.Mic,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                                Text(
+                                    text = "PTT",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                            }
                         }
-                        IconButton(
+
+                        OutlinedButton(
                             onClick = onStartBackAndForthVoiceInput,
                             modifier = Modifier.testTag("chat_voice_start_loop"),
                         ) {
-                            Icon(Icons.Outlined.Mic, contentDescription = "Start back-and-forth voice conversation")
+                            Icon(
+                                Icons.Default.Repeat,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = "Loop",
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
                         }
                     }
                 }
