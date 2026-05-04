@@ -159,6 +159,7 @@ class ActionsViewModel @Inject constructor(
             voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
+                        if (event.mode == VoiceCaptureMode.AlertCommand) return@collect
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
                             ?.takeIf { it.mode == event.mode }
                             ?.transcript
@@ -166,21 +167,26 @@ class ActionsViewModel @Inject constructor(
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, currentTranscript)
                     }
                     is VoiceInputEvent.PartialTranscript -> {
+                        if (event.mode == VoiceCaptureMode.AlertCommand) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, event.text)
                     }
                     is VoiceInputEvent.Transcript -> {
+                        if (event.mode == VoiceCaptureMode.AlertCommand) return@collect
                         val normalizedTranscript = normalizeVoiceCommand(event.text)
                         _voiceCaptureState.value = VoiceCaptureState.Processing(event.mode, normalizedTranscript)
                         when (event.mode) {
                             VoiceCaptureMode.Command -> executeAction(normalizedTranscript, InputMode.Voice)
                             VoiceCaptureMode.SlotReply -> onSlotReply(normalizedTranscript)
+                            VoiceCaptureMode.AlertCommand -> Unit
                         }
                     }
                     is VoiceInputEvent.Error -> {
+                        if (event.mode == VoiceCaptureMode.AlertCommand) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Idle
                         _error.value = event.message
                     }
                     is VoiceInputEvent.ListeningStopped -> {
+                        if (event.mode == VoiceCaptureMode.AlertCommand) return@collect
                         val currentState = _voiceCaptureState.value
                         when (currentState) {
                             is VoiceCaptureState.Listening -> {

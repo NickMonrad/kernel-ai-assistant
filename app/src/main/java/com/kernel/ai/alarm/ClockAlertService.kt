@@ -340,7 +340,7 @@ class ClockAlertService : Service() {
         voiceStatusMessage = if (autoStarted) "Listening for alert commands…" else alertVoiceListeningPrompt(alert.type)
         refreshForeground()
         serviceScope.launch {
-            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
+            when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
                 VoiceInputStartResult.Started -> Unit
                 is VoiceInputStartResult.Unavailable -> finishVoiceCapture(
                     result.message.ifBlank { "Voice commands are unavailable right now." },
@@ -353,7 +353,6 @@ class ClockAlertService : Service() {
         if (!isVoiceListening) return
         when (event) {
             is VoiceInputEvent.ListeningStarted -> {
-                stopPlayback()
                 currentAlert()?.let { voiceStatusMessage = alertVoiceListeningPrompt(it.type) }
                 refreshForeground()
             }
