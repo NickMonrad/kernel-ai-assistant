@@ -116,6 +116,16 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `alert command transcript does not execute quick actions`() = runTest(dispatcher) {
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "stop"))
+        advanceUntilIdle()
+
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        verify(exactly = 0) { quickIntentRouter.route(any()) }
+    }
+
+
+    @Test
     fun `executeAction in voice mode speaks slot prompt for NeedsSlot`() = runTest(dispatcher) {
         every { quickIntentRouter.route("send a message to Laurelle") } returns
             QuickIntentRouter.RouteResult.NeedsSlot(

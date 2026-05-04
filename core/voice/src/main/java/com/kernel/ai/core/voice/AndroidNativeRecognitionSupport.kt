@@ -56,10 +56,20 @@ enum class AndroidNativeRecognitionLocaleStatus {
     Unknown,
 }
 
+private data class LocaleSupportCache(
+    val languageTag: String,
+    val localeStatus: AndroidNativeRecognitionLocaleStatus,
+)
+
+
 @Singleton
 class AndroidNativeRecognitionSupport @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
+    @Volatile
+    private var localeSupportCache: LocaleSupportCache? = null
+
+
     suspend fun getAvailability(): AndroidNativeRecognitionAvailability {
         val baseAvailability = currentRecognitionAvailability()
         val localeStatus = if (
@@ -71,6 +81,10 @@ class AndroidNativeRecognitionSupport @Inject constructor(
             AndroidNativeRecognitionLocaleStatus.Unknown
         }
         val availability = baseAvailability.copy(localeStatus = localeStatus)
+        localeSupportCache = LocaleSupportCache(
+            languageTag = availability.languageTag,
+            localeStatus = availability.localeStatus,
+        )
 
         Log.i(
             TAG,
@@ -85,7 +99,12 @@ class AndroidNativeRecognitionSupport @Inject constructor(
     }
 
     fun getCaptureAvailability(): AndroidNativeRecognitionAvailability {
-        val availability = currentRecognitionAvailability()
+        val baseAvailability = currentRecognitionAvailability()
+        val cachedLocaleStatus = localeSupportCache
+            ?.takeIf { it.languageTag == baseAvailability.languageTag }
+            ?.localeStatus
+            ?: AndroidNativeRecognitionLocaleStatus.Unknown
+        val availability = baseAvailability.copy(localeStatus = cachedLocaleStatus)
         Log.i(
             TAG,
             "Android native capture availability: language=${availability.languageTag} " +
