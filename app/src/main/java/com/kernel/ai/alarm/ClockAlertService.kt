@@ -37,6 +37,7 @@ import kotlinx.coroutines.launch
 
 private const val ALARM_SNOOZE_MS = 10 * 60 * 1_000L
 private const val ALERT_ADD_MINUTE_MS = 60_000L
+private const val AUTO_START_VOICE_DELAY_MS = 2_000L
 internal fun shouldAutoStartAlertVoiceControl(
     enabled: Boolean,
     type: ClockEventType,
@@ -60,6 +61,7 @@ class ClockAlertService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var voiceEventsJob: Job? = null
     private var voicePreferencesJob: Job? = null
+    private var autoStartVoiceJob: Job? = null
     private var ringtone: Ringtone? = null
     private var isVoiceListening = false
     private var handledVoiceTranscript = false
@@ -92,10 +94,9 @@ class ClockAlertService : Service() {
                 voiceInputController.stopListening()
                 ensureChannel()
                 refreshForeground()
+                startAlertPlayback()
                 if (shouldAutoStartAlertVoiceControl(autoStartAlertVoiceCommandsEnabled, alert.type)) {
-                    startVoiceControl(alert)
-                } else {
-                    startAlertPlayback()
+                    scheduleAutoStartVoiceControl(alert)
                 }
             }
 
@@ -131,6 +132,7 @@ class ClockAlertService : Service() {
         voiceInputController.stopListening()
         voiceEventsJob?.cancel()
         voicePreferencesJob?.cancel()
+        autoStartVoiceJob?.cancel()
         serviceScope.cancel()
         stopPlayback()
         super.onDestroy()
@@ -224,6 +226,8 @@ class ClockAlertService : Service() {
 
     private fun stopAlertSession() {
         activeAlerts.clear()
+        autoStartVoiceJob?.cancel()
+        autoStartVoiceJob = null
         isVoiceListening = false
         handledVoiceTranscript = false
         voiceStatusMessage = null
@@ -235,6 +239,7 @@ class ClockAlertService : Service() {
 
     private fun dismissAlert(alert: TriggeredClockAlert) {
         activeAlerts.removeAll { it.ownerId == alert.ownerId }
+        cancelAutoStartVoiceControl(alert.ownerId)
         isVoiceListening = false
         handledVoiceTranscript = false
         voiceStatusMessage = null
@@ -245,6 +250,9 @@ class ClockAlertService : Service() {
             stopPlayback()
             refreshForeground()
             startAlertPlayback()
+            currentAlert()
+                ?.takeIf { shouldAutoStartAlertVoiceControl(autoStartAlertVoiceCommandsEnabled, it.type) }
+                ?.let(::scheduleAutoStartVoiceControl)
         }
     }
 
@@ -300,17 +308,36 @@ class ClockAlertService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+    private fun scheduleAutoStartVoiceControl(alert: TriggeredClockAlert) {
+        cancelAutoStartVoiceControl()
+        autoStartVoiceJob = serviceScope.launch {
+            kotlinx.coroutines.delay(AUTO_START_VOICE_DELAY_MS)
+            val current = findActiveAlert(alert.ownerId) ?: return@launch
+            if (!shouldAutoStartAlertVoiceControl(autoStartAlertVoiceCommandsEnabled, current.type) || isVoiceListening) return@launch
+            startVoiceControl(current, autoStarted = true)
+        }
+    }
+
+    private fun cancelAutoStartVoiceControl(ownerId: String? = null) {
+        val shouldCancel = ownerId == null || findActiveAlert(ownerId) == null
+        if (shouldCancel) {
+            autoStartVoiceJob?.cancel()
+            autoStartVoiceJob = null
+        }
+    }
+
+
     private fun currentAlert(): TriggeredClockAlert? = activeAlerts.lastOrNull()
 
     private fun findActiveAlert(ownerId: String): TriggeredClockAlert? =
         activeAlerts.firstOrNull { it.ownerId == ownerId }
 
-    private fun startVoiceControl(alert: TriggeredClockAlert) {
+    private fun startVoiceControl(alert: TriggeredClockAlert, autoStarted: Boolean = false) {
         if (isVoiceListening) return
+        cancelAutoStartVoiceControl()
         isVoiceListening = true
         handledVoiceTranscript = false
-        voiceStatusMessage = alertVoiceListeningPrompt(alert.type)
-        stopPlayback()
+        voiceStatusMessage = if (autoStarted) "Listening for alert commands…" else alertVoiceListeningPrompt(alert.type)
         refreshForeground()
         serviceScope.launch {
             when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
@@ -326,6 +353,7 @@ class ClockAlertService : Service() {
         if (!isVoiceListening) return
         when (event) {
             is VoiceInputEvent.ListeningStarted -> {
+                stopPlayback()
                 currentAlert()?.let { voiceStatusMessage = alertVoiceListeningPrompt(it.type) }
                 refreshForeground()
             }
