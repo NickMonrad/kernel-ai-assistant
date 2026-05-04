@@ -360,6 +360,7 @@ class ClockAlertService : Service() {
         isVoiceListening = true
         handledVoiceTranscript = false
         voiceStatusMessage = if (autoStarted) "Listening for alert commands…" else alertVoiceListeningPrompt(alert.type)
+        stopPlayback()
         refreshForeground()
         serviceScope.launch {
             when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
