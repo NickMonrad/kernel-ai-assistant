@@ -2,10 +2,6 @@ package com.kernel.ai.core.voice
 
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
-import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -39,6 +35,21 @@ internal enum class RecognizerBackend {
 internal fun shouldRetryWithPlatformAfterStartupTimeout(backend: RecognizerBackend): Boolean =
     backend == RecognizerBackend.OnDevice
 
+internal fun shouldRetryWithPlatformAfterRecognitionError(
+    backend: RecognizerBackend,
+    error: Int,
+    heardSpeech: Boolean,
+    sawPartialTranscript: Boolean,
+): Boolean =
+    backend == RecognizerBackend.OnDevice &&
+        when (error) {
+            SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> true
+            SpeechRecognizer.ERROR_NO_MATCH,
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
+            -> !heardSpeech && !sawPartialTranscript
+            else -> false
+        }
+
 @Singleton
 class NativeAndroidVoiceInputController @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -48,12 +59,6 @@ class NativeAndroidVoiceInputController @Inject constructor(
     private val _events = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 8)
     override val events: Flow<VoiceInputEvent> = _events.asSharedFlow()
 
-    private val audioManager by lazy {
-        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    }
-
-    @Volatile
-    private var audioFocusRequest: AudioFocusRequest? = null
 
     @Volatile
     private var speechRecognizer: SpeechRecognizer? = null
@@ -86,7 +91,6 @@ class NativeAndroidVoiceInputController @Inject constructor(
             }
 
             try {
-                requestAudioFocus()
                 val sessionId = ++nextSessionId
                 currentMode = mode
                 activeSessionId = sessionId
@@ -131,7 +135,6 @@ class NativeAndroidVoiceInputController @Inject constructor(
             runCatching { cancel() }
             runCatching { destroy() }
         }
-        releaseAudioFocus()
 
         if (emitStopped && mode != null) {
             _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
@@ -245,6 +248,9 @@ class NativeAndroidVoiceInputController @Inject constructor(
     ) : RecognitionListener {
 
         private var sessionCompleted = false
+        private var heardSpeech = false
+        private var sawPartialTranscript = false
+
 
         override fun onReadyForSpeech(params: Bundle?) {
             if (sessionCompleted || activeSessionId != sessionId) return
@@ -253,7 +259,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
             _events.tryEmit(VoiceInputEvent.ListeningStarted(mode))
         }
 
-        override fun onBeginningOfSpeech() = Unit
+        override fun onBeginningOfSpeech() {
+            if (sessionCompleted || activeSessionId != sessionId) return
+            heardSpeech = true
+            Log.d(TAG, "Android native STT speech began: sessionId=$sessionId mode=$mode backend=$backend")
+        }
 
         override fun onRmsChanged(rmsdB: Float) = Unit
 
@@ -264,8 +274,12 @@ class NativeAndroidVoiceInputController @Inject constructor(
         override fun onError(error: Int) {
             if (sessionCompleted || activeSessionId != sessionId) return
             if (
-                backend == RecognizerBackend.OnDevice &&
-                error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED &&
+                shouldRetryWithPlatformAfterRecognitionError(
+                    backend = backend,
+                    error = error,
+                    heardSpeech = heardSpeech,
+                    sawPartialTranscript = sawPartialTranscript,
+                ) &&
                 retryWithPlatformRecognizer(
                     sessionId = sessionId,
                     mode = mode,
@@ -275,7 +289,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 sessionCompleted = true
                 Log.w(
                     TAG,
-                    "On-device recognizer disconnected for sessionId=$sessionId; retried with platform recognizer",
+                    "Android native STT retried with platform recognizer after error=$error for sessionId=$sessionId " +
+                        "heardSpeech=$heardSpeech sawPartialTranscript=$sawPartialTranscript",
                 )
                 return
             }
@@ -325,6 +340,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             if (sessionCompleted || activeSessionId != sessionId) return
             val transcript = extractBestTranscript(partialResults)
             if (transcript.isNotBlank()) {
+                sawPartialTranscript = true
                 Log.d(
                     TAG,
                     "Android native STT partial: sessionId=$sessionId mode=$mode transcript='$transcript'",
@@ -365,36 +381,4 @@ class NativeAndroidVoiceInputController @Inject constructor(
             else -> "Android speech recognition failed with error code $error."
         }
 
-    private fun requestAudioFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build(),
-                )
-                .setOnAudioFocusChangeListener { }
-                .build()
-            audioFocusRequest = request
-            audioManager.requestAudioFocus(request)
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.requestAudioFocus(
-                { },
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
-            )
-        }
-    }
-
-    private fun releaseAudioFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
-            audioFocusRequest = null
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.abandonAudioFocus(null)
-        }
-    }
 }

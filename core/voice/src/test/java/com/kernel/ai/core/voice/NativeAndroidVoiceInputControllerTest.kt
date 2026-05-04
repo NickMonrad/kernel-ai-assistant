@@ -11,6 +11,37 @@ class NativeAndroidVoiceInputControllerTest {
     }
 
     @Test
+    fun `shouldRetryWithPlatformAfterRecognitionError retries startup silence on-device only`() {
+        assertEquals(
+            true,
+            shouldRetryWithPlatformAfterRecognitionError(
+                backend = RecognizerBackend.OnDevice,
+                error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                heardSpeech = false,
+                sawPartialTranscript = false,
+            ),
+        )
+        assertEquals(
+            false,
+            shouldRetryWithPlatformAfterRecognitionError(
+                backend = RecognizerBackend.OnDevice,
+                error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                heardSpeech = true,
+                sawPartialTranscript = false,
+            ),
+        )
+        assertEquals(
+            false,
+            shouldRetryWithPlatformAfterRecognitionError(
+                backend = RecognizerBackend.Platform,
+                error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                heardSpeech = false,
+                sawPartialTranscript = false,
+            ),
+        )
+    }
+
+    @Test
     fun `shouldForceRecognizerLanguage keeps requested locale for native capture`() {
         val availability = createRecognitionAvailability(
             isRecognitionAvailable = true,
