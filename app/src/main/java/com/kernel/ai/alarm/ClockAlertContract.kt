@@ -12,6 +12,9 @@ internal object ClockAlertContract {
 
     const val ACTION_TRIGGER_ALERT = "com.kernel.ai.alarm.action.TRIGGER_ALERT"
     const val ACTION_STOP_ALERT = "com.kernel.ai.alarm.action.STOP_ALERT"
+    const val ACTION_SNOOZE_ALERT = "com.kernel.ai.alarm.action.SNOOZE_ALERT"
+    const val ACTION_ADD_MINUTE_ALERT = "com.kernel.ai.alarm.action.ADD_MINUTE_ALERT"
+    const val ACTION_START_VOICE_CONTROL = "com.kernel.ai.alarm.action.START_VOICE_CONTROL"
     const val ACTION_CANCEL_TIMER = "com.kernel.ai.alarm.action.CANCEL_TIMER"
     const val ACTION_SKIP_ALARM_OCCURRENCE = "com.kernel.ai.alarm.action.SKIP_ALARM_OCCURRENCE"
     const val ACTION_PAUSE_STOPWATCH = "com.kernel.ai.alarm.action.PAUSE_STOPWATCH"
