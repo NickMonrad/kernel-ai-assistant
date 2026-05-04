@@ -23,6 +23,7 @@ import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -36,11 +37,18 @@ import kotlinx.coroutines.launch
 
 private const val ALARM_SNOOZE_MS = 10 * 60 * 1_000L
 private const val ALERT_ADD_MINUTE_MS = 60_000L
+internal fun shouldAutoStartAlertVoiceControl(
+    enabled: Boolean,
+    type: ClockEventType,
+): Boolean = enabled && type != ClockEventType.PRE_ALARM
+
+
 
 @AndroidEntryPoint
 class ClockAlertService : Service() {
     @Inject lateinit var clockRepository: ClockRepository
     @Inject lateinit var voiceInputController: VoiceInputController
+    @Inject lateinit var voiceInputPreferences: VoiceInputPreferences
 
     private val notificationManager: NotificationManager
         get() = getSystemService(NotificationManager::class.java)
@@ -51,15 +59,22 @@ class ClockAlertService : Service() {
     private val activeAlerts = linkedSetOf<TriggeredClockAlert>()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var voiceEventsJob: Job? = null
+    private var voicePreferencesJob: Job? = null
     private var ringtone: Ringtone? = null
     private var isVoiceListening = false
     private var handledVoiceTranscript = false
+    private var autoStartAlertVoiceCommandsEnabled = true
     private var voiceStatusMessage: String? = null
 
     override fun onCreate() {
         super.onCreate()
         voiceEventsJob = serviceScope.launch {
             voiceInputController.events.collectLatest(::handleVoiceEvent)
+        }
+        voicePreferencesJob = serviceScope.launch {
+            voiceInputPreferences.autoStartAlertVoiceCommandsEnabled.collectLatest { enabled ->
+                autoStartAlertVoiceCommandsEnabled = enabled
+            }
         }
     }
 
@@ -77,7 +92,11 @@ class ClockAlertService : Service() {
                 voiceInputController.stopListening()
                 ensureChannel()
                 refreshForeground()
-                startAlertPlayback()
+                if (shouldAutoStartAlertVoiceControl(autoStartAlertVoiceCommandsEnabled, alert.type)) {
+                    startVoiceControl(alert)
+                } else {
+                    startAlertPlayback()
+                }
             }
 
             ClockAlertContract.ACTION_STOP_ALERT -> {
@@ -111,6 +130,7 @@ class ClockAlertService : Service() {
     override fun onDestroy() {
         voiceInputController.stopListening()
         voiceEventsJob?.cancel()
+        voicePreferencesJob?.cancel()
         serviceScope.cancel()
         stopPlayback()
         super.onDestroy()
