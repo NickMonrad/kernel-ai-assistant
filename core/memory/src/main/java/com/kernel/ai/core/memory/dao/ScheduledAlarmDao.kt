@@ -15,13 +15,13 @@ interface ScheduledAlarmDao {
     @Query("SELECT * FROM scheduled_alarms WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): ScheduledAlarmEntity?
 
-    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND triggerAtMillis > :nowMillis ORDER BY triggerAtMillis ASC")
+    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND COALESCE(snoozed_until_ms, triggerAtMillis) > :nowMillis ORDER BY COALESCE(snoozed_until_ms, triggerAtMillis) ASC")
     suspend fun getUnfiredFuture(nowMillis: Long): List<ScheduledAlarmEntity>
 
-    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND triggerAtMillis <= :nowMillis ORDER BY triggerAtMillis ASC")
+    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND COALESCE(snoozed_until_ms, triggerAtMillis) <= :nowMillis ORDER BY COALESCE(snoozed_until_ms, triggerAtMillis) ASC")
     suspend fun getUnfiredElapsed(nowMillis: Long): List<ScheduledAlarmEntity>
 
-    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 ORDER BY triggerAtMillis ASC")
+    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 ORDER BY COALESCE(snoozed_until_ms, triggerAtMillis) ASC")
     fun observeAllUnfired(): Flow<List<ScheduledAlarmEntity>>
 
     @Query("UPDATE scheduled_alarms SET fired = 1 WHERE id = :id")
@@ -48,10 +48,10 @@ interface ScheduledAlarmDao {
     @Query("DELETE FROM scheduled_alarms WHERE entry_type = 'TIMER' AND completed_at_ms IS NOT NULL")
     suspend fun deleteCompletedTimers(): Int
 
-    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND entry_type = 'ALARM' ORDER BY triggerAtMillis ASC")
+    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND entry_type = 'ALARM' ORDER BY COALESCE(snoozed_until_ms, triggerAtMillis) ASC")
     suspend fun getActiveAlarmSchedules(): List<ScheduledAlarmEntity>
 
-    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND entry_type = 'ALARM' ORDER BY triggerAtMillis ASC")
+    @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND entry_type = 'ALARM' ORDER BY COALESCE(snoozed_until_ms, triggerAtMillis) ASC")
     fun observeAllAlarmSchedules(): Flow<List<ScheduledAlarmEntity>>
 
     @Query("SELECT * FROM scheduled_alarms WHERE fired = 0 AND enabled = 1 AND entry_type = 'TIMER' ORDER BY started_at_ms DESC")
