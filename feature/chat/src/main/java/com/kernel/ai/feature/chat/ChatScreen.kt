@@ -1,5 +1,7 @@
 package com.kernel.ai.feature.chat
 
+import android.media.AudioManager
+import android.media.ToneGenerator
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -85,6 +87,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -229,6 +232,23 @@ private fun ChatContent(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
+    val loopListeningCue = remember { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 55) }
+    var lastVoiceCaptureState by remember { mutableStateOf<ChatViewModel.VoiceCaptureState>(ChatViewModel.VoiceCaptureState.Idle) }
+
+    DisposableEffect(Unit) {
+        onDispose { loopListeningCue.release() }
+    }
+
+    LaunchedEffect(voiceCaptureState, voiceMode) {
+        val enteredListening =
+            voiceMode == ChatViewModel.VoiceMode.BackAndForth &&
+                voiceCaptureState is ChatViewModel.VoiceCaptureState.Listening &&
+                lastVoiceCaptureState !is ChatViewModel.VoiceCaptureState.Listening
+        if (enteredListening) {
+            loopListeningCue.startTone(ToneGenerator.TONE_PROP_BEEP2, 120)
+        }
+        lastVoiceCaptureState = voiceCaptureState
+    }
 
     // Auto-scroll when a new message is appended, but only if the user is already
     // near the bottom (within 2 items). If they've scrolled up to read history,
