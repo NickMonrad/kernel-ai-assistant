@@ -3,8 +3,10 @@ package com.kernel.ai.feature.settings
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
 import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
+import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
+import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -34,6 +36,8 @@ class VoiceViewModelTest {
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Vosk)
     private val spokenResponsesEnabled = MutableStateFlow(true)
+    private val selectedOutputEngine = MutableStateFlow(VoiceOutputEngine.AndroidTts)
+    private val selectedSherpaVoice = MutableStateFlow(SherpaPiperVoice.JennyDioco)
 
     private lateinit var viewModel: VoiceViewModel
 
@@ -51,7 +55,11 @@ class VoiceViewModelTest {
         every { voiceInputPreferences.selectedEngine } returns selectedInputEngine
         coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
+        every { voiceOutputPreferences.selectedEngine } returns selectedOutputEngine
+        every { voiceOutputPreferences.selectedSherpaVoice } returns selectedSherpaVoice
         coEvery { voiceOutputPreferences.setSpokenResponsesEnabled(any()) } just Runs
+        coEvery { voiceOutputPreferences.setSelectedEngine(any()) } just Runs
+        coEvery { voiceOutputPreferences.setSelectedSherpaVoice(any()) } just Runs
         viewModel = VoiceViewModel(
             androidNativeRecognitionSupport,
             voiceInputPreferences,
@@ -174,5 +182,47 @@ class VoiceViewModelTest {
 
         assertEquals(false, viewModel.uiState.value.spokenResponsesEnabled)
         coVerify { voiceOutputPreferences.setSpokenResponsesEnabled(false) }
+    }
+
+    @Test
+    fun `voice output engine defaults to Android TTS when preference flow emits Android TTS`() =
+        runTest {
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(
+                VoiceOutputEngine.AndroidTts,
+                viewModel.uiState.value.selectedOutputEngine,
+            )
+        }
+
+    @Test
+    fun `selected Sherpa voice defaults to Jenny when preference flow emits Jenny`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(SherpaPiperVoice.JennyDioco, viewModel.uiState.value.selectedSherpaVoice)
+    }
+
+    @Test
+    fun `setVoiceOutputEngine updates ui state immediately`() = runTest {
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.SherpaExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            VoiceOutputEngine.SherpaExperimental,
+            viewModel.uiState.value.selectedOutputEngine,
+        )
+        coVerify { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.SherpaExperimental) }
+    }
+
+    @Test
+    fun `setSherpaVoice updates ui state immediately`() = runTest {
+        viewModel.setSherpaVoice(SherpaPiperVoice.NorthernEnglishMale)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            SherpaPiperVoice.NorthernEnglishMale,
+            viewModel.uiState.value.selectedSherpaVoice,
+        )
+        coVerify { voiceOutputPreferences.setSelectedSherpaVoice(SherpaPiperVoice.NorthernEnglishMale) }
     }
 }

@@ -3,8 +3,10 @@ package com.kernel.ai.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
+import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
+import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +19,8 @@ import javax.inject.Inject
 data class VoiceUiState(
     val spokenResponsesEnabled: Boolean = true,
     val selectedInputEngine: VoiceInputEngine = VoiceInputEngine.Vosk,
+    val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
+    val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
     val androidNativeAvailabilityMessage: String? = null,
     val androidNativeLanguageSummary: String? = null,
 )
@@ -51,6 +55,16 @@ class VoiceViewModel @Inject constructor(
                 _uiState.update { it.copy(spokenResponsesEnabled = enabled) }
             }
         }
+        viewModelScope.launch {
+            voiceOutputPreferences.selectedEngine.collect { engine ->
+                _uiState.update { it.copy(selectedOutputEngine = engine) }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.selectedSherpaVoice.collect { voice ->
+                _uiState.update { it.copy(selectedSherpaVoice = voice) }
+            }
+        }
     }
 
     fun setVoiceInputEngine(engine: VoiceInputEngine) {
@@ -64,6 +78,20 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(spokenResponsesEnabled = enabled) }
         viewModelScope.launch {
             voiceOutputPreferences.setSpokenResponsesEnabled(enabled)
+        }
+    }
+
+    fun setVoiceOutputEngine(engine: VoiceOutputEngine) {
+        _uiState.update { it.copy(selectedOutputEngine = engine) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setSelectedEngine(engine)
+        }
+    }
+
+    fun setSherpaVoice(voice: SherpaPiperVoice) {
+        _uiState.update { it.copy(selectedSherpaVoice = voice) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setSelectedSherpaVoice(voice)
         }
     }
 }

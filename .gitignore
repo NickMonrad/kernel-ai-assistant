@@ -42,3 +42,11 @@ google-services.json
 # docs/testing/
 local.properties
 debug/*.hprof
+
+# ── Sherpa-ONNX spike — local-only, NOT committed ────────────────────────────
+# Download via: scripts/setup-sherpa-tts-spike.sh
+# AAR binary
+third_party/sherpa-onnx/
+
+# Piper / Sherpa-ONNX model assets bundled into APK only after running setup.
+core/voice/src/main/assets/sherpa-tts/

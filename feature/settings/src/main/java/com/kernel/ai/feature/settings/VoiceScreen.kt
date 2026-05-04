@@ -25,11 +25,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VoiceInputEngine
+import com.kernel.ai.core.voice.VoiceOutputEngine
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +42,26 @@ fun VoiceScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    VoiceScreenContent(
+        uiState = uiState,
+        onBack = onBack,
+        onVoiceInputEngineSelected = viewModel::setVoiceInputEngine,
+        onSpokenResponsesEnabledChanged = viewModel::setSpokenResponsesEnabled,
+        onVoiceOutputEngineSelected = viewModel::setVoiceOutputEngine,
+        onSherpaVoiceSelected = viewModel::setSherpaVoice,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VoiceScreenContent(
+    uiState: VoiceUiState,
+    onBack: () -> Unit,
+    onVoiceInputEngineSelected: (VoiceInputEngine) -> Unit,
+    onSpokenResponsesEnabledChanged: (Boolean) -> Unit,
+    onVoiceOutputEngineSelected: (VoiceOutputEngine) -> Unit,
+    onSherpaVoiceSelected: (SherpaPiperVoice) -> Unit,
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -99,7 +122,7 @@ fun VoiceScreen(
                     trailingContent = {
                         RadioButton(
                             selected = uiState.selectedInputEngine == engine,
-                            onClick = { viewModel.setVoiceInputEngine(engine) },
+                            onClick = { onVoiceInputEngineSelected(engine) },
                         )
                     },
                 )
@@ -134,11 +157,65 @@ fun VoiceScreen(
                 trailingContent = {
                     Switch(
                         checked = uiState.spokenResponsesEnabled,
-                        onCheckedChange = { viewModel.setSpokenResponsesEnabled(it) },
+                        onCheckedChange = onSpokenResponsesEnabledChanged,
                     )
                 },
             )
             HorizontalDivider()
+
+            VoiceOutputEngine.entries.forEach { engine ->
+                ListItem(
+                    modifier = Modifier.fillMaxWidth(),
+                    headlineContent = { Text(engine.displayName) },
+                    supportingContent = {
+                        Column {
+                            Text(engine.description)
+                            if (
+                                engine == VoiceOutputEngine.SherpaExperimental &&
+                                uiState.selectedOutputEngine == engine
+                            ) {
+                                Text(
+                                    text = "Run scripts/setup-sherpa-tts-spike.sh to prepare local Piper voices. Android TTS remains the runtime fallback if Sherpa is unavailable.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                        }
+                    },
+                    trailingContent = {
+                        RadioButton(
+                            selected = uiState.selectedOutputEngine == engine,
+                            onClick = { onVoiceOutputEngineSelected(engine) },
+                        )
+                    },
+                )
+                HorizontalDivider()
+            }
+
+            if (uiState.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental) {
+                Text(
+                    text = "Sherpa Piper voice",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+
+                SherpaPiperVoice.entries.forEach { voice ->
+                    ListItem(
+                        modifier = Modifier.fillMaxWidth(),
+                        headlineContent = { Text(voice.displayName) },
+                        supportingContent = { Text(voice.description) },
+                        trailingContent = {
+                            RadioButton(
+                                selected = uiState.selectedSherpaVoice == voice,
+                                onClick = { onSherpaVoiceSelected(voice) },
+                            )
+                        },
+                    )
+                    HorizontalDivider()
+                }
+            }
         }
     }
 }
@@ -173,5 +250,23 @@ private fun VoiceWarningCard(
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
             )
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun VoiceScreenPreview() {
+    MaterialTheme {
+        VoiceScreenContent(
+            uiState = VoiceUiState(
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                selectedSherpaVoice = SherpaPiperVoice.NorthernEnglishMale,
+            ),
+            onBack = {},
+            onVoiceInputEngineSelected = {},
+            onSpokenResponsesEnabledChanged = {},
+            onVoiceOutputEngineSelected = {},
+            onSherpaVoiceSelected = {},
+        )
     }
 }
