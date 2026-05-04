@@ -47,6 +47,7 @@ internal fun shouldRetryWithPlatformAfterStartupTimeout(backend: RecognizerBacke
 
 internal fun shouldRetryWithPlatformAfterRecognitionError(
     backend: RecognizerBackend,
+    mode: VoiceCaptureMode,
     error: Int,
     heardSpeech: Boolean,
     sawPartialTranscript: Boolean,
@@ -56,7 +57,12 @@ internal fun shouldRetryWithPlatformAfterRecognitionError(
             SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> true
             SpeechRecognizer.ERROR_NO_MATCH,
             SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
-            -> !heardSpeech && !sawPartialTranscript
+            -> when (mode) {
+                VoiceCaptureMode.AlertCommand -> !sawPartialTranscript
+                VoiceCaptureMode.Command,
+                VoiceCaptureMode.SlotReply,
+                -> !heardSpeech && !sawPartialTranscript
+            }
             else -> false
         }
 
@@ -357,6 +363,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             if (
                 shouldRetryWithPlatformAfterRecognitionError(
                     backend = backend,
+                    mode = mode,
                     error = error,
                     heardSpeech = heardSpeech,
                     sawPartialTranscript = sawPartialTranscript,
