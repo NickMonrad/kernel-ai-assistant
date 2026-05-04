@@ -47,6 +47,7 @@ interface ClockRepository {
     suspend fun cancelNextAlarm(): ClockAlarm?
     suspend fun cancelAlarmsByLabel(label: String): Int
     suspend fun skipAlarmOccurrence(alarmId: String, occurrenceTriggerAtMillis: Long): Boolean
+    suspend fun snoozeAlarm(alarmId: String, snoozedUntilMillis: Long): Boolean
 
     suspend fun scheduleTimer(durationMs: Long, label: String?): ClockTimer?
     suspend fun cancelTimer(timerId: String)

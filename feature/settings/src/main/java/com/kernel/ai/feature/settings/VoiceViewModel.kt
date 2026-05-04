@@ -17,6 +17,7 @@ import javax.inject.Inject
 data class VoiceUiState(
     val spokenResponsesEnabled: Boolean = true,
     val selectedInputEngine: VoiceInputEngine = VoiceInputEngine.Vosk,
+    val autoStartAlertVoiceCommandsEnabled: Boolean = true,
     val androidNativeAvailabilityMessage: String? = null,
     val androidNativeLanguageSummary: String? = null,
 )
@@ -51,6 +52,11 @@ class VoiceViewModel @Inject constructor(
                 _uiState.update { it.copy(spokenResponsesEnabled = enabled) }
             }
         }
+        viewModelScope.launch {
+            voiceInputPreferences.autoStartAlertVoiceCommandsEnabled.collect { enabled ->
+                _uiState.update { it.copy(autoStartAlertVoiceCommandsEnabled = enabled) }
+            }
+        }
     }
 
     fun setVoiceInputEngine(engine: VoiceInputEngine) {
@@ -64,6 +70,13 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(spokenResponsesEnabled = enabled) }
         viewModelScope.launch {
             voiceOutputPreferences.setSpokenResponsesEnabled(enabled)
+        }
+    }
+
+    fun setAutoStartAlertVoiceCommandsEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(autoStartAlertVoiceCommandsEnabled = enabled) }
+        viewModelScope.launch {
+            voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(enabled)
         }
     }
 }
