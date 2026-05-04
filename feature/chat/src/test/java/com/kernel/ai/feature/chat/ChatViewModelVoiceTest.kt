@@ -47,6 +47,7 @@ import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -56,6 +57,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
@@ -243,6 +245,114 @@ class ChatViewModelVoiceTest {
             viewModel.getConversationAsText(),
         )
         verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
+    fun `one-shot voice stays idle after spoken reply playback stops`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Hello one shot") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Hello one shot")
+        coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello one shot"))
+        advanceUntilIdle()
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertEquals("You: Hello one shot\nJandal: Hi back", viewModel.getConversationAsText())
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+
+    @Test
+    fun `back-and-forth voice re-arms listening after spoken reply playback stops`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Hello loop") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Hello loop")
+        coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello loop"))
+        advanceUntilIdle()
+
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertEquals("You: Hello loop\nJandal: Hi back", viewModel.getConversationAsText())
+        assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "Hi back" })
+        }
+    }
+
+    @Test
+    fun `stopVoiceOutput prevents speaking stopped from restarting back-and-forth capture`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Stop speaking") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Stop speaking")
+        val speakGate = CompletableDeferred<Unit>()
+        coEvery { voiceOutputController.speak(any()) } coAnswers {
+            voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
+            speakGate.await()
+            VoiceOutputResult.Spoken
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Stop speaking"))
+        runCurrent()
+
+        viewModel.stopVoiceOutput()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        speakGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        verify(exactly = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `stopVoiceInput clears the back-and-forth loop before a pending re-arm`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Stop listening") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Stop listening")
+        val speakGate = CompletableDeferred<Unit>()
+        coEvery { voiceOutputController.speak(any()) } coAnswers {
+            voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
+            speakGate.await()
+            VoiceOutputResult.Spoken
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Stop listening"))
+        runCurrent()
+
+        viewModel.stopVoiceInput()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        speakGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        verify(exactly = 1) { voiceInputController.stopListening() }
     }
 
     private fun createViewModel(): ChatViewModel = ChatViewModel(
