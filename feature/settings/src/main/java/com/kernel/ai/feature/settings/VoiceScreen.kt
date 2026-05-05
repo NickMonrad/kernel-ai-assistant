@@ -203,11 +203,40 @@ private fun VoiceScreenContent(
             )
             HorizontalDivider()
 
+            Text(
+                text = "Spoken output engine",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+
+            VoiceOutputSelectionCard(
+                selectedEngine = uiState.selectedOutputEngine,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+
             VoiceOutputEngine.entries.forEach { engine ->
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
-                    supportingContent = { Text(engine.description) },
+                    supportingContent = {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(engine.description)
+                            Text(
+                                text = if (uiState.selectedOutputEngine == engine) {
+                                    "Currently active"
+                                } else {
+                                    "Inactive"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (uiState.selectedOutputEngine == engine) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    },
                     trailingContent = {
                         RadioButton(
                             selected = uiState.selectedOutputEngine == engine,
@@ -241,10 +270,9 @@ private fun VoiceScreenContent(
                     else ->
                         "Only downloaded voices can be selected. Android TTS is disabled while Sherpa Piper is selected above."
                 }
-                Text(
-                    text = sherpaHelpText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                VoiceInfoCard(
+                    title = "Sherpa Piper is active",
+                    message = sherpaHelpText,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
 
@@ -284,7 +312,27 @@ private fun SherpaVoiceRow(
 
     ListItem(
         modifier = modifier.fillMaxWidth(),
-        headlineContent = { Text(voice.displayName) },
+        headlineContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(voice.displayName)
+                Text(
+                    text = when {
+                        isDownloaded && isSelected -> "Selected voice"
+                        isDownloaded -> "Downloaded and ready"
+                        state is VoicePackDownloadState.Downloading -> "Downloading"
+                        state is VoicePackDownloadState.Error -> "Download failed"
+                        else -> "Not downloaded"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when {
+                        isDownloaded && isSelected -> MaterialTheme.colorScheme.primary
+                        isDownloaded -> Color(0xFF2E7D32)
+                        state is VoicePackDownloadState.Error -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        },
         supportingContent = {
             Column {
                 Text(
@@ -400,6 +448,57 @@ private fun VoiceWarningCard(
             )
         }
     }
+}
+
+@Composable
+private fun VoiceInfoCard(
+    title: String,
+    message: String,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
+    }
+}
+
+@Composable
+private fun VoiceOutputSelectionCard(
+    selectedEngine: VoiceOutputEngine,
+    modifier: Modifier = Modifier,
+) {
+    val message = when (selectedEngine) {
+        VoiceOutputEngine.AndroidTts ->
+            "Android TTS is currently the only engine that will speak. Sherpa voices below stay inactive until you switch engines."
+        VoiceOutputEngine.SherpaExperimental ->
+            "Sherpa Piper is currently the only engine that will speak. Android TTS is inactive until you switch back."
+    }
+
+    VoiceInfoCard(
+        title = "Active engine: ${selectedEngine.displayName}",
+        message = message,
+        modifier = modifier,
+    )
 }
 
 private fun formatBytes(bytes: Long): String = when {
