@@ -193,7 +193,9 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 android.content.res.AssetManager::class.java,
                 configClass,
             )
-            val instance = ctor.newInstance(context.assets, config)
+            // Always use Sherpa's file-backed native path. Both downloaded packs and legacy
+            // asset packs are normalised onto the real filesystem before init.
+            val instance = ctor.newInstance(null, config)
             // Cache reflected generate() — signature: generate(String, int, float)
             val gen = ttsClass.getDeclaredMethod(
                 "generate",
