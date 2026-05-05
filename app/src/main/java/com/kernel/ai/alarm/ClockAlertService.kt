@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.IBinder
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -38,12 +39,27 @@ import kotlinx.coroutines.launch
 private const val ALARM_SNOOZE_MS = 10 * 60 * 1_000L
 private const val ALERT_ADD_MINUTE_MS = 60_000L
 private const val AUTO_START_VOICE_DELAY_MS = 2_000L
+private const val ALERT_PLAYBACK_FULL_VOLUME = 1.0f
+private const val ALERT_PLAYBACK_DUCKED_VOLUME = 0.2f
 internal fun shouldAutoStartAlertVoiceControl(
     enabled: Boolean,
     type: ClockEventType,
 ): Boolean = enabled && type != ClockEventType.PRE_ALARM
 
+internal fun shouldDuckAlertPlayback(activeAlertsSize: Int): Boolean = activeAlertsSize > 0
 
+internal fun shouldRestoreDuckedPlayback(
+    duckingPlayback: Boolean,
+    activeAlertsSize: Int,
+): Boolean = duckingPlayback && activeAlertsSize > 0
+
+internal fun applyAlertPlaybackVolume(ringtone: Ringtone, volume: Float) {
+    ringtone.setVolume(volume)
+}
+
+internal fun alertPendingIntentIdentity(action: String, alert: TriggeredClockAlert): String =
+    "kernel-ai://clock-alert/${action}|${alert.type.name.lowercase()}|${alert.ownerId}|" +
+        (alert.occurrenceTriggerAtMillis?.toString() ?: "none")
 
 @AndroidEntryPoint
 class ClockAlertService : Service() {
@@ -63,6 +79,7 @@ class ClockAlertService : Service() {
     private var voicePreferencesJob: Job? = null
     private var autoStartVoiceJob: Job? = null
     private var ringtone: Ringtone? = null
+    private var duckingPlayback = false
     private var isVoiceListening = false
     private var handledVoiceTranscript = false
     private var autoStartAlertVoiceCommandsEnabled = true
@@ -209,10 +226,14 @@ class ClockAlertService : Service() {
         )
     }
 
-    private fun startAlertPlayback() {
-        if (isVoiceListening || activeAlerts.isEmpty()) return
+    private fun startAlertPlayback(ducked: Boolean = false) {
+        if (activeAlerts.isEmpty()) return
         stopPlayback()
-        startVibration()
+        if (ducked) {
+            defaultVibrator()?.cancel()
+        } else {
+            startVibration()
+        }
         ringtone = RingtoneManager.getRingtone(
             this,
             RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
@@ -221,8 +242,13 @@ class ClockAlertService : Service() {
                 .setUsage(AudioAttributes.USAGE_ALARM)
                 .build()
             isLooping = true
+            applyAlertPlaybackVolume(
+                this,
+                if (ducked) ALERT_PLAYBACK_DUCKED_VOLUME else ALERT_PLAYBACK_FULL_VOLUME,
+            )
             play()
         }
+        duckingPlayback = ducked && ringtone != null
     }
 
     private fun startVibration() {
@@ -277,8 +303,24 @@ class ClockAlertService : Service() {
     private fun stopPlayback() {
         ringtone?.stop()
         ringtone = null
+        duckingPlayback = false
         defaultVibrator()?.cancel()
     }
+
+    private fun duckPlaybackForVoiceControl() {
+        if (shouldDuckAlertPlayback(activeAlerts.size)) {
+            startAlertPlayback(ducked = true)
+        }
+    }
+
+    private fun restorePlaybackAfterVoiceCapture() {
+        if (shouldRestoreDuckedPlayback(duckingPlayback, activeAlerts.size)) {
+            startAlertPlayback()
+        } else if (activeAlerts.isNotEmpty() && ringtone?.isPlaying != true) {
+            startAlertPlayback()
+        }
+    }
+
 
     private fun defaultVibrator(): Vibrator? = vibratorManager.defaultVibrator
 
@@ -311,9 +353,10 @@ class ClockAlertService : Service() {
     private fun buildServicePendingIntent(action: String, alert: TriggeredClockAlert): PendingIntent =
         PendingIntent.getService(
             this,
-            31 * action.hashCode() + alert.ownerId.hashCode(),
+            0,
             Intent(this, ClockAlertService::class.java).apply {
                 this.action = action
+                data = Uri.parse(alertPendingIntentIdentity(action, alert))
                 putExtra(ClockAlertContract.EXTRA_OWNER_ID, alert.ownerId)
                 putExtra(ClockAlertContract.EXTRA_LABEL, alert.label)
                 putExtra(ClockAlertContract.EXTRA_TITLE, alert.title)
@@ -360,7 +403,7 @@ class ClockAlertService : Service() {
         isVoiceListening = true
         handledVoiceTranscript = false
         voiceStatusMessage = if (autoStarted) "Listening for alert commands…" else alertVoiceListeningPrompt(alert.type)
-        stopPlayback()
+        duckPlaybackForVoiceControl()
         refreshForeground()
         serviceScope.launch {
             when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
@@ -461,7 +504,7 @@ class ClockAlertService : Service() {
             stopAlertSession()
         } else {
             refreshForeground()
-            startAlertPlayback()
+            restorePlaybackAfterVoiceCapture()
         }
     }
 
