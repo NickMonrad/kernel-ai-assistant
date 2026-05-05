@@ -21,17 +21,27 @@ package com.kernel.ai.core.skills
  */
 sealed class SkillResult {
     /** Skill ran successfully. [content] is injected back into the conversation as system context
-     *  so the LLM can produce a natural conversational wrapper around it. */
+     *  so the LLM can produce a natural conversational wrapper around it.
+     *
+     *  [spokenSummary] is an optional concise phrase for TTS — voice surfaces should speak this
+     *  instead of [content] when provided. Use it for skills that return structured data that
+     *  reads awkwardly aloud (e.g. compact units, emojis, multi-line formatting). */
     data class Success(
         val content: String,
         val presentation: ToolPresentation? = null,
+        val spokenSummary: String? = null,
     ) : SkillResult()
     /** Skill ran successfully and [content] should be shown to the user verbatim — the LLM is
      *  bypassed entirely. Use for skills that return structured data (e.g. weather readings,
-     *  sensor values) where LLM rephrasing risks corrupting numbers or units. */
+     *  sensor values) where LLM rephrasing risks corrupting numbers or units.
+     *
+     *  [spokenSummary] is an optional concise phrase for TTS — voice surfaces should speak this
+     *  instead of [content] when provided. Keeps the display text rich while the spoken version
+     *  expands units and drops emojis/formatting that TTS would read literally. */
     data class DirectReply(
         val content: String,
         val presentation: ToolPresentation? = null,
+        val spokenSummary: String? = null,
     ) : SkillResult()
     /** Skill not found in registry. */
     data class UnknownSkill(val skillName: String) : SkillResult()
