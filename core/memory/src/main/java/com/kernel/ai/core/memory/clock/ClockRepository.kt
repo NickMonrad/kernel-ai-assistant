@@ -10,6 +10,7 @@ interface ClockRepository {
     fun observeRecentCompletedTimers(): Flow<List<ClockTimer>>
     fun observeStopwatch(): Flow<ClockStopwatch>
     fun observeWorldClocks(): Flow<List<WorldClock>>
+    fun observeClockSoundConfig(): Flow<ClockSoundConfig>
 
     suspend fun startStopwatch(
         nowWallClockMillis: Long = System.currentTimeMillis(),
@@ -48,6 +49,7 @@ interface ClockRepository {
     suspend fun cancelAlarmsByLabel(label: String): Int
     suspend fun skipAlarmOccurrence(alarmId: String, occurrenceTriggerAtMillis: Long): Boolean
     suspend fun snoozeAlarm(alarmId: String, snoozedUntilMillis: Long): Boolean
+    suspend fun setDefaultAlarmSoundUri(soundUri: String?)
 
     suspend fun scheduleTimer(durationMs: Long, label: String?): ClockTimer?
     suspend fun cancelTimer(timerId: String)
@@ -63,4 +65,5 @@ interface ClockRepository {
     suspend fun cancelTimersMatching(name: String?, durationMs: Long?): Int
     suspend fun getAllTimers(): List<ClockTimer>
     suspend fun restoreScheduledEntries(nowMillis: Long = System.currentTimeMillis()): ClockRestoreReport
+    suspend fun setTimerSoundUri(soundUri: String?)
 }

@@ -22,6 +22,7 @@ data class ScheduledAlarmEntity(
     @ColumnInfo(name = "repeat_days_mask") val repeatDaysMask: Int? = null,
     @ColumnInfo(name = "one_off_date_epoch_day") val oneOffDateEpochDay: Long? = null,
     @ColumnInfo(name = "time_zone_id") val timeZoneId: String? = null,
+    @ColumnInfo(name = "sound_uri") val soundUri: String? = null,
     @ColumnInfo(name = "snoozed_until_ms") val snoozedUntilMs: Long? = null,
     @ColumnInfo(name = "completed_at_ms") val completedAtMs: Long? = null,
 )

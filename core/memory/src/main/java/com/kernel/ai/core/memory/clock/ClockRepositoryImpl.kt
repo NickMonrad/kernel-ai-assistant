@@ -31,7 +31,8 @@ class ClockRepositoryImpl @Inject constructor(
     private val worldClockDao: WorldClockDao,
     private val stopwatchDao: StopwatchDao,
     private val scheduler: ClockScheduler,
- ) : ClockRepository {
+    private val clockSoundPreferences: ClockSoundPreferences,
+) : ClockRepository {
     override fun observeManageableAlarms(): Flow<List<ClockAlarm>> =
         scheduledAlarmDao.observeAllAlarmSchedules().map { schedules ->
             schedules.mapNotNull { it.toClockAlarm() }
@@ -73,6 +74,9 @@ class ClockRepositoryImpl @Inject constructor(
         worldClockDao.observeAll().map { clocks ->
             clocks.map { it.toWorldClock() }
         }
+
+    override fun observeClockSoundConfig(): Flow<ClockSoundConfig> =
+        clockSoundPreferences.soundConfig
 
 
     override suspend fun startStopwatch(
@@ -226,6 +230,7 @@ class ClockRepositoryImpl @Inject constructor(
             repeatDaysMask = draft.repeatDaysMask(),
             oneOffDateEpochDay = draft.oneOffDateEpochDay(),
             timeZoneId = draft.timeZoneId,
+            soundUri = draft.soundUri,
         ).withDefaultOwnerId()
         scheduleAlarmEvents(entity, now)
         return try {
@@ -253,6 +258,7 @@ class ClockRepositoryImpl @Inject constructor(
             repeatDaysMask = draft.repeatDaysMask(),
             oneOffDateEpochDay = draft.oneOffDateEpochDay(),
             timeZoneId = draft.timeZoneId,
+            soundUri = draft.soundUri,
             snoozedUntilMs = null,
         )
         cancelAlarmEvents(existing, now)
@@ -382,6 +388,10 @@ class ClockRepositoryImpl @Inject constructor(
         }
     }
 
+
+    override suspend fun setDefaultAlarmSoundUri(soundUri: String?) {
+        clockSoundPreferences.setDefaultAlarmSoundUri(soundUri)
+    }
 
     override suspend fun scheduleTimer(durationMs: Long, label: String?): ClockTimer? {
         if (!scheduler.getPlatformState().canScheduleExactAlarms) return null
@@ -575,6 +585,10 @@ class ClockRepositoryImpl @Inject constructor(
         )
     }
 
+    override suspend fun setTimerSoundUri(soundUri: String?) {
+        clockSoundPreferences.setTimerSoundUri(soundUri)
+    }
+
     private fun scheduleAlarmEvents(entity: ScheduledAlarmEntity, nowMillis: Long) {
         entity.toPrimaryAlarmScheduledEvent(nowMillis)?.let(scheduler::schedule)
         entity.toSnoozeScheduledEvent(nowMillis)?.let(scheduler::schedule)
@@ -631,6 +645,7 @@ private fun StopwatchLapEntity.toStopwatchLap(): StopwatchLap =
         createdAtMillis = createdAt,
     )
 
+
 private fun ScheduledAlarmEntity.toClockAlarm(): ClockAlarm? {
     if (entryType != ClockEventType.ALARM.name) return null
     val zoneId = ZoneId.of(timeZoneId ?: ZoneId.systemDefault().id)
@@ -646,6 +661,7 @@ private fun ScheduledAlarmEntity.toClockAlarm(): ClockAlarm? {
         repeatRule = repeatRule,
         timeZoneId = zoneId.id,
         triggerAtMillis = snoozedUntilMs ?: triggerAtMillis,
+        soundUri = soundUri,
     )
 }
 
@@ -673,6 +689,7 @@ private fun ScheduledAlarmEntity.toScheduledEvent(): ClockScheduledEvent =
         durationMs = durationMs,
         startedAtMillis = startedAtMs,
         occurrenceTriggerAtMillis = triggerAtMillis,
+        soundUri = soundUri,
     )
 
 private fun ScheduledAlarmEntity.toPrimaryAlarmScheduledEvent(nowMillis: Long): ClockScheduledEvent? {
@@ -688,6 +705,7 @@ private fun ScheduledAlarmEntity.toPrimaryAlarmCancellationEvent(): ClockSchedul
         triggerAtMillis = triggerAtMillis,
         label = label,
         occurrenceTriggerAtMillis = triggerAtMillis,
+        soundUri = soundUri,
     )
 
 private fun ScheduledAlarmEntity.toSnoozeScheduledEvent(nowMillis: Long): ClockScheduledEvent? {
@@ -700,6 +718,7 @@ private fun ScheduledAlarmEntity.toSnoozeScheduledEvent(nowMillis: Long): ClockS
         triggerAtMillis = snoozeAt,
         label = label,
         occurrenceTriggerAtMillis = snoozeAt,
+        soundUri = soundUri,
     )
 }
 
@@ -713,6 +732,7 @@ private fun ScheduledAlarmEntity.toSnoozeCancellationEvent(): ClockScheduledEven
         triggerAtMillis = snoozeAt,
         label = label,
         occurrenceTriggerAtMillis = snoozeAt,
+        soundUri = soundUri,
     )
 }
 
@@ -727,6 +747,7 @@ private fun ScheduledAlarmEntity.toPreAlarmScheduledEvent(nowMillis: Long): Cloc
         triggerAtMillis = preAlarmTrigger,
         label = label,
         occurrenceTriggerAtMillis = triggerAtMillis,
+        soundUri = soundUri,
     )
 }
 
@@ -738,6 +759,7 @@ private fun ScheduledAlarmEntity.toPreAlarmCancellationEvent(): ClockScheduledEv
         triggerAtMillis = triggerAtMillis,
         label = label,
         occurrenceTriggerAtMillis = triggerAtMillis,
+        soundUri = soundUri,
     )
 
 private fun ScheduledAlarmEntity.isRepeatingAlarm(): Boolean =
@@ -753,6 +775,7 @@ private fun ScheduledAlarmEntity.toAlarmDraft(): AlarmDraft? {
         minute = alarmMinute ?: trigger.minute,
         repeatRule = toAlarmRepeatRule(trigger),
         timeZoneId = zoneId,
+        soundUri = soundUri,
     )
 }
 
