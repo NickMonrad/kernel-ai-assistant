@@ -10,6 +10,7 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentationJson
+import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.normalizeSlotReply
 import com.kernel.ai.core.voice.VoiceCaptureMode
@@ -101,6 +102,11 @@ class ActionsViewModel @Inject constructor(
         val intentName: String,
         val params: Map<String, String>,
         val inputMode: InputMode,
+    )
+
+    private data class ExecutedAction(
+        val entity: QuickActionEntity,
+        val spokenSummary: String?,
     )
 
     /**
@@ -288,14 +294,18 @@ class ActionsViewModel @Inject constructor(
             try {
                 shouldAutoStartVoiceSlotReply = false
                 voiceOutputController.stop()
-                val entity = executeIntent(
+                val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
                     params = pending.params,
                     inputMode = pending.inputMode,
                 )
-                quickActionDao.insert(entity)
-                speakForVoice(pending.inputMode, entity.resultText)
+                quickActionDao.insert(result.entity)
+                speakForVoice(
+                    pending.inputMode,
+                    result.entity.resultText,
+                    spokenOverride = result.spokenSummary,
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onPhonePermissionGranted failed — ${e.message}", e)
                 _error.value = e.message ?: "Unknown error"
@@ -371,24 +381,24 @@ class ActionsViewModel @Inject constructor(
                         )
                     }
                     is QuickIntentRouter.RouteResult.RegexMatch -> {
-                        val entity = executeIntent(
+                        val result = executeIntent(
                             query = normalizedQuery,
                             intentName = routeResult.intent.intentName,
                             params = routeResult.intent.params,
                             inputMode = inputMode,
                         )
-                        quickActionDao.insert(entity)
-                        speakForVoice(inputMode, entity.resultText)
+                        quickActionDao.insert(result.entity)
+                        speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary)
                     }
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> {
-                        val entity = executeIntent(
+                        val result = executeIntent(
                             query = normalizedQuery,
                             intentName = routeResult.intent.intentName,
                             params = routeResult.intent.params,
                             inputMode = inputMode,
                         )
-                        quickActionDao.insert(entity)
-                        speakForVoice(inputMode, entity.resultText)
+                        quickActionDao.insert(result.entity)
+                        speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary)
                     }
                 }
             } catch (e: Exception) {
@@ -451,17 +461,18 @@ class ActionsViewModel @Inject constructor(
             _uiState.value = UiState.Executing
             try {
                 voiceOutputController.stop()
-                val entity = executeIntent(
+                val result = executeIntent(
                     query = pending.originalQuery,
                     intentName = pending.request.intentName,
                     params = mergedParams,
                     inputMode = pending.inputMode,
                 )
-                quickActionDao.insert(entity)
+                quickActionDao.insert(result.entity)
                 speakForVoice(
                     pending.inputMode,
-                    entity.resultText,
+                    result.entity.resultText,
                     delayMs = if (pending.inputMode == InputMode.Voice) VOICE_REPLY_TTS_DELAY_MS else 0L,
+                    spokenOverride = result.spokenSummary,
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onSlotReply failed — ${e.message}", e)
@@ -552,7 +563,7 @@ class ActionsViewModel @Inject constructor(
         intentName: String,
         params: Map<String, String>,
         inputMode: InputMode,
-    ): QuickActionEntity {
+    ): ExecutedAction {
         val directSkill = skillRegistry.get(intentName)
         val (skill, callParams) = when {
             directSkill != null -> directSkill to params
@@ -569,16 +580,28 @@ class ActionsViewModel @Inject constructor(
                 )
                 _events.emit(UiEvent.RequestPhonePermission)
             }
-            buildEntityFromSkillResult(query, intentName, skillResult)
+            ExecutedAction(
+                entity = buildEntityFromSkillResult(query, intentName, skillResult),
+                spokenSummary = spokenSummaryFrom(skillResult),
+            )
         } else {
             Log.w(TAG, "ActionsViewModel: intent '$intentName' has no registered skill")
-            QuickActionEntity(
-                userQuery = query,
-                skillName = intentName,
-                resultText = "Action recognised but not yet implemented.",
-                isSuccess = false,
+            ExecutedAction(
+                entity = QuickActionEntity(
+                    userQuery = query,
+                    skillName = intentName,
+                    resultText = "Action recognised but not yet implemented.",
+                    isSuccess = false,
+                ),
+                spokenSummary = null,
             )
         }
+    }
+
+    private fun spokenSummaryFrom(result: SkillResult): String? = when (result) {
+        is SkillResult.DirectReply -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
+        is SkillResult.Success -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
+        else -> null
     }
 
     private fun buildEntityFromSkillResult(
@@ -674,10 +697,11 @@ class ActionsViewModel @Inject constructor(
         inputMode: InputMode,
         text: String,
         delayMs: Long = 0L,
+        spokenOverride: String? = null,
     ) {
         if (inputMode != InputMode.Voice) return
         if (!spokenResponsesEnabled) return
-        val summary = toSpokenSummary(text)
+        val summary = spokenOverride?.takeIf { it.isNotBlank() } ?: toSpokenSummary(text)
         if (summary.isBlank()) return
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
