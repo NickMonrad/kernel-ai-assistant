@@ -21,6 +21,7 @@ import okhttp3.Request
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.roundToInt
 
 private const val TAG = "KernelAI"
 
@@ -349,6 +350,13 @@ class GetWeatherSkill @Inject constructor(
                 sunText = sunStr,
             )
         }
+        val spokenDays = (0 until len).map { i ->
+            val formattedDate = formatForecastDate(dates.getString(i))
+            val desc = wmoDescription(codes.optInt(i, -1))
+            val high = maxTemps.optDouble(i, Double.NaN)
+            val low = minTemps.optDouble(i, Double.NaN)
+            Triple(formattedDate, desc, Pair(high.takeUnless { it.isNaN() }, low.takeUnless { it.isNaN() }))
+        }
         Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast for $locationLabel")
         val firstCode = codes.optInt(0, -1)
         val firstHigh = maxTemps.optDouble(0, Double.NaN)
@@ -399,6 +407,10 @@ class GetWeatherSkill @Inject constructor(
                 airQualityText = null,
                 sunText = sunText,
                 forecast = forecastDays,
+            ),
+            spokenSummary = buildMultiDayForecastSpoken(
+                locationLabel = locationLabel,
+                days = spokenDays,
             ),
         )
     }
@@ -507,6 +519,13 @@ class GetWeatherSkill @Inject constructor(
                 uvText = uvMax?.let { "UV max %.0f (%s)".format(it, uvIndexLabel(it)) },
                 airQualityText = null,
                 sunText = sunText,
+            ),
+            spokenSummary = buildSingleDayForecastSpoken(
+                locationLabel = locationLabel,
+                dayLabel = if (dayIndex == 1) "Tomorrow" else formattedDate,
+                description = desc,
+                high = high,
+                low = low,
             ),
         )
     }
@@ -719,6 +738,14 @@ class GetWeatherSkill @Inject constructor(
                 airQualityText = airQuality?.usAqi?.let { "AQI $it (${aqiLabel(it)})" },
                 sunText = sunText,
             ),
+            spokenSummary = buildCurrentWeatherSpoken(
+                locationLabel = locationLabel,
+                description = description,
+                temp = temp,
+                feelsLike = feelsLike,
+                tempMax = tempMax,
+                tempMin = tempMin,
+            ),
         )
     }
 
@@ -737,6 +764,83 @@ class GetWeatherSkill @Inject constructor(
         aqi <= 200 -> "Unhealthy"
         else -> "Very Unhealthy"
     }
+
+    internal fun locationForSpeech(locationLabel: String?): String =
+        locationLabel?.substringBefore(",")?.trim()?.takeIf { it.isNotBlank() } ?: "your location"
+
+    internal fun buildCurrentWeatherSpoken(
+        locationLabel: String?,
+        description: String,
+        temp: Double,
+        feelsLike: Double,
+        tempMax: Double?,
+        tempMin: Double?,
+    ): String {
+        val place = locationForSpeech(locationLabel)
+        val headline = buildList {
+            if (!temp.isNaN()) add("it's ${temp.toRoundedDegreesText()}")
+            if (description.isNotBlank() && description != "Unknown") add(description.lowercase())
+            if (!feelsLike.isNaN()) add("feeling like ${feelsLike.toRoundedDegreesText()}")
+        }
+        val highLow = buildList {
+            tempMax?.let { add("high is ${it.toRoundedDegreesText()}") }
+            tempMin?.let { add("low is ${it.toRoundedDegreesText()}") }
+        }
+        return buildString {
+            append(
+                if (headline.isNotEmpty()) {
+                    "In $place, ${headline.joinToString(", ")}."
+                } else {
+                    "Here's the weather for $place."
+                },
+            )
+            if (highLow.isNotEmpty()) append(" Today's ${highLow.joinToString(", ")}.")
+        }
+    }
+
+    internal fun buildMultiDayForecastSpoken(
+        locationLabel: String?,
+        days: List<Triple<String, String, Pair<Double?, Double?>>>,
+    ): String {
+        val place = locationForSpeech(locationLabel)
+        val daySlice = days.take(3)
+        return buildString {
+            append("$place ${daySlice.size}-day forecast.")
+            for ((date, description, temps) in daySlice) {
+                val (high, low) = temps
+                val parts = buildList {
+                    if (description.isNotBlank() && description != "Unknown") add(description.lowercase())
+                    if (high != null && !high.isNaN()) add("high ${high.toRoundedDegreesText()}")
+                    if (low != null && !low.isNaN()) add("low ${low.toRoundedDegreesText()}")
+                }
+                append(" $date")
+                if (parts.isNotEmpty()) append(": ${parts.joinToString(", ")}")
+                append(".")
+            }
+        }
+    }
+
+    internal fun buildSingleDayForecastSpoken(
+        locationLabel: String?,
+        dayLabel: String,
+        description: String,
+        high: Double,
+        low: Double,
+    ): String {
+        val place = locationForSpeech(locationLabel)
+        val parts = buildList {
+            if (description.isNotBlank() && description != "Unknown") add(description.lowercase())
+            if (!high.isNaN()) add("high ${high.toRoundedDegreesText()}")
+            if (!low.isNaN()) add("low ${low.toRoundedDegreesText()}")
+        }
+        return buildString {
+            append("$dayLabel in $place")
+            if (parts.isNotEmpty()) append(": ${parts.joinToString(", ")}")
+            append(".")
+        }
+    }
+
+    private fun Double.toRoundedDegreesText(): String = "${roundToInt()} degrees"
 
     // ── WMO code → description / emoji ───────────────────────────────────────
 

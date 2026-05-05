@@ -1,7 +1,5 @@
 package com.kernel.ai.feature.chat
 
-import android.media.AudioManager
-import android.media.ToneGenerator
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -232,14 +230,19 @@ private fun ChatContent(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
-    val loopListeningCue = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 65) }
-    var lastVoiceCaptureState by remember { mutableStateOf<ChatViewModel.VoiceCaptureState>(ChatViewModel.VoiceCaptureState.Idle) }
     val view = androidx.compose.ui.platform.LocalView.current
     val keepScreenAwake = voiceMode == ChatViewModel.VoiceMode.BackAndForth
-
-    DisposableEffect(Unit) {
-        onDispose { loopListeningCue.release() }
+    val loopListeningCueState = when (voiceCaptureState) {
+        ChatViewModel.VoiceCaptureState.Idle -> LoopListeningCueState.Idle
+        is ChatViewModel.VoiceCaptureState.Preparing -> LoopListeningCueState.Preparing
+        is ChatViewModel.VoiceCaptureState.Listening -> LoopListeningCueState.Listening
+        is ChatViewModel.VoiceCaptureState.Processing -> LoopListeningCueState.Processing
     }
+
+    LoopListeningCueEffect(
+        loopActive = voiceMode == ChatViewModel.VoiceMode.BackAndForth,
+        captureState = loopListeningCueState,
+    )
 
     DisposableEffect(view, keepScreenAwake) {
         val previousKeepScreenOn = view.keepScreenOn
@@ -247,18 +250,6 @@ private fun ChatContent(
         onDispose {
             view.keepScreenOn = previousKeepScreenOn
         }
-    }
-
-    LaunchedEffect(voiceCaptureState, voiceMode) {
-        val startedLoopListening =
-            voiceMode == ChatViewModel.VoiceMode.BackAndForth &&
-                voiceCaptureState is ChatViewModel.VoiceCaptureState.Preparing &&
-                lastVoiceCaptureState !is ChatViewModel.VoiceCaptureState.Preparing &&
-                lastVoiceCaptureState !is ChatViewModel.VoiceCaptureState.Listening
-        if (startedLoopListening) {
-            loopListeningCue.startTone(ToneGenerator.TONE_PROP_BEEP2, 120)
-        }
-        lastVoiceCaptureState = voiceCaptureState
     }
 
     // Auto-scroll when a new message is appended, but only if the user is already
