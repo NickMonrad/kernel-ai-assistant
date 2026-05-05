@@ -35,12 +35,19 @@ class ClockRepositoryImplTest {
     private val scheduler = mockk<ClockScheduler>(relaxed = true)
     private val stopwatchDao = mockk<StopwatchDao>()
     private val worldClockDao = mockk<WorldClockDao>()
+    private val clockSoundPreferences = mockk<ClockSoundPreferences>()
 
     private lateinit var repository: ClockRepositoryImpl
 
     @BeforeEach
     fun setUp() {
-        repository = ClockRepositoryImpl(scheduledAlarmDao, worldClockDao, stopwatchDao, scheduler)
+        repository = ClockRepositoryImpl(
+            scheduledAlarmDao,
+            worldClockDao,
+            stopwatchDao,
+            scheduler,
+            clockSoundPreferences,
+        )
         every {
             scheduler.getPlatformState()
         } returns ClockPlatformState(
@@ -48,6 +55,7 @@ class ClockRepositoryImplTest {
             notificationsEnabled = true,
             canUseFullScreenIntent = false,
         )
+        every { clockSoundPreferences.soundConfig } returns flowOf(ClockSoundConfig())
     }
 
     @Test
@@ -90,6 +98,50 @@ class ClockRepositoryImplTest {
         assertEquals(AlarmRepeatRule.Daily, result?.repeatRule)
         verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.ALARM }) }
         verify(exactly = 1) { scheduler.schedule(match { it.type == ClockEventType.PRE_ALARM }) }
+    }
+
+    @Test
+    fun `createAlarm stores custom sound uri and schedules it`() = runTest {
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
+        val draft = dailyDraft(label = "Gym", hour = 8, minute = 0)
+            .copy(soundUri = "content://media/internal/audio/media/7")
+
+        val result = repository.createAlarm(draft)
+
+        assertEquals("content://media/internal/audio/media/7", result?.soundUri)
+        coVerify(exactly = 1) {
+            scheduledAlarmDao.insert(match { it.soundUri == "content://media/internal/audio/media/7" })
+        }
+        verify(exactly = 1) {
+            scheduler.schedule(
+                match {
+                    it.type == ClockEventType.ALARM &&
+                        it.soundUri == "content://media/internal/audio/media/7"
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `setDefaultAlarmSoundUri delegates to preferences`() = runTest {
+        coEvery { clockSoundPreferences.setDefaultAlarmSoundUri("content://media/internal/audio/media/9") } just Runs
+
+        repository.setDefaultAlarmSoundUri("content://media/internal/audio/media/9")
+
+        coVerify(exactly = 1) {
+            clockSoundPreferences.setDefaultAlarmSoundUri("content://media/internal/audio/media/9")
+        }
+    }
+
+    @Test
+    fun `setTimerSoundUri delegates to preferences`() = runTest {
+        coEvery { clockSoundPreferences.setTimerSoundUri("content://media/internal/audio/media/11") } just Runs
+
+        repository.setTimerSoundUri("content://media/internal/audio/media/11")
+
+        coVerify(exactly = 1) {
+            clockSoundPreferences.setTimerSoundUri("content://media/internal/audio/media/11")
+        }
     }
 
     @Test

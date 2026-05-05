@@ -40,18 +40,19 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
             ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS,
             -1L,
         ).takeIf { it > 0L }
+        val soundUri = intent.getStringExtra(ClockAlertContract.EXTRA_SOUND_URI)
 
         when (type) {
             ClockEventType.TIMER -> {
                 context.getSystemService(NotificationManager::class.java)
                     .cancel(ClockAlertContract.timerNotificationId(ownerId))
-                triggerAlert(context, ownerId, type, title, label, occurrenceTriggerAtMillis)
+                triggerAlert(context, ownerId, type, title, label, occurrenceTriggerAtMillis, soundUri)
             }
 
             ClockEventType.ALARM -> {
                 context.getSystemService(NotificationManager::class.java)
                     .cancel(ClockAlertContract.preAlarmNotificationId(ownerId))
-                triggerAlert(context, ownerId, type, title, label, occurrenceTriggerAtMillis)
+                triggerAlert(context, ownerId, type, title, label, occurrenceTriggerAtMillis, soundUri)
             }
 
             ClockEventType.PRE_ALARM -> {
@@ -95,6 +96,7 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
         title: String,
         label: String,
         occurrenceTriggerAtMillis: Long?,
+        soundUri: String?,
     ) {
         ClockAlertService.trigger(
             context,
@@ -104,6 +106,7 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
                 title = title,
                 label = label,
                 occurrenceTriggerAtMillis = occurrenceTriggerAtMillis,
+                soundUri = soundUri,
             ),
         )
     }
