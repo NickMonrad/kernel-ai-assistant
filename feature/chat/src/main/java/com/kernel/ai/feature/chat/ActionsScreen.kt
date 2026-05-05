@@ -2,6 +2,7 @@ package com.kernel.ai.feature.chat
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -83,10 +84,13 @@ import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.voice.VoiceCaptureMode
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private const val ACTIONS_SCREEN_TAG = "KernelAI"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,6 +112,7 @@ fun ActionsScreen(
     val pendingSlot by viewModel.pendingSlot.collectAsStateWithLifecycle()
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
+    val slotReplyAutoRearmArmed by viewModel.slotReplyAutoRearmArmed.collectAsStateWithLifecycle()
     val currentVoiceCaptureState = voiceCaptureState
     val isCommandVoiceActive = when (currentVoiceCaptureState) {
         is ActionsViewModel.VoiceCaptureState.Preparing -> currentVoiceCaptureState.mode == VoiceCaptureMode.Command
@@ -133,6 +138,7 @@ fun ActionsScreen(
     ) { granted ->
         val mode = pendingPermissionMode
         pendingPermissionMode = null
+        Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: microphone permission result granted=$granted mode=$mode")
         if (!granted) {
             viewModel.onMicrophonePermissionDenied()
             return@rememberLauncherForActivityResult
@@ -159,6 +165,10 @@ fun ActionsScreen(
             context,
             Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
+        Log.d(
+            ACTIONS_SCREEN_TAG,
+            "ActionsScreen: requestVoiceCapture mode=$mode alreadyGranted=$alreadyGranted",
+        )
         if (alreadyGranted) {
             when (mode) {
                 VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
@@ -207,7 +217,7 @@ fun ActionsScreen(
         viewModel.events.collect { event ->
             when (event) {
                 is ActionsViewModel.UiEvent.NavigateToChat -> {
-                    viewModel.pauseTransientVoiceUi()
+                    viewModel.pauseTransientVoiceUi(reason = "navigateToChat")
                     onNavigateToChat(event.query)
                 }
                 ActionsViewModel.UiEvent.RequestPhonePermission ->
@@ -219,7 +229,13 @@ fun ActionsScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                viewModel.pauseTransientVoiceUi()
+                Log.d(
+                    ACTIONS_SCREEN_TAG,
+                    "ActionsScreen: lifecycle ON_STOP pendingSlot=${pendingSlot != null} " +
+                        "showBottomSheet=$showBottomSheet voiceCaptureState=$voiceCaptureState " +
+                        "voicePlaybackState=$voicePlaybackState",
+                )
+                viewModel.pauseTransientVoiceUi(reason = "lifecycleOnStop")
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -484,6 +500,7 @@ fun ActionsScreen(
             inputMode = slot.inputMode,
             uiState = uiState,
             voiceCaptureState = voiceCaptureState,
+            autoVoiceReplyArmed = slotReplyAutoRearmArmed,
             onDismiss = { viewModel.cancelSlotFill() },
             onSubmit = { reply -> viewModel.onSlotReply(reply) },
             onVoiceReply = { requestVoiceCapture(VoiceCaptureMode.SlotReply) },
@@ -519,6 +536,7 @@ private fun SlotFillBottomSheet(
     inputMode: InputMode,
     uiState: ActionsViewModel.UiState,
     voiceCaptureState: ActionsViewModel.VoiceCaptureState,
+    autoVoiceReplyArmed: Boolean,
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
@@ -536,6 +554,42 @@ private fun SlotFillBottomSheet(
         ActionsViewModel.VoiceCaptureState.Idle -> null
     }
     val isVoiceReplyActive = slotReplyCaptureState != null
+    val loopListeningCueState = when (slotReplyCaptureState) {
+        is ActionsViewModel.VoiceCaptureState.Preparing -> LoopListeningCueState.Preparing
+        is ActionsViewModel.VoiceCaptureState.Listening -> LoopListeningCueState.Listening
+        is ActionsViewModel.VoiceCaptureState.Processing -> LoopListeningCueState.Processing
+        ActionsViewModel.VoiceCaptureState.Idle, null -> LoopListeningCueState.Idle
+    }
+
+    LoopListeningCueEffect(
+        loopActive = inputMode == InputMode.Voice,
+        captureState = loopListeningCueState,
+    )
+
+    LaunchedEffect(promptMessage, inputMode, autoVoiceReplyArmed) {
+        Log.d(
+            ACTIONS_SCREEN_TAG,
+            "ActionsScreen: SlotFillBottomSheet shown inputMode=$inputMode autoVoiceReplyArmed=$autoVoiceReplyArmed " +
+                "prompt=\"$promptMessage\"",
+        )
+    }
+
+    LaunchedEffect(promptMessage, inputMode, autoVoiceReplyArmed, isVoiceReplyActive) {
+        if (inputMode != InputMode.Voice || !autoVoiceReplyArmed || isVoiceReplyActive) return@LaunchedEffect
+        val delayMs = estimatedSlotPromptDurationMs(promptMessage)
+        Log.d(
+            ACTIONS_SCREEN_TAG,
+            "ActionsScreen: scheduling slot voice fallback delayMs=$delayMs prompt=\"$promptMessage\"",
+        )
+        delay(delayMs)
+        if (!isVoiceReplyActive && autoVoiceReplyArmed) {
+            Log.w(
+                ACTIONS_SCREEN_TAG,
+                "ActionsScreen: slot voice fallback firing prompt=\"$promptMessage\"",
+            )
+            onVoiceReply()
+        }
+    }
 
     fun submit() {
         val text = inputText.trim()
@@ -645,6 +699,13 @@ private fun SlotFillBottomSheet(
             }
         }
     }
+}
+
+private fun estimatedSlotPromptDurationMs(promptMessage: String): Long {
+    val normalizedPrompt = promptMessage.trim()
+    if (normalizedPrompt.isBlank()) return 3_500L
+    val estimatedSpeechMs = normalizedPrompt.length * 50L
+    return (estimatedSpeechMs + 1_500L).coerceIn(3_000L, 6_000L)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

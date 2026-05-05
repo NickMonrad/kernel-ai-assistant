@@ -10,6 +10,7 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentationJson
+import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.normalizeSlotReply
 import com.kernel.ai.core.voice.VoiceCaptureMode
@@ -103,6 +104,11 @@ class ActionsViewModel @Inject constructor(
         val inputMode: InputMode,
     )
 
+    private data class ExecutedAction(
+        val entity: QuickActionEntity,
+        val spokenSummary: String?,
+    )
+
     /**
      * Local slot-fill state. Holds the pending [PendingSlotRequest] plus the original
      * user query (for history logging) and the [InputMode] (for voice-readiness).
@@ -133,6 +139,10 @@ class ActionsViewModel @Inject constructor(
 
     private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
+    private val _slotReplyAutoRearmArmed = MutableStateFlow(false)
+    val slotReplyAutoRearmArmed: StateFlow<Boolean> = _slotReplyAutoRearmArmed.asStateFlow()
+    private var expectedSlotPromptSpeech: String? = null
+    private var slotPromptPlaybackStarted = false
     private var shouldAutoStartVoiceSlotReply = false
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
@@ -148,7 +158,7 @@ class ActionsViewModel @Inject constructor(
                 if (enabled) {
                     voiceOutputController.warmUp()
                 } else {
-                    shouldAutoStartVoiceSlotReply = false
+                    setSlotReplyAutoRearmArmed(false, "spokenResponsesDisabled")
                     cancelPendingVoiceSlotReplyRestart()
                     cancelPendingVoiceSpeech()
                     voiceOutputController.stop()
@@ -212,15 +222,21 @@ class ActionsViewModel @Inject constructor(
                     is VoiceOutputEvent.SpeakingStarted -> {
                         cancelPendingVoiceSlotReplyRestart()
                         _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
+                        if (event.text == expectedSlotPromptSpeech) {
+                            slotPromptPlaybackStarted = true
+                            Log.d(TAG, "ActionsViewModel: slot prompt playback started")
+                        }
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
                         _voicePlaybackState.value = VoicePlaybackState.Idle
                         if (
                             shouldAutoStartVoiceSlotReply &&
                             _pendingSlot.value?.inputMode == InputMode.Voice &&
-                            _voiceCaptureState.value == VoiceCaptureState.Idle
+                            _voiceCaptureState.value == VoiceCaptureState.Idle &&
+                            slotPromptPlaybackStarted
                         ) {
-                            shouldAutoStartVoiceSlotReply = false
+                            setSlotReplyAutoRearmArmed(false, "voiceOutputSpeakingStopped")
+                            clearExpectedSlotPromptSpeech()
                             cancelPendingVoiceSlotReplyRestart()
                             pendingVoiceSlotReplyRestartJob = viewModelScope.launch {
                                 delay(SLOT_REPLY_REARM_DELAY_MS)
@@ -234,6 +250,12 @@ class ActionsViewModel @Inject constructor(
                                     )
                                 }
                             }
+                        } else if (
+                            shouldAutoStartVoiceSlotReply &&
+                            _pendingSlot.value?.inputMode == InputMode.Voice &&
+                            _voiceCaptureState.value == VoiceCaptureState.Idle
+                        ) {
+                            Log.d(TAG, "ActionsViewModel: ignoring stale SpeakingStopped before slot prompt playback starts")
                         }
                     }
                 }
@@ -249,7 +271,9 @@ class ActionsViewModel @Inject constructor(
 
     fun startVoiceSlotReply() {
         if (_pendingSlot.value == null) return
-        shouldAutoStartVoiceSlotReply = false
+        Log.d(TAG, "ActionsViewModel: startVoiceSlotReply pendingSlot=true")
+        setSlotReplyAutoRearmArmed(false, "startVoiceSlotReply")
+        clearExpectedSlotPromptSpeech()
         startVoiceCapture(VoiceCaptureMode.SlotReply)
     }
 
@@ -258,16 +282,24 @@ class ActionsViewModel @Inject constructor(
         _voiceCaptureState.value = VoiceCaptureState.Idle
     }
 
-    fun stopVoiceOutput() {
-        shouldAutoStartVoiceSlotReply = false
+    fun stopVoiceOutput(reason: String = "manual") {
+        Log.d(TAG, "ActionsViewModel: stopVoiceOutput reason=$reason")
+        setSlotReplyAutoRearmArmed(false, "stopVoiceOutput:$reason")
+        clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
         voiceOutputController.stop()
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
-    fun pauseTransientVoiceUi() {
-        shouldAutoStartVoiceSlotReply = false
+    fun pauseTransientVoiceUi(reason: String = "unspecified") {
+        Log.d(
+            TAG,
+            "ActionsViewModel: pauseTransientVoiceUi reason=$reason pendingSlot=${_pendingSlot.value != null} " +
+                "voiceCaptureState=${_voiceCaptureState.value} voicePlaybackState=${_voicePlaybackState.value}",
+        )
+        setSlotReplyAutoRearmArmed(false, "pauseTransientVoiceUi:$reason")
+        clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
         voiceInputController.stopListening()
@@ -286,16 +318,21 @@ class ActionsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = UiState.Executing
             try {
-                shouldAutoStartVoiceSlotReply = false
+                setSlotReplyAutoRearmArmed(false, "onPhonePermissionGranted")
+                clearExpectedSlotPromptSpeech()
                 voiceOutputController.stop()
-                val entity = executeIntent(
+                val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
                     params = pending.params,
                     inputMode = pending.inputMode,
                 )
-                quickActionDao.insert(entity)
-                speakForVoice(pending.inputMode, entity.resultText)
+                quickActionDao.insert(result.entity)
+                speakForVoice(
+                    pending.inputMode,
+                    result.entity.resultText,
+                    spokenOverride = result.spokenSummary,
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onPhonePermissionGranted failed — ${e.message}", e)
                 _error.value = e.message ?: "Unknown error"
@@ -340,7 +377,8 @@ class ActionsViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                shouldAutoStartVoiceSlotReply = false
+                setSlotReplyAutoRearmArmed(false, "executeAction")
+                clearExpectedSlotPromptSpeech()
                 voiceOutputController.stop()
                 _uiState.value = UiState.Executing
 
@@ -371,24 +409,24 @@ class ActionsViewModel @Inject constructor(
                         )
                     }
                     is QuickIntentRouter.RouteResult.RegexMatch -> {
-                        val entity = executeIntent(
+                        val result = executeIntent(
                             query = normalizedQuery,
                             intentName = routeResult.intent.intentName,
                             params = routeResult.intent.params,
                             inputMode = inputMode,
                         )
-                        quickActionDao.insert(entity)
-                        speakForVoice(inputMode, entity.resultText)
+                        quickActionDao.insert(result.entity)
+                        speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary)
                     }
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> {
-                        val entity = executeIntent(
+                        val result = executeIntent(
                             query = normalizedQuery,
                             intentName = routeResult.intent.intentName,
                             params = routeResult.intent.params,
                             inputMode = inputMode,
                         )
-                        quickActionDao.insert(entity)
-                        speakForVoice(inputMode, entity.resultText)
+                        quickActionDao.insert(result.entity)
+                        speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary)
                     }
                 }
             } catch (e: Exception) {
@@ -417,7 +455,8 @@ class ActionsViewModel @Inject constructor(
     fun onSlotReply(text: String) {
         cancelPendingVoiceSpeech()
         val pending = _pendingSlot.value ?: return
-        shouldAutoStartVoiceSlotReply = false
+        setSlotReplyAutoRearmArmed(false, "onSlotReply")
+        clearExpectedSlotPromptSpeech()
         val normalizedText = if (pending.inputMode == InputMode.Voice) {
             normalizeVoiceSlotReply(text, pending.request.missingSlot.name)
         } else {
@@ -451,17 +490,18 @@ class ActionsViewModel @Inject constructor(
             _uiState.value = UiState.Executing
             try {
                 voiceOutputController.stop()
-                val entity = executeIntent(
+                val result = executeIntent(
                     query = pending.originalQuery,
                     intentName = pending.request.intentName,
                     params = mergedParams,
                     inputMode = pending.inputMode,
                 )
-                quickActionDao.insert(entity)
+                quickActionDao.insert(result.entity)
                 speakForVoice(
                     pending.inputMode,
-                    entity.resultText,
+                    result.entity.resultText,
                     delayMs = if (pending.inputMode == InputMode.Voice) VOICE_REPLY_TTS_DELAY_MS else 0L,
+                    spokenOverride = result.spokenSummary,
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: onSlotReply failed — ${e.message}", e)
@@ -486,7 +526,8 @@ class ActionsViewModel @Inject constructor(
 
     /** Silently dismiss the slot-fill sheet with no log entry. */
     fun cancelSlotFill() {
-        shouldAutoStartVoiceSlotReply = false
+        setSlotReplyAutoRearmArmed(false, "cancelSlotFill")
+        clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
         _pendingSlot.value = null
@@ -502,6 +543,11 @@ class ActionsViewModel @Inject constructor(
         inputMode: InputMode,
         delayVoicePrompt: Boolean = false,
     ) {
+        Log.d(
+            TAG,
+            "ActionsViewModel: primePendingSlot intent=$intentName inputMode=$inputMode " +
+                "missing=${missingSlot.name} delayVoicePrompt=$delayVoicePrompt",
+        )
         _pendingSlot.value = PendingSlotState(
             request = PendingSlotRequest(
                 intentName = intentName,
@@ -511,10 +557,24 @@ class ActionsViewModel @Inject constructor(
             originalQuery = originalQuery,
             inputMode = inputMode,
         )
-        shouldAutoStartVoiceSlotReply = inputMode == InputMode.Voice
+        setSlotReplyAutoRearmArmed(
+            inputMode == InputMode.Voice && spokenResponsesEnabled,
+            "primePendingSlot",
+        )
+        expectedSlotPromptSpeech = if (inputMode == InputMode.Voice && spokenResponsesEnabled) {
+            _pendingSlot.value?.request?.promptMessage.orEmpty()
+        } else {
+            null
+        }
+        slotPromptPlaybackStarted = false
         if (inputMode == InputMode.Voice) {
             _voiceCaptureState.value = VoiceCaptureState.Idle
         }
+        Log.d(
+            TAG,
+            "ActionsViewModel: slot prompt=\"${_pendingSlot.value?.request?.promptMessage}\" " +
+                "autoRearm=$shouldAutoStartVoiceSlotReply spokenResponsesEnabled=$spokenResponsesEnabled",
+        )
         speakForVoice(
             inputMode,
             _pendingSlot.value?.request?.promptMessage.orEmpty(),
@@ -552,7 +612,7 @@ class ActionsViewModel @Inject constructor(
         intentName: String,
         params: Map<String, String>,
         inputMode: InputMode,
-    ): QuickActionEntity {
+    ): ExecutedAction {
         val directSkill = skillRegistry.get(intentName)
         val (skill, callParams) = when {
             directSkill != null -> directSkill to params
@@ -569,16 +629,28 @@ class ActionsViewModel @Inject constructor(
                 )
                 _events.emit(UiEvent.RequestPhonePermission)
             }
-            buildEntityFromSkillResult(query, intentName, skillResult)
+            ExecutedAction(
+                entity = buildEntityFromSkillResult(query, intentName, skillResult),
+                spokenSummary = spokenSummaryFrom(skillResult),
+            )
         } else {
             Log.w(TAG, "ActionsViewModel: intent '$intentName' has no registered skill")
-            QuickActionEntity(
-                userQuery = query,
-                skillName = intentName,
-                resultText = "Action recognised but not yet implemented.",
-                isSuccess = false,
+            ExecutedAction(
+                entity = QuickActionEntity(
+                    userQuery = query,
+                    skillName = intentName,
+                    resultText = "Action recognised but not yet implemented.",
+                    isSuccess = false,
+                ),
+                spokenSummary = null,
             )
         }
+    }
+
+    private fun spokenSummaryFrom(result: SkillResult): String? = when (result) {
+        is SkillResult.DirectReply -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
+        is SkillResult.Success -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
+        else -> null
     }
 
     private fun buildEntityFromSkillResult(
@@ -648,6 +720,11 @@ class ActionsViewModel @Inject constructor(
         mode: VoiceCaptureMode,
         interruptPlayback: Boolean = true,
     ) {
+        Log.d(
+            TAG,
+            "ActionsViewModel: startVoiceCapture mode=$mode interruptPlayback=$interruptPlayback " +
+                "pendingSlot=${_pendingSlot.value != null}",
+        )
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
         _error.value = null
@@ -658,11 +735,13 @@ class ActionsViewModel @Inject constructor(
         viewModelScope.launch {
             when (val result = voiceInputController.startListening(mode)) {
                 is VoiceInputStartResult.Started -> {
+                    Log.d(TAG, "ActionsViewModel: voiceInputController.startListening started mode=$mode")
                     if (_voiceCaptureState.value is VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening(mode)
                     }
                 }
                 is VoiceInputStartResult.Unavailable -> {
+                    Log.w(TAG, "ActionsViewModel: voiceInputController.startListening unavailable mode=$mode message=${result.message}")
                     _voiceCaptureState.value = VoiceCaptureState.Idle
                     _error.value = result.message
                 }
@@ -674,10 +753,11 @@ class ActionsViewModel @Inject constructor(
         inputMode: InputMode,
         text: String,
         delayMs: Long = 0L,
+        spokenOverride: String? = null,
     ) {
         if (inputMode != InputMode.Voice) return
         if (!spokenResponsesEnabled) return
-        val summary = toSpokenSummary(text)
+        val summary = spokenOverride?.takeIf { it.isNotBlank() } ?: toSpokenSummary(text)
         if (summary.isBlank()) return
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
@@ -694,6 +774,17 @@ class ActionsViewModel @Inject constructor(
     private fun cancelPendingVoiceSlotReplyRestart() {
         pendingVoiceSlotReplyRestartJob?.cancel()
         pendingVoiceSlotReplyRestartJob = null
+    }
+
+    private fun setSlotReplyAutoRearmArmed(armed: Boolean, reason: String) {
+        Log.d(TAG, "ActionsViewModel: setSlotReplyAutoRearmArmed armed=$armed reason=$reason")
+        shouldAutoStartVoiceSlotReply = armed
+        _slotReplyAutoRearmArmed.value = armed
+    }
+
+    private fun clearExpectedSlotPromptSpeech() {
+        expectedSlotPromptSpeech = null
+        slotPromptPlaybackStarted = false
     }
 
     private fun cancelPendingVoiceSpeech() {

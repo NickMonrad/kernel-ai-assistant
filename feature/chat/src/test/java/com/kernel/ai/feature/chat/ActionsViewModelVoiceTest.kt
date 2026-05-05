@@ -8,6 +8,8 @@ import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.SkillSchema
+import com.kernel.ai.core.skills.ToolPresentation
+import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.slot.SlotSpec
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
@@ -480,6 +482,10 @@ class ActionsViewModelVoiceTest {
 
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
         advanceUntilIdle()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to my wife?"),
+        )
+        runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         runCurrent()
 
@@ -512,6 +518,10 @@ class ActionsViewModelVoiceTest {
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
         advanceUntilIdle()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("Who would you like to email?"),
+        )
+        runCurrent()
 
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         runCurrent()
@@ -523,6 +533,10 @@ class ActionsViewModelVoiceTest {
         runCurrent()
         coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
 
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What's the subject of your email to Nick?"),
+        )
+        runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         runCurrent()
         advanceTimeBy(351)
@@ -552,6 +566,10 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.pauseTransientVoiceUi()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to my wife?"),
+        )
+        runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         advanceTimeBy(351)
         runCurrent()
@@ -616,6 +634,147 @@ class ActionsViewModelVoiceTest {
                 }
             )
         }
+    }
+
+    @Test
+    fun `voice weather direct reply speaks listener friendly summary and preserves visible result`() = runTest(dispatcher) {
+        val weatherSkill = mockk<Skill>()
+        val displayText =
+            "Wellington forecast: 25°C, feels like 23°C. H 27°C / L 18°C. Wind NW 15 km/h."
+        val presentation = ToolPresentation.Weather(
+            locationName = "Wellington",
+            temperatureText = "25°C",
+            feelsLikeText = "Feels like 23°C",
+            description = "Partly cloudy",
+            emoji = "⛅",
+            highLowText = "H 27°C / L 18°C",
+            humidityText = "Humidity 60%",
+            windText = "NW 15 km/h",
+            precipText = "20%",
+            airQualityText = null,
+        )
+
+        every { quickIntentRouter.route("what's the weather in Wellington") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = mapOf("location" to "Wellington"),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns weatherSkill
+        every { weatherSkill.name } returns "get_weather"
+        every { weatherSkill.description } returns "Get weather"
+        every { weatherSkill.schema } returns SkillSchema()
+        coEvery { weatherSkill.execute(any()) } returns SkillResult.DirectReply(
+            content = displayText,
+            presentation = presentation,
+        )
+
+        viewModel.executeAction("what's the weather in Wellington", InputMode.Voice)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            quickActionDao.insert(
+                match {
+                    it.userQuery == "what's the weather in Wellington" &&
+                        it.skillName == "get_weather" &&
+                        it.resultText == displayText &&
+                        it.presentationJson == ToolPresentationJson.toJsonString(presentation) &&
+                        it.isSuccess
+                },
+            )
+        }
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> {
+                    it.text != displayText &&
+                        it.text.contains("Wellington") &&
+                        it.text.contains("Partly cloudy") &&
+                        it.text.contains("25 degrees Celsius") &&
+                        !it.text.contains("25°C") &&
+                        !it.text.contains("H 27°C / L 18°C")
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `voice mode falls back to visible direct reply when no spoken summary is available`() = runTest(dispatcher) {
+        val directSkill = mockk<Skill>()
+        val displayText = "Created checklist Weekend errands."
+
+        every { quickIntentRouter.route("create checklist weekend errands") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "create_list",
+                    params = mapOf("list_name" to "Weekend errands"),
+                ),
+            )
+        every { skillRegistry.get("create_list") } returns directSkill
+        every { directSkill.name } returns "create_list"
+        every { directSkill.description } returns "Create list"
+        every { directSkill.schema } returns SkillSchema()
+        coEvery { directSkill.execute(any()) } returns SkillResult.DirectReply(displayText)
+
+        viewModel.executeAction("create checklist weekend errands", InputMode.Voice)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> { it.text == displayText },
+            )
+        }
+    }
+
+    @Test
+    fun `typed weather direct reply keeps display result silent`() = runTest(dispatcher) {
+        val weatherSkill = mockk<Skill>()
+        val displayText =
+            "Wellington forecast: 25°C, feels like 23°C. H 27°C / L 18°C. Wind NW 15 km/h."
+        val presentation = ToolPresentation.Weather(
+            locationName = "Wellington",
+            temperatureText = "25°C",
+            feelsLikeText = "Feels like 23°C",
+            description = "Partly cloudy",
+            emoji = "⛅",
+            highLowText = "H 27°C / L 18°C",
+            humidityText = "Humidity 60%",
+            windText = "NW 15 km/h",
+            precipText = "20%",
+            airQualityText = null,
+        )
+
+        every { quickIntentRouter.route("what's the weather in Wellington") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = mapOf("location" to "Wellington"),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns weatherSkill
+        every { weatherSkill.name } returns "get_weather"
+        every { weatherSkill.description } returns "Get weather"
+        every { weatherSkill.schema } returns SkillSchema()
+        coEvery { weatherSkill.execute(any()) } returns SkillResult.DirectReply(
+            content = displayText,
+            presentation = presentation,
+        )
+
+        viewModel.executeAction("what's the weather in Wellington", InputMode.Text)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            quickActionDao.insert(
+                match {
+                    it.userQuery == "what's the weather in Wellington" &&
+                        it.skillName == "get_weather" &&
+                        it.resultText == displayText &&
+                        it.presentationJson == ToolPresentationJson.toJsonString(presentation) &&
+                        it.isSuccess
+                },
+            )
+        }
+        coVerify(exactly = 0) { voiceOutputController.speak(any()) }
     }
 
     @Test
@@ -687,6 +846,10 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         spokenResponsesEnabled.value = false
+        runCurrent()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to my wife?"),
+        )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         runCurrent()
