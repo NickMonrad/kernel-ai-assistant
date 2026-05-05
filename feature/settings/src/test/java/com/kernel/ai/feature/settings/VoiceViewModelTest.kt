@@ -276,6 +276,11 @@ class VoiceViewModelTest {
 
     @Test
     fun `setSherpaVoice updates ui state immediately`() = runTest {
+        sherpaDownloadStates.value = mapOf(
+            SherpaPiperVoice.NorthernEnglishMale to VoicePackDownloadState.Downloaded("/voices/northern"),
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
         viewModel.setSherpaVoice(SherpaPiperVoice.NorthernEnglishMale)
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -284,6 +289,31 @@ class VoiceViewModelTest {
             viewModel.uiState.value.selectedSherpaVoice,
         )
         coVerify { voiceOutputPreferences.setSelectedSherpaVoice(SherpaPiperVoice.NorthernEnglishMale) }
+    }
+
+    @Test
+    fun `setSherpaVoice ignores undownloaded voices`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.setSherpaVoice(SherpaPiperVoice.NorthernEnglishMale)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(SherpaPiperVoice.JennyDioco, viewModel.uiState.value.selectedSherpaVoice)
+        coVerify(exactly = 0) {
+            voiceOutputPreferences.setSelectedSherpaVoice(SherpaPiperVoice.NorthernEnglishMale)
+        }
+    }
+
+    @Test
+    fun `Sherpa download flags reflect available and selected voices`() = runTest {
+        sherpaDownloadStates.value = mapOf(
+            SherpaPiperVoice.JennyDioco to VoicePackDownloadState.Downloaded("/voices/jenny"),
+            SherpaPiperVoice.AlanMedium to VoicePackDownloadState.Downloaded("/voices/alan"),
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.hasDownloadedSherpaVoice)
+        assertTrue(viewModel.uiState.value.isSelectedSherpaVoiceDownloaded)
     }
 
     @Test
