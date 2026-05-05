@@ -48,5 +48,5 @@ debug/*.hprof
 # AAR binary
 third_party/sherpa-onnx/
 
-# Piper / Sherpa-ONNX model assets bundled into APK only after running setup.
+# Legacy local Sherpa voice assets (kept ignored if they still exist from old setup flows).
 core/voice/src/main/assets/sherpa-tts/

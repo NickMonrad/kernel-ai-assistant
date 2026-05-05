@@ -31,6 +31,10 @@ android {
             all { it.useJUnitPlatform() }
         }
     }
+
+    sourceSets {
+        getByName("main").assets.setSrcDirs(emptyList<String>())
+    }
 }
 
 // ── Sherpa-ONNX spike (reflection-only — no compile-time dependency on Sherpa) ──────

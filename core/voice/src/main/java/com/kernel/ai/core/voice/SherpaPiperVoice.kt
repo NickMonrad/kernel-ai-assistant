@@ -80,10 +80,6 @@ enum class SherpaPiperVoice(
     val downloadUrl: String
         get() = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/$assetDirectoryName.tar.bz2"
 
-    /** Legacy asset sub-path (used if the voice is still bundled as an APK asset). */
-    val assetsSubdirectory: String
-        get() = "sherpa-tts/$assetDirectoryName"
-
     /** Returns the directory where this voice pack is extracted on internal storage. */
     fun voiceDir(context: Context): File =
         File(context.filesDir, "sherpa-tts/$assetDirectoryName")
