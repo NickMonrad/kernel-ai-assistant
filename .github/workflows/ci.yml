@@ -48,6 +48,25 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Cache Sherpa-ONNX AAR
+        uses: actions/cache@v4
+        with:
+          path: third_party/sherpa-onnx
+          key: sherpa-onnx-aar-1.13.0
+
+      - name: Download Sherpa-ONNX AAR
+        run: |
+          mkdir -p third_party/sherpa-onnx
+          AAR=third_party/sherpa-onnx/sherpa-onnx-1.13.0.aar
+          if [ ! -f "$AAR" ]; then
+            echo "Downloading Sherpa-ONNX AAR…"
+            curl -fL -o "$AAR" \
+              https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.0/sherpa-onnx-1.13.0.aar
+            echo "Downloaded $(du -sh "$AAR" | cut -f1) AAR"
+          else
+            echo "AAR already present (cached)"
+          fi
+
       - name: Build (debug)
         run: ./gradlew assembleDebug -PversionCode=${{ github.run_number }}
 

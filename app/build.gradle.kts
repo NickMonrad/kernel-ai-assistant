@@ -91,6 +91,24 @@ dependencies {
     implementation(project(":core:skills"))
     implementation(project(":feature:chat"))
     implementation(project(":feature:settings"))
+
+    // ── Sherpa-ONNX spike — runtime AAR for SherpaOnnxVoiceOutputController ──────────
+    // SherpaOnnxVoiceOutputController (core:voice) uses Class.forName() reflection; no
+    // compile-time dependency is needed in core:voice.  The AAR is added here (:app
+    // produces an APK, not an AAR, so local AAR deps are permitted) so Sherpa classes
+    // are present on the runtime classpath when the APK runs on device.
+    //
+    // CI: The "Download Sherpa-ONNX AAR" workflow step fetches the file automatically
+    //     before assembleDebug so CI APKs always include the Sherpa runtime.
+    // Local dev: Run `bash scripts/setup-sherpa-tts-spike.sh` to obtain the AAR, or
+    //     leave it absent — SherpaOnnxVoiceOutputController returns Unavailable and
+    //     Android TTS is used as the runtime fallback.
+    // Absent AAR → SherpaOnnxVoiceOutputController returns Unavailable → Android TTS used.
+    val sherpaAar = rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0.aar")
+    if (sherpaAar.exists()) {
+        implementation(files(sherpaAar.absolutePath))
+    }
+    // ────────────────────────────────────────────────────────────────────────────────
     // Compose
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
