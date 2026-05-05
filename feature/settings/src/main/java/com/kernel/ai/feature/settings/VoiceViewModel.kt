@@ -34,6 +34,8 @@ data class VoiceUiState(
     val autoStartAlertVoiceCommandsEnabled: Boolean = true,
     val androidNativeAvailabilityMessage: String? = null,
     val androidNativeLanguageSummary: String? = null,
+    val hasDownloadedSherpaVoice: Boolean = false,
+    val isSelectedSherpaVoiceDownloaded: Boolean = false,
 )
 
 @HiltViewModel
@@ -80,13 +82,19 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             sherpaVoicePackDownloadManager.downloadStates.collect { states ->
                 _uiState.update {
+                    val sherpaRows = SherpaPiperVoice.entries.map { voice ->
+                        SherpaVoiceRowUiState(
+                            voice = voice,
+                            downloadState = states[voice] ?: VoicePackDownloadState.NotDownloaded,
+                        )
+                    }
                     it.copy(
-                        sherpaVoices = SherpaPiperVoice.entries.map { voice ->
-                            SherpaVoiceRowUiState(
-                                voice = voice,
-                                downloadState = states[voice] ?: VoicePackDownloadState.NotDownloaded,
-                            )
+                        sherpaVoices = sherpaRows,
+                        hasDownloadedSherpaVoice = sherpaRows.any { row ->
+                            row.downloadState is VoicePackDownloadState.Downloaded
                         },
+                        isSelectedSherpaVoiceDownloaded =
+                            states[it.selectedSherpaVoice] is VoicePackDownloadState.Downloaded,
                     )
                 }
             }
@@ -120,6 +128,10 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun setSherpaVoice(voice: SherpaPiperVoice) {
+        val row = _uiState.value.sherpaVoices.firstOrNull { it.voice == voice }
+        if (row?.downloadState !is VoicePackDownloadState.Downloaded) {
+            return
+        }
         _uiState.update { it.copy(selectedSherpaVoice = voice) }
         viewModelScope.launch {
             voiceOutputPreferences.setSelectedSherpaVoice(voice)
