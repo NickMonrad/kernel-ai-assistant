@@ -217,7 +217,7 @@ fun ActionsScreen(
         viewModel.events.collect { event ->
             when (event) {
                 is ActionsViewModel.UiEvent.NavigateToChat -> {
-                    viewModel.pauseTransientVoiceUi()
+                    viewModel.pauseTransientVoiceUi(reason = "navigateToChat")
                     onNavigateToChat(event.query)
                 }
                 ActionsViewModel.UiEvent.RequestPhonePermission ->
@@ -229,7 +229,13 @@ fun ActionsScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                viewModel.pauseTransientVoiceUi()
+                Log.d(
+                    ACTIONS_SCREEN_TAG,
+                    "ActionsScreen: lifecycle ON_STOP pendingSlot=${pendingSlot != null} " +
+                        "showBottomSheet=$showBottomSheet voiceCaptureState=$voiceCaptureState " +
+                        "voicePlaybackState=$voicePlaybackState",
+                )
+                viewModel.pauseTransientVoiceUi(reason = "lifecycleOnStop")
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

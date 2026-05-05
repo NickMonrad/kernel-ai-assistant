@@ -158,7 +158,7 @@ class ActionsViewModel @Inject constructor(
                 if (enabled) {
                     voiceOutputController.warmUp()
                 } else {
-                    setSlotReplyAutoRearmArmed(false)
+                    setSlotReplyAutoRearmArmed(false, "spokenResponsesDisabled")
                     cancelPendingVoiceSlotReplyRestart()
                     cancelPendingVoiceSpeech()
                     voiceOutputController.stop()
@@ -235,7 +235,7 @@ class ActionsViewModel @Inject constructor(
                             _voiceCaptureState.value == VoiceCaptureState.Idle &&
                             slotPromptPlaybackStarted
                         ) {
-                            setSlotReplyAutoRearmArmed(false)
+                            setSlotReplyAutoRearmArmed(false, "voiceOutputSpeakingStopped")
                             clearExpectedSlotPromptSpeech()
                             cancelPendingVoiceSlotReplyRestart()
                             pendingVoiceSlotReplyRestartJob = viewModelScope.launch {
@@ -271,7 +271,8 @@ class ActionsViewModel @Inject constructor(
 
     fun startVoiceSlotReply() {
         if (_pendingSlot.value == null) return
-        setSlotReplyAutoRearmArmed(false)
+        Log.d(TAG, "ActionsViewModel: startVoiceSlotReply pendingSlot=true")
+        setSlotReplyAutoRearmArmed(false, "startVoiceSlotReply")
         clearExpectedSlotPromptSpeech()
         startVoiceCapture(VoiceCaptureMode.SlotReply)
     }
@@ -281,8 +282,9 @@ class ActionsViewModel @Inject constructor(
         _voiceCaptureState.value = VoiceCaptureState.Idle
     }
 
-    fun stopVoiceOutput() {
-        setSlotReplyAutoRearmArmed(false)
+    fun stopVoiceOutput(reason: String = "manual") {
+        Log.d(TAG, "ActionsViewModel: stopVoiceOutput reason=$reason")
+        setSlotReplyAutoRearmArmed(false, "stopVoiceOutput:$reason")
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
@@ -290,8 +292,13 @@ class ActionsViewModel @Inject constructor(
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
-    fun pauseTransientVoiceUi() {
-        setSlotReplyAutoRearmArmed(false)
+    fun pauseTransientVoiceUi(reason: String = "unspecified") {
+        Log.d(
+            TAG,
+            "ActionsViewModel: pauseTransientVoiceUi reason=$reason pendingSlot=${_pendingSlot.value != null} " +
+                "voiceCaptureState=${_voiceCaptureState.value} voicePlaybackState=${_voicePlaybackState.value}",
+        )
+        setSlotReplyAutoRearmArmed(false, "pauseTransientVoiceUi:$reason")
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
@@ -311,7 +318,7 @@ class ActionsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = UiState.Executing
             try {
-                setSlotReplyAutoRearmArmed(false)
+                setSlotReplyAutoRearmArmed(false, "onPhonePermissionGranted")
                 clearExpectedSlotPromptSpeech()
                 voiceOutputController.stop()
                 val result = executeIntent(
@@ -370,7 +377,7 @@ class ActionsViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                setSlotReplyAutoRearmArmed(false)
+                setSlotReplyAutoRearmArmed(false, "executeAction")
                 clearExpectedSlotPromptSpeech()
                 voiceOutputController.stop()
                 _uiState.value = UiState.Executing
@@ -448,7 +455,7 @@ class ActionsViewModel @Inject constructor(
     fun onSlotReply(text: String) {
         cancelPendingVoiceSpeech()
         val pending = _pendingSlot.value ?: return
-        setSlotReplyAutoRearmArmed(false)
+        setSlotReplyAutoRearmArmed(false, "onSlotReply")
         clearExpectedSlotPromptSpeech()
         val normalizedText = if (pending.inputMode == InputMode.Voice) {
             normalizeVoiceSlotReply(text, pending.request.missingSlot.name)
@@ -519,7 +526,7 @@ class ActionsViewModel @Inject constructor(
 
     /** Silently dismiss the slot-fill sheet with no log entry. */
     fun cancelSlotFill() {
-        setSlotReplyAutoRearmArmed(false)
+        setSlotReplyAutoRearmArmed(false, "cancelSlotFill")
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
@@ -550,7 +557,10 @@ class ActionsViewModel @Inject constructor(
             originalQuery = originalQuery,
             inputMode = inputMode,
         )
-        setSlotReplyAutoRearmArmed(inputMode == InputMode.Voice && spokenResponsesEnabled)
+        setSlotReplyAutoRearmArmed(
+            inputMode == InputMode.Voice && spokenResponsesEnabled,
+            "primePendingSlot",
+        )
         expectedSlotPromptSpeech = if (inputMode == InputMode.Voice && spokenResponsesEnabled) {
             _pendingSlot.value?.request?.promptMessage.orEmpty()
         } else {
@@ -766,8 +776,8 @@ class ActionsViewModel @Inject constructor(
         pendingVoiceSlotReplyRestartJob = null
     }
 
-    private fun setSlotReplyAutoRearmArmed(armed: Boolean) {
-        Log.d(TAG, "ActionsViewModel: setSlotReplyAutoRearmArmed armed=$armed")
+    private fun setSlotReplyAutoRearmArmed(armed: Boolean, reason: String) {
+        Log.d(TAG, "ActionsViewModel: setSlotReplyAutoRearmArmed armed=$armed reason=$reason")
         shouldAutoStartVoiceSlotReply = armed
         _slotReplyAutoRearmArmed.value = armed
     }
