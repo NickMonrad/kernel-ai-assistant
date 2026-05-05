@@ -141,6 +141,8 @@ class ActionsViewModel @Inject constructor(
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
     private val _slotReplyAutoRearmArmed = MutableStateFlow(false)
     val slotReplyAutoRearmArmed: StateFlow<Boolean> = _slotReplyAutoRearmArmed.asStateFlow()
+    private var expectedSlotPromptSpeech: String? = null
+    private var slotPromptPlaybackStarted = false
     private var shouldAutoStartVoiceSlotReply = false
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
@@ -220,15 +222,21 @@ class ActionsViewModel @Inject constructor(
                     is VoiceOutputEvent.SpeakingStarted -> {
                         cancelPendingVoiceSlotReplyRestart()
                         _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
+                        if (event.text == expectedSlotPromptSpeech) {
+                            slotPromptPlaybackStarted = true
+                            Log.d(TAG, "ActionsViewModel: slot prompt playback started")
+                        }
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
                         _voicePlaybackState.value = VoicePlaybackState.Idle
                         if (
                             shouldAutoStartVoiceSlotReply &&
                             _pendingSlot.value?.inputMode == InputMode.Voice &&
-                            _voiceCaptureState.value == VoiceCaptureState.Idle
+                            _voiceCaptureState.value == VoiceCaptureState.Idle &&
+                            slotPromptPlaybackStarted
                         ) {
                             setSlotReplyAutoRearmArmed(false)
+                            clearExpectedSlotPromptSpeech()
                             cancelPendingVoiceSlotReplyRestart()
                             pendingVoiceSlotReplyRestartJob = viewModelScope.launch {
                                 delay(SLOT_REPLY_REARM_DELAY_MS)
@@ -242,6 +250,12 @@ class ActionsViewModel @Inject constructor(
                                     )
                                 }
                             }
+                        } else if (
+                            shouldAutoStartVoiceSlotReply &&
+                            _pendingSlot.value?.inputMode == InputMode.Voice &&
+                            _voiceCaptureState.value == VoiceCaptureState.Idle
+                        ) {
+                            Log.d(TAG, "ActionsViewModel: ignoring stale SpeakingStopped before slot prompt playback starts")
                         }
                     }
                 }
@@ -258,6 +272,7 @@ class ActionsViewModel @Inject constructor(
     fun startVoiceSlotReply() {
         if (_pendingSlot.value == null) return
         setSlotReplyAutoRearmArmed(false)
+        clearExpectedSlotPromptSpeech()
         startVoiceCapture(VoiceCaptureMode.SlotReply)
     }
 
@@ -268,6 +283,7 @@ class ActionsViewModel @Inject constructor(
 
     fun stopVoiceOutput() {
         setSlotReplyAutoRearmArmed(false)
+        clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
         voiceOutputController.stop()
@@ -276,6 +292,7 @@ class ActionsViewModel @Inject constructor(
 
     fun pauseTransientVoiceUi() {
         setSlotReplyAutoRearmArmed(false)
+        clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
         voiceInputController.stopListening()
@@ -295,6 +312,7 @@ class ActionsViewModel @Inject constructor(
             _uiState.value = UiState.Executing
             try {
                 setSlotReplyAutoRearmArmed(false)
+                clearExpectedSlotPromptSpeech()
                 voiceOutputController.stop()
                 val result = executeIntent(
                     query = pending.query,
@@ -353,6 +371,7 @@ class ActionsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 setSlotReplyAutoRearmArmed(false)
+                clearExpectedSlotPromptSpeech()
                 voiceOutputController.stop()
                 _uiState.value = UiState.Executing
 
@@ -430,6 +449,7 @@ class ActionsViewModel @Inject constructor(
         cancelPendingVoiceSpeech()
         val pending = _pendingSlot.value ?: return
         setSlotReplyAutoRearmArmed(false)
+        clearExpectedSlotPromptSpeech()
         val normalizedText = if (pending.inputMode == InputMode.Voice) {
             normalizeVoiceSlotReply(text, pending.request.missingSlot.name)
         } else {
@@ -500,6 +520,7 @@ class ActionsViewModel @Inject constructor(
     /** Silently dismiss the slot-fill sheet with no log entry. */
     fun cancelSlotFill() {
         setSlotReplyAutoRearmArmed(false)
+        clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
         _pendingSlot.value = null
@@ -530,6 +551,12 @@ class ActionsViewModel @Inject constructor(
             inputMode = inputMode,
         )
         setSlotReplyAutoRearmArmed(inputMode == InputMode.Voice && spokenResponsesEnabled)
+        expectedSlotPromptSpeech = if (inputMode == InputMode.Voice && spokenResponsesEnabled) {
+            _pendingSlot.value?.request?.promptMessage.orEmpty()
+        } else {
+            null
+        }
+        slotPromptPlaybackStarted = false
         if (inputMode == InputMode.Voice) {
             _voiceCaptureState.value = VoiceCaptureState.Idle
         }
@@ -743,6 +770,11 @@ class ActionsViewModel @Inject constructor(
         Log.d(TAG, "ActionsViewModel: setSlotReplyAutoRearmArmed armed=$armed")
         shouldAutoStartVoiceSlotReply = armed
         _slotReplyAutoRearmArmed.value = armed
+    }
+
+    private fun clearExpectedSlotPromptSpeech() {
+        expectedSlotPromptSpeech = null
+        slotPromptPlaybackStarted = false
     }
 
     private fun cancelPendingVoiceSpeech() {

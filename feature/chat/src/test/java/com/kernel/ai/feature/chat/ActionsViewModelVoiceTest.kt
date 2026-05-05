@@ -482,6 +482,10 @@ class ActionsViewModelVoiceTest {
 
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
         advanceUntilIdle()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to my wife?"),
+        )
+        runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         runCurrent()
 
@@ -513,6 +517,10 @@ class ActionsViewModelVoiceTest {
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
         advanceUntilIdle()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("Who would you like to email?"),
+        )
+        runCurrent()
 
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         runCurrent()
@@ -524,6 +532,10 @@ class ActionsViewModelVoiceTest {
         runCurrent()
         coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
 
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What's the subject of your email to Nick?"),
+        )
+        runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         runCurrent()
         advanceTimeBy(351)
@@ -553,6 +565,10 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.pauseTransientVoiceUi()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to my wife?"),
+        )
+        runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         advanceTimeBy(351)
         runCurrent()
@@ -829,6 +845,10 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         spokenResponsesEnabled.value = false
+        runCurrent()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to my wife?"),
+        )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         runCurrent()
