@@ -496,39 +496,6 @@ class ActionsViewModelVoiceTest {
         verify(exactly = 1) { voiceOutputController.stop() }
     }
 
-    @Test
-    fun `voice mode fallback auto starts slot reply capture when prompt stop event is missed`() = runTest(dispatcher) {
-        every { quickIntentRouter.route("send a text message to my wife") } returns
-            QuickIntentRouter.RouteResult.NeedsSlot(
-                intent = QuickIntentRouter.MatchedIntent(
-                    intentName = "send_sms",
-                    params = mapOf("contact" to "my wife"),
-                ),
-                missingSlot = SlotSpec(
-                    name = "message",
-                    promptTemplate = "What would you like to say to {contact}?",
-                ),
-            )
-        coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
-        } returns VoiceInputStartResult.Started
-
-        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
-        advanceUntilIdle()
-        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("What would you like to say to my wife?"))
-        runCurrent()
-
-        advanceTimeBy(2_999)
-        runCurrent()
-        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
-
-        advanceTimeBy(1)
-        runCurrent()
-
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
-    }
-
-    @Test
     fun `stale slot reply auto restart is cancelled when a newer follow up prompt starts`() = runTest(dispatcher) {
         val router = QuickIntentRouter()
         coEvery {

@@ -83,6 +83,7 @@ import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.voice.VoiceCaptureMode
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -108,6 +109,7 @@ fun ActionsScreen(
     val pendingSlot by viewModel.pendingSlot.collectAsStateWithLifecycle()
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
+    val slotReplyAutoRearmArmed by viewModel.slotReplyAutoRearmArmed.collectAsStateWithLifecycle()
     val currentVoiceCaptureState = voiceCaptureState
     val isCommandVoiceActive = when (currentVoiceCaptureState) {
         is ActionsViewModel.VoiceCaptureState.Preparing -> currentVoiceCaptureState.mode == VoiceCaptureMode.Command
@@ -484,6 +486,7 @@ fun ActionsScreen(
             inputMode = slot.inputMode,
             uiState = uiState,
             voiceCaptureState = voiceCaptureState,
+            autoVoiceReplyArmed = slotReplyAutoRearmArmed,
             onDismiss = { viewModel.cancelSlotFill() },
             onSubmit = { reply -> viewModel.onSlotReply(reply) },
             onVoiceReply = { requestVoiceCapture(VoiceCaptureMode.SlotReply) },
@@ -519,6 +522,7 @@ private fun SlotFillBottomSheet(
     inputMode: InputMode,
     uiState: ActionsViewModel.UiState,
     voiceCaptureState: ActionsViewModel.VoiceCaptureState,
+    autoVoiceReplyArmed: Boolean,
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
@@ -536,6 +540,14 @@ private fun SlotFillBottomSheet(
         ActionsViewModel.VoiceCaptureState.Idle -> null
     }
     val isVoiceReplyActive = slotReplyCaptureState != null
+
+    LaunchedEffect(promptMessage, inputMode, autoVoiceReplyArmed, isVoiceReplyActive) {
+        if (inputMode != InputMode.Voice || !autoVoiceReplyArmed || isVoiceReplyActive) return@LaunchedEffect
+        delay(estimatedSlotPromptDurationMs(promptMessage))
+        if (!isVoiceReplyActive && autoVoiceReplyArmed) {
+            onVoiceReply()
+        }
+    }
 
     fun submit() {
         val text = inputText.trim()
@@ -645,6 +657,13 @@ private fun SlotFillBottomSheet(
             }
         }
     }
+}
+
+private fun estimatedSlotPromptDurationMs(promptMessage: String): Long {
+    val normalizedPrompt = promptMessage.trim()
+    if (normalizedPrompt.isBlank()) return 3_500L
+    val estimatedSpeechMs = normalizedPrompt.length * 50L
+    return (estimatedSpeechMs + 1_500L).coerceIn(3_000L, 6_000L)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
