@@ -218,11 +218,33 @@ private fun VoiceScreenContent(
                 HorizontalDivider()
             }
 
+            Text(
+                text = "Choose one spoken output engine. Android TTS and Sherpa Piper are alternative playback paths, so only the selected engine will speak.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+
             if (uiState.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental) {
                 Text(
                     text = "Sherpa Piper voice",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+
+                val sherpaHelpText = when {
+                    !uiState.hasDownloadedSherpaVoice ->
+                        "Download a Sherpa voice pack below before Sherpa Piper can speak."
+                    !uiState.isSelectedSherpaVoiceDownloaded ->
+                        "Your saved Sherpa voice is not downloaded on this device. Download it again or choose another installed voice below."
+                    else ->
+                        "Only downloaded voices can be selected. Android TTS is disabled while Sherpa Piper is selected above."
+                }
+                Text(
+                    text = sherpaHelpText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
 
@@ -258,6 +280,7 @@ private fun SherpaVoiceRow(
 ) {
     val voice = rowState.voice
     val state = rowState.downloadState
+    val isDownloaded = state is VoicePackDownloadState.Downloaded
 
     ListItem(
         modifier = modifier.fillMaxWidth(),
@@ -274,6 +297,17 @@ private fun SherpaVoiceRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (!isDownloaded) {
+                    Text(
+                        text = when (state) {
+                            is VoicePackDownloadState.Downloading -> "Selectable after download completes"
+                            is VoicePackDownloadState.Error -> "Retry download before selecting this voice"
+                            else -> "Download to make this voice selectable"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 when (state) {
                     is VoicePackDownloadState.Downloading -> {
                         Spacer(modifier = Modifier.height(4.dp))
@@ -324,17 +358,11 @@ private fun SherpaVoiceRow(
                             modifier = Modifier.size(20.dp),
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        // Allow selecting AND deleting when downloaded
                         RadioButton(selected = isSelected, onClick = onSelect)
                         TextButton(onClick = onDelete) {
                             Text("Delete", color = MaterialTheme.colorScheme.error)
                         }
                     }
-                }
-                // Show radio button to select voice when downloaded; also allow selection intent
-                // when not yet downloaded (selection happens, but Sherpa won't activate until ready)
-                if (state !is VoicePackDownloadState.Downloaded) {
-                    RadioButton(selected = isSelected, onClick = onSelect)
                 }
             }
         },
@@ -389,6 +417,8 @@ private fun VoiceScreenPreview() {
             uiState = VoiceUiState(
                 selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
                 selectedSherpaVoice = SherpaPiperVoice.NorthernEnglishMale,
+                hasDownloadedSherpaVoice = true,
+                isSelectedSherpaVoiceDownloaded = false,
                 sherpaVoices = listOf(
                     SherpaVoiceRowUiState(
                         voice = SherpaPiperVoice.JennyDioco,
@@ -416,4 +446,3 @@ private fun VoiceScreenPreview() {
         )
     }
 }
-
