@@ -500,6 +500,7 @@ class ActionsViewModelVoiceTest {
         verify(exactly = 1) { voiceOutputController.stop() }
     }
 
+    @Test
     fun `stale slot reply auto restart is cancelled when a newer follow up prompt starts`() = runTest(dispatcher) {
         val router = QuickIntentRouter()
         coEvery {
