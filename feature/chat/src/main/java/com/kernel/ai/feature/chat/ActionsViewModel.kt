@@ -37,6 +37,7 @@ import javax.inject.Inject
 
 private const val TAG = "KernelAI"
 private const val SLOT_REPLY_REARM_DELAY_MS = 350L
+private const val SLOT_REPLY_REARM_FALLBACK_DELAY_MS = 3_000L
 private const val VOICE_REPLY_TTS_DELAY_MS = 150L
 private const val VOICE_COMMAND_DUPLICATE_WINDOW_MS = 2_000L
 private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
@@ -141,6 +142,7 @@ class ActionsViewModel @Inject constructor(
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
     private var shouldAutoStartVoiceSlotReply = false
     private var pendingVoiceSlotReplyRestartJob: Job? = null
+    private var pendingVoiceSlotReplyFallbackJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var recentVoiceCommand: String? = null
@@ -218,6 +220,13 @@ class ActionsViewModel @Inject constructor(
                     is VoiceOutputEvent.SpeakingStarted -> {
                         cancelPendingVoiceSlotReplyRestart()
                         _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
+                        if (
+                            shouldAutoStartVoiceSlotReply &&
+                            _pendingSlot.value?.inputMode == InputMode.Voice &&
+                            _voiceCaptureState.value == VoiceCaptureState.Idle
+                        ) {
+                            scheduleVoiceSlotReplyFallback()
+                        }
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
                         _voicePlaybackState.value = VoicePlaybackState.Idle
@@ -228,6 +237,7 @@ class ActionsViewModel @Inject constructor(
                         ) {
                             shouldAutoStartVoiceSlotReply = false
                             cancelPendingVoiceSlotReplyRestart()
+                            cancelPendingVoiceSlotReplyFallback()
                             pendingVoiceSlotReplyRestartJob = viewModelScope.launch {
                                 delay(SLOT_REPLY_REARM_DELAY_MS)
                                 if (
@@ -267,6 +277,7 @@ class ActionsViewModel @Inject constructor(
     fun stopVoiceOutput() {
         shouldAutoStartVoiceSlotReply = false
         cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSlotReplyFallback()
         cancelPendingVoiceSpeech()
         voiceOutputController.stop()
         _voicePlaybackState.value = VoicePlaybackState.Idle
@@ -275,6 +286,7 @@ class ActionsViewModel @Inject constructor(
     fun pauseTransientVoiceUi() {
         shouldAutoStartVoiceSlotReply = false
         cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSlotReplyFallback()
         cancelPendingVoiceSpeech()
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
@@ -499,6 +511,7 @@ class ActionsViewModel @Inject constructor(
     fun cancelSlotFill() {
         shouldAutoStartVoiceSlotReply = false
         cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSlotReplyFallback()
         cancelPendingVoiceSpeech()
         _pendingSlot.value = null
         stopVoiceCapture()
@@ -672,6 +685,7 @@ class ActionsViewModel @Inject constructor(
         interruptPlayback: Boolean = true,
     ) {
         cancelPendingVoiceSlotReplyRestart()
+        cancelPendingVoiceSlotReplyFallback()
         cancelPendingVoiceSpeech()
         _error.value = null
         if (interruptPlayback) {
@@ -718,6 +732,31 @@ class ActionsViewModel @Inject constructor(
     private fun cancelPendingVoiceSlotReplyRestart() {
         pendingVoiceSlotReplyRestartJob?.cancel()
         pendingVoiceSlotReplyRestartJob = null
+    }
+
+    private fun cancelPendingVoiceSlotReplyFallback() {
+        pendingVoiceSlotReplyFallbackJob?.cancel()
+        pendingVoiceSlotReplyFallbackJob = null
+    }
+
+    private fun scheduleVoiceSlotReplyFallback() {
+        cancelPendingVoiceSlotReplyFallback()
+        pendingVoiceSlotReplyFallbackJob = viewModelScope.launch {
+            delay(SLOT_REPLY_REARM_FALLBACK_DELAY_MS)
+            if (
+                _pendingSlot.value?.inputMode == InputMode.Voice &&
+                _voiceCaptureState.value == VoiceCaptureState.Idle
+            ) {
+                shouldAutoStartVoiceSlotReply = false
+                cancelPendingVoiceSlotReplyRestart()
+                _voicePlaybackState.value = VoicePlaybackState.Idle
+                voiceOutputController.stop()
+                startVoiceCapture(
+                    mode = VoiceCaptureMode.SlotReply,
+                    interruptPlayback = false,
+                )
+            }
+        }
     }
 
     private fun cancelPendingVoiceSpeech() {
