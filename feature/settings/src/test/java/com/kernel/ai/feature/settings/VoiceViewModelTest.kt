@@ -3,8 +3,12 @@ package com.kernel.ai.feature.settings
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
 import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
+import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
+import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -32,9 +36,18 @@ class VoiceViewModelTest {
     private val androidNativeRecognitionSupport: AndroidNativeRecognitionSupport = mockk()
     private val voiceInputPreferences: VoiceInputPreferences = mockk()
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
+    private val sherpaVoicePackDownloadManager: SherpaVoicePackDownloadManager = mockk()
     private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Vosk)
     private val autoStartAlertVoiceCommandsEnabled = MutableStateFlow(true)
     private val spokenResponsesEnabled = MutableStateFlow(true)
+    private val selectedOutputEngine = MutableStateFlow(VoiceOutputEngine.AndroidTts)
+    private val selectedSherpaVoice = MutableStateFlow(SherpaPiperVoice.JennyDioco)
+    private val sherpaDownloadStates: MutableStateFlow<Map<SherpaPiperVoice, VoicePackDownloadState>> =
+        MutableStateFlow(
+            SherpaPiperVoice.entries.associateWith {
+                VoicePackDownloadState.NotDownloaded
+            },
+        )
 
     private lateinit var viewModel: VoiceViewModel
 
@@ -54,11 +67,20 @@ class VoiceViewModelTest {
         coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(any()) } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
+        every { voiceOutputPreferences.selectedEngine } returns selectedOutputEngine
+        every { voiceOutputPreferences.selectedSherpaVoice } returns selectedSherpaVoice
         coEvery { voiceOutputPreferences.setSpokenResponsesEnabled(any()) } just Runs
+        coEvery { voiceOutputPreferences.setSelectedEngine(any()) } just Runs
+        coEvery { voiceOutputPreferences.setSelectedSherpaVoice(any()) } just Runs
+        every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
+        every { sherpaVoicePackDownloadManager.startDownload(any()) } just Runs
+        every { sherpaVoicePackDownloadManager.cancelDownload(any()) } just Runs
+        every { sherpaVoicePackDownloadManager.deleteVoice(any()) } just Runs
         viewModel = VoiceViewModel(
             androidNativeRecognitionSupport,
             voiceInputPreferences,
             voiceOutputPreferences,
+            sherpaVoicePackDownloadManager,
         )
     }
 
@@ -111,6 +133,7 @@ class VoiceViewModelTest {
             androidNativeRecognitionSupport,
             voiceInputPreferences,
             voiceOutputPreferences,
+            sherpaVoicePackDownloadManager,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -135,6 +158,7 @@ class VoiceViewModelTest {
             androidNativeRecognitionSupport,
             voiceInputPreferences,
             voiceOutputPreferences,
+            sherpaVoicePackDownloadManager,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -159,6 +183,7 @@ class VoiceViewModelTest {
             androidNativeRecognitionSupport,
             voiceInputPreferences,
             voiceOutputPreferences,
+            sherpaVoicePackDownloadManager,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -194,5 +219,93 @@ class VoiceViewModelTest {
 
         assertEquals(false, viewModel.uiState.value.spokenResponsesEnabled)
         coVerify { voiceOutputPreferences.setSpokenResponsesEnabled(false) }
+    }
+
+    @Test
+    fun `voice output engine defaults to Android TTS when preference flow emits Android TTS`() =
+        runTest {
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(
+                VoiceOutputEngine.AndroidTts,
+                viewModel.uiState.value.selectedOutputEngine,
+            )
+        }
+
+    @Test
+    fun `selected Sherpa voice defaults to Jenny when preference flow emits Jenny`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(SherpaPiperVoice.JennyDioco, viewModel.uiState.value.selectedSherpaVoice)
+    }
+
+    @Test
+    fun `Sherpa voice download states are exposed for each voice row`() = runTest {
+        sherpaDownloadStates.value = mapOf(
+            SherpaPiperVoice.JennyDioco to VoicePackDownloadState.Downloaded("/voices/jenny"),
+            SherpaPiperVoice.SouthernEnglishFemale to VoicePackDownloadState.Downloading(progress = 0.5f),
+        )
+
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            VoicePackDownloadState.Downloaded("/voices/jenny"),
+            viewModel.uiState.value.sherpaVoices.first { it.voice == SherpaPiperVoice.JennyDioco }.downloadState,
+        )
+        assertEquals(
+            VoicePackDownloadState.Downloading(progress = 0.5f),
+            viewModel.uiState.value.sherpaVoices.first { it.voice == SherpaPiperVoice.SouthernEnglishFemale }.downloadState,
+        )
+        assertEquals(
+            VoicePackDownloadState.NotDownloaded,
+            viewModel.uiState.value.sherpaVoices.first { it.voice == SherpaPiperVoice.NorthernEnglishMale }.downloadState,
+        )
+    }
+
+    @Test
+    fun `setVoiceOutputEngine updates ui state immediately`() = runTest {
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.SherpaExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            VoiceOutputEngine.SherpaExperimental,
+            viewModel.uiState.value.selectedOutputEngine,
+        )
+        coVerify { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.SherpaExperimental) }
+    }
+
+    @Test
+    fun `setSherpaVoice updates ui state immediately`() = runTest {
+        viewModel.setSherpaVoice(SherpaPiperVoice.NorthernEnglishMale)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            SherpaPiperVoice.NorthernEnglishMale,
+            viewModel.uiState.value.selectedSherpaVoice,
+        )
+        coVerify { voiceOutputPreferences.setSelectedSherpaVoice(SherpaPiperVoice.NorthernEnglishMale) }
+    }
+
+    @Test
+    fun `downloadSherpaVoice delegates to the voice pack download manager`() = runTest {
+        viewModel.downloadSherpaVoice(SherpaPiperVoice.JennyDioco)
+
+        io.mockk.verify { sherpaVoicePackDownloadManager.startDownload(SherpaPiperVoice.JennyDioco) }
+    }
+
+    @Test
+    fun `cancelSherpaVoiceDownload delegates to the voice pack download manager`() = runTest {
+        viewModel.cancelSherpaVoiceDownload(SherpaPiperVoice.SouthernEnglishFemale)
+
+        io.mockk.verify {
+            sherpaVoicePackDownloadManager.cancelDownload(SherpaPiperVoice.SouthernEnglishFemale)
+        }
+    }
+
+    @Test
+    fun `deleteSherpaVoice delegates to the voice pack download manager`() = runTest {
+        viewModel.deleteSherpaVoice(SherpaPiperVoice.NorthernEnglishMale)
+
+        io.mockk.verify { sherpaVoicePackDownloadManager.deleteVoice(SherpaPiperVoice.NorthernEnglishMale) }
     }
 }
