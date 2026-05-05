@@ -102,7 +102,8 @@ dependencies {
     //     before assembleDebug so CI APKs always include the Sherpa runtime.
     // Local dev: Run `bash scripts/setup-sherpa-tts-spike.sh` to obtain the AAR, or
     //     leave it absent — SherpaOnnxVoiceOutputController returns Unavailable and
-    //     Android TTS is used as the runtime fallback.
+    //     Android TTS is used as the runtime fallback. Voice packs themselves now
+    //     download on device from Settings -> Voice instead of being bundled into the APK.
     // Absent AAR → SherpaOnnxVoiceOutputController returns Unavailable → Android TTS used.
     val sherpaAar = rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0.aar")
     if (sherpaAar.exists()) {

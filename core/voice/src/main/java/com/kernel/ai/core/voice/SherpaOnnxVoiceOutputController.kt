@@ -18,29 +18,29 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Spike implementation of [VoiceOutputController] backed by Sherpa-ONNX + locally prepared Piper
+ * Spike implementation of [VoiceOutputController] backed by Sherpa-ONNX + downloaded Piper
  * English voices.
  *
  * **Design goals (spike):**
  * - Zero direct imports from `com.k2fsa.sherpa.onnx.*` — all Sherpa access goes through
  *   Java reflection so this file compiles even when the AAR has not been downloaded yet.
- * - Graceful [VoiceOutputResult.Unavailable] when either the AAR or the model assets are absent.
+ * - Graceful [VoiceOutputResult.Unavailable] when either the AAR or the downloaded voice pack is
+ *   absent.
  * - Streams PCM floats to [AudioTrack] in chunks so the audio focus and stop() interruptibility
  *   work the same way as [AndroidTextToSpeechController].
- * - Extracts `espeak-ng-data` (and the model itself) from APK assets to [Context.getFilesDir]
- *   because Sherpa-ONNX needs real filesystem paths, not `AssetManager` URIs for those files.
  *
  * **Prerequisites (not committed):**
  * Run `scripts/setup-sherpa-tts-spike.sh` to:
  *   1. Download `sherpa-onnx-1.13.0.aar` → `third_party/sherpa-onnx/`
- *   2. Download Piper voice assets → `core/voice/src/main/assets/sherpa-tts/...`
  *
- * When the AAR/assets are absent the class initialises cleanly to [InitState.UNAVAILABLE] and
+ * Voice packs are provisioned on device from Settings → Voice and extracted to [Context.getFilesDir]
+ * because Sherpa-ONNX needs real filesystem paths, not `AssetManager` URIs for those files.
+ *
+ * When the AAR/voice pack are absent the class initialises cleanly to [InitState.UNAVAILABLE] and
  * [FallbackVoiceOutputController] will route to [AndroidTextToSpeechController] instead.
  */
 @Singleton
@@ -155,35 +155,20 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             )
         }
 
-        // 2. Prefer voice pack downloaded to internal storage over APK assets
+        // 2. Use the voice pack downloaded to internal storage.
         val downloadedDir = voice.voiceDir(context)
-        val modelDir: File = when {
-            voice.isDownloaded(context) -> {
-                Log.i(TAG, "Using downloaded voice pack at ${downloadedDir.absolutePath}")
-                downloadedDir
-            }
-            else -> {
-                // 3. Fall back to APK assets (local dev path — assets are gitignored)
-                val assetsSubdir = voice.assetsSubdirectory
-                val assetsPresent = runCatching {
-                    context.assets.list(assetsSubdir)?.isNotEmpty() == true
-                }.getOrDefault(false)
-
-                if (!assetsPresent) {
-                    Log.i(TAG, "Voice pack not downloaded and not in APK assets: $assetsSubdir. " +
-                        "Use Settings → Voice to download the voice pack.")
-                    initState = InitState.UNAVAILABLE
-                    return VoiceOutputResult.Unavailable(
-                        "Voice pack not yet downloaded for ${voice.displayName}. " +
-                            "Tap Download in Settings → Voice."
-                    )
-                }
-
-                // Extract assets to filesystem so Sherpa gets real paths
-                val extractedDir = File(context.filesDir, assetsSubdir)
-                extractAssetsIfNeeded(assetsSubdir, extractedDir)
-                extractedDir
-            }
+        val modelDir: File = if (voice.isDownloaded(context)) {
+            Log.i(TAG, "Using downloaded voice pack at ${downloadedDir.absolutePath}")
+            downloadedDir
+        } else {
+            Log.i(
+                TAG,
+                "Voice pack not downloaded for ${voice.displayName}. Use Settings → Voice to download it.",
+            )
+            initState = InitState.UNAVAILABLE
+            return VoiceOutputResult.Unavailable(
+                "Voice pack not yet downloaded for ${voice.displayName}. Tap Download in Settings → Voice.",
+            )
         }
 
         return try {
@@ -337,39 +322,6 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             audio.javaClass.getDeclaredField("sampleRate")
                 .also { it.isAccessible = true }
                 .getInt(audio)
-        }
-    }
-
-    // ── Asset extraction ─────────────────────────────────────────────────────
-
-    /**
-     * Copies the Piper model directory from APK assets to [destDir] on the real filesystem.
-     * Skips individual files that already exist so subsequent launches are fast.
-     * espeak-ng-data/ is recursed because Sherpa requires it as a real directory tree.
-     */
-    private fun extractAssetsIfNeeded(assetSubdir: String, destDir: File) {
-        destDir.mkdirs()
-        extractAssetsRecursive(assetSubdir, destDir)
-    }
-
-    private fun extractAssetsRecursive(assetPath: String, destDir: File) {
-        val children = context.assets.list(assetPath) ?: return
-        destDir.mkdirs()
-        for (child in children) {
-            val childAssetPath = "$assetPath/$child"
-            val childDest = File(destDir, child)
-            val isDir = context.assets.list(childAssetPath)?.isNotEmpty() == true
-            if (isDir) {
-                extractAssetsRecursive(childAssetPath, childDest)
-            } else if (!childDest.exists()) {
-                copyAsset(childAssetPath, childDest)
-            }
-        }
-    }
-
-    private fun copyAsset(assetPath: String, destFile: File) {
-        context.assets.open(assetPath).use { inp ->
-            FileOutputStream(destFile).use { out -> inp.copyTo(out) }
         }
     }
 
