@@ -20,7 +20,7 @@ enum class SherpaPiperVoice(
     ),
     SouthernEnglishFemale(
         displayName = "Southern English Female",
-        description = "Closest publicly available southern-English Piper pack for this spike setup.",
+        description = "Lower-size southern British English female voice.",
         assetDirectoryName = "vits-piper-en_GB-southern_english_female-low",
         downloadKey = "en_GB-southern_english_female-low",
         approxDownloadBytes = 64_000_000L,
@@ -31,6 +31,48 @@ enum class SherpaPiperVoice(
         assetDirectoryName = "vits-piper-en_GB-northern_english_male-medium",
         downloadKey = "en_GB-northern_english_male-medium",
         approxDownloadBytes = 74_000_000L,
+    ),
+    AlanMedium(
+        displayName = "Alan",
+        description = "Balanced British English male voice with a more neutral delivery.",
+        assetDirectoryName = "vits-piper-en_GB-alan-medium",
+        downloadKey = "en_GB-alan-medium",
+        approxDownloadBytes = 67_220_121L,
+    ),
+    CoriHigh(
+        displayName = "Cori",
+        description = "Higher-quality British English female voice with smoother playback.",
+        assetDirectoryName = "vits-piper-en_GB-cori-high",
+        downloadKey = "en_GB-cori-high",
+        approxDownloadBytes = 115_574_061L,
+    ),
+    AmyMedium(
+        displayName = "Amy",
+        description = "Balanced American English female voice for a less region-specific option.",
+        assetDirectoryName = "vits-piper-en_US-amy-medium",
+        downloadKey = "en_US-amy-medium",
+        approxDownloadBytes = 67_223_746L,
+    ),
+    JoeMedium(
+        displayName = "Joe",
+        description = "Balanced American English male voice with a straightforward conversational tone.",
+        assetDirectoryName = "vits-piper-en_US-joe-medium",
+        downloadKey = "en_US-joe-medium",
+        approxDownloadBytes = 67_169_394L,
+    ),
+    LessacHigh(
+        displayName = "Lessac",
+        description = "Higher-quality American English female voice and the most neutral-sounding Sherpa option here.",
+        assetDirectoryName = "vits-piper-en_US-lessac-high",
+        downloadKey = "en_US-lessac-high",
+        approxDownloadBytes = 115_545_841L,
+    ),
+    RyanHigh(
+        displayName = "Ryan",
+        description = "Higher-quality American English male voice with fuller audio output.",
+        assetDirectoryName = "vits-piper-en_US-ryan-high",
+        downloadKey = "en_US-ryan-high",
+        approxDownloadBytes = 115_630_708L,
     ),
     ;
 
