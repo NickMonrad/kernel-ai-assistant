@@ -515,6 +515,11 @@ class ActionsViewModel @Inject constructor(
         inputMode: InputMode,
         delayVoicePrompt: Boolean = false,
     ) {
+        Log.d(
+            TAG,
+            "ActionsViewModel: primePendingSlot intent=$intentName inputMode=$inputMode " +
+                "missing=${missingSlot.name} delayVoicePrompt=$delayVoicePrompt",
+        )
         _pendingSlot.value = PendingSlotState(
             request = PendingSlotRequest(
                 intentName = intentName,
@@ -528,6 +533,11 @@ class ActionsViewModel @Inject constructor(
         if (inputMode == InputMode.Voice) {
             _voiceCaptureState.value = VoiceCaptureState.Idle
         }
+        Log.d(
+            TAG,
+            "ActionsViewModel: slot prompt=\"${_pendingSlot.value?.request?.promptMessage}\" " +
+                "autoRearm=$shouldAutoStartVoiceSlotReply spokenResponsesEnabled=$spokenResponsesEnabled",
+        )
         speakForVoice(
             inputMode,
             _pendingSlot.value?.request?.promptMessage.orEmpty(),
@@ -673,6 +683,11 @@ class ActionsViewModel @Inject constructor(
         mode: VoiceCaptureMode,
         interruptPlayback: Boolean = true,
     ) {
+        Log.d(
+            TAG,
+            "ActionsViewModel: startVoiceCapture mode=$mode interruptPlayback=$interruptPlayback " +
+                "pendingSlot=${_pendingSlot.value != null}",
+        )
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
         _error.value = null
@@ -683,11 +698,13 @@ class ActionsViewModel @Inject constructor(
         viewModelScope.launch {
             when (val result = voiceInputController.startListening(mode)) {
                 is VoiceInputStartResult.Started -> {
+                    Log.d(TAG, "ActionsViewModel: voiceInputController.startListening started mode=$mode")
                     if (_voiceCaptureState.value is VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening(mode)
                     }
                 }
                 is VoiceInputStartResult.Unavailable -> {
+                    Log.w(TAG, "ActionsViewModel: voiceInputController.startListening unavailable mode=$mode message=${result.message}")
                     _voiceCaptureState.value = VoiceCaptureState.Idle
                     _error.value = result.message
                 }
@@ -723,6 +740,7 @@ class ActionsViewModel @Inject constructor(
     }
 
     private fun setSlotReplyAutoRearmArmed(armed: Boolean) {
+        Log.d(TAG, "ActionsViewModel: setSlotReplyAutoRearmArmed armed=$armed")
         shouldAutoStartVoiceSlotReply = armed
         _slotReplyAutoRearmArmed.value = armed
     }

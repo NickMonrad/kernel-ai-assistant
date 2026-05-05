@@ -2,6 +2,7 @@ package com.kernel.ai.feature.chat
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -89,6 +90,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private const val ACTIONS_SCREEN_TAG = "KernelAI"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActionsScreen(
@@ -135,6 +138,7 @@ fun ActionsScreen(
     ) { granted ->
         val mode = pendingPermissionMode
         pendingPermissionMode = null
+        Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: microphone permission result granted=$granted mode=$mode")
         if (!granted) {
             viewModel.onMicrophonePermissionDenied()
             return@rememberLauncherForActivityResult
@@ -161,6 +165,10 @@ fun ActionsScreen(
             context,
             Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
+        Log.d(
+            ACTIONS_SCREEN_TAG,
+            "ActionsScreen: requestVoiceCapture mode=$mode alreadyGranted=$alreadyGranted",
+        )
         if (alreadyGranted) {
             when (mode) {
                 VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
@@ -541,10 +549,27 @@ private fun SlotFillBottomSheet(
     }
     val isVoiceReplyActive = slotReplyCaptureState != null
 
+    LaunchedEffect(promptMessage, inputMode, autoVoiceReplyArmed) {
+        Log.d(
+            ACTIONS_SCREEN_TAG,
+            "ActionsScreen: SlotFillBottomSheet shown inputMode=$inputMode autoVoiceReplyArmed=$autoVoiceReplyArmed " +
+                "prompt=\"$promptMessage\"",
+        )
+    }
+
     LaunchedEffect(promptMessage, inputMode, autoVoiceReplyArmed, isVoiceReplyActive) {
         if (inputMode != InputMode.Voice || !autoVoiceReplyArmed || isVoiceReplyActive) return@LaunchedEffect
-        delay(estimatedSlotPromptDurationMs(promptMessage))
+        val delayMs = estimatedSlotPromptDurationMs(promptMessage)
+        Log.d(
+            ACTIONS_SCREEN_TAG,
+            "ActionsScreen: scheduling slot voice fallback delayMs=$delayMs prompt=\"$promptMessage\"",
+        )
+        delay(delayMs)
         if (!isVoiceReplyActive && autoVoiceReplyArmed) {
+            Log.w(
+                ACTIONS_SCREEN_TAG,
+                "ActionsScreen: slot voice fallback firing prompt=\"$promptMessage\"",
+            )
             onVoiceReply()
         }
     }
