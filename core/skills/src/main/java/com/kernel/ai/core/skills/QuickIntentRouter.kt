@@ -2877,6 +2877,18 @@ class QuickIntentRouter(
         private fun normalizeCompactAlarmText(raw: String): String {
             var normalized = raw
             normalized = Regex(
+                """\b(\d{1,2}):(\d):(\d{2})\s*(am|pm|a\.m\.|p\.m\.)(?=\s|$)""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized) { match ->
+                val hour = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+                val minutePrefix = match.groupValues[2].toIntOrNull() ?: return@replace match.value
+                val trailingTens = match.groupValues[3].toIntOrNull() ?: return@replace match.value
+                val meridiem = match.groupValues[4].lowercase()
+                val minute = minutePrefix + trailingTens
+                if (hour !in 1..12 || trailingTens % 10 != 0 || minute !in 0..59) return@replace match.value
+                "$hour:${minute.toString().padStart(2, '0')} $meridiem"
+            }
+            normalized = Regex(
                 """\b(\d{1,2})\s+(\d{2})\b""",
                 RegexOption.IGNORE_CASE,
             ).replace(normalized) { match ->
