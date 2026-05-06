@@ -61,6 +61,7 @@ import com.kernel.ai.core.voice.VoiceInputStartResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -88,6 +89,9 @@ import javax.inject.Inject
 private const val TAG = "KernelAI"
 private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
 private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
+
+/** Stop phrases that terminate the back-and-forth voice loop (#754). */
+private val STOP_PHRASES = setOf("stop", "cancel", "done", "that's all", "thats all", "exit", "quit")
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -223,6 +227,13 @@ class ChatViewModel @Inject constructor(
     /** Active voice interaction mode, or null when no voice session is running (#741). */
     private val _voiceMode = MutableStateFlow<VoiceMode?>(null)
     val voiceMode: StateFlow<VoiceMode?> = _voiceMode.asStateFlow()
+
+    /** The message ID currently being played back via the per-message speaker button (#785). */
+    private val _speakingMessageId = MutableStateFlow<String?>(null)
+    val speakingMessageId: StateFlow<String?> = _speakingMessageId.asStateFlow()
+
+    /** Coroutine job for the active per-message TTS playback; null when idle. */
+    private var speakMessageJob: Job? = null
 
     /** True once [initializeConversation] has completed and [conversationId] is set. */
     private val _conversationInitialized = MutableStateFlow(false)
@@ -883,6 +894,50 @@ class ChatViewModel @Inject constructor(
         pendingVoiceReply = false
         voiceOutputController.stop()
         _voicePlaybackState.value = VoicePlaybackState.Idle
+    }
+
+    /**
+     * Speaks [text] for the message identified by [messageId] using the per-message speaker
+     * button (#785). Calling again with the same [messageId] toggles playback off. Starting a
+     * new message automatically stops any in-progress speaker-button playback. The autoSpeak
+     * preference does NOT gate this path — the button always works on explicit tap.
+     */
+    fun speakMessage(messageId: String, text: String) {
+        if (_speakingMessageId.value == messageId) {
+            // Same message → toggle off
+            speakMessageJob?.cancel()
+            speakMessageJob = null
+            voiceOutputController.stop()
+            _speakingMessageId.value = null
+            return
+        }
+        // New message — stop any previous speaker-button playback and start fresh
+        speakMessageJob?.cancel()
+        voiceOutputController.stop()
+        _speakingMessageId.value = messageId
+        val normalizedText = normalizeChatTextForSpeech(text)
+        speakMessageJob = viewModelScope.launch {
+            val maxSentences = voiceOutputPreferences.maxSpokenSentences.first()
+            val textToSpeak = truncateForSpeech(normalizedText, maxSentences)
+            try {
+                voiceOutputController.speak(VoiceSpeakRequest(text = textToSpeak))
+            } finally {
+                if (_speakingMessageId.value == messageId) {
+                    _speakingMessageId.value = null
+                }
+            }
+        }
+    }
+
+    /**
+     * Stops any in-progress per-message TTS playback triggered by the speaker button (#785).
+     * Does not affect the voice loop or streaming response playback.
+     */
+    fun stopSpeaking() {
+        speakMessageJob?.cancel()
+        speakMessageJob = null
+        voiceOutputController.stop()
+        _speakingMessageId.value = null
     }
 
     fun submitInitialQueryIfNeeded(initialQuery: String) {
@@ -1959,10 +2014,19 @@ class ChatViewModel @Inject constructor(
             _voiceCaptureState.value = VoiceCaptureState.Idle
             return
         }
+        // #754: Intercept stop phrases when back-and-forth loop is active.
+        if (_voiceMode.value == VoiceMode.BackAndForth && isStopCommand(transcript)) {
+            Log.d(TAG, "Stop command intercepted in back-and-forth loop: \"$transcript\"")
+            stopVoiceInput()
+            return
+        }
         _voiceCaptureState.value = VoiceCaptureState.Processing(transcript)
         onInputChanged(transcript)
         sendMessage(SubmitMode.Voice)
     }
+
+    private fun isStopCommand(transcript: String): Boolean =
+        transcript.trim().lowercase() in STOP_PHRASES
 
     /** Speaks the assistant reply if this was a voice-originated turn. */
     private suspend fun speakAssistantReplyIfNeeded(content: String) {
