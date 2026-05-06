@@ -274,6 +274,7 @@ Lower-priority skill additions — third-party integrations and local utilities.
 |-----------|-------|--------|----------|
 | [#671](https://github.com/NickMonrad/kernel-ai-assistant/issues/671) | Offline push-to-talk voice input foundation | ✅ Done — PR #711 | 🟡 Medium |
 | [#672](https://github.com/NickMonrad/kernel-ai-assistant/issues/672) | Generic spoken response / TTS foundation | ✅ Done — PR #711 | 🟡 Medium |
+| [#775](https://github.com/NickMonrad/kernel-ai-assistant/issues/775) | TTS quality — Māori/Kiwi pronunciation + cadence shaping | ✅ Done — PR #780 | 🟡 Medium |
 | [#678](https://github.com/NickMonrad/kernel-ai-assistant/issues/678) | Optional native Android STT engine alongside Vosk | 🔄 In Progress — PR #714 | 🟡 Medium |
 | [#700](https://github.com/NickMonrad/kernel-ai-assistant/issues/700) | Parakeet CTC STT evaluation | ⬜ Pending | 🟡 Medium |
 | [#703](https://github.com/NickMonrad/kernel-ai-assistant/issues/703) | Whisper.cpp vs Vosk STT evaluation | ⬜ Pending | 🟡 Medium |
@@ -282,12 +283,12 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word — Picovoice Porcupine | ⬜ Pending | 🟡 Medium |
 | [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode — real-time streaming interaction | ⬜ Pending | 🟢 Low |
 
-**Current next slice after merged PR #777:**
+**Current state after PR #780:**
 
-- Chat streaming TTS playback is now shipped; the next voice concern is output quality rather than basic playback timing.
-- Pronunciation follow-up `#775` should use a small preprocessing / mapping layer for known Māori and Kiwi terms in English / American voices, not a broad speculative phoneme authoring system.
-- Cadence / prosody tuning should preserve early streaming playback and avoid regressing time-to-first-audio.
-- Fallback-path issues and the appointment QIR bug ([#773](https://github.com/NickMonrad/kernel-ai-assistant/issues/773)) should stay tracked separately unless investigation shows the same underlying seam.
+- TTS cadence and pronunciation quality improved: numbered lists, colons, and dashes now produce natural speech pauses; `kia ora` pronounced correctly as a blended Māori word.
+- Speech rate is now user-configurable (0.5–1.5×) via the Voice Settings slider; default 0.85×.
+- 9 en_GB Piper voices now available (was 5): added alba, aru, semaine, vctk.
+- Next voice quality priorities: VCTK multi-speaker selection (#782), Semaine emotional styles (#781), expanded TTS settings — pitch, auto-speak, max length (#786), Kokoro-82M evaluation (#783).
 
 ---
 
