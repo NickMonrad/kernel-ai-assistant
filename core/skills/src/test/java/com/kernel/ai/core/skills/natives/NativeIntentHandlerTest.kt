@@ -140,6 +140,19 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `resolveTime recovers split minute voice transcript format`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveTime",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "8:6:30 p.m.") as LocalTime?
+
+        assertNotNull(resolved)
+        assertEquals(LocalTime.of(20, 36), resolved)
+    }
+
+    @Test
     fun `resolveTime recovers flattened seven oclock format`() {
         val method = NativeIntentHandler::class.java.getDeclaredMethod(
             "resolveTime",
