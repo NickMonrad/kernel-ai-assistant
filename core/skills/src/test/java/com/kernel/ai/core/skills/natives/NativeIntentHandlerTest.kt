@@ -38,6 +38,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.flow.flowOf
 
@@ -150,6 +151,20 @@ class NativeIntentHandlerTest {
 
         assertNotNull(resolved)
         assertEquals(LocalTime.of(20, 36), resolved)
+    }
+
+    @Test
+    fun `resolveCalendarSchedule extracts dotted meridiem time from date slot reply`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveCalendarSchedule",
+            String::class.java,
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "Sunday at 3:00 p.m.", null) as Pair<*, *>
+
+        assertEquals(LocalDate.now().with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.SUNDAY)), resolved.first)
+        assertEquals("3:00 p.m.", resolved.second)
     }
 
     @Test
@@ -402,8 +417,8 @@ class NativeIntentHandlerTest {
             contentResolver.query(
                 ContactsContract.CommonDataKinds.Email.CONTENT_URI,
                 any(),
-                "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?",
-                match<Array<String>> { it.contentEquals(arrayOf("%Alice Smith%")) },
+                any(),
+                match<Array<String>> { it.contentEquals(arrayOf("%alice%", "%smith%")) },
                 null,
             )
         } returns emailCursor(
@@ -421,6 +436,48 @@ class NativeIntentHandlerTest {
 
         assertEquals("alice@example.com", resolved)
     }
+
+    @Test
+    fun `resolveContactEmail prefers primary email for mapped alias contact`() {
+        coEvery { contactAliasRepository.getByAlias("My wife") } returns
+            ContactAliasEntity(
+                alias = "wife",
+                displayName = "Alice Smith",
+                contactId = "42",
+                phoneNumber = "021111222",
+            )
+        every {
+            contentResolver.query(
+                ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+                any(),
+                "${ContactsContract.CommonDataKinds.Email.CONTACT_ID} = ?",
+                match<Array<String>> { it.contentEquals(arrayOf("42")) },
+                null,
+            )
+        } returns emailCursor(
+            EmailRow(
+                address = "alice.work@example.com",
+                displayName = "Alice Smith",
+                contactId = "42",
+            ),
+            EmailRow(
+                address = "alice.home@example.com",
+                displayName = "Alice Smith",
+                contactId = "42",
+                isPrimary = true,
+                isSuperPrimary = true,
+            ),
+        )
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveContactEmail",
+            String::class.java,
+        ).apply { isAccessible = true }
+        val resolved = method.invoke(handler, "My wife") as String?
+
+        assertEquals("alice.home@example.com", resolved)
+    }
+
 
 
     @Test
@@ -820,6 +877,9 @@ class NativeIntentHandlerTest {
     private data class EmailRow(
         val address: String,
         val displayName: String,
+        val contactId: String = "",
+        val isPrimary: Boolean = false,
+        val isSuperPrimary: Boolean = false,
     )
 
     private fun phoneCursor(vararg rows: PhoneRow): Cursor {
@@ -857,6 +917,9 @@ class NativeIntentHandlerTest {
         val columns = mapOf(
             ContactsContract.CommonDataKinds.Email.ADDRESS to 0,
             ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY to 1,
+            ContactsContract.CommonDataKinds.Email.CONTACT_ID to 2,
+            ContactsContract.CommonDataKinds.Email.IS_PRIMARY to 3,
+            ContactsContract.CommonDataKinds.Email.IS_SUPER_PRIMARY to 4,
         )
         var index = -1
 
@@ -867,8 +930,12 @@ class NativeIntentHandlerTest {
         every { cursor.getColumnIndexOrThrow(any()) } answers {
             columns[firstArg<String>()] ?: error("Unknown column ${firstArg<String>()}")
         }
+
         every { cursor.getString(0) } answers { rows[index].address }
         every { cursor.getString(1) } answers { rows[index].displayName }
+        every { cursor.getString(2) } answers { rows[index].contactId }
+        every { cursor.getInt(3) } answers { if (rows[index].isPrimary) 1 else 0 }
+        every { cursor.getInt(4) } answers { if (rows[index].isSuperPrimary) 1 else 0 }
         every { cursor.close() } just Runs
 
         return cursor
