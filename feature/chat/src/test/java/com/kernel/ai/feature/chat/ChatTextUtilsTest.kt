@@ -66,6 +66,78 @@ class ChatTextUtilsTest {
         }
     }
 
+    @Nested
+    @DisplayName("chat speech normalization")
+    inner class ChatSpeechNormalizationTests {
+
+        @Test
+        fun `applies scoped maori pronunciation overrides for chat speech`() {
+            assertEquals(
+                "Kee-or-uh and moh-reh-nah",
+                normalizeChatTextForSpeech("Kia ora and mōrena"),
+            )
+            assertEquals(
+                "moh-reh-nah everyone",
+                normalizeChatTextForSpeech("morena everyone"),
+            )
+        }
+
+        @Test
+        fun `converts list and paragraph breaks into speakable pauses`() {
+            assertEquals(
+                "apples, bread",
+                normalizeChatTextForSpeech("- apples\n- bread"),
+            )
+            assertEquals(
+                "First thought. Second thought",
+                normalizeChatTextForSpeech("First thought\n\nSecond thought"),
+            )
+        }
+    }
+
+    @Nested
+    @DisplayName("streaming speech chunking")
+    inner class StreamingSpeechChunkingTests {
+
+        @Test
+        fun `adds a soft pause when chunking on whitespace for early streaming`() {
+            val buffer = StringBuilder(
+                "Kia ora this chunk should break on whitespace so the voice has a short pause before continuing",
+            )
+
+            val chunk = popNextStreamingSpeechChunk(
+                buffer = buffer,
+                minChunkLength = 24,
+                preferredChunkLength = 48,
+            )
+
+            assertTrue(chunk?.startsWith("Kee-or-uh this chunk should break on whitespace") == true)
+            assertTrue(chunk?.endsWith(",") == true)
+            assertTrue(buffer.isNotEmpty())
+        }
+
+        @Test
+        fun `forced final chunk adds sentence punctuation when missing`() {
+            assertEquals(
+                "moh-reh-nah everyone.",
+                finalizeChatTextForSpeech("morena everyone"),
+            )
+        }
+
+        @Test
+        fun `strong punctuation boundary keeps existing sentence ending`() {
+            val buffer = StringBuilder("Kia ora everyone. Here is the second sentence")
+
+            val chunk = popNextStreamingSpeechChunk(
+                buffer = buffer,
+                minChunkLength = 10,
+                preferredChunkLength = 24,
+            )
+
+            assertEquals("Kee-or-uh everyone.", chunk)
+        }
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     // ANAPHORA DETECTION
     // ═════════════════════════════════════════════════════════════════════════

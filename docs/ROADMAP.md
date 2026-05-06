@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-05-01 (issue audit refresh; roadmap parent issues aligned with active GitHub structure, including new parents #704, #705, #706, #707, and #708)
+> **Last updated:** 2026-05-06 (voice roadmap updated after merged PR #777; next TTS quality slice documented)
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -281,6 +281,13 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | [#659](https://github.com/NickMonrad/kernel-ai-assistant/issues/659) | Translator skill with multilingual TTS | ⬜ Pending | 🟡 Medium |
 | [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word — Picovoice Porcupine | ⬜ Pending | 🟡 Medium |
 | [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode — real-time streaming interaction | ⬜ Pending | 🟢 Low |
+
+**Current next slice after merged PR #777:**
+
+- Chat streaming TTS playback is now shipped; the next voice concern is output quality rather than basic playback timing.
+- Pronunciation follow-up `#775` should use a small preprocessing / mapping layer for known Māori and Kiwi terms in English / American voices, not a broad speculative phoneme authoring system.
+- Cadence / prosody tuning should preserve early streaming playback and avoid regressing time-to-first-audio.
+- Fallback-path issues and the appointment QIR bug ([#773](https://github.com/NickMonrad/kernel-ai-assistant/issues/773)) should stay tracked separately unless investigation shows the same underlying seam.
 
 ---
 
