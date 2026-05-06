@@ -516,5 +516,24 @@ class ChatTextUtilsTest {
             val text = "No punctuation here"
             assertEquals(text, truncateForSpeech(text, 2))
         }
+
+        @Test
+        fun `does not split on abbreviation dot — Dr followed by full sentence`() {
+            // "Dr." alone is a single-token dot fragment → merged forward into the next fragment,
+            // so the first real sentence becomes "Dr. Smith explained the plan."
+            val text = "Dr. Smith explained the plan. That's all."
+            val result = truncateForSpeech(text, 1)
+            assertEquals("Dr. Smith explained the plan.", result.trimEnd())
+        }
+
+        @Test
+        fun `does not split on sentence-leading e-g abbreviation`() {
+            // "E." and "g." are both single-token dot fragments that get merged forward
+            // into the following fragment, keeping the first sentence intact.
+            val text = "E.g. cats and dogs are common pets. That covers the basics."
+            val result = truncateForSpeech(text, 1)
+            assertTrue(result.contains("cats and dogs"), "Should include the full first sentence")
+            assertFalse(result.contains("basics"), "Should not include the second sentence")
+        }
     }
 }

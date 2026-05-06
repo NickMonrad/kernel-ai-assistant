@@ -913,6 +913,9 @@ class ChatViewModel @Inject constructor(
         }
         // New message — stop any previous speaker-button playback and start fresh
         speakMessageJob?.cancel()
+        // Prevent the SpeakingStopped handler from rearming the voice loop.
+        awaitingVoicePlaybackCompletion = false
+        pendingVoiceReply = false
         voiceOutputController.stop()
         _speakingMessageId.value = messageId
         val normalizedText = normalizeChatTextForSpeech(text)

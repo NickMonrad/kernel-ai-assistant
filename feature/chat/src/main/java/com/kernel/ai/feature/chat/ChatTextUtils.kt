@@ -16,7 +16,27 @@ internal fun stripMarkdownForClipboard(text: String): String =
 internal fun truncateForSpeech(text: String, maxSentences: Int): String {
     if (maxSentences <= 0) return text
     val sentenceRegex = Regex("""[^.!?]*[.!?]["')]*""")
-    val sentences = sentenceRegex.findAll(text).map { it.value }.toList()
+    val fragments = sentenceRegex.findAll(text).map { it.value }.toList()
+    // Fragments that contain no whitespace and end with a bare '.' are almost certainly
+    // abbreviations (Dr., Mr., e.g., U.S.) rather than sentence boundaries. Merge them
+    // forward into the next fragment so "Dr. Smith went." is kept as one sentence.
+    // Fragments ending with '!' or '?' are always real sentence boundaries even if single-word.
+    val sentences = buildList {
+        var pending = ""
+        for (fragment in fragments) {
+            val trimmed = fragment.trim()
+            val isAbbreviation = !trimmed.contains(' ') &&
+                trimmed.trimEnd('"', '\'', ')').endsWith('.')
+            if (isAbbreviation) {
+                pending += fragment
+            } else {
+                add(pending + fragment)
+                pending = ""
+            }
+        }
+        // Any trailing pending text (abbreviation at very end of input) is its own entry.
+        if (pending.isNotEmpty()) add(pending)
+    }
     if (sentences.isEmpty() || sentences.size <= maxSentences) return text
     return sentences.take(maxSentences).joinToString("").trimEnd()
 }
