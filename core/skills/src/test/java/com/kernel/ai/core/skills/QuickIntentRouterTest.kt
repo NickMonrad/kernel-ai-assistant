@@ -498,6 +498,89 @@ class QuickIntentRouterTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // CALENDAR TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Calendar")
+    inner class Calendar {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → title={1}, date={2}, time={3}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#calendarRegexPhrases")
+        fun `should match calendar phrases with extracted hints`(
+            input: String,
+            expectedTitle: String,
+            expectedDate: String,
+            expectedTime: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "create_calendar_event", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedTitle, intent.params["title"], "title for '$input'")
+            assertEquals(expectedDate, intent.params["date"], "date for '$input'")
+            assertEquals(expectedTime, intent.params["time"], "time for '$input'")
+        }
+
+        @ParameterizedTest(name = "NeedsSlot title: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#calendarNeedsTitlePhrases")
+        fun `should return NeedsSlot for bare calendar phrases missing title`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result,
+                "Expected NeedsSlot for '$input'")
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("create_calendar_event", needsSlot.intent.intentName, "intent for '$input'")
+            assertEquals("title", needsSlot.missingSlot.name, "missing slot for '$input'")
+        }
+
+        @ParameterizedTest(name = "NeedsSlot date: \"{0}\" → title={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#calendarNeedsDatePhrases")
+        fun `should return NeedsSlot for calendar phrases missing date`(input: String, expectedTitle: String) {
+            val result = regexOnlyRouter.route(input)
+            assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result,
+                "Expected NeedsSlot for '$input'")
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("create_calendar_event", needsSlot.intent.intentName, "intent for '$input'")
+            assertEquals(expectedTitle, needsSlot.intent.params["title"], "title for '$input'")
+            assertEquals("date", needsSlot.missingSlot.name, "missing slot for '$input'")
+        }
+        @Test
+        fun `should preserve schedule hints when verb calendar phrase needs title`() {
+            val result = regexOnlyRouter.route("set an appointment for 3:00 p.m. Sunday")
+            val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+
+            assertEquals("create_calendar_event", needsSlot.intent.intentName)
+            assertEquals("title", needsSlot.missingSlot.name)
+            assertEquals("sunday", needsSlot.intent.params["date"])
+            assertEquals("3:00 p.m.", needsSlot.intent.params["time"])
+        }
+
+        @Test
+        fun `should ignore filler up when appointment phrase still lacks title`() {
+            val result = regexOnlyRouter.route("Set an appointment up for 3:00 p.m. On Monday")
+            val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+
+            assertEquals("create_calendar_event", needsSlot.intent.intentName)
+            assertEquals("title", needsSlot.missingSlot.name)
+            assertEquals("monday", needsSlot.intent.params["date"])
+            assertEquals("3:00 p.m.", needsSlot.intent.params["time"])
+            assertNull(needsSlot.intent.params["title"])
+        }
+
+        @Test
+        fun `should match bare appointment phrases with schedule and ask for title`() {
+            val result = regexOnlyRouter.route("Appointment for 3:00 p.m. Sunday")
+            val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+
+            assertEquals("create_calendar_event", needsSlot.intent.intentName)
+            assertEquals("title", needsSlot.missingSlot.name)
+            assertEquals("sunday", needsSlot.intent.params["date"])
+            assertEquals("3:00 p.m.", needsSlot.intent.params["time"])
+        }
+    }
+
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // STOPWATCH TESTS
     // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1574,6 +1657,7 @@ class QuickIntentRouterTest {
         addCases(alarmRegexPhrases(), "set_alarm", "Alarm (regex)")
         addCases(alarmClassifierPhrases(), "set_alarm", "Alarm (classifier)")
         addCases(timerRegexPhrases(), "set_timer", "Timer (regex)")
+        addCases(calendarRegexPhrases(), "create_calendar_event", "Calendar (regex)")
         addCases(timerClassifierPhrases(), "set_timer", "Timer (classifier)")
         addCases(dndOnRegexPhrases(), "toggle_dnd_on", "DND ON (regex)")
         addCases(dndOffRegexPhrases(), "toggle_dnd_off", "DND OFF (regex)")
@@ -1627,6 +1711,8 @@ class QuickIntentRouterTest {
         addCases(sendEmailNoContactNeedsSlotPhrases(), "send_email", "Send Email (needs slot: contact)")
         addCases(sendEmailContactNoSubjectNeedsSlotPhrases(), "send_email", "Send Email (needs slot: subject)")
         addCases(sendEmailContactSubjectNoBodyNeedsSlotPhrases(), "send_email", "Send Email (needs slot: body)")
+        addCases(calendarNeedsTitlePhrases(), "create_calendar_event", "Calendar (needs slot: title)")
+        addCases(calendarNeedsDatePhrases(), "create_calendar_event", "Calendar (needs slot: date)")
         addCases(addToListRegexPhrases(), "add_to_list", "Add to List (regex)")
         addCases(addToListNeedsSlotPhrases(), "add_to_list", "Add to List (needs slot: item)")
         addCases(addToListMissingListNeedsSlotPhrases(), "add_to_list", "Add to List (needs slot: list)")
@@ -1867,6 +1953,31 @@ class QuickIntentRouterTest {
             Arguments.of("set a timer for 30 seconds labeled workout", "30", "workout"),
             Arguments.of("start a timer for 3 minutes labelled tea", "180", "tea"),
             Arguments.of("5 minute timer for eggs", "300", "eggs"),
+        )
+
+        // ── Calendar ───────────────────────────────────────────────────────────
+
+        @JvmStatic
+        fun calendarRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("set up a dentist appointment tomorrow at 5pm", "Dentist Appointment", "tomorrow", "5pm"),
+            Arguments.of("schedule a team meeting on friday at 2pm", "Team Meeting", "friday", "2pm"),
+            Arguments.of("set up a dentist appointment sunday at 3:00 p.m.", "Dentist Appointment", "sunday", "3:00 p.m."),
+        )
+
+        @JvmStatic
+        fun calendarNeedsTitlePhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("set up an appointment"),
+            Arguments.of("schedule a meeting"),
+            Arguments.of("create an event"),
+            Arguments.of("set an appointment for 3:00 p.m. Sunday"),
+            Arguments.of("Appointment for 3:00 p.m. Sunday"),
+            Arguments.of("Set an appointment up for 3:00 p.m. On Monday"),
+        )
+
+        @JvmStatic
+        fun calendarNeedsDatePhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("set up a dentist appointment", "Dentist Appointment"),
+            Arguments.of("schedule a budget meeting", "Budget Meeting"),
         )
 
         // ── DND ───────────────────────────────────────────────────────────────
