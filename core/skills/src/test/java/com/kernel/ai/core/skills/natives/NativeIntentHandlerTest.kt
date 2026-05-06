@@ -38,6 +38,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.flow.flowOf
 
@@ -150,6 +151,20 @@ class NativeIntentHandlerTest {
 
         assertNotNull(resolved)
         assertEquals(LocalTime.of(20, 36), resolved)
+    }
+
+    @Test
+    fun `resolveCalendarSchedule extracts dotted meridiem time from date slot reply`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveCalendarSchedule",
+            String::class.java,
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "Sunday at 3:00 p.m.", null) as Pair<*, *>
+
+        assertEquals(LocalDate.now().with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.SUNDAY)), resolved.first)
+        assertEquals("3:00 p.m.", resolved.second)
     }
 
     @Test

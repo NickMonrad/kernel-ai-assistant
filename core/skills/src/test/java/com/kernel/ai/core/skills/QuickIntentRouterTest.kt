@@ -1928,6 +1928,7 @@ class QuickIntentRouterTest {
         fun calendarRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("set up a dentist appointment tomorrow at 5pm", "Dentist Appointment", "tomorrow", "5pm"),
             Arguments.of("schedule a team meeting on friday at 2pm", "Team Meeting", "friday", "2pm"),
+            Arguments.of("set up a dentist appointment sunday at 3:00 p.m.", "Dentist Appointment", "sunday", "3:00 p.m."),
         )
 
         @JvmStatic

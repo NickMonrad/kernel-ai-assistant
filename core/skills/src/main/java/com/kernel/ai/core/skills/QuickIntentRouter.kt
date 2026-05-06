@@ -2813,10 +2813,10 @@ class QuickIntentRouter(
             )
             dateRegex.find(lower)?.value?.trim()?.let { params["date"] = it }
 
-            // ── Time: "at 2pm", "at 10:30am", "at noon/midnight", "at 10" ─────────
+            // ── Time: "at 2pm", "at 10:30am", "at 10:30 p.m.", "at noon/midnight", "at 10" ─
             // Bare hours (no am/pm) are normalised to HH:00 so resolveTime() can parse.
             val timeRegex = Regex(
-                """(?:at|@)\s+(noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}(?::\d{2})?)(?!\s*(?:am|pm))""",
+                """(?:at|@)\s+(noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)|\d{1,2}(?::\d{2})?)(?!\s*(?:am|pm|a\.m\.|p\.m\.))""",
                 RegexOption.IGNORE_CASE,
             )
             timeRegex.find(lower)?.groupValues?.get(1)?.trim()

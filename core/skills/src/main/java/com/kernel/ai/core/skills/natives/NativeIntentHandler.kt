@@ -30,6 +30,7 @@ import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -611,19 +612,27 @@ class NativeIntentHandler @Inject constructor(
 
     // ── Calendar ──────────────────────────────────────────────────────────────
 
+    private fun resolveCalendarSchedule(dateStr: String, explicitTimeStr: String?): Pair<LocalDate, String?>? {
+        val extractedDateTime = QuickIntentRouter.extractCalendarHints(dateStr)
+        val normalizedDateStr = extractedDateTime["date"]?.takeIf { it.isNotBlank() } ?: dateStr
+        val date = resolveDate(normalizedDateStr) ?: return null
+        val timeStr = explicitTimeStr?.takeIf { it.isNotBlank() }
+            ?: extractedDateTime["time"]?.takeIf { it.isNotBlank() }
+        return date to timeStr
+    }
+
     private fun createCalendarEvent(params: Map<String, String>): SkillResult {
         val title = params["title"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("run_intent", "title is required for create_calendar_event.")
         val dateStr = params["date"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("run_intent", "date is required (YYYY-MM-DD) for create_calendar_event.")
-
-        val date = resolveDate(dateStr)
-            ?: return SkillResult.Failure(
-                "run_intent",
-                "Could not parse date '$dateStr' — use YYYY-MM-DD or a relative term like 'next wednesday'.",
-            )
-
-        val timeStr = params["time"]?.takeIf { it.isNotBlank() }
+        val (date, timeStr) = resolveCalendarSchedule(
+            dateStr = dateStr,
+            explicitTimeStr = params["time"],
+        ) ?: return SkillResult.Failure(
+            "run_intent",
+            "Could not parse date '$dateStr' — use YYYY-MM-DD or a relative term like 'next wednesday'.",
+        )
         val durationMinutes = params["duration_minutes"]?.toIntOrNull() ?: 60
         if (durationMinutes <= 0) {
             return SkillResult.Failure("run_intent", "duration_minutes must be greater than 0 (received: $durationMinutes).")
