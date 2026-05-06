@@ -57,7 +57,7 @@ import java.time.ZoneId
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 29,
+    version = 30,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -385,6 +385,13 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_28_29 = object : Migration(28, 29) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN snoozed_until_ms INTEGER DEFAULT NULL")
+            }
+        }
+
+        /** Adds sound_uri to scheduled_alarms for custom alarm sounds (#757). */
+        val MIGRATION_29_30 = object : Migration(29, 30) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN sound_uri TEXT DEFAULT NULL")
             }
         }
     }
