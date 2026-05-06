@@ -46,6 +46,16 @@ class FallbackVoiceOutputController @Inject constructor(
             VoiceOutputEngine.SherpaExperimental -> speakWithSherpaFallback(request)
         }
 
+    override suspend fun openStreamingSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession =
+        when (voiceOutputPreferences.selectedEngine.first()) {
+            VoiceOutputEngine.AndroidTts -> {
+                activate(androidTts)
+                androidTts.openStreamingSession(request)
+            }
+
+            VoiceOutputEngine.SherpaExperimental -> openSherpaStreamingSessionOrFallback(request)
+        }
+
     override fun stop() {
         sherpa.stop()
         androidTts.stop()
@@ -97,6 +107,31 @@ class FallbackVoiceOutputController @Inject constructor(
             return androidWarmUpResult
         }
         return androidTts.speak(request)
+    }
+
+    private suspend fun openSherpaStreamingSessionOrFallback(
+        request: VoiceSpeakRequest,
+    ): VoiceOutputStreamingSession {
+        val warmUpResult = sherpa.warmUp()
+        if (warmUpResult !is VoiceOutputResult.Unavailable) {
+            activate(sherpa)
+            return sherpa.openStreamingSession(request)
+        }
+
+        Log.i(
+            TAG,
+            "Sherpa-ONNX TTS unavailable (${warmUpResult.message}); routing streaming session to Android TTS fallback.",
+        )
+        activate(androidTts)
+        val androidWarmUpResult = androidTts.warmUp()
+        return if (androidWarmUpResult is VoiceOutputResult.Unavailable) {
+            object : VoiceOutputStreamingSession {
+                override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult =
+                    androidWarmUpResult
+            }
+        } else {
+            androidTts.openStreamingSession(request)
+        }
     }
 
     private fun activate(controller: VoiceOutputController) {

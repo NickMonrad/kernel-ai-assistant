@@ -1837,7 +1837,11 @@ class ChatViewModel @Inject constructor(
         activeVoiceStreamingBuffer = StringBuilder()
         activeVoiceStreamingSession = null
         isVoiceStreamingEnabledForTurn = streamingEnabled
-        if (!spokenResponsesEnabled || suppressVoiceOutputForCurrentResponse) return
+        val shouldSpeak = pendingVoiceReply
+        pendingVoiceReply = false
+        awaitingVoicePlaybackCompletion = false
+        if (!shouldSpeak || !spokenResponsesEnabled || suppressVoiceOutputForCurrentResponse) return
+        awaitingVoicePlaybackCompletion = true
         activeVoiceStreamingSession = voiceOutputController.openStreamingSession(
             VoiceSpeakRequest(text = "", locale = Locale.getDefault()),
         )

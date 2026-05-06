@@ -8,8 +8,10 @@ import android.media.AudioFocusRequest
 import android.media.AudioTrack
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -48,6 +50,16 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     @ApplicationContext private val context: Context,
     private val voiceOutputPreferences: VoiceOutputPreferences,
 ) : VoiceOutputController {
+    private data class ActiveStreamingPlayback(
+        val token: Long,
+        val chunks: Channel<StreamingChunk>,
+        val worker: Job,
+    )
+
+    private data class StreamingChunk(
+        val text: String,
+        val isFinal: Boolean,
+    )
 
     // ── Coroutine scope on IO — never Main ──────────────────────────────────
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -69,6 +81,9 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
 
     // ── Playback cancellation ────────────────────────────────────────────────
     @Volatile private var stopped = false
+    @Volatile private var nextPlaybackToken = 0L
+    @Volatile private var activeStreamingPlayback: ActiveStreamingPlayback? = null
+    private val playbackLock = Any()
 
     // ── AudioFocus ───────────────────────────────────────────────────────────
     private val audioManager by lazy {
@@ -93,6 +108,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             val genMethod = generateMethod
                 ?: return@withContext VoiceOutputResult.Unavailable("Sherpa generate() not found.")
 
+            stopped = true
+            clearStreamingPlayback()
             stopped = false
             requestAudioFocus()
             _events.emit(VoiceOutputEvent.SpeakingStarted(request.text))
@@ -119,10 +136,64 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             }
         }
 
+    override suspend fun openStreamingSession(
+        request: VoiceSpeakRequest,
+    ): VoiceOutputStreamingSession = withContext(Dispatchers.IO) {
+        val voice = voiceOutputPreferences.selectedSherpaVoice.first()
+        val initResult = initialize(voice)
+        if (initResult is VoiceOutputResult.Unavailable) {
+            return@withContext object : VoiceOutputStreamingSession {
+                override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult = initResult
+            }
+        }
+
+        val playbackToken = allocatePlaybackToken()
+        stopped = true
+        clearStreamingPlayback()
+        stopped = false
+        val chunks = Channel<StreamingChunk>(Channel.UNLIMITED)
+        val worker = scope.launch {
+            runStreamingPlayback(
+                playbackToken = playbackToken,
+                request = request,
+                chunks = chunks,
+            )
+        }
+        synchronized(playbackLock) {
+            activeStreamingPlayback = ActiveStreamingPlayback(
+                token = playbackToken,
+                chunks = chunks,
+                worker = worker,
+            )
+        }
+
+        return@withContext object : VoiceOutputStreamingSession {
+            private var closed = false
+
+            override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
+                if (closed) return VoiceOutputResult.Spoken
+                val normalized = text.trim()
+                if (normalized.isNotBlank()) {
+                    chunks.send(StreamingChunk(text = normalized, isFinal = isFinal))
+                } else if (isFinal) {
+                    chunks.close()
+                }
+                if (isFinal) {
+                    closed = true
+                    chunks.close()
+                }
+                return VoiceOutputResult.Spoken
+            }
+        }
+    }
+
     override fun stop() {
         stopped = true
         releaseAudioFocus()
-        scope.launch { _events.emit(VoiceOutputEvent.SpeakingStopped) }
+        val shouldEmitStopped = clearStreamingPlayback()
+        if (shouldEmitStopped) {
+            scope.launch { _events.emit(VoiceOutputEvent.SpeakingStopped) }
+        }
     }
 
     // ── Initialisation ───────────────────────────────────────────────────────
@@ -201,10 +272,77 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     }
 
     private fun resetForVoice(voice: SherpaPiperVoice) {
+        clearStreamingPlayback()
         ttsInstance = null
         generateMethod = null
         initState = InitState.UNINITIALIZED
         initializedVoice = voice
+    }
+
+    private suspend fun runStreamingPlayback(
+        playbackToken: Long,
+        request: VoiceSpeakRequest,
+        chunks: Channel<StreamingChunk>,
+    ) {
+        val tts = ttsInstance ?: return
+        val genMethod = generateMethod ?: return
+        var emittedStarted = false
+        var spokeAnyChunk = false
+        requestAudioFocus()
+        try {
+            for (chunk in chunks) {
+                if (stopped || !isStreamingPlaybackActive(playbackToken)) break
+                if (!emittedStarted) {
+                    _events.emit(VoiceOutputEvent.SpeakingStarted(request.text.ifBlank { chunk.text }))
+                    emittedStarted = true
+                }
+                val audioResult = try {
+                    genMethod.invoke(tts, chunk.text, 0, 1.0f)
+                        ?: return
+                } catch (e: Exception) {
+                    Log.e(TAG, "Sherpa streaming generate() failed", e)
+                    return
+                }
+                val samples = reflectGetSamples(audioResult)
+                val sampleRate = reflectGetSampleRate(audioResult)
+                if (!stopped && isStreamingPlaybackActive(playbackToken)) {
+                    playOnAudioTrack(samples, sampleRate)
+                    spokeAnyChunk = true
+                }
+                if (chunk.isFinal) {
+                    break
+                }
+            }
+        } finally {
+            releaseAudioFocus()
+            if (finishStreamingPlayback(playbackToken) && (emittedStarted || spokeAnyChunk)) {
+                _events.emit(VoiceOutputEvent.SpeakingStopped)
+            }
+        }
+    }
+
+    private fun allocatePlaybackToken(): Long = synchronized(playbackLock) {
+        nextPlaybackToken += 1L
+        nextPlaybackToken
+    }
+
+    private fun isStreamingPlaybackActive(playbackToken: Long): Boolean = synchronized(playbackLock) {
+        activeStreamingPlayback?.token == playbackToken
+    }
+
+    private fun finishStreamingPlayback(playbackToken: Long): Boolean = synchronized(playbackLock) {
+        val active = activeStreamingPlayback ?: return@synchronized false
+        if (active.token != playbackToken) return@synchronized false
+        activeStreamingPlayback = null
+        true
+    }
+
+    private fun clearStreamingPlayback(): Boolean = synchronized(playbackLock) {
+        val active = activeStreamingPlayback ?: return@synchronized false
+        activeStreamingPlayback = null
+        active.chunks.close()
+        active.worker.cancel()
+        true
     }
 
     // ── Config construction via reflection ───────────────────────────────────
