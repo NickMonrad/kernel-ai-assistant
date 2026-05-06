@@ -107,6 +107,16 @@ class QuickIntentRouter(
                 promptTemplate = "What would you like the email to say?",
             ),
         ),
+        "create_calendar_event" to mapOf(
+            "title" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "title",
+                promptTemplate = "What should I call the event?",
+            ),
+            "date" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "date",
+                promptTemplate = "What day is {title} for?",
+            ),
+        ),
         "add_to_list" to mapOf(
             "item" to com.kernel.ai.core.skills.slot.SlotSpec(
                 name = "item",
@@ -608,18 +618,20 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_calendar_event",
             regex = Regex(
-                """(?:add|create|schedule|put|book|set)\s+(?:a\s+|an\s+)?(?:calendar\s+)?(?:event|appointment|meeting|entry|invite|session|booking)\b""",
+                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a\s+|an\s+)?(?:calendar\s+)?(?:event|appointment|meeting|entry|invite|session|booking)\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
         ),
         IntentPattern(
             intentName = "create_calendar_event",
             regex = Regex(
-                """(?:set\s+up|schedule)\s+(?:a\s+|an\s+)?meeting\b""",
+                """(?:set\s+up|schedule)\s+(?:a\s+|an\s+)?(?:meeting|appointment|event|session|booking)\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
         ),
         IntentPattern(
             intentName = "create_calendar_event",
@@ -628,6 +640,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
         ),
         IntentPattern(
             intentName = "create_calendar_event",
@@ -636,6 +649,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
         ),
         // "invite Sarah to my Friday dinner" / "invite John and Sarah to the team meeting"
         IntentPattern(
@@ -645,16 +659,18 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
         ),
         // "set a dental appointment" / "book a hair appointment" — requires article "a/an" so
         // bare-noun forms like "add dentist appointment to my calendar" fall through to LLM.
         IntentPattern(
             intentName = "create_calendar_event",
             regex = Regex(
-                """(?:add|create|schedule|put|book|set)\s+(?:a|an)\s+(?:\S+\s+){1,4}?(?:appointment|meeting|event|session|booking)\b""",
+                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a|an)\s+(?:\S+\s+){1,4}?(?:appointment|meeting|event|session|booking)\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
         ),
 
         // ── Do Not Disturb ──
@@ -2758,7 +2774,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ).find(raw)
             val titleFromVerb = Regex(
-                """(?:add|create|schedule|put|book|set)\s+(?:a\s+|an\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:for|at|from|on|next|this|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d)|$)""",
+                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a\s+|an\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:for|at|from|on|next|this|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d)|$)""",
                 RegexOption.IGNORE_CASE,
             ).find(raw)
             val DATE_WORDS = setOf(
@@ -2766,11 +2782,24 @@ class QuickIntentRouter(
                 "monday", "tuesday", "wednesday",
                 "thursday", "friday", "saturday", "sunday",
             )
+            val GENERIC_CALENDAR_TITLES = setOf(
+                "appointment",
+                "meeting",
+                "event",
+                "session",
+                "booking",
+                "invite",
+                "entry",
+            )
             val rawTitle = run {
                 val fromFor = titleFromFor?.groupValues?.get(1)?.trim()
                     ?.takeIf { it.isNotBlank() && it.length >= 2 && !DATE_WORDS.contains(it.lowercase()) }
                 fromFor ?: titleFromVerb?.groupValues?.get(1)?.trim()
-                    ?.takeIf { it.isNotBlank() && it.length >= 2 }
+                    ?.takeIf {
+                        it.isNotBlank() &&
+                            it.length >= 2 &&
+                            !GENERIC_CALENDAR_TITLES.contains(it.lowercase())
+                    }
             }
             if (rawTitle != null) {
                 params["title"] = rawTitle.split(" ")
