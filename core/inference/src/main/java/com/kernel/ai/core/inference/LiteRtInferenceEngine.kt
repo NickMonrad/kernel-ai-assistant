@@ -150,7 +150,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 val (eng, backendType) = createEngineWithFallback(resolvedConfig)
                 engine = eng
                 conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
-                resetConstrainedDecodingFlag()
+resetExperimentalFlags()
                 currentConfig = resolvedConfig
                 _activeBackend.value = backendType
                 _resolvedMaxTokens.value = resolvedConfig.maxTokens
@@ -173,8 +173,8 @@ class LiteRtInferenceEngine @Inject constructor(
             val backend = _activeBackend.value ?: BackendType.CPU
 
             safeClose(conversation, "conversation")
-            conversation = eng.createConversation(buildConversationConfig(backend, config))
-            resetConstrainedDecodingFlag()
+           conversation = eng.createConversation(buildConversationConfig(backend, config))
+            resetExperimentalFlags()
             _isGenerating.value = false
         }
     }
@@ -187,8 +187,8 @@ class LiteRtInferenceEngine @Inject constructor(
 
             currentConfig = config.copy(systemPrompt = systemPrompt)
             safeClose(conversation, "conversation")
-            conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
-            resetConstrainedDecodingFlag()
+           conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
+            resetExperimentalFlags()
             _isGenerating.value = false
             Log.i(TAG, "System prompt updated and conversation reset")
         }
@@ -440,9 +440,15 @@ class LiteRtInferenceEngine @Inject constructor(
         }
 
         // Enable constrained decoding for well-formed tool calls (Google Gallery pattern).
-        // Must be set before createConversation() and reset after via resetConstrainedDecodingFlag().
+        // Must be set before createConversation() and reset after via resetExperimentalFlags().
         if (tools.isNotEmpty()) {
             ExperimentalFlags.enableConversationConstrainedDecoding = true
+        }
+
+        // Enable MTP speculative decoding for compatible models (Gemma 4) — Gallery pattern.
+        // Must be set before createConversation() and reset after.
+        if (config.speculativeDecodingEnabled) {
+            ExperimentalFlags.enableSpeculativeDecoding = true
         }
 
         return ConversationConfig(
@@ -453,9 +459,10 @@ class LiteRtInferenceEngine @Inject constructor(
         )
     }
 
-    /** Reset the experimental flag after each createConversation() call (Gallery pattern). */
-    private fun resetConstrainedDecodingFlag() {
+    /** Reset experimental flags after each createConversation() call (Gallery pattern). */
+    private fun resetExperimentalFlags() {
         ExperimentalFlags.enableConversationConstrainedDecoding = false
+        ExperimentalFlags.enableSpeculativeDecoding = false
     }
 
     private fun safeCancel(conv: com.google.ai.edge.litertlm.Conversation?) {
