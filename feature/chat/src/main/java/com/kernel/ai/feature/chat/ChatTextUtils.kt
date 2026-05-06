@@ -9,8 +9,22 @@ internal fun stripMarkdownForClipboard(text: String): String =
 
 internal fun normalizeChatTextForSpeech(text: String): String =
     stripMarkdownForClipboard(text)
+        .replace(Regex("""\r?\n\s*\d+\.\s+"""), ". ")   // numbered list item boundary → sentence break
+        .replace(Regex("""(?m)^\s*\d+\.\s+"""), "")      // strip leading numbered marker at start
+        .replace(Regex("""(?m)^\s*[-*•]\s+"""), "")      // strip bullet markers
+        .replace(Regex("""(?<!\d):(?!\d)(?!//)\s*"""), ". ")   // non-numeric colons → sentence break (preserves ://)
+        .replace(Regex("""[—–]\s*"""), ", ")              // em/en dashes → natural comma pause
+        .replace(Regex("""\s*(?:\r?\n){2,}\s*"""), ". ")
+        .replace(Regex("""\s*\r?\n\s*"""), ". ")
         .replace(Regex("""\s+"""), " ")
+        .let(::applySpeechPronunciationOverrides)
         .trim()
+
+internal fun finalizeChatTextForSpeech(text: String): String =
+    shapeSpeechChunkForPlayback(
+        text = normalizeChatTextForSpeech(text),
+        boundaryType = SpeechChunkBoundaryType.FORCED,
+    )
 
 internal fun popNextStreamingSpeechChunk(
     buffer: StringBuilder,
@@ -26,21 +40,60 @@ internal fun popNextStreamingSpeechChunk(
         preferredChunkLength = preferredChunkLength,
         force = force,
     )
-    if (boundary <= 0) return null
+    if (boundary == null || boundary.index <= 0) return null
 
-    val chunk = raw.substring(0, boundary)
-    buffer.delete(0, boundary)
-    return normalizeChatTextForSpeech(chunk).takeIf { it.isNotBlank() }
+    val chunk = raw.substring(0, boundary.index)
+    buffer.delete(0, boundary.index)
+    return normalizeChatTextForSpeech(chunk)
+        .takeIf { it.isNotBlank() }
+        ?.let { shapeSpeechChunkForPlayback(it, boundary.type) }
+        ?.takeIf { it.isNotBlank() }
 }
+
+private data class SpeechChunkBoundary(
+    val index: Int,
+    val type: SpeechChunkBoundaryType,
+)
+
+private enum class SpeechChunkBoundaryType {
+    STRONG,
+    SOFT,
+    WHITESPACE,
+    FORCED,
+}
+
+private data class SpeechPronunciationRule(
+    val pattern: Regex,
+    val replacement: String,
+)
+
+private val speechPronunciationRules = listOf(
+    SpeechPronunciationRule(
+        pattern = Regex("""\bkia\s+ora\b""", RegexOption.IGNORE_CASE),
+        replacement = "keeorah",
+    ),
+    SpeechPronunciationRule(
+        pattern = Regex("""\bm(?:ō|o)rena\b""", RegexOption.IGNORE_CASE),
+        replacement = "moh-reh-nah",
+    ),
+)
 
 private fun findSpeechChunkBoundary(
     text: String,
     minChunkLength: Int,
     preferredChunkLength: Int,
     force: Boolean,
-): Int {
-    if (text.isBlank()) return if (force) text.length else -1
-    if (force) return text.length
+): SpeechChunkBoundary? {
+    if (text.isBlank()) {
+        return if (force) {
+            SpeechChunkBoundary(index = text.length, type = SpeechChunkBoundaryType.FORCED)
+        } else {
+            null
+        }
+    }
+    if (force) {
+        return SpeechChunkBoundary(index = text.length, type = SpeechChunkBoundaryType.FORCED)
+    }
 
     var strongBoundary = -1
     var softBoundary = -1
@@ -67,11 +120,60 @@ private fun findSpeechChunkBoundary(
     }
 
     return when {
-        strongBoundary >= minChunkLength -> strongBoundary
-        text.length >= preferredChunkLength && softBoundary >= minChunkLength -> softBoundary
-        text.length >= preferredChunkLength && whitespaceBoundary >= minChunkLength -> whitespaceBoundary
-        else -> -1
+        strongBoundary >= minChunkLength -> {
+            SpeechChunkBoundary(index = strongBoundary, type = SpeechChunkBoundaryType.STRONG)
+        }
+        text.length >= preferredChunkLength && softBoundary >= minChunkLength -> {
+            SpeechChunkBoundary(index = softBoundary, type = SpeechChunkBoundaryType.SOFT)
+        }
+        text.length >= preferredChunkLength && whitespaceBoundary >= minChunkLength -> {
+            SpeechChunkBoundary(index = whitespaceBoundary, type = SpeechChunkBoundaryType.WHITESPACE)
+        }
+        else -> null
     }
+}
+
+private fun applySpeechPronunciationOverrides(text: String): String =
+    speechPronunciationRules.fold(text) { current, rule ->
+        rule.pattern.replace(current) { match ->
+            matchCase(match.value, rule.replacement)
+        }
+    }
+
+private fun matchCase(source: String, replacement: String): String {
+    val firstLetter = source.firstOrNull { it.isLetter() }
+    return when {
+        source.any { it.isLetter() } && source.filter(Char::isLetter).all(Char::isUpperCase) ->
+            replacement.uppercase()
+        firstLetter?.isUpperCase() == true ->
+            replacement.replaceFirstChar { it.uppercase() }
+        else -> replacement
+    }
+}
+
+private fun shapeSpeechChunkForPlayback(
+    text: String,
+    boundaryType: SpeechChunkBoundaryType,
+): String {
+    val normalized = text.trim()
+    if (normalized.isBlank()) return ""
+    if (hasTerminalPause(normalized)) return normalized
+
+    return when (boundaryType) {
+        SpeechChunkBoundaryType.WHITESPACE -> appendSpeechPause(normalized, ",")
+        SpeechChunkBoundaryType.FORCED -> appendSpeechPause(normalized, ".")
+        SpeechChunkBoundaryType.STRONG,
+        SpeechChunkBoundaryType.SOFT -> normalized
+    }
+}
+
+private fun hasTerminalPause(text: String): Boolean =
+    Regex("""[.!?,;:]["')\]]*$""").containsMatchIn(text)
+
+private fun appendSpeechPause(text: String, punctuation: String): String {
+    val trailingClosers = text.takeLastWhile { it == '"' || it == '\'' || it == ')' || it == ']' }
+    if (trailingClosers.isEmpty()) return text + punctuation
+    return text.removeSuffix(trailingClosers) + punctuation + trailingClosers
 }
 
 /**
