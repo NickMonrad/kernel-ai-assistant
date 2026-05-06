@@ -618,6 +618,15 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_calendar_event",
             regex = Regex(
+                """^(?:a\s+|an\s+)?(?:calendar\s+)?(?:appointment|meeting|event|session|booking)\b(?=.*\b(?:today|tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|monday|tuesday|wednesday|thursday|friday|saturday|sunday|noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.))\b).*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
+        ),
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
                 """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a\s+|an\s+)?(?:calendar\s+)?(?:event|appointment|meeting|entry|invite|session|booking)\b""",
                 RegexOption.IGNORE_CASE,
             ),
@@ -2813,10 +2822,10 @@ class QuickIntentRouter(
             )
             dateRegex.find(lower)?.value?.trim()?.let { params["date"] = it }
 
-            // ── Time: "at 2pm", "at 10:30am", "at 10:30 p.m.", "at noon/midnight", "at 10" ─
+            // ── Time: "at 2pm", "for 2pm", "at 10:30am", "at 10:30 p.m.", "at noon/midnight", "at 10" ─
             // Bare hours (no am/pm) are normalised to HH:00 so resolveTime() can parse.
             val timeRegex = Regex(
-                """(?:at|@)\s+(noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)|\d{1,2}(?::\d{2})?)(?!\s*(?:am|pm|a\.m\.|p\.m\.))""",
+                """(?:at|@|for)\s+(noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)|\d{1,2}(?::\d{2})?)(?!\s*(?:am|pm|a\.m\.|p\.m\.))""",
                 RegexOption.IGNORE_CASE,
             )
             timeRegex.find(lower)?.groupValues?.get(1)?.trim()

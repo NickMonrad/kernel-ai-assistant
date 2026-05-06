@@ -544,6 +544,27 @@ class QuickIntentRouterTest {
             assertEquals(expectedTitle, needsSlot.intent.params["title"], "title for '$input'")
             assertEquals("date", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
+        @Test
+        fun `should preserve schedule hints when verb calendar phrase needs title`() {
+            val result = regexOnlyRouter.route("set an appointment for 3:00 p.m. Sunday")
+            val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+
+            assertEquals("create_calendar_event", needsSlot.intent.intentName)
+            assertEquals("title", needsSlot.missingSlot.name)
+            assertEquals("sunday", needsSlot.intent.params["date"])
+            assertEquals("3:00 p.m.", needsSlot.intent.params["time"])
+        }
+
+        @Test
+        fun `should match bare appointment phrases with schedule and ask for title`() {
+            val result = regexOnlyRouter.route("Appointment for 3:00 p.m. Sunday")
+            val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+
+            assertEquals("create_calendar_event", needsSlot.intent.intentName)
+            assertEquals("title", needsSlot.missingSlot.name)
+            assertEquals("sunday", needsSlot.intent.params["date"])
+            assertEquals("3:00 p.m.", needsSlot.intent.params["time"])
+        }
     }
 
 
@@ -1936,6 +1957,8 @@ class QuickIntentRouterTest {
             Arguments.of("set up an appointment"),
             Arguments.of("schedule a meeting"),
             Arguments.of("create an event"),
+            Arguments.of("set an appointment for 3:00 p.m. Sunday"),
+            Arguments.of("Appointment for 3:00 p.m. Sunday"),
         )
 
         @JvmStatic
