@@ -535,5 +535,22 @@ class ChatTextUtilsTest {
             assertTrue(result.contains("cats and dogs"), "Should include the full first sentence")
             assertFalse(result.contains("basics"), "Should not include the second sentence")
         }
+
+        @Test
+        fun `single-word sentences like Sure are real sentence boundaries — not abbreviations`() {
+            // "Sure." must NOT be merged into the next fragment; it is a complete sentence.
+            val text = "Sure. Here is the answer. More details."
+            val result = truncateForSpeech(text, 1)
+            assertEquals("Sure.", result.trimEnd())
+        }
+
+        @Test
+        fun `known abbreviation Dr is still merged correctly`() {
+            // "Dr." is a known abbreviation so it merges with the following fragment,
+            // making "Dr. Smith explained the plan." the first full sentence.
+            val text = "Dr. Smith explained the plan. More here."
+            val result = truncateForSpeech(text, 1)
+            assertEquals("Dr. Smith explained the plan.", result.trimEnd())
+        }
     }
 }

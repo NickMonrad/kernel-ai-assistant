@@ -907,6 +907,8 @@ class ChatViewModel @Inject constructor(
             // Same message → toggle off
             speakMessageJob?.cancel()
             speakMessageJob = null
+            awaitingVoicePlaybackCompletion = false
+            pendingVoiceReply = false
             voiceOutputController.stop()
             _speakingMessageId.value = null
             return

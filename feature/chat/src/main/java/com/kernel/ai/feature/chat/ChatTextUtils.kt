@@ -13,21 +13,28 @@ internal fun stripMarkdownForClipboard(text: String): String =
  * If [text] contains fewer than [maxSentences] sentence-ending boundaries the full text
  * is returned so short responses are never cut off.
  */
+private val KNOWN_ABBREV = setOf("dr", "mr", "mrs", "ms", "prof", "st", "vs", "etc", "jr", "sr")
+private val INITIALS_REGEX = Regex("""([A-Za-z]\.)+""")  // matches "U.S.", "e.g.", "i.e."
+
+private fun isAbbreviationFragment(fragment: String): Boolean {
+    val trimmed = fragment.trim()
+    if (trimmed.contains(' ')) return false          // multi-word — never an abbreviation fragment
+    val withoutTrailingPunct = trimmed.trimEnd('.', '!', '?', '"', '\'', ')')
+    return withoutTrailingPunct.lowercase() in KNOWN_ABBREV ||
+           INITIALS_REGEX.matches(withoutTrailingPunct + ".")
+}
+
 internal fun truncateForSpeech(text: String, maxSentences: Int): String {
     if (maxSentences <= 0) return text
     val sentenceRegex = Regex("""[^.!?]*[.!?]["')]*""")
     val fragments = sentenceRegex.findAll(text).map { it.value }.toList()
-    // Fragments that contain no whitespace and end with a bare '.' are almost certainly
-    // abbreviations (Dr., Mr., e.g., U.S.) rather than sentence boundaries. Merge them
-    // forward into the next fragment so "Dr. Smith went." is kept as one sentence.
-    // Fragments ending with '!' or '?' are always real sentence boundaries even if single-word.
+    // Only merge fragments that are known abbreviations (Dr., Mr., e.g., U.S.) forward into
+    // the next fragment. Single-word complete sentences like "Sure." or "Yes." are real
+    // sentence boundaries and must NOT be merged.
     val sentences = buildList {
         var pending = ""
         for (fragment in fragments) {
-            val trimmed = fragment.trim()
-            val isAbbreviation = !trimmed.contains(' ') &&
-                trimmed.trimEnd('"', '\'', ')').endsWith('.')
-            if (isAbbreviation) {
+            if (isAbbreviationFragment(fragment)) {
                 pending += fragment
             } else {
                 add(pending + fragment)
