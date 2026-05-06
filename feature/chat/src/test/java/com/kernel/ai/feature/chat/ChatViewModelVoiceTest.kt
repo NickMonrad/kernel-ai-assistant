@@ -38,6 +38,7 @@ import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
+import com.kernel.ai.core.voice.VoiceOutputStreamingSession
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -86,6 +87,7 @@ class ChatViewModelVoiceTest {
     private val embeddingEngine: EmbeddingEngine = mockk(relaxed = true)
     private val voiceInputController: VoiceInputController = mockk(relaxed = true)
     private val voiceOutputController: VoiceOutputController = mockk(relaxed = true)
+    private val voiceStreamingSession: VoiceOutputStreamingSession = mockk(relaxed = true)
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk(relaxed = true)
     private val jandalPersona: JandalPersona = mockk(relaxed = true)
     private val nzTruthSeedingService: NzTruthSeedingService = mockk(relaxed = true)
@@ -94,6 +96,7 @@ class ChatViewModelVoiceTest {
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
     private val spokenResponsesEnabled = MutableStateFlow(true)
+    private val streamedChunks = mutableListOf<Pair<String, Boolean>>()
 
     @BeforeEach
     fun setUp() {
@@ -133,6 +136,12 @@ class ChatViewModelVoiceTest {
         every { voiceInputController.stopListening() } just runs
         every { voiceOutputController.events } returns voiceOutputEvents
         coEvery { voiceOutputController.warmUp() } returns VoiceOutputResult.Spoken
+        streamedChunks.clear()
+        coEvery { voiceOutputController.openStreamingSession(any()) } returns voiceStreamingSession
+        coEvery { voiceStreamingSession.append(any(), any()) } coAnswers {
+            streamedChunks += firstArg<String>() to secondArg<Boolean>()
+            VoiceOutputResult.Spoken
+        }
         coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
         every { voiceOutputController.stop() } just runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
@@ -184,14 +193,15 @@ class ChatViewModelVoiceTest {
         viewModel.startVoiceInput()
         voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello there"))
         advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
+        advanceUntilIdle()
 
         assertEquals("You: Hello there\nJandal: Hi back", viewModel.getConversationAsText())
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         coVerify {
-            voiceOutputController.speak(
-                match<VoiceSpeakRequest> { it.text == "Hi back" }
-            )
+            voiceOutputController.openStreamingSession(any())
         }
+        assertEquals(listOf("Hi back" to true), streamedChunks)
     }
 
     @Test
@@ -308,12 +318,12 @@ class ChatViewModelVoiceTest {
         viewModel.startBackAndForthVoiceInput()
         voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello loop"))
         advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
+        advanceUntilIdle()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
 
-        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
-        advanceUntilIdle()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         advanceUntilIdle()
 
@@ -321,8 +331,29 @@ class ChatViewModelVoiceTest {
         assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
         coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
         coVerify(exactly = 1) {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "Hi back" })
+            voiceOutputController.openStreamingSession(any())
         }
+        assertEquals(listOf("Hi back" to true), streamedChunks)
+    }
+
+    @Test
+    fun `back-and-forth voice re-arms when playback completes without speaking started`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Hello silent loop") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Hello silent loop")
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello silent loop"))
+        advanceUntilIdle()
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertEquals("You: Hello silent loop\nJandal: Hi back", viewModel.getConversationAsText())
+        assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
     }
 
     @Test
@@ -330,7 +361,7 @@ class ChatViewModelVoiceTest {
         every { quickIntentRouter.route("Stop speaking") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Stop speaking")
         val speakGate = CompletableDeferred<Unit>()
-        coEvery { voiceOutputController.speak(any()) } coAnswers {
+        coEvery { voiceStreamingSession.append(any(), any()) } coAnswers {
             voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
             speakGate.await()
             VoiceOutputResult.Spoken
@@ -350,7 +381,7 @@ class ChatViewModelVoiceTest {
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
-        verify(exactly = 1) { voiceOutputController.stop() }
+        verify(atLeast = 1) { voiceOutputController.stop() }
     }
 
     @Test
@@ -358,7 +389,7 @@ class ChatViewModelVoiceTest {
         every { quickIntentRouter.route("Stop listening") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Stop listening")
         val speakGate = CompletableDeferred<Unit>()
-        coEvery { voiceOutputController.speak(any()) } coAnswers {
+        coEvery { voiceStreamingSession.append(any(), any()) } coAnswers {
             voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
             speakGate.await()
             VoiceOutputResult.Spoken
