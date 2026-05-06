@@ -66,6 +66,129 @@ class ChatTextUtilsTest {
         }
     }
 
+    @Nested
+    @DisplayName("chat speech normalization")
+    inner class ChatSpeechNormalizationTests {
+
+        @Test
+        fun `applies scoped maori pronunciation overrides for chat speech`() {
+            assertEquals(
+                "Keeorah and moh-reh-nah",
+                normalizeChatTextForSpeech("Kia ora and mōrena"),
+            )
+            assertEquals(
+                "moh-reh-nah everyone",
+                normalizeChatTextForSpeech("morena everyone"),
+            )
+        }
+
+        @Test
+        fun `converts bullet list breaks into speakable sentence pauses`() {
+            assertEquals(
+                "apples. bread",
+                normalizeChatTextForSpeech("- apples\n- bread"),
+            )
+            assertEquals(
+                "First thought. Second thought",
+                normalizeChatTextForSpeech("First thought\n\nSecond thought"),
+            )
+        }
+
+        @Test
+        fun `converts numbered list items into sentence-break pauses`() {
+            assertEquals(
+                "Maintain a schedule. Create a routine. Optimise your environment",
+                normalizeChatTextForSpeech("1.  Maintain a schedule\n2.  Create a routine\n3.  Optimise your environment"),
+            )
+        }
+
+        @Test
+        fun `strips leading numbered marker at start of text`() {
+            assertEquals(
+                "Maintain a schedule. Create a routine",
+                normalizeChatTextForSpeech("1. Maintain a schedule\n2. Create a routine"),
+            )
+        }
+
+        @Test
+        fun `converts non-numeric colons into sentence-break pauses`() {
+            assertEquals(
+                "Bedtime Routine. Predictability is key",
+                normalizeChatTextForSpeech("Bedtime Routine: Predictability is key"),
+            )
+        }
+
+        @Test
+        fun `preserves colons in times and ratios`() {
+            val result = normalizeChatTextForSpeech("Meet at 7:30 PM, ratio 4:1")
+            assertTrue(result.contains("7:30"), "Time colons should be preserved, got: $result")
+            assertTrue(result.contains("4:1"), "Ratio colons should be preserved, got: $result")
+        }
+
+        @Test
+        fun `preserves https URL scheme colons`() {
+            val result = normalizeChatTextForSpeech("See https://example.com for details")
+            assertTrue(result.contains("https://"), "URL scheme should be preserved, got: $result")
+        }
+
+        @Test
+        fun `preserves http URL scheme colons`() {
+            val result = normalizeChatTextForSpeech("Visit http://docs.kernel.ai for more")
+            assertTrue(result.contains("http://"), "http URL scheme should be preserved, got: $result")
+        }
+
+        @Test
+        fun `converts em and en dashes into comma pauses`() {
+            assertEquals(
+                "a warm bath, like a story, signals bedtime",
+                normalizeChatTextForSpeech("a warm bath—like a story—signals bedtime"),
+            )
+        }
+    }
+
+    @Nested
+    @DisplayName("streaming speech chunking")
+    inner class StreamingSpeechChunkingTests {
+
+        @Test
+        fun `adds a soft pause when chunking on whitespace for early streaming`() {
+            val buffer = StringBuilder(
+                "Kia ora this chunk should break on whitespace so the voice has a short pause before continuing",
+            )
+
+            val chunk = popNextStreamingSpeechChunk(
+                buffer = buffer,
+                minChunkLength = 24,
+                preferredChunkLength = 48,
+            )
+
+            assertTrue(chunk?.startsWith("Keeorah this chunk should break on whitespace") == true)
+            assertTrue(chunk?.endsWith(",") == true)
+            assertTrue(buffer.isNotEmpty())
+        }
+
+        @Test
+        fun `forced final chunk adds sentence punctuation when missing`() {
+            assertEquals(
+                "moh-reh-nah everyone.",
+                finalizeChatTextForSpeech("morena everyone"),
+            )
+        }
+
+        @Test
+        fun `strong punctuation boundary keeps existing sentence ending`() {
+            val buffer = StringBuilder("Kia ora everyone. Here is the second sentence")
+
+            val chunk = popNextStreamingSpeechChunk(
+                buffer = buffer,
+                minChunkLength = 10,
+                preferredChunkLength = 24,
+            )
+
+            assertEquals("Keeorah everyone.", chunk)
+        }
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     // ANAPHORA DETECTION
     // ═════════════════════════════════════════════════════════════════════════

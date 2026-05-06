@@ -61,9 +61,11 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - ⏱️ **Timer management** — list active timers and cancel individual ones ("cancel my 10 minute timer")
 - 🗑️ **Alarm multiselect delete** — select multiple alarms in the Alarms screen and delete them at once
 - 📝 **Bulk list add** — add multiple items to a list in one request ("save all ingredients to shopping list")
+- 🗣️ **Offline voice controls** — push-to-talk Quick Actions plus spoken responses managed from **Settings → Voice**
+- 🔊 **Streaming spoken chat replies** — chat TTS begins playback before generation completes; numbered lists, colons, and dashes produce natural speech pauses; `kia ora` pronounced correctly as a blended Māori word
+- 🎚️ **Configurable speech rate** — 0.5–1.5× slider in **Settings → Voice** (default 0.85×), persisted across sessions; 9 en_GB Piper voices available (alba, aru, semaine, vctk added in PR #780)
 
 ### Coming Soon
-- 🗣️ **Voice input** — tap-to-talk with auto-stop *(Phase 3F)*
 - 💬 **Expanded multi-turn dialog** — broader confirmation, digression, and slot-filling coverage across more intents *(Phase 3G, #708 and follow-ups)*
 - 🗒️ **Lists — management upgrades** — rename, pin, sort, edit items, favorites, and due dates *(#662)*
 - ⏰ **Alarms CRUD UI** — create, edit, and toggle alarms directly from the Alarms screen *(Phase 3, #479)*

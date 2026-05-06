@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,17 +26,27 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -43,6 +55,7 @@ import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +73,7 @@ fun VoiceScreen(
         onSpokenResponsesEnabledChanged = viewModel::setSpokenResponsesEnabled,
         onVoiceOutputEngineSelected = viewModel::setVoiceOutputEngine,
         onSherpaVoiceSelected = viewModel::setSherpaVoice,
+        onSherpaSpeedChanged = viewModel::setSherpaSpeed,
         onDownloadVoice = viewModel::downloadSherpaVoice,
         onCancelVoiceDownload = viewModel::cancelSherpaVoiceDownload,
         onDeleteVoice = viewModel::deleteSherpaVoice,
@@ -76,6 +90,7 @@ private fun VoiceScreenContent(
     onSpokenResponsesEnabledChanged: (Boolean) -> Unit,
     onVoiceOutputEngineSelected: (VoiceOutputEngine) -> Unit,
     onSherpaVoiceSelected: (SherpaPiperVoice) -> Unit,
+    onSherpaSpeedChanged: (Float) -> Unit,
     onDownloadVoice: (SherpaPiperVoice) -> Unit,
     onCancelVoiceDownload: (SherpaPiperVoice) -> Unit,
     onDeleteVoice: (SherpaPiperVoice) -> Unit,
@@ -275,6 +290,22 @@ private fun VoiceScreenContent(
                     message = sherpaHelpText,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
+
+                // Speech rate slider — range 0.5–1.5 in steps of 0.05 (19 discrete steps)
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    SliderRow(
+                        label = "Speech rate",
+                        valueLabel = "%.2fx".format(uiState.sherpaSpeed),
+                        value = uiState.sherpaSpeed,
+                        valueRange = 0.5f..1.5f,
+                        steps = 19,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaSpeedChanged(
+                                (newVal * 20).roundToInt() / 20f
+                            )
+                        },
+                    )
+                }
 
                 uiState.sherpaVoices.forEach { voiceRow ->
                     SherpaVoiceRow(
@@ -501,6 +532,92 @@ private fun VoiceOutputSelectionCard(
     )
 }
 
+/**
+ * A labelled slider row with an editable text field for precise input.
+ * Duplicated locally from [ModelSettingsScreen] to avoid cross-module coupling.
+ */
+@Composable
+private fun SliderRow(
+    label: String,
+    valueLabel: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onValueChangeFinished: (Float) -> Unit,
+) {
+    val focusManager = LocalFocusManager.current
+    var sliderValue by remember(value) { mutableFloatStateOf(value) }
+    var textValue by remember(value) { mutableStateOf("%.2f".format(value)) }
+
+    fun commitText(raw: String) {
+        val parsed = raw.trim().toFloatOrNull()
+        if (parsed != null) {
+            val clamped = parsed.coerceIn(valueRange.start, valueRange.endInclusive)
+            sliderValue = clamped
+            textValue = "%.2f".format(clamped)
+            onValueChangeFinished(clamped)
+        } else {
+            textValue = "%.2f".format(sliderValue)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = valueLabel,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Slider(
+                value = sliderValue,
+                onValueChange = { newVal ->
+                    sliderValue = newVal
+                    textValue = "%.2f".format(newVal)
+                },
+                onValueChangeFinished = { onValueChangeFinished(sliderValue) },
+                valueRange = valueRange,
+                steps = steps,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            OutlinedTextField(
+                value = textValue,
+                onValueChange = { textValue = it },
+                modifier = Modifier
+                    .width(76.dp)
+                    .onFocusChanged { focusState ->
+                        if (!focusState.isFocused) commitText(textValue)
+                    },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Decimal,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        commitText(textValue)
+                        focusManager.clearFocus()
+                    },
+                ),
+            )
+        }
+    }
+}
+
 private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_000_000_000L -> "${"%.1f".format(bytes / 1_000_000_000.0)} GB"
     bytes >= 1_000_000L -> "${"%.0f".format(bytes / 1_000_000.0)} MB"
@@ -518,6 +635,7 @@ private fun VoiceScreenPreview() {
                 selectedSherpaVoice = SherpaPiperVoice.NorthernEnglishMale,
                 hasDownloadedSherpaVoice = true,
                 isSelectedSherpaVoiceDownloaded = false,
+                sherpaSpeed = 0.85f,
                 sherpaVoices = listOf(
                     SherpaVoiceRowUiState(
                         voice = SherpaPiperVoice.JennyDioco,
@@ -539,6 +657,7 @@ private fun VoiceScreenPreview() {
             onSpokenResponsesEnabledChanged = {},
             onVoiceOutputEngineSelected = {},
             onSherpaVoiceSelected = {},
+            onSherpaSpeedChanged = {},
             onDownloadVoice = {},
             onCancelVoiceDownload = {},
             onDeleteVoice = {},

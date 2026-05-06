@@ -28,6 +28,7 @@ data class VoiceUiState(
     val selectedInputEngine: VoiceInputEngine = VoiceInputEngine.Vosk,
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
+    val sherpaSpeed: Float = 0.85f,
     val sherpaVoices: List<SherpaVoiceRowUiState> = SherpaPiperVoice.entries.map { voice ->
         SherpaVoiceRowUiState(voice = voice)
     },
@@ -77,6 +78,11 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             voiceOutputPreferences.selectedSherpaVoice.collect { voice ->
                 _uiState.update { it.copy(selectedSherpaVoice = voice) }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.sherpaSpeed.collect { speed ->
+                _uiState.update { it.copy(sherpaSpeed = speed) }
             }
         }
         viewModelScope.launch {
@@ -148,6 +154,13 @@ class VoiceViewModel @Inject constructor(
 
     fun deleteSherpaVoice(voice: SherpaPiperVoice) {
         sherpaVoicePackDownloadManager.deleteVoice(voice)
+    }
+
+    fun setSherpaSpeed(speed: Float) {
+        _uiState.update { it.copy(sherpaSpeed = speed) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setSherpaSpeed(speed)
+        }
     }
 
     fun setAutoStartAlertVoiceCommandsEnabled(enabled: Boolean) {

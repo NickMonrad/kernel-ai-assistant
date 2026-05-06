@@ -1886,9 +1886,9 @@ class ChatViewModel @Inject constructor(
                 ) ?: break
                 bufferedChunks += chunk
             }
-            bufferedChunks.joinToString(" ").trim()
+            finalizeChatTextForSpeech(bufferedChunks.joinToString(" ").trim())
         } else {
-            normalizeChatTextForSpeech(finalContent)
+            finalizeChatTextForSpeech(finalContent)
         }
         val result = session.append(finalChunk, isFinal = true)
         handleVoiceOutputResult(result)
