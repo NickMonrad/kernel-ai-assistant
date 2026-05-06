@@ -95,6 +95,9 @@ Current branch status:
 - Quick Actions / QIR spoken responses are controlled by a shared `VoiceOutputPreferences` preference
 - the user-facing spoken-response toggle has been moved out of About into a dedicated **Settings -> Voice** screen
 - the new Voice screen is the intended future home for additional STT/TTS settings, engine choices, and voice model controls
+- chat now streams TTS incrementally so playback can start before the full reply finishes generating, with the current quality pass limited to lightweight text preprocessing
+- chat speech preprocessing is intentionally small and local-first: normalize markdown/list formatting into speakable pauses, add cadence-friendly punctuation when chunking on whitespace, and apply a curated pronunciation override list for known Kiwi/Māori greetings such as `kia ora` and `morena` / `mōrena`
+- broader phoneme dictionaries, multilingual voices, or engine-specific pronunciation tuning remain follow-up work; this slice is explicitly scoped to safe heuristics that do not delay early streaming playback
 
 #### 5. Connect the voice session loop
 
@@ -122,6 +125,14 @@ Before expanding the voice surface, run a full hardening pass covering:
 - slot-fill follow-up reliability
 
 The baseline should be considered stable only once the known high-frequency failures are clearly understood or reduced.
+
+#### Current TTS quality follow-up after PR #777
+
+Streaming chat playback is now working well after merged PR `#777`, so the next TTS slice should focus on **voice quality tuning** rather than basic streaming enablement.
+
+- **Pronunciation:** address `#775` with a small preprocessing / mapping layer for known Māori / Kiwi words in English or American voices (for example targeted text substitutions or aliases before synthesis). Do **not** jump straight to a broad phoneme-system project unless repeated evidence shows the lightweight path is insufficient.
+- **Cadence / prosody:** tune chunking, punctuation handling, and sentence-boundary behaviour in ways that keep early streaming playback intact. Quality improvements must not significantly delay first audible output.
+- **Issue hygiene:** keep fallback-path issues and the appointment QIR bug (`#773`) separate from TTS quality work unless they prove to share the same root cause or seam.
 
 ### Wave 4 — engine experiments behind the same seam
 

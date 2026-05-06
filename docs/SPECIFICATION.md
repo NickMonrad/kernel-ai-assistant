@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-05-02 (voice foundations and roadmap summary refresh)
+> **Last updated:** 2026-05-06 (chat voice streaming and TTS quality tuning refresh)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -592,7 +592,7 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 - **Navigation:** Bottom nav bar — Chats tab (conversations list) + Actions tab (quick commands)
 - **Chat:** Streaming token display, thinking mode indicator, markdown rendering, multi-conversation
 - **Actions tab:** History list, FAB (⚡) for new commands, bottom sheet input, Room-persisted history
-- **Voice:** Quick Actions push-to-talk with offline STT and spoken QIR responses; chat voice and wake word remain future work
+- **Voice:** Quick Actions push-to-talk with offline STT, spoken QIR responses, and streaming spoken chat replies; chat TTS currently uses a small curated pronunciation/preprocessing layer for known Kiwi/Māori greetings while wake word remains future work
 - **Skill results:** Inline rich cards in the conversation stream, with expandable list previews and link surfacing for fallback/plain-text results
 - **Persona:** Friendly, concise, dry-humoured Kiwi — see §7 for full identity details
 
