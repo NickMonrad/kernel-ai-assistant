@@ -7,6 +7,20 @@ package com.kernel.ai.feature.chat
 internal fun stripMarkdownForClipboard(text: String): String =
     stripMarkdown(convertLatexToUnicode(text))
 
+/**
+ * Returns [text] truncated to at most [maxSentences] sentences (split at `.`, `!`, `?`).
+ * If [maxSentences] is 0 or negative the full [text] is returned unchanged (unlimited).
+ * If [text] contains fewer than [maxSentences] sentence-ending boundaries the full text
+ * is returned so short responses are never cut off.
+ */
+internal fun truncateForSpeech(text: String, maxSentences: Int): String {
+    if (maxSentences <= 0) return text
+    val sentenceRegex = Regex("""[^.!?]*[.!?]["')]*""")
+    val sentences = sentenceRegex.findAll(text).map { it.value }.toList()
+    if (sentences.isEmpty() || sentences.size <= maxSentences) return text
+    return sentences.take(maxSentences).joinToString("").trimEnd()
+}
+
 internal fun normalizeChatTextForSpeech(text: String): String =
     stripMarkdownForClipboard(text)
         .replace(Regex("""\r?\n\s*\d+\.\s+"""), ". ")   // numbered list item boundary → sentence break

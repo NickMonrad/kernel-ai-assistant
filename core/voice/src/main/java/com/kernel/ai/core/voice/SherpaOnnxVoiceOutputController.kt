@@ -6,6 +6,7 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioFocusRequest
 import android.media.AudioTrack
+import android.media.PlaybackParams
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.Channel
@@ -73,6 +74,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     /** Live speech rate from user preferences; default 0.85. Range 0.5–1.5. */
     private val sherpaSpeed: StateFlow<Float> = voiceOutputPreferences.sherpaSpeed
         .stateIn(scope, SharingStarted.Eagerly, 0.85f)
+
+    /** Live pitch from user preferences; default 1.0. Range 0.5–2.0. */
+    private val sherpaPitch: StateFlow<Float> = voiceOutputPreferences.voicePitch
+        .stateIn(scope, SharingStarted.Eagerly, 1.0f)
 
     // ── Lifecycle state ──────────────────────────────────────────────────────
     private enum class InitState { UNINITIALIZED, AVAILABLE, UNAVAILABLE }
@@ -500,6 +505,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             .build()
 
         track.play()
+        track.playbackParams = PlaybackParams().setPitch(sherpaPitch.value)
         try {
             var offset = 0
             while (offset < samples.size && !stopped) {

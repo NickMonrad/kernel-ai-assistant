@@ -453,4 +453,68 @@ class ChatTextUtilsTest {
             assertFalse(looksLikeRawToolCall("Here are the three meals I came up with."))
         }
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // TRUNCATE FOR SPEECH
+    // ═════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("truncateForSpeech")
+    inner class TruncateForSpeechTests {
+
+        @Test
+        fun `zero maxSentences returns full text unchanged`() {
+            val text = "First sentence. Second sentence. Third sentence."
+            assertEquals(text, truncateForSpeech(text, 0))
+        }
+
+        @Test
+        fun `negative maxSentences returns full text unchanged`() {
+            val text = "First sentence. Second sentence."
+            assertEquals(text, truncateForSpeech(text, -1))
+        }
+
+        @Test
+        fun `takes only the first two sentences from three`() {
+            val text = "First sentence. Second sentence. Third sentence."
+            val result = truncateForSpeech(text, 2)
+            assertTrue(result.contains("First sentence"))
+            assertTrue(result.contains("Second sentence"))
+            assertFalse(result.contains("Third sentence"))
+        }
+
+        @Test
+        fun `returns full text when sentence count equals maxSentences`() {
+            val text = "First. Second. Third."
+            assertEquals(text, truncateForSpeech(text, 3))
+        }
+
+        @Test
+        fun `returns full text when sentence count is less than maxSentences`() {
+            val text = "Only one sentence."
+            assertEquals(text, truncateForSpeech(text, 5))
+        }
+
+        @Test
+        fun `preserves trailing period punctuation`() {
+            val text = "Hello world. Goodbye world."
+            val result = truncateForSpeech(text, 1)
+            assertTrue(result.trimEnd().endsWith("."))
+        }
+
+        @Test
+        fun `handles exclamation marks as sentence boundaries`() {
+            val text = "Hello! World? Great."
+            val result = truncateForSpeech(text, 2)
+            assertTrue(result.contains("Hello!"))
+            assertTrue(result.contains("World?"))
+            assertFalse(result.contains("Great"))
+        }
+
+        @Test
+        fun `text with no sentence boundaries returns full text`() {
+            val text = "No punctuation here"
+            assertEquals(text, truncateForSpeech(text, 2))
+        }
+    }
 }
