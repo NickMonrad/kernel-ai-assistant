@@ -29,6 +29,12 @@ data class AlarmDraft(
     val minute: Int,
     val repeatRule: AlarmRepeatRule,
     val timeZoneId: String,
+    val soundUri: String? = null,
+)
+
+data class ClockSoundConfig(
+    val defaultAlarmSoundUri: String? = null,
+    val timerSoundUri: String? = null,
 )
 
 data class ClockAlarm(
@@ -41,7 +47,8 @@ data class ClockAlarm(
     val repeatRule: AlarmRepeatRule,
     val timeZoneId: String,
     val triggerAtMillis: Long,
- ) {
+    val soundUri: String? = null,
+) {
     val nextTriggerAtMillis: Long get() = triggerAtMillis
 }
 
@@ -114,7 +121,8 @@ data class ClockScheduledEvent(
     val durationMs: Long? = null,
     val startedAtMillis: Long? = null,
     val occurrenceTriggerAtMillis: Long? = null,
- )
+    val soundUri: String? = null,
+)
 
 data class ClockPlatformState(
     val canScheduleExactAlarms: Boolean,

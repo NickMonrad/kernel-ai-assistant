@@ -2,6 +2,7 @@ package com.kernel.ai.feature.settings
 
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
+import com.kernel.ai.core.memory.clock.ClockSoundConfig
 import com.kernel.ai.core.memory.clock.ClockStopwatch
 import com.kernel.ai.core.memory.clock.ClockTimer
 import com.kernel.ai.core.memory.clock.StopwatchStatus
@@ -36,6 +37,7 @@ class SidePanelViewModelTest {
         every { clockRepository.observeActiveTimers() } returns emptyFlow()
         every { clockRepository.observeRecentCompletedTimers() } returns emptyFlow()
         every { clockRepository.observeWorldClocks() } returns emptyFlow()
+        every { clockRepository.observeClockSoundConfig() } returns kotlinx.coroutines.flow.flowOf(ClockSoundConfig())
         every { clockRepository.observeStopwatch() } returns kotlinx.coroutines.flow.flowOf(
             ClockStopwatch(
                 id = "primary",

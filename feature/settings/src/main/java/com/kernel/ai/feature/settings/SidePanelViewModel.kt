@@ -6,6 +6,7 @@ import com.kernel.ai.core.memory.clock.AlarmDraft
 import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
+import com.kernel.ai.core.memory.clock.ClockSoundConfig
 import com.kernel.ai.core.memory.clock.ClockStopwatch
 import com.kernel.ai.core.memory.clock.ClockTimer
 import com.kernel.ai.core.memory.clock.WorldClock
@@ -56,6 +57,10 @@ class SidePanelViewModel @Inject constructor(
     val worldClocks: StateFlow<List<WorldClock>> =
         clockRepository.observeWorldClocks()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val clockSoundConfig: StateFlow<ClockSoundConfig> =
+        clockRepository.observeClockSoundConfig()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ClockSoundConfig())
 
     private val _selectedTab = MutableStateFlow(ClockSurfaceTab.TIMERS)
     val selectedTab: StateFlow<ClockSurfaceTab> = _selectedTab.asStateFlow()
@@ -222,6 +227,18 @@ class SidePanelViewModel @Inject constructor(
     fun scheduleTimer(durationMs: Long, label: String?, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
             onResult(tryScheduleTimer(durationMs, label))
+        }
+    }
+
+    fun setDefaultAlarmSoundUri(soundUri: String?) {
+        viewModelScope.launch {
+            clockRepository.setDefaultAlarmSoundUri(soundUri)
+        }
+    }
+
+    fun setTimerSoundUri(soundUri: String?) {
+        viewModelScope.launch {
+            clockRepository.setTimerSoundUri(soundUri)
         }
     }
 
