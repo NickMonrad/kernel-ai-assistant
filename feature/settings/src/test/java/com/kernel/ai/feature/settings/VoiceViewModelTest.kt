@@ -42,6 +42,7 @@ class VoiceViewModelTest {
     private val spokenResponsesEnabled = MutableStateFlow(true)
     private val selectedOutputEngine = MutableStateFlow(VoiceOutputEngine.AndroidTts)
     private val selectedSherpaVoice = MutableStateFlow(SherpaPiperVoice.JennyDioco)
+    private val sherpaSpeed = MutableStateFlow(0.85f)
     private val sherpaDownloadStates: MutableStateFlow<Map<SherpaPiperVoice, VoicePackDownloadState>> =
         MutableStateFlow(
             SherpaPiperVoice.entries.associateWith {
@@ -69,9 +70,11 @@ class VoiceViewModelTest {
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         every { voiceOutputPreferences.selectedEngine } returns selectedOutputEngine
         every { voiceOutputPreferences.selectedSherpaVoice } returns selectedSherpaVoice
+        every { voiceOutputPreferences.sherpaSpeed } returns sherpaSpeed
         coEvery { voiceOutputPreferences.setSpokenResponsesEnabled(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedSherpaVoice(any()) } just Runs
+        coEvery { voiceOutputPreferences.setSherpaSpeed(any()) } just Runs
         every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
         every { sherpaVoicePackDownloadManager.startDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.cancelDownload(any()) } just Runs

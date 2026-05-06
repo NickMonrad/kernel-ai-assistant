@@ -15,8 +15,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -67,6 +70,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     private val _events = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
     override val events: Flow<VoiceOutputEvent> = _events.asSharedFlow()
 
+    /** Live speech rate from user preferences; default 0.85. Range 0.5–1.5. */
+    private val sherpaSpeed: StateFlow<Float> = voiceOutputPreferences.sherpaSpeed
+        .stateIn(scope, SharingStarted.Eagerly, 0.85f)
+
     // ── Lifecycle state ──────────────────────────────────────────────────────
     private enum class InitState { UNINITIALIZED, AVAILABLE, UNAVAILABLE }
 
@@ -115,8 +122,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             _events.emit(VoiceOutputEvent.SpeakingStarted(request.text))
 
             return@withContext try {
-                // Reflect: GeneratedAudio audio = tts.generate(text, sid=0, speed=0.85f)
-                val audioResult = genMethod.invoke(tts, request.text, 0, 0.85f)
+                // Reflect: GeneratedAudio audio = tts.generate(text, sid=0, speed)
+                val audioResult = genMethod.invoke(tts, request.text, 0, sherpaSpeed.value)
                     ?: return@withContext VoiceOutputResult.Unavailable("Sherpa returned null audio.")
 
                 val samples = reflectGetSamples(audioResult)
@@ -297,7 +304,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                     requestedAudioFocus = true
                 }
                 val audioResult = try {
-                    genMethod.invoke(tts, chunk.text, 0, 0.85f)
+                    genMethod.invoke(tts, chunk.text, 0, sherpaSpeed.value)
                         ?: return
                 } catch (e: Exception) {
                     Log.e(TAG, "Sherpa streaming generate() failed", e)
