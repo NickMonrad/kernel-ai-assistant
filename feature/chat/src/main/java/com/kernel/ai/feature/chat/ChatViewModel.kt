@@ -41,6 +41,12 @@ import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.SlotFillResult
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputEvent
+import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoiceOutputResult
+import com.kernel.ai.core.voice.VoiceOutputStreamingSession
+import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.google.ai.edge.litertlm.ToolProvider
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
@@ -52,11 +58,6 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
-import com.kernel.ai.core.voice.VoiceOutputController
-import com.kernel.ai.core.voice.VoiceOutputEvent
-import com.kernel.ai.core.voice.VoiceOutputPreferences
-import com.kernel.ai.core.voice.VoiceOutputResult
-import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +84,10 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
+
+private const val TAG = "KernelAI"
+private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
+private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -167,6 +172,12 @@ class ChatViewModel @Inject constructor(
     private var activeStreamingMsgId: String? = null
     private var activeStreamingContent = StringBuilder()
     private var activeStreamingThinking = StringBuilder()
+    private var activeVoiceStreamingSession: VoiceOutputStreamingSession? = null
+    private var activeVoiceStreamingBuffer = StringBuilder()
+    private var isVoiceStreamingEnabledForTurn = false
+    private var suppressVoiceOutputForCurrentResponse = false
+    private var spokenResponsesEnabled = true
+    private val _isSpeakingResponse = MutableStateFlow(false)
 
     /**
      * When true, the next [sendMessage] will re-inject conversation history into the
@@ -206,7 +217,6 @@ class ChatViewModel @Inject constructor(
     private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
 
-    private var spokenResponsesEnabled = true
     private var pendingVoiceReply = false
     private var awaitingVoicePlaybackCompletion = false
 
@@ -240,6 +250,7 @@ class ChatViewModel @Inject constructor(
         val inputText: String,
         val error: String?,
         val conversationTitle: String?,
+        val isSpeakingResponse: Boolean,
     )
 
     private val engineState = combine(
@@ -256,7 +267,10 @@ class ChatViewModel @Inject constructor(
         _inputText,
         _error,
         _conversationTitle,
-    ) { messages, inputText, error, title -> InputState(messages, inputText, error, title) }
+        _isSpeakingResponse,
+    ) { messages, inputText, error, title, isSpeakingResponse ->
+        InputState(messages, inputText, error, title, isSpeakingResponse)
+    }
 
     val uiState: StateFlow<ChatUiState> = combine(
         engineState,
@@ -292,6 +306,7 @@ class ChatViewModel @Inject constructor(
                 conversationTitle = input.conversationTitle,
                 messages = input.messages,
                 isGenerating = engine.isGenerating,
+                isSpeakingResponse = input.isSpeakingResponse,
                 inputText = input.inputText,
                 error = input.error,
                 isLoadingModel = engine.isLoadingModel,
@@ -318,8 +333,9 @@ class ChatViewModel @Inject constructor(
                     awaitingVoicePlaybackCompletion = false
                     pendingVoiceReply = false
                     _voiceMode.value = null
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
                     _voicePlaybackState.value = VoicePlaybackState.Idle
-                    voiceOutputController.stop()
+                    stopVoicePlayback()
                 }
             }
         }
@@ -354,8 +370,6 @@ class ChatViewModel @Inject constructor(
                         when (val currentState = _voiceCaptureState.value) {
                             is VoiceCaptureState.Listening -> {
                                 if (currentState.transcript.isBlank()) {
-                                    // Blank transcript — conservatively stop the loop even in
-                                    // back-and-forth mode rather than spinning indefinitely.
                                     _voiceMode.value = null
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
                                 } else {
@@ -376,6 +390,7 @@ class ChatViewModel @Inject constructor(
             voiceOutputController.events.collect { event ->
                 when (event) {
                     is VoiceOutputEvent.SpeakingStarted -> {
+                        _isSpeakingResponse.value = true
                         if (
                             _voiceCaptureState.value !is VoiceCaptureState.Preparing &&
                             _voiceCaptureState.value !is VoiceCaptureState.Listening
@@ -385,10 +400,12 @@ class ChatViewModel @Inject constructor(
                         _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
+                        _isSpeakingResponse.value = false
                         _voicePlaybackState.value = VoicePlaybackState.Idle
                         val shouldHandleCompletion = awaitingVoicePlaybackCompletion
                         awaitingVoicePlaybackCompletion = false
                         if (!shouldHandleCompletion) return@collect
+                        _voiceCaptureState.value = VoiceCaptureState.Idle
                         if (_voiceMode.value == VoiceMode.BackAndForth) {
                             rearmVoiceInput()
                         } else {
@@ -911,6 +928,8 @@ class ChatViewModel @Inject constructor(
             return
         }
 
+        stopVoicePlayback()
+        suppressVoiceOutputForCurrentResponse = false
         _inputText.value = ""
         val convId = conversationId ?: return
         pendingVoiceReply = submitMode == SubmitMode.Voice
@@ -1325,6 +1344,11 @@ class ChatViewModel @Inject constructor(
                     append(systemContext)
                 }
             }.ifBlank { null }
+            prepareVoicePlaybackForTurn(
+                streamingEnabled = spokenResponsesEnabled &&
+                    !isToolQueryForTurn &&
+                    !_correctGroundedFactsEnabled.value,
+            )
 
             } finally {
                 // Reset the loading spinner on every exit path from the pre-inference block —
@@ -1346,6 +1370,7 @@ class ChatViewModel @Inject constructor(
                     when (result) {
                         is GenerationResult.Token -> {
                             accumulatedContent.append(result.text)
+                            streamVoiceToken(result.text)
                             _messages.update { msgs ->
                                 msgs.map { msg ->
                                     if (msg.id == assistantMsgId) {
@@ -1438,7 +1463,7 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(resultContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
-                                speakAssistantReplyIfNeeded(resultContent)
+                                finalizeVoicePlaybackForResponse(resultContent)
                                 // Do NOT set needsHistoryReplay here — KV cache remains valid after
                                 // native tool calls and forcing a replay drops prior turns from the
                                 // tight history budget, causing context amnesia (#446).
@@ -1528,7 +1553,7 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(displayContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
-                                speakAssistantReplyIfNeeded(displayContent)
+                                finalizeVoicePlaybackForResponse(displayContent)
                             }
 
                             // Clear streaming tracking now that the message is fully persisted.
@@ -1556,6 +1581,7 @@ class ChatViewModel @Inject constructor(
                             _voiceMode.value = null
                             pendingVoiceReply = false
                             _voiceCaptureState.value = VoiceCaptureState.Idle
+                            stopVoicePlayback()
                             _messages.update { msgs ->
                                 msgs.map { msg ->
                                     if (msg.id == assistantMsgId) {
@@ -1576,6 +1602,7 @@ class ChatViewModel @Inject constructor(
                 _voiceMode.value = null
                 pendingVoiceReply = false
                 _voiceCaptureState.value = VoiceCaptureState.Idle
+                stopVoicePlayback()
                 _messages.update { msgs ->
                     msgs.map { msg ->
                         if (msg.id == assistantMsgId) {
@@ -1599,6 +1626,7 @@ class ChatViewModel @Inject constructor(
         _voiceMode.value = null
         pendingVoiceReply = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
+        stopVoicePlayback()
         inferenceEngine.cancelGeneration()
         val partialContent = activeStreamingContent.toString()
         val partialThinking = activeStreamingThinking.toString().takeIf { it.isNotBlank() }
@@ -1634,6 +1662,17 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun stopVoicePlayback() {
+        awaitingVoicePlaybackCompletion = false
+        pendingVoiceReply = false
+        suppressVoiceOutputForCurrentResponse = true
+        isVoiceStreamingEnabledForTurn = false
+        activeVoiceStreamingBuffer = StringBuilder()
+        activeVoiceStreamingSession = null
+        voiceOutputController.stop()
+        _isSpeakingResponse.value = false
+    }
+
     fun getConversationAsText(): String {
         val messages = _messages.value
         return messages.joinToString("\n") { msg ->
@@ -1643,6 +1682,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun startNewConversation() {
+        stopVoicePlayback()
         viewModelScope.launch {
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
@@ -1794,6 +1834,86 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private suspend fun prepareVoicePlaybackForTurn(streamingEnabled: Boolean) {
+        activeVoiceStreamingBuffer = StringBuilder()
+        activeVoiceStreamingSession = null
+        isVoiceStreamingEnabledForTurn = streamingEnabled
+        val shouldSpeak = pendingVoiceReply
+        pendingVoiceReply = false
+        awaitingVoicePlaybackCompletion = false
+        if (!shouldSpeak || !spokenResponsesEnabled || suppressVoiceOutputForCurrentResponse) return
+        awaitingVoicePlaybackCompletion = true
+        activeVoiceStreamingSession = voiceOutputController.openStreamingSession(
+            VoiceSpeakRequest(text = "", locale = Locale.getDefault()),
+        )
+    }
+
+    private suspend fun streamVoiceToken(token: String) {
+        if (!spokenResponsesEnabled || suppressVoiceOutputForCurrentResponse || !isVoiceStreamingEnabledForTurn) {
+            return
+        }
+        activeVoiceStreamingBuffer.append(token)
+        drainVoiceStreamingBuffer(force = false)
+    }
+
+    private suspend fun drainVoiceStreamingBuffer(force: Boolean) {
+        val session = activeVoiceStreamingSession ?: return
+        while (true) {
+            val chunk = popNextStreamingSpeechChunk(
+                buffer = activeVoiceStreamingBuffer,
+                minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
+                preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
+                force = force,
+            ) ?: break
+            speakVoiceChunk(session, chunk, isFinal = false)
+        }
+    }
+
+    private suspend fun finalizeVoicePlaybackForResponse(finalContent: String) {
+        if (!spokenResponsesEnabled || suppressVoiceOutputForCurrentResponse) {
+            stopVoicePlayback()
+            return
+        }
+        val session = activeVoiceStreamingSession ?: return
+        val finalChunk = if (isVoiceStreamingEnabledForTurn) {
+            val bufferedChunks = mutableListOf<String>()
+            while (true) {
+                val chunk = popNextStreamingSpeechChunk(
+                    buffer = activeVoiceStreamingBuffer,
+                    minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
+                    preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
+                    force = true,
+                ) ?: break
+                bufferedChunks += chunk
+            }
+            bufferedChunks.joinToString(" ").trim()
+        } else {
+            normalizeChatTextForSpeech(finalContent)
+        }
+        val result = session.append(finalChunk, isFinal = true)
+        handleVoiceOutputResult(result)
+        activeVoiceStreamingSession = null
+        activeVoiceStreamingBuffer = StringBuilder()
+        isVoiceStreamingEnabledForTurn = false
+    }
+
+    private suspend fun speakVoiceChunk(
+        session: VoiceOutputStreamingSession,
+        chunk: String,
+        isFinal: Boolean,
+    ) {
+        if (chunk.isBlank()) return
+        val result = session.append(chunk, isFinal = isFinal)
+        handleVoiceOutputResult(result)
+    }
+
+    private fun handleVoiceOutputResult(result: VoiceOutputResult) {
+        if (result is VoiceOutputResult.Unavailable) {
+            _error.value = result.message
+            stopVoicePlayback()
+        }
+    }
+
 
 
     override fun onCleared() {
@@ -1803,6 +1923,7 @@ class ChatViewModel @Inject constructor(
         pendingVoiceReply = false
         voiceInputController.stopListening()
         voiceOutputController.stop()
+        stopVoicePlayback()
         // Flush any in-progress streamed content to Room before the ViewModel is destroyed.
         // runBlocking is acceptable here — called once on ViewModel teardown,
         // Room insert is fast (<10ms), main thread briefly blocked on nav back.

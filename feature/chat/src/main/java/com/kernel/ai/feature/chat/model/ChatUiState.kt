@@ -11,6 +11,7 @@ sealed interface ChatUiState {
         val conversationTitle: String?,
         val messages: List<ChatMessage>,
         val isGenerating: Boolean,
+        val isSpeakingResponse: Boolean,
         val inputText: String,
         val error: String?,
         val isLoadingModel: Boolean = false,
