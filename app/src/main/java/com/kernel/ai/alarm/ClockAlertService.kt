@@ -77,12 +77,15 @@ class ClockAlertService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var voiceEventsJob: Job? = null
     private var voicePreferencesJob: Job? = null
+    private var clockSoundConfigJob: Job? = null
     private var autoStartVoiceJob: Job? = null
     private var ringtone: Ringtone? = null
     private var duckingPlayback = false
     private var isVoiceListening = false
     private var handledVoiceTranscript = false
     private var autoStartAlertVoiceCommandsEnabled = true
+    private var defaultAlarmSoundUri: String? = null
+    private var timerSoundUri: String? = null
     private var voiceStatusMessage: String? = null
 
     override fun onCreate() {
@@ -93,6 +96,12 @@ class ClockAlertService : Service() {
         voicePreferencesJob = serviceScope.launch {
             voiceInputPreferences.autoStartAlertVoiceCommandsEnabled.collectLatest { enabled ->
                 autoStartAlertVoiceCommandsEnabled = enabled
+            }
+        }
+        clockSoundConfigJob = serviceScope.launch {
+            clockRepository.observeClockSoundConfig().collectLatest { config ->
+                defaultAlarmSoundUri = config.defaultAlarmSoundUri
+                timerSoundUri = config.timerSoundUri
             }
         }
     }
@@ -155,6 +164,7 @@ class ClockAlertService : Service() {
         voiceInputController.stopListening()
         voiceEventsJob?.cancel()
         voicePreferencesJob?.cancel()
+        clockSoundConfigJob?.cancel()
         autoStartVoiceJob?.cancel()
         serviceScope.cancel()
         stopPlayback()
@@ -227,17 +237,15 @@ class ClockAlertService : Service() {
     }
 
     private fun startAlertPlayback(ducked: Boolean = false) {
-        if (activeAlerts.isEmpty()) return
+        val alert = currentAlert() ?: return
         stopPlayback()
         if (ducked) {
             defaultVibrator()?.cancel()
         } else {
             startVibration()
         }
-        ringtone = RingtoneManager.getRingtone(
-            this,
-            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
-        )?.apply {
+        val soundUri = resolveAlertSoundUri(alert)
+        ringtone = RingtoneManager.getRingtone(this, soundUri)?.apply {
             audioAttributes = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ALARM)
                 .build()
@@ -250,6 +258,15 @@ class ClockAlertService : Service() {
         }
         duckingPlayback = ducked && ringtone != null
     }
+
+    private fun resolveAlertSoundUri(alert: TriggeredClockAlert): Uri =
+        Uri.parse(
+            when (alert.type) {
+                ClockEventType.ALARM -> alert.soundUri ?: defaultAlarmSoundUri
+                ClockEventType.TIMER -> timerSoundUri
+                ClockEventType.PRE_ALARM -> alert.soundUri ?: defaultAlarmSoundUri
+            } ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString(),
+        )
 
     private fun startVibration() {
         defaultVibrator()?.cancel()
@@ -365,6 +382,7 @@ class ClockAlertService : Service() {
                     ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS,
                     alert.occurrenceTriggerAtMillis ?: -1L,
                 )
+                putExtra(ClockAlertContract.EXTRA_SOUND_URI, alert.soundUri)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -519,12 +537,14 @@ class ClockAlertService : Service() {
             ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS,
             -1L,
         ).takeIf { it > 0L }
+        val soundUri = getStringExtra(ClockAlertContract.EXTRA_SOUND_URI)
         return TriggeredClockAlert(
             ownerId = ownerId,
             type = type,
             title = title,
             label = label,
             occurrenceTriggerAtMillis = occurrenceTriggerAtMillis,
+            soundUri = soundUri,
         )
     }
 
@@ -548,6 +568,7 @@ class ClockAlertService : Service() {
                         ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS,
                         alert.occurrenceTriggerAtMillis ?: -1L,
                     )
+                    putExtra(ClockAlertContract.EXTRA_SOUND_URI, alert.soundUri)
                 },
             )
         }

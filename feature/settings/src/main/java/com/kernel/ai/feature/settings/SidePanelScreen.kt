@@ -1,7 +1,12 @@
 package com.kernel.ai.feature.settings
 
+import android.content.Intent
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -63,6 +68,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -98,6 +104,7 @@ fun SidePanelScreen(
     val recentCompletedTimers by viewModel.recentCompletedTimers.collectAsStateWithLifecycle()
     val stopwatch by viewModel.stopwatch.collectAsStateWithLifecycle()
     val worldClocks by viewModel.worldClocks.collectAsStateWithLifecycle()
+    val clockSoundConfig by viewModel.clockSoundConfig.collectAsStateWithLifecycle()
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val isInSelectionMode by viewModel.isInSelectionMode.collectAsStateWithLifecycle()
     val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
@@ -220,6 +227,8 @@ fun SidePanelScreen(
                     nowMs = nowMs,
                     inSelectionMode = isInSelectionMode,
                     selectedIds = selectedIds,
+                    timerSoundUri = clockSoundConfig.timerSoundUri,
+                    onTimerSoundSelected = viewModel::setTimerSoundUri,
                     onCreateCustomTimer = { showCreateTimerDialog = true },
                     onPresetTimer = { durationMs ->
                         viewModel.scheduleTimer(durationMs, null) { success ->
@@ -246,6 +255,8 @@ fun SidePanelScreen(
                     alarms = alarms,
                     inSelectionMode = isInSelectionMode,
                     selectedIds = selectedIds,
+                    defaultAlarmSoundUri = clockSoundConfig.defaultAlarmSoundUri,
+                    onDefaultAlarmSoundSelected = viewModel::setDefaultAlarmSoundUri,
                     onNewAlarm = { showCreateAlarmDialog = true },
                     onAlarmTap = { alarm ->
                         if (isInSelectionMode) viewModel.toggleSelection(alarm.id) else editingAlarm = alarm
@@ -421,6 +432,7 @@ fun SidePanelScreen(
     if (showCreateAlarmDialog) {
         AlarmCreateEditDialog(
             existingAlarm = null,
+            defaultAlarmSoundUri = clockSoundConfig.defaultAlarmSoundUri,
             onConfirm = { draft ->
                 viewModel.scheduleAlarm(draft) { result ->
                     when (result) {
@@ -439,6 +451,7 @@ fun SidePanelScreen(
     editingAlarm?.let { alarm ->
         AlarmCreateEditDialog(
             existingAlarm = alarm,
+            defaultAlarmSoundUri = clockSoundConfig.defaultAlarmSoundUri,
             onConfirm = { draft ->
                 viewModel.editAlarm(alarm, draft) { result ->
                     when (result) {
@@ -605,6 +618,80 @@ private fun SectionHeader(
     }
 }
 
+private fun defaultClockSoundUri(): Uri =
+    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+
+private fun normalizePickedClockSoundUri(uri: Uri?): String? =
+    uri?.toString()?.takeUnless { it == defaultClockSoundUri().toString() }
+
+private fun clockSoundLabel(context: android.content.Context, soundUri: String?): String =
+    if (soundUri == null) {
+        "System default"
+    } else {
+        runCatching { RingtoneManager.getRingtone(context, Uri.parse(soundUri))?.getTitle(context) }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: "Custom sound"
+    }
+
+private fun createClockSoundPickerIntent(currentSoundUri: String?): Intent =
+    Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+        putExtra(RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, defaultClockSoundUri())
+        putExtra(
+            RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
+            currentSoundUri?.let(Uri::parse) ?: defaultClockSoundUri(),
+        )
+    }
+
+@Composable
+private fun ClockSoundSettingCard(
+    title: String,
+    currentSoundUri: String?,
+    onSoundSelected: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val soundLabel = remember(currentSoundUri) { clockSoundLabel(context, currentSoundUri) }
+    val pickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        @Suppress("DEPRECATION")
+        val pickedUri = result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+        onSoundSelected(normalizePickedClockSoundUri(pickedUri))
+    }
+    ElevatedCard(
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = soundLabel,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = { pickerLauncher.launch(createClockSoundPickerIntent(currentSoundUri)) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Choose sound") }
+                if (currentSoundUri != null) {
+                    TextButton(
+                        onClick = { onSoundSelected(null) },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("System default") }
+                }
+            }
+        }
+    }
+}
+
+
 @Composable
 private fun TimerDashboard(
     timers: List<ClockTimer>,
@@ -612,6 +699,8 @@ private fun TimerDashboard(
     nowMs: Long,
     inSelectionMode: Boolean,
     selectedIds: Set<String>,
+    timerSoundUri: String?,
+    onTimerSoundSelected: (String?) -> Unit,
     onCreateCustomTimer: () -> Unit,
     onPresetTimer: (Long) -> Unit,
     onTimerTap: (ClockTimer) -> Unit,
@@ -620,13 +709,15 @@ private fun TimerDashboard(
     onRestartTimer: (ClockTimer) -> Unit,
     onDeleteCompletedTimer: (ClockTimer) -> Unit,
     onClearCompletedTimers: () -> Unit,
- ) {
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
         item {
             TimerQuickStartCard(
+                timerSoundUri = timerSoundUri,
+                onTimerSoundSelected = onTimerSoundSelected,
                 onCreateCustomTimer = onCreateCustomTimer,
                 onPresetTimer = onPresetTimer,
             )
@@ -682,9 +773,11 @@ private fun TimerDashboard(
 
 @Composable
 private fun TimerQuickStartCard(
+    timerSoundUri: String?,
+    onTimerSoundSelected: (String?) -> Unit,
     onCreateCustomTimer: () -> Unit,
     onPresetTimer: (Long) -> Unit,
- ) {
+) {
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -699,6 +792,11 @@ private fun TimerQuickStartCard(
                 text = "Start a timer fast, keep multiple timers running, and revisit finished timers without retyping durations.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ClockSoundSettingCard(
+                title = "Timer sound",
+                currentSoundUri = timerSoundUri,
+                onSoundSelected = onTimerSoundSelected,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TIMER_PRESETS.take(2).forEach { preset ->
@@ -1066,15 +1164,23 @@ private fun AlarmDashboard(
     alarms: List<ClockAlarm>,
     inSelectionMode: Boolean,
     selectedIds: Set<String>,
+    defaultAlarmSoundUri: String?,
+    onDefaultAlarmSoundSelected: (String?) -> Unit,
     onNewAlarm: () -> Unit,
     onAlarmTap: (ClockAlarm) -> Unit,
     onAlarmLongPress: (ClockAlarm) -> Unit,
     onDismissAlarm: (ClockAlarm) -> Unit,
     onToggleAlarm: (ClockAlarm) -> Unit,
- ) {
+) {
     if (alarms.isEmpty()) {
         Column(modifier = Modifier.fillMaxWidth()) {
             SectionHeader(title = "Alarms")
+            ClockSoundSettingCard(
+                title = "Default alarm sound",
+                currentSoundUri = defaultAlarmSoundUri,
+                onSoundSelected = onDefaultAlarmSoundSelected,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
             EmptyStateCard(
                 title = "No active alarms",
                 body = "Create one-time or repeating alarms here. Repeating alarms get a Skip today reminder 30 minutes before they ring.",
@@ -1090,6 +1196,14 @@ private fun AlarmDashboard(
             SectionHeader(
                 title = "Alarms",
                 supportingText = alarms.firstOrNull()?.let { "Next: ${formatClockTime(it.triggerAtMillis)}" } ?: "",
+            )
+        }
+        item {
+            ClockSoundSettingCard(
+                title = "Default alarm sound",
+                currentSoundUri = defaultAlarmSoundUri,
+                onSoundSelected = onDefaultAlarmSoundSelected,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
         items(alarms, key = { it.id }) { alarm ->
@@ -1474,9 +1588,10 @@ private val AlarmWeekdays = listOf(
 @Composable
 private fun AlarmCreateEditDialog(
     existingAlarm: ClockAlarm?,
+    defaultAlarmSoundUri: String?,
     onConfirm: (AlarmDraft) -> Unit,
     onDismiss: () -> Unit,
- ) {
+) {
     val zoneId = remember(existingAlarm) { ZoneId.of(existingAlarm?.timeZoneId ?: ZoneId.systemDefault().id) }
     val defaultTrigger = remember(existingAlarm, zoneId) {
         if (existingAlarm != null) {
@@ -1488,6 +1603,7 @@ private fun AlarmCreateEditDialog(
     val defaultZdt = defaultTrigger.atZone(zoneId)
     val existingRepeatRule = existingAlarm?.repeatRule
     var label by remember { mutableStateOf(existingAlarm?.label ?: "") }
+    var customSoundUri by remember(existingAlarm) { mutableStateOf(existingAlarm?.soundUri) }
     var step by remember { mutableStateOf(AlarmEditorStep.TIME) }
     var repeatSelection by remember(existingRepeatRule) { mutableStateOf(existingRepeatRule.toSelection()) }
     var repeatDaysMask by remember(existingRepeatRule) {
@@ -1519,6 +1635,7 @@ private fun AlarmCreateEditDialog(
         repeatDaysMask,
         selectedDateEpochDay,
         zoneId.id,
+        customSoundUri,
     ) {
         buildAlarmDraft(
             label = label,
@@ -1528,6 +1645,7 @@ private fun AlarmCreateEditDialog(
             repeatDaysMask = repeatDaysMask,
             oneOffDateEpochDay = selectedDateEpochDay,
             timeZoneId = zoneId.id,
+            soundUri = customSoundUri,
         )
     }
 
@@ -1641,6 +1759,16 @@ private fun AlarmCreateEditDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        ClockSoundSettingCard(
+                            title = if (customSoundUri == null) "Alarm sound (default)" else "Alarm sound override",
+                            currentSoundUri = customSoundUri ?: defaultAlarmSoundUri,
+                            onSoundSelected = { pickedUri -> customSoundUri = pickedUri },
+                        )
+                        if (customSoundUri != null) {
+                            TextButton(onClick = { customSoundUri = null }) {
+                                Text("Use default alarm sound")
+                            }
+                        }
                         OutlinedTextField(
                             value = label,
                             onValueChange = { label = it },
@@ -1703,7 +1831,8 @@ private fun buildAlarmDraft(
     repeatDaysMask: Int,
     oneOffDateEpochDay: Long?,
     timeZoneId: String,
- ): AlarmDraft? {
+    soundUri: String?,
+): AlarmDraft? {
     val repeatRule = when (repeatSelection) {
         AlarmRepeatSelection.ONE_OFF -> {
             val epochDay = oneOffDateEpochDay ?: return null
@@ -1721,6 +1850,7 @@ private fun buildAlarmDraft(
         minute = minute,
         repeatRule = repeatRule,
         timeZoneId = timeZoneId,
+        soundUri = soundUri,
     )
 }
 
