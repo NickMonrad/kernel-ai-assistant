@@ -73,7 +73,7 @@ class ChatTextUtilsTest {
         @Test
         fun `applies scoped maori pronunciation overrides for chat speech`() {
             assertEquals(
-                "Kee-or-uh and moh-reh-nah",
+                "Keeorah and moh-reh-nah",
                 normalizeChatTextForSpeech("Kia ora and mōrena"),
             )
             assertEquals(
@@ -83,14 +83,30 @@ class ChatTextUtilsTest {
         }
 
         @Test
-        fun `converts list and paragraph breaks into speakable pauses`() {
+        fun `converts bullet list breaks into speakable sentence pauses`() {
             assertEquals(
-                "apples, bread",
+                "apples. bread",
                 normalizeChatTextForSpeech("- apples\n- bread"),
             )
             assertEquals(
                 "First thought. Second thought",
                 normalizeChatTextForSpeech("First thought\n\nSecond thought"),
+            )
+        }
+
+        @Test
+        fun `converts numbered list items into sentence-break pauses`() {
+            assertEquals(
+                "Maintain a schedule. Create a routine. Optimise your environment",
+                normalizeChatTextForSpeech("1.  Maintain a schedule\n2.  Create a routine\n3.  Optimise your environment"),
+            )
+        }
+
+        @Test
+        fun `strips leading numbered marker at start of text`() {
+            assertEquals(
+                "Maintain a schedule. Create a routine",
+                normalizeChatTextForSpeech("1. Maintain a schedule\n2. Create a routine"),
             )
         }
     }
@@ -111,7 +127,7 @@ class ChatTextUtilsTest {
                 preferredChunkLength = 48,
             )
 
-            assertTrue(chunk?.startsWith("Kee-or-uh this chunk should break on whitespace") == true)
+            assertTrue(chunk?.startsWith("Keeorah this chunk should break on whitespace") == true)
             assertTrue(chunk?.endsWith(",") == true)
             assertTrue(buffer.isNotEmpty())
         }
@@ -134,7 +150,7 @@ class ChatTextUtilsTest {
                 preferredChunkLength = 24,
             )
 
-            assertEquals("Kee-or-uh everyone.", chunk)
+            assertEquals("Keeorah everyone.", chunk)
         }
     }
 

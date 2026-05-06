@@ -9,9 +9,11 @@ internal fun stripMarkdownForClipboard(text: String): String =
 
 internal fun normalizeChatTextForSpeech(text: String): String =
     stripMarkdownForClipboard(text)
-        .replace(Regex("""(?m)^\s*[-*•]\s+"""), "")
+        .replace(Regex("""\r?\n\s*\d+\.\s+"""), ". ")   // numbered list item boundary → sentence break
+        .replace(Regex("""(?m)^\s*\d+\.\s+"""), "")      // strip leading numbered marker at start
+        .replace(Regex("""(?m)^\s*[-*•]\s+"""), "")      // strip bullet markers
         .replace(Regex("""\s*(?:\r?\n){2,}\s*"""), ". ")
-        .replace(Regex("""\s*\r?\n\s*"""), ", ")
+        .replace(Regex("""\s*\r?\n\s*"""), ". ")
         .replace(Regex("""\s+"""), " ")
         .let(::applySpeechPronunciationOverrides)
         .trim()
@@ -66,7 +68,7 @@ private data class SpeechPronunciationRule(
 private val speechPronunciationRules = listOf(
     SpeechPronunciationRule(
         pattern = Regex("""\bkia\s+ora\b""", RegexOption.IGNORE_CASE),
-        replacement = "kee-or-uh",
+        replacement = "keeorah",
     ),
     SpeechPronunciationRule(
         pattern = Regex("""\bm(?:ō|o)rena\b""", RegexOption.IGNORE_CASE),
