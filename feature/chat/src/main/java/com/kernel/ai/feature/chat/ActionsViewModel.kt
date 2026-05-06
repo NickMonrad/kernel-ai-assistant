@@ -1079,7 +1079,7 @@ class ActionsViewModel @Inject constructor(
             RegexOption.IGNORE_CASE,
         )
         val FLATTENED_BARE_THIRTY_TIME = Regex(
-            """\b(3[1-9]|4\d|5[0-3])\b""",
+            """(?<![:\d])(3[1-9]|4\d|5[0-3])(?![:\d])""",
             RegexOption.IGNORE_CASE,
         )
         val TO_THIRTY_TIME = Regex(
