@@ -337,6 +337,26 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `back-and-forth voice re-arms when playback completes without speaking started`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Hello silent loop") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Hello silent loop")
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello silent loop"))
+        advanceUntilIdle()
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertEquals("You: Hello silent loop\nJandal: Hi back", viewModel.getConversationAsText())
+        assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+
+    @Test
     fun `stopVoiceOutput prevents speaking stopped from restarting back-and-forth capture`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Stop speaking") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Stop speaking")

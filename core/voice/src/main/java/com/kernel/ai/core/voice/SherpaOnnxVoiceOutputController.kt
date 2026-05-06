@@ -190,10 +190,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     override fun stop() {
         stopped = true
         releaseAudioFocus()
-        val shouldEmitStopped = clearStreamingPlayback()
-        if (shouldEmitStopped) {
-            scope.launch { _events.emit(VoiceOutputEvent.SpeakingStopped) }
-        }
+        clearStreamingPlayback()
     }
 
     // ── Initialisation ───────────────────────────────────────────────────────
@@ -287,14 +284,17 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         val tts = ttsInstance ?: return
         val genMethod = generateMethod ?: return
         var emittedStarted = false
-        var spokeAnyChunk = false
-        requestAudioFocus()
+        var requestedAudioFocus = false
         try {
             for (chunk in chunks) {
                 if (stopped || !isStreamingPlaybackActive(playbackToken)) break
                 if (!emittedStarted) {
                     _events.emit(VoiceOutputEvent.SpeakingStarted(request.text.ifBlank { chunk.text }))
                     emittedStarted = true
+                }
+                if (!requestedAudioFocus) {
+                    requestAudioFocus()
+                    requestedAudioFocus = true
                 }
                 val audioResult = try {
                     genMethod.invoke(tts, chunk.text, 0, 1.0f)
@@ -307,7 +307,6 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 val sampleRate = reflectGetSampleRate(audioResult)
                 if (!stopped && isStreamingPlaybackActive(playbackToken)) {
                     playOnAudioTrack(samples, sampleRate)
-                    spokeAnyChunk = true
                 }
                 if (chunk.isFinal) {
                     break
@@ -315,7 +314,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             }
         } finally {
             releaseAudioFocus()
-            if (finishStreamingPlayback(playbackToken) && (emittedStarted || spokeAnyChunk)) {
+            if (finishStreamingPlayback(playbackToken)) {
                 _events.emit(VoiceOutputEvent.SpeakingStopped)
             }
         }

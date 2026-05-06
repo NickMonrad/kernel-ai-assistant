@@ -405,6 +405,7 @@ class ChatViewModel @Inject constructor(
                         val shouldHandleCompletion = awaitingVoicePlaybackCompletion
                         awaitingVoicePlaybackCompletion = false
                         if (!shouldHandleCompletion) return@collect
+                        _voiceCaptureState.value = VoiceCaptureState.Idle
                         if (_voiceMode.value == VoiceMode.BackAndForth) {
                             rearmVoiceInput()
                         } else {
