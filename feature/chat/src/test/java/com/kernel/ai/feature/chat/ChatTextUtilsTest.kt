@@ -109,6 +109,29 @@ class ChatTextUtilsTest {
                 normalizeChatTextForSpeech("1. Maintain a schedule\n2. Create a routine"),
             )
         }
+
+        @Test
+        fun `converts non-numeric colons into sentence-break pauses`() {
+            assertEquals(
+                "Bedtime Routine. Predictability is key",
+                normalizeChatTextForSpeech("Bedtime Routine: Predictability is key"),
+            )
+        }
+
+        @Test
+        fun `preserves colons in times and ratios`() {
+            val result = normalizeChatTextForSpeech("Meet at 7:30 PM, ratio 4:1")
+            assertTrue(result.contains("7:30"), "Time colons should be preserved, got: $result")
+            assertTrue(result.contains("4:1"), "Ratio colons should be preserved, got: $result")
+        }
+
+        @Test
+        fun `converts em and en dashes into comma pauses`() {
+            assertEquals(
+                "a warm bath, like a story, signals bedtime",
+                normalizeChatTextForSpeech("a warm bath—like a story—signals bedtime"),
+            )
+        }
     }
 
     @Nested

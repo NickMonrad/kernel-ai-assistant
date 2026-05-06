@@ -115,8 +115,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             _events.emit(VoiceOutputEvent.SpeakingStarted(request.text))
 
             return@withContext try {
-                // Reflect: GeneratedAudio audio = tts.generate(text, sid=0, speed=1.0f)
-                val audioResult = genMethod.invoke(tts, request.text, 0, 1.0f)
+                // Reflect: GeneratedAudio audio = tts.generate(text, sid=0, speed=0.85f)
+                val audioResult = genMethod.invoke(tts, request.text, 0, 0.85f)
                     ?: return@withContext VoiceOutputResult.Unavailable("Sherpa returned null audio.")
 
                 val samples = reflectGetSamples(audioResult)
@@ -297,7 +297,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                     requestedAudioFocus = true
                 }
                 val audioResult = try {
-                    genMethod.invoke(tts, chunk.text, 0, 1.0f)
+                    genMethod.invoke(tts, chunk.text, 0, 0.85f)
                         ?: return
                 } catch (e: Exception) {
                     Log.e(TAG, "Sherpa streaming generate() failed", e)

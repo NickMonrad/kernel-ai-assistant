@@ -12,6 +12,8 @@ internal fun normalizeChatTextForSpeech(text: String): String =
         .replace(Regex("""\r?\n\s*\d+\.\s+"""), ". ")   // numbered list item boundary → sentence break
         .replace(Regex("""(?m)^\s*\d+\.\s+"""), "")      // strip leading numbered marker at start
         .replace(Regex("""(?m)^\s*[-*•]\s+"""), "")      // strip bullet markers
+        .replace(Regex("""(?<!\d):(?!\d)\s*"""), ". ")   // non-numeric colons → sentence break
+        .replace(Regex("""[—–]\s*"""), ", ")              // em/en dashes → natural comma pause
         .replace(Regex("""\s*(?:\r?\n){2,}\s*"""), ". ")
         .replace(Regex("""\s*\r?\n\s*"""), ". ")
         .replace(Regex("""\s+"""), " ")
