@@ -556,6 +556,18 @@ class QuickIntentRouterTest {
         }
 
         @Test
+        fun `should ignore filler up when appointment phrase still lacks title`() {
+            val result = regexOnlyRouter.route("Set an appointment up for 3:00 p.m. On Monday")
+            val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+
+            assertEquals("create_calendar_event", needsSlot.intent.intentName)
+            assertEquals("title", needsSlot.missingSlot.name)
+            assertEquals("monday", needsSlot.intent.params["date"])
+            assertEquals("3:00 p.m.", needsSlot.intent.params["time"])
+            assertNull(needsSlot.intent.params["title"])
+        }
+
+        @Test
         fun `should match bare appointment phrases with schedule and ask for title`() {
             val result = regexOnlyRouter.route("Appointment for 3:00 p.m. Sunday")
             val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
@@ -1959,6 +1971,7 @@ class QuickIntentRouterTest {
             Arguments.of("create an event"),
             Arguments.of("set an appointment for 3:00 p.m. Sunday"),
             Arguments.of("Appointment for 3:00 p.m. Sunday"),
+            Arguments.of("Set an appointment up for 3:00 p.m. On Monday"),
         )
 
         @JvmStatic

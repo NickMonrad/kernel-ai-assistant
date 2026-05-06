@@ -2810,8 +2810,16 @@ class QuickIntentRouter(
                             !GENERIC_CALENDAR_TITLES.contains(it.lowercase())
                     }
             }
-            if (rawTitle != null) {
-                params["title"] = rawTitle.split(" ")
+            val normalizedTitle = rawTitle?.let { candidate ->
+                val trimmed = candidate.trim()
+                val strippedTrailingUp = trimmed.replace(Regex("""\s+up$""", RegexOption.IGNORE_CASE), "").trim()
+                when {
+                    strippedTrailingUp != trimmed && GENERIC_CALENDAR_TITLES.contains(strippedTrailingUp.lowercase()) -> null
+                    else -> trimmed
+                }
+            }
+            if (normalizedTitle != null) {
+                params["title"] = normalizedTitle.split(" ")
                     .joinToString(" ") { w -> w.replaceFirstChar { c -> c.uppercase() } }
             }
 
