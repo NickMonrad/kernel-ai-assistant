@@ -1213,6 +1213,29 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice command preserves already colonized alarm times`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("set an alarm for 8:36 p.m.") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 8:36 p.m.")
+        every { quickIntentRouter.route("set an alarm for 7:47 p.m.") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 7:47 p.m.")
+        every { quickIntentRouter.route("set an alarm for 3:43 p.m.") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 3:43 p.m.")
+        every { quickIntentRouter.route("set an alarm for 15:47") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 15:47")
+
+        viewModel.executeAction("set an alarm for 8:36 p.m.", InputMode.Voice)
+        viewModel.executeAction("set an alarm for 7:47 p.m.", InputMode.Voice)
+        viewModel.executeAction("set an alarm for 3:43 p.m.", InputMode.Voice)
+        viewModel.executeAction("set an alarm for 15:47", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("set an alarm for 8:36 p.m.") }
+        verify { quickIntentRouter.route("set an alarm for 7:47 p.m.") }
+        verify { quickIntentRouter.route("set an alarm for 3:43 p.m.") }
+        verify { quickIntentRouter.route("set an alarm for 15:47") }
+    }
+
+    @Test
     fun `voice command normalizes mixed digit and spoken alarm time`() = runTest(dispatcher) {
         every { quickIntentRouter.route("set an alarm for 6:30 am") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "set an alarm for 6:30 am")
