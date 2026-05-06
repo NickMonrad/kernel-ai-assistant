@@ -71,7 +71,7 @@ class VoiceOutputPreferences @Inject constructor(
                 throw e
             }
         }
-        .map { prefs -> prefs[sherpaSpeedKey] ?: 0.85f }
+        .map { prefs -> (prefs[sherpaSpeedKey] ?: 0.85f).coerceIn(0.5f, 1.5f) }
 
     suspend fun setSpokenResponsesEnabled(enabled: Boolean) {
         context.voiceOutputPrefsDataStore.edit { prefs ->

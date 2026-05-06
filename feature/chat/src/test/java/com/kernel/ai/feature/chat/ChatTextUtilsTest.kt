@@ -126,6 +126,18 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `preserves https URL scheme colons`() {
+            val result = normalizeChatTextForSpeech("See https://example.com for details")
+            assertTrue(result.contains("https://"), "URL scheme should be preserved, got: $result")
+        }
+
+        @Test
+        fun `preserves http URL scheme colons`() {
+            val result = normalizeChatTextForSpeech("Visit http://docs.kernel.ai for more")
+            assertTrue(result.contains("http://"), "http URL scheme should be preserved, got: $result")
+        }
+
+        @Test
         fun `converts em and en dashes into comma pauses`() {
             assertEquals(
                 "a warm bath, like a story, signals bedtime",
