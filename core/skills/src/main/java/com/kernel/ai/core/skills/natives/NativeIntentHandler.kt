@@ -2099,6 +2099,18 @@ class NativeIntentHandler @Inject constructor(
     }
 
     private fun recoverMalformedTime(input: String): String {
+        val splitMinute = Regex("""^(\d{1,2}):(\d):(\d{2})(\s*(?:am|pm|AM|PM|a\.m\.|p\.m\.))?$""")
+        splitMinute.matchEntire(input)?.let { match ->
+            val hour = match.groupValues[1].toIntOrNull() ?: return@let
+            val minutePrefix = match.groupValues[2].toIntOrNull() ?: return@let
+            val trailingTens = match.groupValues[3].toIntOrNull() ?: return@let
+            val minute = minutePrefix + trailingTens
+            val meridiem = match.groupValues[4]
+            if (hour in 1..12 && trailingTens % 10 == 0 && minute in 0..59) {
+                return "$hour:${minute.toString().padStart(2, '0')}$meridiem"
+            }
+        }
+
         val flattenedThirty = Regex("""^(3[1-9]|4[0-2]):00(\s*(?:am|pm|AM|PM))?$""")
         flattenedThirty.matchEntire(input)?.let { match ->
             val rawHour = match.groupValues[1].toIntOrNull() ?: return@let
