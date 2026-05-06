@@ -600,6 +600,69 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice playback state follows voice output events`() = runTest(dispatcher) {
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Streaming reply chunk"))
+        advanceUntilIdle()
+
+        assertEquals(
+            ActionsViewModel.VoicePlaybackState.Speaking("Streaming reply chunk"),
+            viewModel.voicePlaybackState.value,
+        )
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertEquals(
+            ActionsViewModel.VoicePlaybackState.Idle,
+            viewModel.voicePlaybackState.value,
+        )
+    }
+
+    @Test
+    fun `stopVoiceOutput interrupts prompt playback and keeps microphone closed`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("send a text message to my wife") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_sms",
+                    params = mapOf("contact" to "my wife"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "message",
+                    promptTemplate = "What would you like to say to {contact}?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to my wife?"),
+        )
+        advanceUntilIdle()
+
+        assertEquals(
+            ActionsViewModel.VoicePlaybackState.Speaking("What would you like to say to my wife?"),
+            viewModel.voicePlaybackState.value,
+        )
+
+        viewModel.stopVoiceOutput()
+
+        assertEquals(
+            ActionsViewModel.VoicePlaybackState.Idle,
+            viewModel.voicePlaybackState.value,
+        )
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351)
+        runCurrent()
+
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        verify(atLeast = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
     fun `listening stopped preserves transcript while processing`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
@@ -722,6 +785,52 @@ class ActionsViewModelVoiceTest {
         coVerify(exactly = 1) {
             voiceOutputController.speak(
                 match<VoiceSpeakRequest> { it.text == displayText },
+            )
+        }
+    }
+
+    @Test
+    fun `voice direct reply prefers explicit spoken summary over presentation fallback`() = runTest(dispatcher) {
+        val weatherSkill = mockk<Skill>()
+        val displayText =
+            "Wellington forecast: 25°C, feels like 23°C. H 27°C / L 18°C. Wind NW 15 km/h."
+        val spokenSummary = "In Wellington, it's 25 degrees, partly cloudy."
+        val presentation = ToolPresentation.Weather(
+            locationName = "Wellington",
+            temperatureText = "25°C",
+            feelsLikeText = "Feels like 23°C",
+            description = "Partly cloudy",
+            emoji = "⛅",
+            highLowText = "H 27°C / L 18°C",
+            humidityText = "Humidity 60%",
+            windText = "NW 15 km/h",
+            precipText = "20%",
+            airQualityText = null,
+        )
+
+        every { quickIntentRouter.route("what's the weather in Wellington") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = mapOf("location" to "Wellington"),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns weatherSkill
+        every { weatherSkill.name } returns "get_weather"
+        every { weatherSkill.description } returns "Get weather"
+        every { weatherSkill.schema } returns SkillSchema()
+        coEvery { weatherSkill.execute(any()) } returns SkillResult.DirectReply(
+            content = displayText,
+            presentation = presentation,
+            spokenSummary = spokenSummary,
+        )
+
+        viewModel.executeAction("what's the weather in Wellington", InputMode.Voice)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> { it.text == spokenSummary },
             )
         }
     }

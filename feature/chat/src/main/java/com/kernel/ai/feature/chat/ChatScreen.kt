@@ -173,6 +173,7 @@ fun ChatScreen(
                 onInputChanged = viewModel::onInputChanged,
                 onSend = viewModel::sendMessage,
                 onCancel = viewModel::cancelGeneration,
+                onStopVoicePlayback = viewModel::stopVoicePlayback,
                 onBack = onBack,
                 onNewConversation = {
                     viewModel.startNewConversation()
@@ -213,6 +214,7 @@ private fun ChatContent(
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit,
+    onStopVoicePlayback: () -> Unit,
     onBack: () -> Unit,
     onNewConversation: () -> Unit,
     onRenameConversation: (String) -> Unit,
@@ -288,6 +290,11 @@ private fun ChatContent(
                     }
                 },
                 actions = {
+                    AnimatedVisibility(visible = state.isSpeakingResponse) {
+                        IconButton(onClick = onStopVoicePlayback) {
+                            Icon(Icons.Default.Close, contentDescription = "Stop voice playback")
+                        }
+                    }
                     IconButton(onClick = onCopyAll) {
                         Icon(Icons.Default.ContentCopy, contentDescription = "Copy conversation")
                     }

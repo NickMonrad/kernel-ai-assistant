@@ -179,6 +179,42 @@ class FallbackVoiceOutputControllerTest {
     }
 
     @Test
+    fun `openStreamingSession routes to Sherpa when Sherpa is selected and available`() =
+        runTest(dispatcher) {
+            selectedEngine.value = VoiceOutputEngine.SherpaExperimental
+            val request = VoiceSpeakRequest("Kia ora")
+            val session = mockk<VoiceOutputStreamingSession>()
+            coEvery { sherpa.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { sherpa.openStreamingSession(request) } returns session
+
+            val controller = buildController()
+            val result = controller.openStreamingSession(request)
+
+            assertEquals(session, result)
+            coVerify(exactly = 1) { sherpa.openStreamingSession(request) }
+            coVerify(exactly = 0) { androidTts.openStreamingSession(any()) }
+        }
+
+    @Test
+    fun `openStreamingSession falls back to Android TTS when Sherpa is unavailable`() =
+        runTest(dispatcher) {
+            selectedEngine.value = VoiceOutputEngine.SherpaExperimental
+            val request = VoiceSpeakRequest("Fallback stream")
+            val session = mockk<VoiceOutputStreamingSession>()
+            coEvery { sherpa.warmUp() } returns VoiceOutputResult.Unavailable("no AAR")
+            coEvery { androidTts.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { androidTts.openStreamingSession(request) } returns session
+
+            val controller = buildController()
+            val result = controller.openStreamingSession(request)
+
+            assertEquals(session, result)
+            coVerify(exactly = 1) { sherpa.warmUp() }
+            coVerify(exactly = 1) { androidTts.warmUp() }
+            coVerify(exactly = 1) { androidTts.openStreamingSession(request) }
+        }
+
+    @Test
     fun `stop stops both controllers defensively`() = runTest(dispatcher) {
         every { sherpa.stop() } just runs
         every { androidTts.stop() } just runs

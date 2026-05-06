@@ -7,6 +7,73 @@ package com.kernel.ai.feature.chat
 internal fun stripMarkdownForClipboard(text: String): String =
     stripMarkdown(convertLatexToUnicode(text))
 
+internal fun normalizeChatTextForSpeech(text: String): String =
+    stripMarkdownForClipboard(text)
+        .replace(Regex("""\s+"""), " ")
+        .trim()
+
+internal fun popNextStreamingSpeechChunk(
+    buffer: StringBuilder,
+    minChunkLength: Int = 72,
+    preferredChunkLength: Int = 180,
+    force: Boolean = false,
+): String? {
+    if (buffer.isEmpty()) return null
+    val raw = buffer.toString()
+    val boundary = findSpeechChunkBoundary(
+        text = raw,
+        minChunkLength = minChunkLength,
+        preferredChunkLength = preferredChunkLength,
+        force = force,
+    )
+    if (boundary <= 0) return null
+
+    val chunk = raw.substring(0, boundary)
+    buffer.delete(0, boundary)
+    return normalizeChatTextForSpeech(chunk).takeIf { it.isNotBlank() }
+}
+
+private fun findSpeechChunkBoundary(
+    text: String,
+    minChunkLength: Int,
+    preferredChunkLength: Int,
+    force: Boolean,
+): Int {
+    if (text.isBlank()) return if (force) text.length else -1
+    if (force) return text.length
+
+    var strongBoundary = -1
+    var softBoundary = -1
+    var whitespaceBoundary = -1
+
+    text.forEachIndexed { index, char ->
+        if (char.isWhitespace()) {
+            whitespaceBoundary = index + 1
+        }
+        when (char) {
+            '.', '!', '?' -> {
+                val next = text.getOrNull(index + 1)
+                if (next == null || next.isWhitespace() || next == '"' || next == '\'' || next == ')') {
+                    strongBoundary = index + 1
+                }
+            }
+            '\n' -> {
+                strongBoundary = index + 1
+            }
+            ',', ';', ':' -> {
+                softBoundary = index + 1
+            }
+        }
+    }
+
+    return when {
+        strongBoundary >= minChunkLength -> strongBoundary
+        text.length >= preferredChunkLength && softBoundary >= minChunkLength -> softBoundary
+        text.length >= preferredChunkLength && whitespaceBoundary >= minChunkLength -> whitespaceBoundary
+        else -> -1
+    }
+}
+
 /**
  * Strips common Markdown syntax from text for plain-text clipboard output.
  */
