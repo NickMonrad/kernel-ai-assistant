@@ -125,6 +125,7 @@ class NativeIntentHandler @Inject constructor(
     private val listNameDao: ListNameDao,
     private val contactAliasRepository: ContactAliasRepository,
     private val importantDateRepository: ImportantDateRepository,
+    private val calendarBirthdayLookup: CalendarBirthdayLookup,
     private val memoryRepository: MemoryRepository,
     private val embeddingEngine: EmbeddingEngine,
 ) {
@@ -1893,7 +1894,14 @@ class NativeIntentHandler @Inject constructor(
         val fromDate = params["from_date"]?.takeIf { it.isNotBlank() }
             ?.let { parseDateString(it) } ?: today
         val targetDate = parseDateString(targetStr)
-            ?: return SkillResult.Failure("get_date_diff", "Could not parse date: \"$targetStr\"")
+            ?: return SkillResult.Failure(
+                "get_date_diff",
+                if (targetStr.contains("birthday", ignoreCase = true) && !calendarBirthdayLookup.hasPermission()) {
+                    "Could not parse date: \"$targetStr\". If this is a synced contact birthday, enable Calendar access in Settings first."
+                } else {
+                    "Could not parse date: \"$targetStr\""
+                },
+            )
 
         val days = ChronoUnit.DAYS.between(fromDate, targetDate)
         val absDays = Math.abs(days)
@@ -2020,6 +2028,11 @@ class NativeIntentHandler @Inject constructor(
 
         runBlocking { importantDateRepository.findByLabel(s) }?.let { stored ->
             return resolveRecurringDate(stored.month, stored.day, today)
+        }
+        if (s.contains("birthday", ignoreCase = true)) {
+            calendarBirthdayLookup.findBirthday(s)?.let { birthday ->
+                return resolveRecurringDate(birthday.month, birthday.day, today)
+            }
         }
 
         fun nextOccurrence(month: Int, day: Int): LocalDate {

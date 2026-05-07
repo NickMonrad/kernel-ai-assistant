@@ -49,6 +49,7 @@ class NativeIntentHandlerTest {
     private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val contactAliasRepository = mockk<ContactAliasRepository>(relaxed = true)
     private val importantDateRepository = mockk<ImportantDateRepository>(relaxed = true)
+    private val calendarBirthdayLookup = mockk<CalendarBirthdayLookup>(relaxed = true)
     private val clockRepository = mockk<ClockRepository>(relaxed = true)
     private val clockAlertController = mockk<ClockAlertController>(relaxed = true)
     private val listItemDao = mockk<ListItemDao>(relaxed = true)
@@ -61,6 +62,7 @@ class NativeIntentHandlerTest {
         listNameDao = listNameDao,
         contactAliasRepository = contactAliasRepository,
         importantDateRepository = importantDateRepository,
+        calendarBirthdayLookup = calendarBirthdayLookup,
         memoryRepository = mockk<MemoryRepository>(relaxed = true),
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
     )
@@ -935,6 +937,55 @@ class NativeIntentHandlerTest {
 
         assertEquals(expected, resolved)
     }
+
+    @Test
+    fun `parseDateString resolves calendar birthdays when taught date missing`() {
+        val today = LocalDate.now()
+        val expected = LocalDate.of(today.year, 4, 5).let {
+            if (!it.isBefore(today)) it else LocalDate.of(today.year + 1, 4, 5)
+        }
+        coEvery { importantDateRepository.findByLabel("jane's birthday") } returns null
+        every { calendarBirthdayLookup.findBirthday("jane's birthday") } returns CalendarBirthdayLookup.BirthdayEntry(
+            label = "Jane Smith",
+            normalizedLabel = "jane smith",
+            month = 4,
+            day = 5,
+        )
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseDateString",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "jane's birthday") as LocalDate?
+
+        assertEquals(expected, resolved)
+    }
+
+    @Test
+    fun `parseDateString prefers taught dates over calendar birthdays`() {
+        val today = LocalDate.now()
+        val expected = LocalDate.of(today.year, 3, 15).let {
+            if (!it.isBefore(today)) it else LocalDate.of(today.year + 1, 3, 15)
+        }
+        coEvery { importantDateRepository.findByLabel("mum's birthday") } returns ImportantDateEntity(
+            label = "mum's birthday",
+            normalizedLabel = "mum birthday",
+            month = 3,
+            day = 15,
+        )
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseDateString",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "mum's birthday") as LocalDate?
+
+        assertEquals(expected, resolved)
+        verify(exactly = 0) { calendarBirthdayLookup.findBirthday(any()) }
+    }
+
 
     private data class PhoneRow(
         val contactId: String,
