@@ -151,8 +151,11 @@ class LiteRtInferenceEngine @Inject constructor(
             try {
                 val (eng, backendType) = createEngineWithFallback(resolvedConfig)
                 engine = eng
-                conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
-resetExperimentalFlags()
+                try {
+                    conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
+                } finally {
+                    resetExperimentalFlags()
+                }
                 currentConfig = resolvedConfig
                 _activeBackend.value = backendType
                 _resolvedMaxTokens.value = resolvedConfig.maxTokens
@@ -184,8 +187,11 @@ resetExperimentalFlags()
             // generate() or generateOnce() is suspended mid-flight using it.
             generationMutex.withLock {
                 safeClose(conversation, "conversation")
-                conversation = eng.createConversation(buildConversationConfig(backend, config))
-                resetExperimentalFlags()
+                try {
+                    conversation = eng.createConversation(buildConversationConfig(backend, config))
+                } finally {
+                    resetExperimentalFlags()
+                }
                 _isGenerating.value = false
             }
         }
@@ -211,8 +217,11 @@ resetExperimentalFlags()
             // LlmDispatcher remains available to run the active generation's awaitClose.
             generationMutex.withLock {
                 safeClose(conversation, "conversation")
-                conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
-                resetExperimentalFlags()
+                try {
+                    conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
+                } finally {
+                    resetExperimentalFlags()
+                }
                 _isGenerating.value = false
                 Log.i(TAG, "System prompt updated and conversation reset")
             }
