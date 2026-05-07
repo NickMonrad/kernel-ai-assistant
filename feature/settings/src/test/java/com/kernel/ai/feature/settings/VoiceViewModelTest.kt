@@ -43,6 +43,10 @@ class VoiceViewModelTest {
     private val selectedOutputEngine = MutableStateFlow(VoiceOutputEngine.AndroidTts)
     private val selectedSherpaVoice = MutableStateFlow(SherpaPiperVoice.JennyDioco)
     private val sherpaSpeed = MutableStateFlow(0.85f)
+    private val voicePitch = MutableStateFlow(1.0f)
+    private val voiceGain = MutableStateFlow(1.5f)
+    private val autoSpeak = MutableStateFlow(true)
+    private val maxSpokenSentences = MutableStateFlow(0)
     private val sherpaDownloadStates: MutableStateFlow<Map<SherpaPiperVoice, VoicePackDownloadState>> =
         MutableStateFlow(
             SherpaPiperVoice.entries.associateWith {
@@ -71,10 +75,18 @@ class VoiceViewModelTest {
         every { voiceOutputPreferences.selectedEngine } returns selectedOutputEngine
         every { voiceOutputPreferences.selectedSherpaVoice } returns selectedSherpaVoice
         every { voiceOutputPreferences.sherpaSpeed } returns sherpaSpeed
+        every { voiceOutputPreferences.voicePitch } returns voicePitch
+        every { voiceOutputPreferences.voiceGain } returns voiceGain
+        every { voiceOutputPreferences.autoSpeak } returns autoSpeak
+        every { voiceOutputPreferences.maxSpokenSentences } returns maxSpokenSentences
         coEvery { voiceOutputPreferences.setSpokenResponsesEnabled(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedSherpaVoice(any()) } just Runs
         coEvery { voiceOutputPreferences.setSherpaSpeed(any()) } just Runs
+        coEvery { voiceOutputPreferences.setVoicePitch(any()) } just Runs
+        coEvery { voiceOutputPreferences.setVoiceGain(any()) } just Runs
+        coEvery { voiceOutputPreferences.setAutoSpeak(any()) } just Runs
+        coEvery { voiceOutputPreferences.setMaxSpokenSentences(any()) } just Runs
         every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
         every { sherpaVoicePackDownloadManager.startDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.cancelDownload(any()) } just Runs
