@@ -6,6 +6,7 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioFocusRequest
 import android.media.AudioTrack
+import android.media.PlaybackParams
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.Channel
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -74,6 +76,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     private val sherpaSpeed: StateFlow<Float> = voiceOutputPreferences.sherpaSpeed
         .stateIn(scope, SharingStarted.Eagerly, 0.85f)
 
+    /** Live pitch from user preferences; default 1.0. Range 0.5–2.0. */
+    private val sherpaPitch: StateFlow<Float> = voiceOutputPreferences.voicePitch
+        .stateIn(scope, SharingStarted.Eagerly, 1.0f)
+
     // ── Lifecycle state ──────────────────────────────────────────────────────
     private enum class InitState { UNINITIALIZED, AVAILABLE, UNAVAILABLE }
 
@@ -91,6 +97,13 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     @Volatile private var nextPlaybackToken = 0L
     @Volatile private var activeStreamingPlayback: ActiveStreamingPlayback? = null
     private val playbackLock = Any()
+
+    /**
+     * Generation counter for non-streaming [speak] calls. Incremented before each new
+     * [playOnAudioTrack] invocation so any previous write loop can detect it has been superseded
+     * and abort, preventing stale audio from bleeding into the new playback.
+     */
+    private val nonStreamingPlaybackGeneration = AtomicLong(0)
 
     // ── AudioFocus ───────────────────────────────────────────────────────────
     private val audioManager by lazy {
@@ -118,6 +131,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             stopped = true
             clearStreamingPlayback()
             stopped = false
+            val myGeneration = nonStreamingPlaybackGeneration.incrementAndGet()
             requestAudioFocus()
             _events.emit(VoiceOutputEvent.SpeakingStarted(request.text))
 
@@ -130,7 +144,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 val sampleRate = reflectGetSampleRate(audioResult)
 
                 if (!stopped) {
-                    playOnAudioTrack(samples, sampleRate)
+                    playOnAudioTrack(samples, sampleRate, myGeneration)
                 }
                 releaseAudioFocus()
                 _events.emit(VoiceOutputEvent.SpeakingStopped)
@@ -474,8 +488,13 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     /**
      * Writes [samples] (PCM Float32, mono) to an [AudioTrack] in streaming chunks.
      * Checks [stopped] between chunks so [stop] can interrupt mid-utterance quickly.
+     *
+     * [generation] is the value of [nonStreamingPlaybackGeneration] at the time this invocation
+     * was started. If a newer non-streaming [speak] call has incremented the counter before this
+     * loop iteration begins, the loop aborts — preventing stale audio from bleeding into the new
+     * playback. Pass the default (-1) from the streaming path, which uses its own token guard.
      */
-    private fun playOnAudioTrack(samples: FloatArray, sampleRate: Int) {
+    private fun playOnAudioTrack(samples: FloatArray, sampleRate: Int, generation: Long = -1L) {
         val minBuf = AudioTrack.getMinBufferSize(
             sampleRate,
             AudioFormat.CHANNEL_OUT_MONO,
@@ -500,9 +519,12 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             .build()
 
         track.play()
+        track.playbackParams = PlaybackParams().setPitch(sherpaPitch.value)
         try {
             var offset = 0
-            while (offset < samples.size && !stopped) {
+            while (offset < samples.size && !stopped &&
+                (generation < 0L || nonStreamingPlaybackGeneration.get() == generation)
+            ) {
                 val end = minOf(offset + AUDIO_CHUNK_FLOATS, samples.size)
                 track.write(samples, offset, end - offset, AudioTrack.WRITE_BLOCKING)
                 offset = end
