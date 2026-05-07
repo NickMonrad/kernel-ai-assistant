@@ -137,6 +137,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             stopped = false
             val myGeneration = nonStreamingPlaybackGeneration.incrementAndGet()
 
+            // Track whether SpeakingStarted was emitted so SpeakingStopped is only sent when
+            // it has a matching start — stops the back-and-forth loop from firing on a stopped
+            // or failed synthesis where no audio was ever played.
+            var speakingStarted = false
             return@withContext try {
                 // Reflect: GeneratedAudio audio = tts.generate(text, sid=0, speed)
                 // Synthesis can take 1-3s; only emit SpeakingStarted once audio is ready
@@ -150,15 +154,16 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 if (!stopped) {
                     requestAudioFocus()
                     _events.emit(VoiceOutputEvent.SpeakingStarted(request.text))
+                    speakingStarted = true
                     playOnAudioTrack(samples, sampleRate, myGeneration)
                 }
                 releaseAudioFocus()
-                _events.emit(VoiceOutputEvent.SpeakingStopped)
+                if (speakingStarted) _events.emit(VoiceOutputEvent.SpeakingStopped)
                 VoiceOutputResult.Spoken
             } catch (e: Exception) {
                 Log.e(TAG, "Sherpa generate() failed", e)
                 releaseAudioFocus()
-                _events.emit(VoiceOutputEvent.SpeakingStopped)
+                if (speakingStarted) _events.emit(VoiceOutputEvent.SpeakingStopped)
                 VoiceOutputResult.Unavailable("Sherpa generate failed: ${e.message}")
             }
         }
