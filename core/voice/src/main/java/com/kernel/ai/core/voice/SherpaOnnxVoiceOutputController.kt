@@ -80,6 +80,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     private val sherpaPitch: StateFlow<Float> = voiceOutputPreferences.voicePitch
         .stateIn(scope, SharingStarted.Eagerly, 1.0f)
 
+    /** PCM amplification gain; default 1.5 to compensate for Sherpa's quiet output. Range 0.5–3.0. */
+    private val sherpaGain: StateFlow<Float> = voiceOutputPreferences.voiceGain
+        .stateIn(scope, SharingStarted.Eagerly, 1.5f)
+
     // ── Lifecycle state ──────────────────────────────────────────────────────
     private enum class InitState { UNINITIALIZED, AVAILABLE, UNAVAILABLE }
 
@@ -526,13 +530,21 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         if (pitch != 1.0f) {
             track.playbackParams = PlaybackParams().setPitch(pitch).setSpeed(1.0f)
         }
+        // Apply PCM gain before playback. AudioTrack.setVolume() is capped at 1.0 by the
+        // framework, so amplification above unity must be done in the sample domain.
+        val gain = sherpaGain.value
+        val amplified = if (gain != 1.0f) {
+            FloatArray(samples.size) { i -> (samples[i] * gain).coerceIn(-1.0f, 1.0f) }
+        } else {
+            samples
+        }
         try {
             var offset = 0
-            while (offset < samples.size && !stopped &&
+            while (offset < amplified.size && !stopped &&
                 (generation < 0L || nonStreamingPlaybackGeneration.get() == generation)
             ) {
-                val end = minOf(offset + AUDIO_CHUNK_FLOATS, samples.size)
-                track.write(samples, offset, end - offset, AudioTrack.WRITE_BLOCKING)
+                val end = minOf(offset + AUDIO_CHUNK_FLOATS, amplified.size)
+                track.write(amplified, offset, end - offset, AudioTrack.WRITE_BLOCKING)
                 offset = end
             }
             if (!stopped) track.stop() else track.pause()
