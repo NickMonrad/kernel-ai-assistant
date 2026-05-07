@@ -329,62 +329,6 @@ private fun VoiceScreenContent(
                     )
                 }
 
-                // Auto-speak toggle — when off, voice-originated replies stay silent
-                ListItem(
-                    headlineContent = { Text("Auto-speak replies") },
-                    supportingContent = {
-                        Text(
-                            text = "Automatically speak assistant replies in voice mode.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    },
-                    trailingContent = {
-                        Switch(
-                            checked = uiState.autoSpeak,
-                            onCheckedChange = onAutoSpeakChanged,
-                        )
-                    },
-                )
-                HorizontalDivider()
-
-                // Max spoken sentences — 0 = unlimited, otherwise truncate at N sentences
-                ListItem(
-                    headlineContent = { Text("Max spoken sentences") },
-                    supportingContent = {
-                        val label = if (uiState.maxSpokenSentences == 0) "Unlimited" else "${uiState.maxSpokenSentences}"
-                        Text(
-                            text = "Limit auto-spoken replies to $label sentence${if (uiState.maxSpokenSentences == 1) "" else "s"}. 0 = unlimited.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    },
-                    trailingContent = {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            listOf(0, 2, 3, 5).forEach { n ->
-                                val selected = uiState.maxSpokenSentences == n
-                                TextButton(
-                                    onClick = { onMaxSpokenSentencesChanged(n) },
-                                    colors = if (selected) {
-                                        androidx.compose.material3.ButtonDefaults.textButtonColors(
-                                            contentColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-                                        )
-                                    } else {
-                                        androidx.compose.material3.ButtonDefaults.textButtonColors()
-                                    },
-                                ) {
-                                    Text(
-                                        text = if (n == 0) "∞" else "$n",
-                                        style = MaterialTheme.typography.labelMedium,
-                                    )
-                                }
-                            }
-                        }
-                    },
-                )
-                HorizontalDivider()
-
                 uiState.sherpaVoices.forEach { voiceRow ->
                     SherpaVoiceRow(
                         rowState = voiceRow,
@@ -397,6 +341,68 @@ private fun VoiceScreenContent(
                     HorizontalDivider()
                 }
             }
+
+            // Auto-speak and max spoken sentences — shown for all TTS engines
+            Text(
+                text = "Chat voice behaviour",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+
+            ListItem(
+                headlineContent = { Text("Auto-speak chat replies") },
+                supportingContent = {
+                    Text(
+                        text = "Automatically speak assistant replies in voice mode.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.autoSpeak,
+                        onCheckedChange = onAutoSpeakChanged,
+                    )
+                },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                headlineContent = { Text("Max spoken sentences") },
+                supportingContent = {
+                    val label = if (uiState.maxSpokenSentences == 0) "Unlimited" else "${uiState.maxSpokenSentences}"
+                    Text(
+                        text = "Limit auto-spoken replies to $label sentence${if (uiState.maxSpokenSentences == 1) "" else "s"}. 0 = unlimited.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                trailingContent = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        listOf(0, 2, 3, 5).forEach { n ->
+                            val selected = uiState.maxSpokenSentences == n
+                            TextButton(
+                                onClick = { onMaxSpokenSentencesChanged(n) },
+                                colors = if (selected) {
+                                    androidx.compose.material3.ButtonDefaults.textButtonColors(
+                                        contentColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                                    )
+                                } else {
+                                    androidx.compose.material3.ButtonDefaults.textButtonColors()
+                                },
+                            ) {
+                                Text(
+                                    text = if (n == 0) "∞" else "$n",
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                            }
+                        }
+                    }
+                },
+            )
+            HorizontalDivider()
         }
     }
 }

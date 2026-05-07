@@ -765,7 +765,6 @@ class ActionsViewModel @Inject constructor(
         pendingVoiceSpeechJob = viewModelScope.launch {
             if (delayMs > 0) delay(delayMs)
             if (!spokenResponsesEnabled) return@launch
-            if (!voiceOutputPreferences.autoSpeak.first()) return@launch
             when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = summary))) {
                 is VoiceOutputResult.Spoken -> Unit
                 is VoiceOutputResult.Unavailable -> _error.value = result.message

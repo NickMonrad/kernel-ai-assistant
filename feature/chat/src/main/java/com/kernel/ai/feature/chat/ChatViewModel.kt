@@ -2044,6 +2044,12 @@ class ChatViewModel @Inject constructor(
             return
         }
 
+        if (!voiceOutputPreferences.autoSpeak.first()) {
+            awaitingVoicePlaybackCompletion = false
+            _voiceMode.value = null
+            return
+        }
+
         val spokenText = stripMarkdownForClipboard(content).trim()
         if (spokenText.isBlank()) {
             awaitingVoicePlaybackCompletion = false
