@@ -30,6 +30,7 @@ class VoiceOutputPreferences @Inject constructor(
     private val selectedSherpaVoiceKey = stringPreferencesKey("selected_sherpa_piper_voice")
     private val sherpaSpeedKey = floatPreferencesKey("sherpa_speed")
     private val voicePitchKey = floatPreferencesKey("voice_pitch")
+    private val voiceGainKey = floatPreferencesKey("voice_gain")
     private val autoSpeakKey = booleanPreferencesKey("voice_auto_speak")
     private val maxSpokenSentencesKey = intPreferencesKey("voice_max_spoken_sentences")
 
@@ -137,6 +138,23 @@ class VoiceOutputPreferences @Inject constructor(
     suspend fun setVoicePitch(pitch: Float) {
         context.voiceOutputPrefsDataStore.edit { prefs ->
             prefs[voicePitchKey] = pitch.coerceIn(0.5f, 2.0f)
+        }
+    }
+
+    val voiceGain: Flow<Float> = context.voiceOutputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice output preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs -> (prefs[voiceGainKey] ?: 1.5f).coerceIn(0.5f, 3.0f) }
+
+    suspend fun setVoiceGain(gain: Float) {
+        context.voiceOutputPrefsDataStore.edit { prefs ->
+            prefs[voiceGainKey] = gain.coerceIn(0.5f, 3.0f)
         }
     }
 

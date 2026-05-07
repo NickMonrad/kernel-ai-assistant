@@ -30,6 +30,7 @@ data class VoiceUiState(
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
     val sherpaSpeed: Float = 0.85f,
     val sherpaPitch: Float = 1.0f,
+    val sherpaGain: Float = 1.5f,
     val autoSpeak: Boolean = true,
     val maxSpokenSentences: Int = 0,
     val sherpaVoices: List<SherpaVoiceRowUiState> = SherpaPiperVoice.entries.map { voice ->
@@ -91,6 +92,11 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             voiceOutputPreferences.voicePitch.collect { pitch ->
                 _uiState.update { it.copy(sherpaPitch = pitch) }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.voiceGain.collect { gain ->
+                _uiState.update { it.copy(sherpaGain = gain) }
             }
         }
         viewModelScope.launch {
@@ -185,6 +191,13 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(sherpaPitch = pitch) }
         viewModelScope.launch {
             voiceOutputPreferences.setVoicePitch(pitch)
+        }
+    }
+
+    fun setSherpaGain(gain: Float) {
+        _uiState.update { it.copy(sherpaGain = gain) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setVoiceGain(gain)
         }
     }
 
