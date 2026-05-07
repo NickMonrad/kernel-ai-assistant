@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-05-16 (PRs #780 and #789 merged; TTS quality + voice UX features documented)
+> **Last updated:** 2026-05-08 (PRs #780 and #789 merged; TTS quality + voice UX features documented; Phase 3F issues #729, #790, #791, #675, #588 added; #678 marked done)
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -274,7 +274,7 @@ Lower-priority skill additions — third-party integrations and local utilities.
 |-----------|-------|--------|----------|
 | [#671](https://github.com/NickMonrad/kernel-ai-assistant/issues/671) | Offline push-to-talk voice input foundation | ✅ Done — PR #711 | 🟡 Medium |
 | [#672](https://github.com/NickMonrad/kernel-ai-assistant/issues/672) | Generic spoken response / TTS foundation | ✅ Done — PR #711 | 🟡 Medium |
-| [#678](https://github.com/NickMonrad/kernel-ai-assistant/issues/678) | Optional native Android STT engine alongside Vosk | 🔄 In Progress — PR #714 | 🟡 Medium |
+| [#678](https://github.com/NickMonrad/kernel-ai-assistant/issues/678) | Optional native Android STT engine alongside Vosk | ✅ Done — PR #714 | 🟡 Medium |
 | [#700](https://github.com/NickMonrad/kernel-ai-assistant/issues/700) | Parakeet CTC STT evaluation | ⬜ Pending | 🟡 Medium |
 | [#703](https://github.com/NickMonrad/kernel-ai-assistant/issues/703) | Whisper.cpp vs Vosk STT evaluation | ⬜ Pending | 🟡 Medium |
 | [#754](https://github.com/NickMonrad/kernel-ai-assistant/issues/754) | Verbal stop command during TTS playback | ✅ Done — PR #789 | 🟡 Medium |
@@ -288,12 +288,19 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | [#785](https://github.com/NickMonrad/kernel-ai-assistant/issues/785) | Per-message speaker button | ✅ Done — PR #789 | 🟡 Medium |
 | [#786](https://github.com/NickMonrad/kernel-ai-assistant/issues/786) | Expanded TTS settings (pitch, auto-speak toggle, max spoken sentences) | ✅ Done — PR #789 | 🟡 Medium |
 | [#788](https://github.com/NickMonrad/kernel-ai-assistant/issues/788) | VITS noise_scale expressiveness tuning | ⬜ Pending | 🟢 Low |
+| [#729](https://github.com/NickMonrad/kernel-ai-assistant/issues/729) | Better local TTS engine (Qwen3-TTS / ONNX Runtime research) | ⬜ Pending | 🟡 Medium |
+| [#790](https://github.com/NickMonrad/kernel-ai-assistant/issues/790) | Voice slot-fill retry on no-speech + cancel phrases | ⬜ Pending | 🟡 Medium |
+| [#791](https://github.com/NickMonrad/kernel-ai-assistant/issues/791) | Start-listening audio cue for Quick Actions voice capture | ⬜ Pending | 🟢 Low |
+| [#675](https://github.com/NickMonrad/kernel-ai-assistant/issues/675) | Comprehensive Quick Actions + weather voice QA matrix | ⬜ Pending | 🟡 Medium |
+| [#588](https://github.com/NickMonrad/kernel-ai-assistant/issues/588) | VoiceSession architecture for slot-fill + follow-on assistant mode | ⬜ Pending | 🟡 Medium |
 | [#617](https://github.com/NickMonrad/kernel-ai-assistant/issues/617) | Homescreen widget for quick actions / voice | ⬜ Pending | 🟡 Medium |
 | [#659](https://github.com/NickMonrad/kernel-ai-assistant/issues/659) | Translator skill with multilingual TTS | ⬜ Pending | 🟡 Medium |
 | [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word — Picovoice Porcupine | ⬜ Pending | 🟡 Medium |
 | [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode — real-time streaming interaction | ⬜ Pending | 🟢 Low |
 
 **Current state after merged PRs #780 and #789:**
+
+> **Dependency note:** #782 (VCTK speaker selection) should ship before #781 (emotional styles) as it builds the sid selection mechanism #781 depends on.
 
 - Streaming TTS (`runStreamingPlayback()`), per-message speaker button, verbal stop command, and expanded TTS settings are all shipped.
 - Voice quality slice complete: URL colon preservation in `cleanTextForSpeech()`, speech rate clamping on the non-streaming read-path, abbreviation-aware sentence splitting (`truncateForSpeech()` with `KNOWN_ABBREV` + `INITIALS_REGEX`), and Sherpa quality evaluation done on Samsung Galaxy S23 Ultra.
@@ -553,6 +560,11 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#785](https://github.com/NickMonrad/kernel-ai-assistant/issues/785) | Per-message speaker button | Phase 3F | ✅ Done — PR #789 |
 | [#786](https://github.com/NickMonrad/kernel-ai-assistant/issues/786) | Expanded TTS settings (pitch, auto-speak, max sentences) | Phase 3F | ✅ Done — PR #789 |
 | [#788](https://github.com/NickMonrad/kernel-ai-assistant/issues/788) | VITS noise_scale expressiveness tuning | Phase 3F | ⬜ Pending |
+| [#729](https://github.com/NickMonrad/kernel-ai-assistant/issues/729) | Better local TTS engine (Qwen3-TTS / ONNX Runtime research) | Phase 3F | ⬜ Pending |
+| [#790](https://github.com/NickMonrad/kernel-ai-assistant/issues/790) | Voice slot-fill retry on no-speech + cancel phrases | Phase 3F | ⬜ Pending |
+| [#791](https://github.com/NickMonrad/kernel-ai-assistant/issues/791) | Start-listening audio cue for Quick Actions voice capture | Phase 3F | ⬜ Pending |
+| [#675](https://github.com/NickMonrad/kernel-ai-assistant/issues/675) | Comprehensive Quick Actions + weather voice QA matrix | Phase 3F | ⬜ Pending |
+| [#588](https://github.com/NickMonrad/kernel-ai-assistant/issues/588) | VoiceSession architecture for slot-fill + follow-on assistant mode | Phase 3F | ⬜ Pending |
 
 ---
 
