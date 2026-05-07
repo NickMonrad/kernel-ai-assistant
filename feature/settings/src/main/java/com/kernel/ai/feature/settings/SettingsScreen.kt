@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
@@ -69,6 +70,7 @@ fun SettingsScreen(
     onBack: () -> Unit = {},
     onNavigateToUserProfile: () -> Unit = {},
     onNavigateToMemory: () -> Unit = {},
+    onNavigateToImportantDates: () -> Unit = {},
     onNavigateToVoice: () -> Unit = {},
     onNavigateToModelSettings: () -> Unit = {},
     onNavigateToModelManagement: (preferred: Boolean) -> Unit = {},
@@ -224,6 +226,17 @@ fun SettingsScreen(
                 headlineContent = { Text("Memory") },
                 supportingContent = { Text("Manage stored memories") },
                 leadingContent = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToImportantDates() },
+                headlineContent = { Text("Important dates") },
+                supportingContent = { Text("Browse and edit taught dates") },
+                leadingContent = { Icon(Icons.Default.Event, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()

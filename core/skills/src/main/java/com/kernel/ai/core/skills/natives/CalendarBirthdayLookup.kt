@@ -46,6 +46,11 @@ class CalendarBirthdayLookup @Inject constructor(
         return partialMatches.singleOrNull()
     }
 
+    fun getAllBirthdays(): List<BirthdayEntry> {
+        if (!hasPermission()) return emptyList()
+        return loadBirthdays()
+    }
+
     fun invalidateCache() {
         cachedBirthdays = null
     }
