@@ -57,7 +57,7 @@ import java.time.ZoneId
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 30,
+    version = 31,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -392,6 +392,13 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_29_30 = object : Migration(29, 30) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN sound_uri TEXT DEFAULT NULL")
+            }
+        }
+
+        /** Adds speculativeDecodingEnabled to model_settings for MTP (#772). */
+        val MIGRATION_30_31 = object : Migration(30, 31) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE model_settings ADD COLUMN speculativeDecodingEnabled INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

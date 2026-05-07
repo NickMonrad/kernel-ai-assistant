@@ -97,10 +97,31 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 
 | Device | Chip | RAM | Backend | Status |
 |--------|------|-----|---------|--------|
-| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU (Hexagon) | ✅ Tested |
+| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | GPU (OpenCL / Adreno 740) | ✅ Tested |
 | Google Pixel 10 | Tensor G5 | 12 GB | GPU (Immortalis-G925) | ✅ Expected compatible |
 
-> **Backend note:** On Qualcomm devices the app uses the Hexagon NPU delegate for fastest inference. On Google Pixel 10 (Tensor G5) the app uses `Backend.GPU` (ARM Immortalis-G925 via LiteRT). Performance and output are equivalent — the hardware tier detection automatically selects the right delegate. See [`models/README.md`](models/README.md) for per-device model setup.
+> **Backend note:** On Qualcomm devices the app uses the GPU (OpenCL) delegate via LiteRT. Hardware tier detection automatically selects the right delegate. See [`models/README.md`](models/README.md) for per-device model setup.
+
+### Performance — Samsung Galaxy S23 Ultra (Gemma-4 E-4B, GPU)
+
+Measured on-device from production logs. "tok/s" counts output tokens delivered to the UI.
+
+| Metric | Value |
+|--------|-------|
+| Time to First Token (TTFT) | 2–5s (cold), ~2s (warm KV cache) |
+| Generation speed | ~9–10 tok/s |
+| Engine init | ~2s (warm, kernel cache hit) |
+
+**Multi-Token Prediction (MTP / speculative decoding)**
+
+MTP uses a bundled drafter model to speculatively generate multiple tokens per GPU step. The benefit scales with response length — on long responses (~400+ tokens) we observed a **~2× wall-time speedup**; on short responses the overhead is negligible. Toggle in Settings → Model → E-4B panel.
+
+| Response length | MTP off | MTP on | Speedup |
+|----------------|---------|--------|---------|
+| Short (~100 tok) | ~15s | ~12s | ~1.2× |
+| Long (~400 tok) | ~69s | ~30s | ~2.3× |
+
+> **Note:** A formal repeatable benchmark (fixed prompts, greedy decoding, N-run average) is tracked in [#803](https://github.com/NickMonrad/kernel-ai-assistant/issues/803). The numbers above are from manual device testing with variable-length responses.
 
 ### Prerequisites
 

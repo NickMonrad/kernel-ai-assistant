@@ -78,6 +78,10 @@ class ModelManagementViewModel @Inject constructor(
         modelDownloadManager.startDownload(model)
     }
 
+    fun updateModel(model: KernelModel) {
+        modelDownloadManager.startDownload(model, force = true)
+    }
+
     fun cancelDownload(model: KernelModel) {
         modelDownloadManager.cancelDownload(model)
     }
