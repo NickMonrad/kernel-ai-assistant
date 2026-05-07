@@ -1902,6 +1902,7 @@ class ChatViewModel @Inject constructor(
         pendingVoiceReply = false
         awaitingVoicePlaybackCompletion = false
         if (!shouldSpeak || !spokenResponsesEnabled || suppressVoiceOutputForCurrentResponse) return
+        if (!voiceOutputPreferences.autoSpeak.first()) return
         awaitingVoicePlaybackCompletion = true
         activeVoiceStreamingSession = voiceOutputController.openStreamingSession(
             VoiceSpeakRequest(text = "", locale = Locale.getDefault()),
