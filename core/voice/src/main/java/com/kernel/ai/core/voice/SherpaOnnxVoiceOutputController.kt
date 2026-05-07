@@ -136,11 +136,11 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             clearStreamingPlayback()
             stopped = false
             val myGeneration = nonStreamingPlaybackGeneration.incrementAndGet()
-            requestAudioFocus()
-            _events.emit(VoiceOutputEvent.SpeakingStarted(request.text))
 
             return@withContext try {
                 // Reflect: GeneratedAudio audio = tts.generate(text, sid=0, speed)
+                // Synthesis can take 1-3s; only emit SpeakingStarted once audio is ready
+                // and playback is actually about to begin — not before.
                 val audioResult = genMethod.invoke(tts, request.text, 0, sherpaSpeed.value)
                     ?: return@withContext VoiceOutputResult.Unavailable("Sherpa returned null audio.")
 
@@ -148,6 +148,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 val sampleRate = reflectGetSampleRate(audioResult)
 
                 if (!stopped) {
+                    requestAudioFocus()
+                    _events.emit(VoiceOutputEvent.SpeakingStarted(request.text))
                     playOnAudioTrack(samples, sampleRate, myGeneration)
                 }
                 releaseAudioFocus()
@@ -522,29 +524,35 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
 
-        track.play()
+        // Apply PCM gain before playback. AudioTrack.setVolume() is capped at 1.0 by the
+        // framework, so amplification above unity must be done in the sample domain.
+        // Gain is applied per-chunk into a reusable scratch buffer to avoid a full-buffer
+        // allocation on every TTS call.
+        val gain = sherpaGain.value
         // Only apply PlaybackParams when pitch differs from unity — routing all audio through
         // Android's SONIC time-stretcher (even at pitch=1.0) reduces perceived loudness.
         // Speed is fixed at 1.0 here; Sherpa already controls tempo at synthesis time.
         val pitch = sherpaPitch.value
-        if (pitch != 1.0f) {
-            track.playbackParams = PlaybackParams().setPitch(pitch).setSpeed(1.0f)
-        }
-        // Apply PCM gain before playback. AudioTrack.setVolume() is capped at 1.0 by the
-        // framework, so amplification above unity must be done in the sample domain.
-        val gain = sherpaGain.value
-        val amplified = if (gain != 1.0f) {
-            FloatArray(samples.size) { i -> (samples[i] * gain).coerceIn(-1.0f, 1.0f) }
-        } else {
-            samples
-        }
+        val chunk = if (gain != 1.0f) FloatArray(AUDIO_CHUNK_FLOATS) else null
         try {
+            track.play()
+            if (pitch != 1.0f) {
+                track.playbackParams = PlaybackParams().setPitch(pitch).setSpeed(1.0f)
+            }
             var offset = 0
-            while (offset < amplified.size && !stopped &&
+            while (offset < samples.size && !stopped &&
                 (generation < 0L || nonStreamingPlaybackGeneration.get() == generation)
             ) {
-                val end = minOf(offset + AUDIO_CHUNK_FLOATS, amplified.size)
-                track.write(amplified, offset, end - offset, AudioTrack.WRITE_BLOCKING)
+                val end = minOf(offset + AUDIO_CHUNK_FLOATS, samples.size)
+                val len = end - offset
+                if (chunk != null) {
+                    for (i in 0 until len) {
+                        chunk[i] = (samples[offset + i] * gain).coerceIn(-1.0f, 1.0f)
+                    }
+                    track.write(chunk, 0, len, AudioTrack.WRITE_BLOCKING)
+                } else {
+                    track.write(samples, offset, len, AudioTrack.WRITE_BLOCKING)
+                }
                 offset = end
             }
             if (!stopped) track.stop() else track.pause()

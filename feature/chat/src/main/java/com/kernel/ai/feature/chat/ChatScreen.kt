@@ -120,6 +120,7 @@ import android.content.pm.PackageManager
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -193,7 +194,11 @@ fun ChatScreen(
                         "loop" -> viewModel.startBackAndForthVoiceInput()
                     }
                 } else {
-                    viewModel.onMicrophonePermissionDenied()
+                    val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+                        context as android.app.Activity,
+                        Manifest.permission.RECORD_AUDIO,
+                    )
+                    viewModel.onMicrophonePermissionDenied(permanent)
                 }
             }
 
@@ -213,6 +218,13 @@ fun ChatScreen(
                 }
             }
 
+            val onStartVoiceInput = remember(micPermissionLauncher) {
+                { requestVoiceCapture("ptt") }
+            }
+            val onStartBackAndForthVoiceInput = remember(micPermissionLauncher) {
+                { requestVoiceCapture("loop") }
+            }
+
             ChatContent(
                 state = state,
                 isSeeding = isSeeding,
@@ -229,8 +241,8 @@ fun ChatScreen(
                 voiceCaptureState = voiceCaptureState,
                 voicePlaybackState = voicePlaybackState,
                 voiceMode = voiceMode,
-                onStartVoiceInput = { requestVoiceCapture("ptt") },
-                onStartBackAndForthVoiceInput = { requestVoiceCapture("loop") },
+                onStartVoiceInput = onStartVoiceInput,
+                onStartBackAndForthVoiceInput = onStartBackAndForthVoiceInput,
                 onStopVoiceInput = viewModel::stopVoiceInput,
                 onStopVoiceOutput = viewModel::stopVoiceOutput,
                 speakingMessageId = speakingMessageId,

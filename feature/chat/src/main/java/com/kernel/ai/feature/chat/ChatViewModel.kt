@@ -886,8 +886,12 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun onMicrophonePermissionDenied() {
-        _error.value = "Microphone permission is required for voice input."
+    fun onMicrophonePermissionDenied(permanent: Boolean = false) {
+        _error.value = if (permanent) {
+            "Microphone access permanently denied. Enable it in Settings → App permissions."
+        } else {
+            "Microphone permission is required for voice input."
+        }
     }
 
     fun stopVoiceInput() {
