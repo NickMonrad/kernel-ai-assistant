@@ -356,6 +356,8 @@ class ChatViewModel @Inject constructor(
                 autoSpeakEnabled = enabled
             }
         }
+        viewModelScope.launch {
+            voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
