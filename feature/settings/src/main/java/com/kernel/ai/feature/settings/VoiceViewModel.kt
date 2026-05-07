@@ -29,6 +29,9 @@ data class VoiceUiState(
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
     val sherpaSpeed: Float = 0.85f,
+    val sherpaPitch: Float = 1.0f,
+    val autoSpeak: Boolean = true,
+    val maxSpokenSentences: Int = 0,
     val sherpaVoices: List<SherpaVoiceRowUiState> = SherpaPiperVoice.entries.map { voice ->
         SherpaVoiceRowUiState(voice = voice)
     },
@@ -83,6 +86,21 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             voiceOutputPreferences.sherpaSpeed.collect { speed ->
                 _uiState.update { it.copy(sherpaSpeed = speed) }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.voicePitch.collect { pitch ->
+                _uiState.update { it.copy(sherpaPitch = pitch) }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.autoSpeak.collect { enabled ->
+                _uiState.update { it.copy(autoSpeak = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.maxSpokenSentences.collect { count ->
+                _uiState.update { it.copy(maxSpokenSentences = count) }
             }
         }
         viewModelScope.launch {
@@ -160,6 +178,27 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(sherpaSpeed = speed) }
         viewModelScope.launch {
             voiceOutputPreferences.setSherpaSpeed(speed)
+        }
+    }
+
+    fun setSherpaPitch(pitch: Float) {
+        _uiState.update { it.copy(sherpaPitch = pitch) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setVoicePitch(pitch)
+        }
+    }
+
+    fun setAutoSpeak(enabled: Boolean) {
+        _uiState.update { it.copy(autoSpeak = enabled) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setAutoSpeak(enabled)
+        }
+    }
+
+    fun setMaxSpokenSentences(count: Int) {
+        _uiState.update { it.copy(maxSpokenSentences = count) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setMaxSpokenSentences(count)
         }
     }
 

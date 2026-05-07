@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -28,6 +29,9 @@ class VoiceOutputPreferences @Inject constructor(
     private val selectedEngineKey = stringPreferencesKey("selected_voice_output_engine")
     private val selectedSherpaVoiceKey = stringPreferencesKey("selected_sherpa_piper_voice")
     private val sherpaSpeedKey = floatPreferencesKey("sherpa_speed")
+    private val voicePitchKey = floatPreferencesKey("voice_pitch")
+    private val autoSpeakKey = booleanPreferencesKey("voice_auto_speak")
+    private val maxSpokenSentencesKey = intPreferencesKey("voice_max_spoken_sentences")
 
     val spokenResponsesEnabled: Flow<Boolean> = context.voiceOutputPrefsDataStore.data
         .catch { e ->
@@ -94,6 +98,57 @@ class VoiceOutputPreferences @Inject constructor(
     suspend fun setSherpaSpeed(speed: Float) {
         context.voiceOutputPrefsDataStore.edit { prefs ->
             prefs[sherpaSpeedKey] = speed.coerceIn(0.5f, 1.5f)
+        }
+    }
+
+    val voicePitch: Flow<Float> = context.voiceOutputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice output preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs -> (prefs[voicePitchKey] ?: 1.0f).coerceIn(0.5f, 2.0f) }
+
+    val autoSpeak: Flow<Boolean> = context.voiceOutputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice output preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs -> prefs[autoSpeakKey] ?: true }
+
+    val maxSpokenSentences: Flow<Int> = context.voiceOutputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice output preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs -> (prefs[maxSpokenSentencesKey] ?: 0).coerceIn(0, 10) }
+
+    suspend fun setVoicePitch(pitch: Float) {
+        context.voiceOutputPrefsDataStore.edit { prefs ->
+            prefs[voicePitchKey] = pitch.coerceIn(0.5f, 2.0f)
+        }
+    }
+
+    suspend fun setAutoSpeak(enabled: Boolean) {
+        context.voiceOutputPrefsDataStore.edit { prefs ->
+            prefs[autoSpeakKey] = enabled
+        }
+    }
+
+    suspend fun setMaxSpokenSentences(count: Int) {
+        context.voiceOutputPrefsDataStore.edit { prefs ->
+            prefs[maxSpokenSentencesKey] = count.coerceIn(0, 10)
         }
     }
 }

@@ -61,6 +61,7 @@ import com.kernel.ai.core.voice.VoiceInputStartResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -88,6 +89,9 @@ import javax.inject.Inject
 private const val TAG = "KernelAI"
 private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
 private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
+
+/** Stop phrases that terminate the back-and-forth voice loop (#754). */
+private val STOP_PHRASES = setOf("stop", "cancel", "done", "that's all", "thats all", "exit", "quit")
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -177,6 +181,7 @@ class ChatViewModel @Inject constructor(
     private var isVoiceStreamingEnabledForTurn = false
     private var suppressVoiceOutputForCurrentResponse = false
     private var spokenResponsesEnabled = true
+    private var autoSpeakEnabled = true
     private val _isSpeakingResponse = MutableStateFlow(false)
 
     /**
@@ -223,6 +228,13 @@ class ChatViewModel @Inject constructor(
     /** Active voice interaction mode, or null when no voice session is running (#741). */
     private val _voiceMode = MutableStateFlow<VoiceMode?>(null)
     val voiceMode: StateFlow<VoiceMode?> = _voiceMode.asStateFlow()
+
+    /** The message ID currently being played back via the per-message speaker button (#785). */
+    private val _speakingMessageId = MutableStateFlow<String?>(null)
+    val speakingMessageId: StateFlow<String?> = _speakingMessageId.asStateFlow()
+
+    /** Coroutine job for the active per-message TTS playback; null when idle. */
+    private var speakMessageJob: Job? = null
 
     /** True once [initializeConversation] has completed and [conversationId] is set. */
     private val _conversationInitialized = MutableStateFlow(false)
@@ -337,6 +349,11 @@ class ChatViewModel @Inject constructor(
                     _voicePlaybackState.value = VoicePlaybackState.Idle
                     stopVoicePlayback()
                 }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.autoSpeak.collect { enabled ->
+                autoSpeakEnabled = enabled
             }
         }
         viewModelScope.launch {
@@ -885,6 +902,55 @@ class ChatViewModel @Inject constructor(
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
+    /**
+     * Speaks [text] for the message identified by [messageId] using the per-message speaker
+     * button (#785). Calling again with the same [messageId] toggles playback off. Starting a
+     * new message automatically stops any in-progress speaker-button playback. The autoSpeak
+     * preference does NOT gate this path — the button always works on explicit tap.
+     */
+    fun speakMessage(messageId: String, text: String) {
+        if (_speakingMessageId.value == messageId) {
+            // Same message → toggle off
+            speakMessageJob?.cancel()
+            speakMessageJob = null
+            awaitingVoicePlaybackCompletion = false
+            pendingVoiceReply = false
+            voiceOutputController.stop()
+            _speakingMessageId.value = null
+            return
+        }
+        // New message — stop any previous speaker-button playback and start fresh
+        speakMessageJob?.cancel()
+        // Prevent the SpeakingStopped handler from rearming the voice loop.
+        awaitingVoicePlaybackCompletion = false
+        pendingVoiceReply = false
+        voiceOutputController.stop()
+        _speakingMessageId.value = messageId
+        val normalizedText = normalizeChatTextForSpeech(text)
+        speakMessageJob = viewModelScope.launch {
+            val maxSentences = voiceOutputPreferences.maxSpokenSentences.first()
+            val textToSpeak = truncateForSpeech(normalizedText, maxSentences)
+            try {
+                voiceOutputController.speak(VoiceSpeakRequest(text = textToSpeak))
+            } finally {
+                if (_speakingMessageId.value == messageId) {
+                    _speakingMessageId.value = null
+                }
+            }
+        }
+    }
+
+    /**
+     * Stops any in-progress per-message TTS playback triggered by the speaker button (#785).
+     * Does not affect the voice loop or streaming response playback.
+     */
+    fun stopSpeaking() {
+        speakMessageJob?.cancel()
+        speakMessageJob = null
+        voiceOutputController.stop()
+        _speakingMessageId.value = null
+    }
+
     fun submitInitialQueryIfNeeded(initialQuery: String) {
         val normalized = initialQuery.trim()
         if (normalized.isBlank()) return
@@ -1345,7 +1411,7 @@ class ChatViewModel @Inject constructor(
                 }
             }.ifBlank { null }
             prepareVoicePlaybackForTurn(
-                streamingEnabled = spokenResponsesEnabled &&
+                streamingEnabled = autoSpeakEnabled &&
                     !isToolQueryForTurn &&
                     !_correctGroundedFactsEnabled.value,
             )
@@ -1841,7 +1907,8 @@ class ChatViewModel @Inject constructor(
         val shouldSpeak = pendingVoiceReply
         pendingVoiceReply = false
         awaitingVoicePlaybackCompletion = false
-        if (!shouldSpeak || !spokenResponsesEnabled || suppressVoiceOutputForCurrentResponse) return
+        if (!shouldSpeak || !autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) return
+        // autoSpeakEnabled already reflects voiceOutputPreferences.autoSpeak via the cached field
         awaitingVoicePlaybackCompletion = true
         activeVoiceStreamingSession = voiceOutputController.openStreamingSession(
             VoiceSpeakRequest(text = "", locale = Locale.getDefault()),
@@ -1849,7 +1916,7 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun streamVoiceToken(token: String) {
-        if (!spokenResponsesEnabled || suppressVoiceOutputForCurrentResponse || !isVoiceStreamingEnabledForTurn) {
+        if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse || !isVoiceStreamingEnabledForTurn) {
             return
         }
         activeVoiceStreamingBuffer.append(token)
@@ -1870,7 +1937,7 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun finalizeVoicePlaybackForResponse(finalContent: String) {
-        if (!spokenResponsesEnabled || suppressVoiceOutputForCurrentResponse) {
+        if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) {
             stopVoicePlayback()
             return
         }
@@ -1959,17 +2026,26 @@ class ChatViewModel @Inject constructor(
             _voiceCaptureState.value = VoiceCaptureState.Idle
             return
         }
+        // #754: Intercept stop phrases when back-and-forth loop is active.
+        if (_voiceMode.value == VoiceMode.BackAndForth && isStopCommand(transcript)) {
+            Log.d(TAG, "Stop command intercepted in back-and-forth loop: \"$transcript\"")
+            stopVoiceInput()
+            return
+        }
         _voiceCaptureState.value = VoiceCaptureState.Processing(transcript)
         onInputChanged(transcript)
         sendMessage(SubmitMode.Voice)
     }
+
+    private fun isStopCommand(transcript: String): Boolean =
+        transcript.trim().lowercase() in STOP_PHRASES
 
     /** Speaks the assistant reply if this was a voice-originated turn. */
     private suspend fun speakAssistantReplyIfNeeded(content: String) {
         val shouldSpeak = pendingVoiceReply
         pendingVoiceReply = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
-        if (!shouldSpeak || !spokenResponsesEnabled) {
+        if (!shouldSpeak || !autoSpeakEnabled) {
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
             return

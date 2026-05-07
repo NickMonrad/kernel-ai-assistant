@@ -63,6 +63,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -145,6 +147,7 @@ class ChatViewModelVoiceTest {
         coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
         every { voiceOutputController.stop() } just runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
+        every { voiceOutputPreferences.maxSpokenSentences } returns flowOf(0)
         every { nzTruthSeedingService.isSeeding } returns MutableStateFlow(false)
         every { nzTruthSeedingService.seedIfNeeded() } just runs
         coEvery { verboseLoggingPreferenceUseCase.loadAndApplyVerboseLoggingPreference() } just runs
@@ -410,6 +413,69 @@ class ChatViewModelVoiceTest {
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
         verify(exactly = 1) { voiceInputController.stopListening() }
+    }
+
+    @Test
+    fun `stop phrase in back-and-forth loop ends the session without submitting a message`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        advanceUntilIdle()
+
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "stop"))
+        advanceUntilIdle()
+
+        assertEquals("", viewModel.getConversationAsText())
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        assertEquals(null, viewModel.voiceMode.value)
+        verify(exactly = 1) { voiceInputController.stopListening() }
+    }
+
+    @Test
+    fun `cancel phrase in back-and-forth loop ends the session`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        advanceUntilIdle()
+
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "cancel"))
+        advanceUntilIdle()
+
+        assertEquals("", viewModel.getConversationAsText())
+        assertEquals(null, viewModel.voiceMode.value)
+    }
+
+    @Test
+    fun `stop phrase in one-shot mode falls through normally`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("stop") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "stop")
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "stop"))
+        advanceUntilIdle()
+
+        // In one-shot mode "stop" is treated as a regular message
+        assertTrue(viewModel.getConversationAsText().contains("You: stop"))
+    }
+
+    @Test
+    fun `non-stop phrase in back-and-forth mode submits normally`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("what time is it") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "what time is it")
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "what time is it"))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.getConversationAsText().contains("You: what time is it"))
     }
 
     private fun createViewModel(): ChatViewModel = ChatViewModel(

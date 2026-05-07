@@ -44,6 +44,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Add
@@ -167,6 +169,7 @@ fun ChatScreen(
         )
         is ChatUiState.Ready -> {
             val isSeeding by viewModel.isSeeding.collectAsState()
+            val speakingMessageId by viewModel.speakingMessageId.collectAsStateWithLifecycle()
             ChatContent(
                 state = state,
                 isSeeding = isSeeding,
@@ -187,6 +190,8 @@ fun ChatScreen(
                 onStartBackAndForthVoiceInput = viewModel::startBackAndForthVoiceInput,
                 onStopVoiceInput = viewModel::stopVoiceInput,
                 onStopVoiceOutput = viewModel::stopVoiceOutput,
+                speakingMessageId = speakingMessageId,
+                onSpeakMessage = viewModel::speakMessage,
                 snackbarHostState = snackbarHostState,
                 onCopyMessage = { content ->
                     clipboardManager.setText(AnnotatedString(stripMarkdownForClipboard(content)))
@@ -225,6 +230,8 @@ private fun ChatContent(
     onStartBackAndForthVoiceInput: () -> Unit,
     onStopVoiceInput: () -> Unit,
     onStopVoiceOutput: () -> Unit,
+    speakingMessageId: String?,
+    onSpeakMessage: (String, String) -> Unit,
     snackbarHostState: SnackbarHostState,
     onCopyMessage: (String) -> Unit,
     onCopyAll: () -> Unit,
@@ -326,6 +333,8 @@ private fun ChatContent(
                                 message = message,
                                 onCopy = { content -> onCopyMessage(content) },
                                 showThinkingProcess = state.showThinkingProcess,
+                                isSpeaking = speakingMessageId == message.id,
+                                onSpeak = { onSpeakMessage(message.id, message.content) },
                             )
                         }
                         if (state.isLoadingModel) {
@@ -482,6 +491,8 @@ private fun MessageBubble(
     message: ChatMessage,
     onCopy: (String) -> Unit,
     showThinkingProcess: Boolean = true,
+    isSpeaking: Boolean = false,
+    onSpeak: () -> Unit = {},
 ) {
     val isUser = message.role == ChatMessage.Role.USER
     val bubbleColor = if (isUser) {
@@ -631,6 +642,32 @@ private fun MessageBubble(
                                         ),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
+                                }
+                            }
+                            // Per-message TTS speaker button (#785) — only for completed messages
+                            if (!message.isStreaming && message.content.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                ) {
+                                    IconButton(
+                                        onClick = onSpeak,
+                                        modifier = Modifier.size(28.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isSpeaking) {
+                                                Icons.AutoMirrored.Filled.VolumeUp
+                                            } else {
+                                                Icons.AutoMirrored.Outlined.VolumeUp
+                                            },
+                                            contentDescription = if (isSpeaking) "Stop speaking" else "Speak message",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = LocalContentColor.current.copy(
+                                                alpha = if (isSpeaking) 1f else 0.6f,
+                                            ),
+                                        )
+                                    }
                                 }
                             }
                         }

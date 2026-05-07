@@ -57,4 +57,7 @@ interface VoiceOutputController {
     ): VoiceOutputStreamingSession = BufferedVoiceOutputStreamingSession(this, request)
 
     fun stop()
+
+    /** Suspending variant of [stop]; default delegates to [stop]. */
+    suspend fun stopSpeaking() { stop() }
 }

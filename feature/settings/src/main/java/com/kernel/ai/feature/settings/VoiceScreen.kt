@@ -74,6 +74,9 @@ fun VoiceScreen(
         onVoiceOutputEngineSelected = viewModel::setVoiceOutputEngine,
         onSherpaVoiceSelected = viewModel::setSherpaVoice,
         onSherpaSpeedChanged = viewModel::setSherpaSpeed,
+        onSherpaPitchChanged = viewModel::setSherpaPitch,
+        onAutoSpeakChanged = viewModel::setAutoSpeak,
+        onMaxSpokenSentencesChanged = viewModel::setMaxSpokenSentences,
         onDownloadVoice = viewModel::downloadSherpaVoice,
         onCancelVoiceDownload = viewModel::cancelSherpaVoiceDownload,
         onDeleteVoice = viewModel::deleteSherpaVoice,
@@ -91,6 +94,9 @@ private fun VoiceScreenContent(
     onVoiceOutputEngineSelected: (VoiceOutputEngine) -> Unit,
     onSherpaVoiceSelected: (SherpaPiperVoice) -> Unit,
     onSherpaSpeedChanged: (Float) -> Unit,
+    onSherpaPitchChanged: (Float) -> Unit,
+    onAutoSpeakChanged: (Boolean) -> Unit,
+    onMaxSpokenSentencesChanged: (Int) -> Unit,
     onDownloadVoice: (SherpaPiperVoice) -> Unit,
     onCancelVoiceDownload: (SherpaPiperVoice) -> Unit,
     onDeleteVoice: (SherpaPiperVoice) -> Unit,
@@ -218,6 +224,68 @@ private fun VoiceScreenContent(
             )
             HorizontalDivider()
 
+            // Auto-speak and max spoken sentences — shown for all TTS engines
+            Text(
+                text = "Chat voice behaviour",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+
+            ListItem(
+                headlineContent = { Text("Auto-speak chat replies") },
+                supportingContent = {
+                    Text(
+                        text = "Automatically speak assistant replies in voice mode.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.autoSpeak,
+                        onCheckedChange = onAutoSpeakChanged,
+                    )
+                },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                headlineContent = { Text("Max spoken sentences") },
+                supportingContent = {
+                    val label = if (uiState.maxSpokenSentences == 0) "Unlimited" else "${uiState.maxSpokenSentences}"
+                    Text(
+                        text = "Limit auto-spoken replies to $label sentence${if (uiState.maxSpokenSentences == 1) "" else "s"}. 0 = unlimited.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                trailingContent = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        listOf(0, 2, 3, 5).forEach { n ->
+                            val selected = uiState.maxSpokenSentences == n
+                            TextButton(
+                                onClick = { onMaxSpokenSentencesChanged(n) },
+                                colors = if (selected) {
+                                    androidx.compose.material3.ButtonDefaults.textButtonColors(
+                                        contentColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                                    )
+                                } else {
+                                    androidx.compose.material3.ButtonDefaults.textButtonColors()
+                                },
+                            ) {
+                                Text(
+                                    text = if (n == 0) "∞" else "$n",
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                            }
+                        }
+                    }
+                },
+            )
+            HorizontalDivider()
+
             Text(
                 text = "Spoken output engine",
                 style = MaterialTheme.typography.labelMedium,
@@ -307,6 +375,22 @@ private fun VoiceScreenContent(
                     )
                 }
 
+                // Pitch slider — range 0.5–2.0 in steps of 0.05 (29 discrete steps)
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    SliderRow(
+                        label = "Pitch",
+                        valueLabel = "%.2fx".format(uiState.sherpaPitch),
+                        value = uiState.sherpaPitch,
+                        valueRange = 0.5f..2.0f,
+                        steps = 29,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaPitchChanged(
+                                (newVal * 20).roundToInt() / 20f
+                            )
+                        },
+                    )
+                }
+
                 uiState.sherpaVoices.forEach { voiceRow ->
                     SherpaVoiceRow(
                         rowState = voiceRow,
@@ -319,6 +403,7 @@ private fun VoiceScreenContent(
                     HorizontalDivider()
                 }
             }
+
         }
     }
 }
@@ -658,6 +743,9 @@ private fun VoiceScreenPreview() {
             onVoiceOutputEngineSelected = {},
             onSherpaVoiceSelected = {},
             onSherpaSpeedChanged = {},
+            onSherpaPitchChanged = {},
+            onAutoSpeakChanged = {},
+            onMaxSpokenSentencesChanged = {},
             onDownloadVoice = {},
             onCancelVoiceDownload = {},
             onDeleteVoice = {},
