@@ -81,6 +81,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
@@ -142,9 +143,13 @@ fun ActionsScreen(
         pendingPermissionMode = null
         Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: microphone permission result granted=$granted mode=$mode")
         if (!granted) {
-            viewModel.onMicrophonePermissionDenied()
-            return@rememberLauncherForActivityResult
-        }
+                val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+                    context as android.app.Activity,
+                    Manifest.permission.RECORD_AUDIO,
+                )
+                viewModel.onMicrophonePermissionDenied(permanent)
+                return@rememberLauncherForActivityResult
+            }
         when (mode) {
             VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
             VoiceCaptureMode.SlotReply -> viewModel.startVoiceSlotReply()

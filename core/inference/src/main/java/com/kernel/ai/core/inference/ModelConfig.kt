@@ -159,5 +159,6 @@ data class ModelConfig(
     val topP: Float = 0.95f,
     val topK: Int = 64,
     val thinkingEnabled: Boolean = true,
+    val speculativeDecodingEnabled: Boolean = false,
     val toolProvider: ToolProvider? = null,
 )

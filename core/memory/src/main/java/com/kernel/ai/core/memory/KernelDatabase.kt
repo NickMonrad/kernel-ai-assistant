@@ -60,7 +60,7 @@ import java.time.ZoneId
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 31,
+    version = 32,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -399,8 +399,15 @@ abstract class KernelDatabase : RoomDatabase() {
             }
         }
 
-        /** Creates important_dates table for taught recurring personal dates (#632). */
+        /** Adds speculativeDecodingEnabled to model_settings for MTP (#772). */
         val MIGRATION_30_31 = object : Migration(30, 31) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE model_settings ADD COLUMN speculativeDecodingEnabled INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /** Creates important_dates table for taught recurring personal dates (#632). */
+        val MIGRATION_31_32 = object : Migration(31, 32) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     """

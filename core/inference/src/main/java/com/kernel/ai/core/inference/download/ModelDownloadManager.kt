@@ -79,13 +79,12 @@ class ModelDownloadManager @Inject constructor(
         }
         val tier = hardwareProfileDetector.profile.tier  // hoist BEFORE the required-model loop
         // Auto-queue all required models that aren't yet downloaded
-        KernelModel.entries
-            .filter {
-                it.isRequired && !it.isDownloaded(context) &&
-                (!it.isGated || authRepository.getAccessToken() != null) &&
-                // On FLAGSHIP, skip E2B — E4B is auto-queued below as the tier-preferred model
-                !(it == KernelModel.GEMMA_4_E2B && tier == HardwareTier.FLAGSHIP)
-            }
+          KernelModel.entries
+             .filter {
+                 it.isRequired && !it.isDownloaded(context) &&
+                 (!it.isGated || authRepository.getAccessToken() != null) &&
+                 !(it == KernelModel.GEMMA_4_E2B && tier == HardwareTier.FLAGSHIP)
+             }
             .forEach { model ->
                 Log.i(TAG, "Auto-queuing required model: ${model.displayName}")
                 startDownload(model)

@@ -686,6 +686,7 @@ class ChatViewModel @Inject constructor(
                     topP = settings.topP,
                     topK = settings.topK,
                     thinkingEnabled = settings.showThinkingProcess,
+                    speculativeDecodingEnabled = settings.speculativeDecodingEnabled,
                     toolProvider = toolProvider,
                 ))
                 // Sync to actual clamped KV-cache size (safeTokenCount / hardware-tier cap).
@@ -728,6 +729,7 @@ class ChatViewModel @Inject constructor(
                 // embeddingEngine.close() removed — it silently broke search_memory (#445)
 
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
+                Log.d(TAG, "initEngineWhenReady: modelId=${preferred.modelId} speculativeDecodingEnabled=${settings.speculativeDecodingEnabled}")
                 activeContextWindowSize = settings.contextWindowSize
                 _showThinkingProcess.value = settings.showThinkingProcess
                 _correctGroundedFactsEnabled.value = settings.correctGroundedFactsEnabled
@@ -739,6 +741,7 @@ class ChatViewModel @Inject constructor(
                     topP = settings.topP,
                     topK = settings.topK,
                     thinkingEnabled = settings.showThinkingProcess,
+                    speculativeDecodingEnabled = settings.speculativeDecodingEnabled,
                     toolProvider = toolProvider,
                 ))
                 // Sync to actual clamped KV-cache size (safeTokenCount / hardware-tier cap).
@@ -883,6 +886,14 @@ class ChatViewModel @Inject constructor(
                     _error.value = withVoiceSettingsHint(result.message)
                 }
             }
+        }
+    }
+
+    fun onMicrophonePermissionDenied(permanent: Boolean = false) {
+        _error.value = if (permanent) {
+            "Microphone access permanently denied. Enable it in Settings → App permissions."
+        } else {
+            "Microphone permission is required for voice input."
         }
     }
 
@@ -1665,6 +1676,7 @@ class ChatViewModel @Inject constructor(
             } while (needsHallucinationRetry)
 
             } catch (e: Exception) {
+                Log.e("KernelAI", "Inference exception in sendMessage — generation failed", e)
                 _voiceMode.value = null
                 pendingVoiceReply = false
                 _voiceCaptureState.value = VoiceCaptureState.Idle
