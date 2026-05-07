@@ -18,6 +18,7 @@ import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Channel
+import com.google.ai.edge.litertlm.Capabilities
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.ToolProvider
@@ -438,11 +439,29 @@ class LiteRtInferenceEngine @Inject constructor(
                     maxNumTokens = config.maxTokens,
                     cacheDir = context.cacheDir.absolutePath,
                 )
+                // MTP speculative decoding must be enabled BEFORE Engine.initialize() —
+                // Gallery pattern: the flag is compiled into the engine at init time, not at
+                // createConversation() time. Check Capabilities first to guard unsupported models.
+                var supportsSpeculativeDecoding = false
+                if (config.speculativeDecodingEnabled) {
+                    try {
+                        Capabilities(config.modelPath).use {
+                            supportsSpeculativeDecoding = it.hasSpeculativeDecodingSupport()
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Capabilities check failed, assuming no MTP support: ${e.message}")
+                    }
+                }
+                val speculativeDecoding = config.speculativeDecodingEnabled && supportsSpeculativeDecoding
+                ExperimentalFlags.enableSpeculativeDecoding = speculativeDecoding
+                Log.d(TAG, "Speculative decoding: requested=${config.speculativeDecodingEnabled} supported=$supportsSpeculativeDecoding active=$speculativeDecoding")
                 val eng = Engine(engineConfig)
                 eng.initialize()
+                ExperimentalFlags.enableSpeculativeDecoding = false
                 Log.i(TAG, "Backend $backendType initialized successfully")
                 return Pair(eng, backendType)
             } catch (e: Exception) {
+                ExperimentalFlags.enableSpeculativeDecoding = false
                 Log.w(TAG, "Backend $backendType failed: ${e.message}")
                 lastException = e
             }
@@ -486,12 +505,6 @@ class LiteRtInferenceEngine @Inject constructor(
             ExperimentalFlags.enableConversationConstrainedDecoding = true
         }
 
-        // Enable MTP speculative decoding for compatible models (Gemma 4) — Gallery pattern.
-        // Must be set before createConversation() and reset after.
-        if (config.speculativeDecodingEnabled) {
-            ExperimentalFlags.enableSpeculativeDecoding = true
-        }
-
         return ConversationConfig(
             samplerConfig = samplerConfig,
             systemInstruction = systemInstruction,
@@ -503,7 +516,8 @@ class LiteRtInferenceEngine @Inject constructor(
     /** Reset experimental flags after each createConversation() call (Gallery pattern). */
     private fun resetExperimentalFlags() {
         ExperimentalFlags.enableConversationConstrainedDecoding = false
-        ExperimentalFlags.enableSpeculativeDecoding = false
+        // Note: enableSpeculativeDecoding is reset immediately after engine.initialize() in
+        // createEngineWithFallback() — it does not need to be reset here.
     }
 
     private fun safeCancel(conv: com.google.ai.edge.litertlm.Conversation?) {
