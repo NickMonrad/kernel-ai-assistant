@@ -286,6 +286,7 @@ class LiteRtInferenceEngine @Inject constructor(
         InferenceGenerationService.start(context)
         val start = System.currentTimeMillis()
         var firstTokenMs: Long = -1
+        var outputTokenCount = 0
         var thinkingCharCount = 0
 
         try {
@@ -306,16 +307,22 @@ class LiteRtInferenceEngine @Inject constructor(
                             firstTokenMs = System.currentTimeMillis() - start
                             Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                         }
+                        outputTokenCount++
                         trySend(GenerationResult.Token(text))
                     }
                 }
 
                 override fun onDone() {
                     val durationMs = System.currentTimeMillis() - start
+                    val generationMs = durationMs - firstTokenMs.coerceAtLeast(0)
+                    val tokensPerSec = if (generationMs > 0 && outputTokenCount > 0) {
+                        outputTokenCount * 1000.0 / generationMs
+                    } else 0.0
                     if (thinkingCharCount > 0) {
                         Log.d("KernelAI", "Thinking tokens: $thinkingCharCount chars")
                     }
-                    Log.i(TAG, "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                    Log.i(TAG, "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms, " +
+                        "tokens=$outputTokenCount, speed=${"%.1f".format(tokensPerSec)}tok/s [backend=${_activeBackend.value}]")
                     _isGenerating.value = false
                     InferenceGenerationService.stop(context)
                     trySend(GenerationResult.Complete(durationMs = durationMs))
