@@ -375,11 +375,13 @@ class LiteRtInferenceEngine @Inject constructor(
         // Use tryLock + retry loop to avoid potential deadlock with the single-threaded
         // dispatcher. The generate() flow's awaitClose needs to run on this same
         // dispatcher to unlock the mutex.
+        // NOTE: Must use a for loop with break, not repeat{} — return@repeat is a continue,
+        // not a break, so repeat{} would keep iterating even after the lock is acquired.
         var acquired = false
-        repeat(20) { attempt ->
+        for (attempt in 0 until 20) {
             if (generationMutex.tryLock()) {
                 acquired = true
-                return@repeat
+                break
             }
             Log.d(TAG, "generateOnce: mutex busy, retry ${attempt + 1}/20")
             kotlinx.coroutines.delay(250L)
