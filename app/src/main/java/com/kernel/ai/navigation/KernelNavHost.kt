@@ -42,6 +42,7 @@ import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
 import com.kernel.ai.feature.settings.AboutScreen
 import com.kernel.ai.feature.settings.ContactAliasesScreen
+import com.kernel.ai.feature.settings.ImportantDatesScreen
 import com.kernel.ai.feature.settings.ListItemsScreen
 import com.kernel.ai.feature.settings.ListsScreen
 import com.kernel.ai.feature.settings.MemoryScreen
@@ -62,6 +63,7 @@ private const val ROUTE_CHAT = "chat"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_USER_PROFILE = "settings/user_profile"
 private const val ROUTE_MEMORY = "settings/memory"
+private const val ROUTE_IMPORTANT_DATES = "settings/important_dates"
 private const val ROUTE_VOICE = "settings/voice"
 private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
 private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management?scrollTo={scrollTo}"
@@ -368,6 +370,9 @@ fun KernelNavHost(
                         onNavigateToMemory = {
                             navController.navigate(ROUTE_MEMORY)
                         },
+                        onNavigateToImportantDates = {
+                            navController.navigate(ROUTE_IMPORTANT_DATES)
+                        },
                         onNavigateToVoice = {
                             navController.navigate(ROUTE_VOICE)
                         },
@@ -392,6 +397,12 @@ fun KernelNavHost(
 
                 composable(ROUTE_MEMORY) {
                     MemoryScreen(
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(ROUTE_IMPORTANT_DATES) {
+                    ImportantDatesScreen(
                         onBack = { navController.popBackStack() },
                     )
                 }
