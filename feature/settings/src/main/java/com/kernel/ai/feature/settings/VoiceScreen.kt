@@ -75,6 +75,7 @@ fun VoiceScreen(
         onSherpaVoiceSelected = viewModel::setSherpaVoice,
         onSherpaSpeedChanged = viewModel::setSherpaSpeed,
         onSherpaPitchChanged = viewModel::setSherpaPitch,
+        onSherpaGainChanged = viewModel::setSherpaGain,
         onAutoSpeakChanged = viewModel::setAutoSpeak,
         onMaxSpokenSentencesChanged = viewModel::setMaxSpokenSentences,
         onDownloadVoice = viewModel::downloadSherpaVoice,
@@ -95,6 +96,7 @@ private fun VoiceScreenContent(
     onSherpaVoiceSelected: (SherpaPiperVoice) -> Unit,
     onSherpaSpeedChanged: (Float) -> Unit,
     onSherpaPitchChanged: (Float) -> Unit,
+    onSherpaGainChanged: (Float) -> Unit,
     onAutoSpeakChanged: (Boolean) -> Unit,
     onMaxSpokenSentencesChanged: (Int) -> Unit,
     onDownloadVoice: (SherpaPiperVoice) -> Unit,
@@ -386,6 +388,22 @@ private fun VoiceScreenContent(
                         onValueChangeFinished = { newVal ->
                             onSherpaPitchChanged(
                                 (newVal * 20).roundToInt() / 20f
+                            )
+                        },
+                    )
+                }
+
+                // Volume boost slider — range 0.5–3.0 in steps of 0.25 (9 discrete steps)
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    SliderRow(
+                        label = "Volume boost",
+                        valueLabel = "%.2fx".format(uiState.sherpaGain),
+                        value = uiState.sherpaGain,
+                        valueRange = 0.5f..3.0f,
+                        steps = 9,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaGainChanged(
+                                (newVal * 4).roundToInt() / 4f
                             )
                         },
                     )
@@ -744,6 +762,7 @@ private fun VoiceScreenPreview() {
             onSherpaVoiceSelected = {},
             onSherpaSpeedChanged = {},
             onSherpaPitchChanged = {},
+            onSherpaGainChanged = {},
             onAutoSpeakChanged = {},
             onMaxSpokenSentencesChanged = {},
             onDownloadVoice = {},
