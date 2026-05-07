@@ -963,6 +963,39 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `parseDateString resolves mapped birthday aliases through contact names`() {
+        val today = LocalDate.now()
+        val expected = LocalDate.of(today.year, 4, 5).let {
+            if (!it.isBefore(today)) it else LocalDate.of(today.year + 1, 4, 5)
+        }
+        coEvery { importantDateRepository.findByLabel("my wife's birthday") } returns null
+        every { calendarBirthdayLookup.findBirthday("my wife's birthday") } returns null
+        coEvery { contactAliasRepository.getByAlias("wife") } returns ContactAliasEntity(
+            alias = "wife",
+            displayName = "Alice Smith",
+            contactId = "42",
+            phoneNumber = "021111222",
+        )
+        every { calendarBirthdayLookup.findBirthday("Alice Smith") } returns CalendarBirthdayLookup.BirthdayEntry(
+            label = "Alice Smith",
+            normalizedLabel = "alice smith",
+            month = 4,
+            day = 5,
+        )
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseDateString",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "my wife's birthday") as LocalDate?
+
+        assertEquals(expected, resolved)
+        coVerify(exactly = 1) { contactAliasRepository.getByAlias("wife") }
+        verify(exactly = 1) { calendarBirthdayLookup.findBirthday("Alice Smith") }
+    }
+
+    @Test
     fun `parseDateString prefers taught dates over calendar birthdays`() {
         val today = LocalDate.now()
         val expected = LocalDate.of(today.year, 3, 15).let {

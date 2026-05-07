@@ -2033,6 +2033,17 @@ class NativeIntentHandler @Inject constructor(
             calendarBirthdayLookup.findBirthday(s)?.let { birthday ->
                 return resolveRecurringDate(birthday.month, birthday.day, today)
             }
+
+            val aliasBirthdayLabel = ImportantDateRepository.normalizeLabel(
+                s.replace(Regex("""\bbirthday\b""", RegexOption.IGNORE_CASE), "").trim(),
+            )
+            if (aliasBirthdayLabel.isNotBlank()) {
+                runBlocking { contactAliasRepository.getByAlias(aliasBirthdayLabel) }?.let { alias ->
+                    calendarBirthdayLookup.findBirthday(alias.displayName)?.let { birthday ->
+                        return resolveRecurringDate(birthday.month, birthday.day, today)
+                    }
+                }
+            }
         }
 
         fun nextOccurrence(month: Int, day: Int): LocalDate {
