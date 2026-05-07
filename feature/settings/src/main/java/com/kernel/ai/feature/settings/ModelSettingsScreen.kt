@@ -260,6 +260,29 @@ private fun ModelCard(
             }
         }
 
+        // Speculative decoding toggle — available on all Gemma 4 models
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Speculative decoding (MTP)",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = "Multi-Token Prediction for faster responses. Only effective on Gemma 4 models. Requires app restart.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = settings.speculativeDecodingEnabled,
+                onCheckedChange = { onSettingsChanged(settings.copy(speculativeDecodingEnabled = it)) },
+            )
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedButton(
@@ -377,6 +400,7 @@ private fun ModelSettingsScreenPreview() {
             temperature = 1.0f,
             topP = 0.95f,
             correctGroundedFactsEnabled = false,
+            speculativeDecodingEnabled = false,
         )
         ModelCard(
             modelName = "Gemma 4 E-2B",

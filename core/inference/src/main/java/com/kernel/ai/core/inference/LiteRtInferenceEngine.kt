@@ -18,6 +18,7 @@ import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Channel
+import com.google.ai.edge.litertlm.Capabilities
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.ToolProvider
@@ -151,8 +152,11 @@ class LiteRtInferenceEngine @Inject constructor(
             try {
                 val (eng, backendType) = createEngineWithFallback(resolvedConfig)
                 engine = eng
-                conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
-                resetConstrainedDecodingFlag()
+                try {
+                    conversation = eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
+                } finally {
+                    resetExperimentalFlags()
+                }
                 currentConfig = resolvedConfig
                 _activeBackend.value = backendType
                 _resolvedMaxTokens.value = resolvedConfig.maxTokens
@@ -184,8 +188,11 @@ class LiteRtInferenceEngine @Inject constructor(
             // generate() or generateOnce() is suspended mid-flight using it.
             generationMutex.withLock {
                 safeClose(conversation, "conversation")
-                conversation = eng.createConversation(buildConversationConfig(backend, config))
-                resetConstrainedDecodingFlag()
+                try {
+                    conversation = eng.createConversation(buildConversationConfig(backend, config))
+                } finally {
+                    resetExperimentalFlags()
+                }
                 _isGenerating.value = false
             }
         }
@@ -211,8 +218,11 @@ class LiteRtInferenceEngine @Inject constructor(
             // LlmDispatcher remains available to run the active generation's awaitClose.
             generationMutex.withLock {
                 safeClose(conversation, "conversation")
-                conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
-                resetConstrainedDecodingFlag()
+                try {
+                    conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
+                } finally {
+                    resetExperimentalFlags()
+                }
                 _isGenerating.value = false
                 Log.i(TAG, "System prompt updated and conversation reset")
             }
@@ -276,6 +286,7 @@ class LiteRtInferenceEngine @Inject constructor(
         InferenceGenerationService.start(context)
         val start = System.currentTimeMillis()
         var firstTokenMs: Long = -1
+        var outputTokenCount = 0
         var thinkingCharCount = 0
 
         try {
@@ -296,16 +307,22 @@ class LiteRtInferenceEngine @Inject constructor(
                             firstTokenMs = System.currentTimeMillis() - start
                             Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                         }
+                        outputTokenCount++
                         trySend(GenerationResult.Token(text))
                     }
                 }
 
                 override fun onDone() {
                     val durationMs = System.currentTimeMillis() - start
+                    val generationMs = durationMs - firstTokenMs.coerceAtLeast(0)
+                    val tokensPerSec = if (generationMs > 0 && outputTokenCount > 0) {
+                        outputTokenCount * 1000.0 / generationMs
+                    } else 0.0
                     if (thinkingCharCount > 0) {
                         Log.d("KernelAI", "Thinking tokens: $thinkingCharCount chars")
                     }
-                    Log.i(TAG, "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                    Log.i(TAG, "Generation complete: total=${durationMs}ms, TTFT=${firstTokenMs}ms, " +
+                        "tokens=$outputTokenCount, speed=${"%.1f".format(tokensPerSec)}tok/s [backend=${_activeBackend.value}]")
                     _isGenerating.value = false
                     InferenceGenerationService.stop(context)
                     trySend(GenerationResult.Complete(durationMs = durationMs))
@@ -365,11 +382,13 @@ class LiteRtInferenceEngine @Inject constructor(
         // Use tryLock + retry loop to avoid potential deadlock with the single-threaded
         // dispatcher. The generate() flow's awaitClose needs to run on this same
         // dispatcher to unlock the mutex.
+        // NOTE: Must use a for loop with break, not repeat{} — return@repeat is a continue,
+        // not a break, so repeat{} would keep iterating even after the lock is acquired.
         var acquired = false
-        repeat(20) { attempt ->
+        for (attempt in 0 until 20) {
             if (generationMutex.tryLock()) {
                 acquired = true
-                return@repeat
+                break
             }
             Log.d(TAG, "generateOnce: mutex busy, retry ${attempt + 1}/20")
             kotlinx.coroutines.delay(250L)
@@ -429,11 +448,29 @@ class LiteRtInferenceEngine @Inject constructor(
                     maxNumTokens = config.maxTokens,
                     cacheDir = context.cacheDir.absolutePath,
                 )
+                // MTP speculative decoding must be enabled BEFORE Engine.initialize() —
+                // Gallery pattern: the flag is compiled into the engine at init time, not at
+                // createConversation() time. Check Capabilities first to guard unsupported models.
+                var supportsSpeculativeDecoding = false
+                if (config.speculativeDecodingEnabled) {
+                    try {
+                        Capabilities(config.modelPath).use {
+                            supportsSpeculativeDecoding = it.hasSpeculativeDecodingSupport()
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Capabilities check failed, assuming no MTP support: ${e.message}")
+                    }
+                }
+                val speculativeDecoding = config.speculativeDecodingEnabled && supportsSpeculativeDecoding
+                ExperimentalFlags.enableSpeculativeDecoding = speculativeDecoding
+                Log.d(TAG, "Speculative decoding: requested=${config.speculativeDecodingEnabled} supported=$supportsSpeculativeDecoding active=$speculativeDecoding")
                 val eng = Engine(engineConfig)
                 eng.initialize()
+                ExperimentalFlags.enableSpeculativeDecoding = false
                 Log.i(TAG, "Backend $backendType initialized successfully")
                 return Pair(eng, backendType)
             } catch (e: Exception) {
+                ExperimentalFlags.enableSpeculativeDecoding = false
                 Log.w(TAG, "Backend $backendType failed: ${e.message}")
                 lastException = e
             }
@@ -472,7 +509,7 @@ class LiteRtInferenceEngine @Inject constructor(
         }
 
         // Enable constrained decoding for well-formed tool calls (Google Gallery pattern).
-        // Must be set before createConversation() and reset after via resetConstrainedDecodingFlag().
+        // Must be set before createConversation() and reset after via resetExperimentalFlags().
         if (tools.isNotEmpty()) {
             ExperimentalFlags.enableConversationConstrainedDecoding = true
         }
@@ -485,9 +522,11 @@ class LiteRtInferenceEngine @Inject constructor(
         )
     }
 
-    /** Reset the experimental flag after each createConversation() call (Gallery pattern). */
-    private fun resetConstrainedDecodingFlag() {
+    /** Reset experimental flags after each createConversation() call (Gallery pattern). */
+    private fun resetExperimentalFlags() {
         ExperimentalFlags.enableConversationConstrainedDecoding = false
+        // Note: enableSpeculativeDecoding is reset immediately after engine.initialize() in
+        // createEngineWithFallback() — it does not need to be reset here.
     }
 
     private fun safeCancel(conv: com.google.ai.edge.litertlm.Conversation?) {

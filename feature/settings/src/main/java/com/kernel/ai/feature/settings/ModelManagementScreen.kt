@@ -141,6 +141,7 @@ fun ModelManagementScreen(
                     isAuthenticated = uiState.hfAuthenticated,
                     onDownload = { viewModel.downloadModel(rowState.model) },
                     onCancel = { viewModel.cancelDownload(rowState.model) },
+                    onUpdate = { viewModel.updateModel(rowState.model) },
                     onDelete = { viewModel.deleteModel(rowState.model) },
                     onViewLicence = { url -> uriHandler.openUri(url) },
                     onRetry = { viewModel.downloadModel(rowState.model) },
@@ -404,6 +405,7 @@ private fun ModelRow(
     isAuthenticated: Boolean,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
+    onUpdate: () -> Unit,
     onDelete: () -> Unit,
     onViewLicence: (String) -> Unit,
     onRetry: () -> Unit,
@@ -513,6 +515,10 @@ private fun ModelRow(
                                 tint = Color(0xFF4CAF50),
                                 modifier = Modifier.size(20.dp),
                             )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            TextButton(onClick = onUpdate) {
+                                Text("Update")
+                            }
                             if (!model.isRequired) {
                                 Spacer(modifier = Modifier.width(4.dp))
                                 TextButton(onClick = onDelete) {

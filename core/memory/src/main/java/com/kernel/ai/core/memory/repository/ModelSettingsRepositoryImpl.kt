@@ -39,6 +39,7 @@ class ModelSettingsRepositoryImpl @Inject constructor(
             topK = 64,
             showThinkingProcess = true,
             correctGroundedFactsEnabled = false,
+            speculativeDecodingEnabled = false,
             updatedAt = System.currentTimeMillis(),
         )
     }
