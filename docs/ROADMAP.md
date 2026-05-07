@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-05-06 (voice roadmap updated after merged PR #777; next TTS quality slice documented)
+> **Last updated:** 2026-05-16 (PRs #780 and #789 merged; TTS quality + voice UX features documented)
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -274,21 +274,32 @@ Lower-priority skill additions — third-party integrations and local utilities.
 |-----------|-------|--------|----------|
 | [#671](https://github.com/NickMonrad/kernel-ai-assistant/issues/671) | Offline push-to-talk voice input foundation | ✅ Done — PR #711 | 🟡 Medium |
 | [#672](https://github.com/NickMonrad/kernel-ai-assistant/issues/672) | Generic spoken response / TTS foundation | ✅ Done — PR #711 | 🟡 Medium |
-| [#775](https://github.com/NickMonrad/kernel-ai-assistant/issues/775) | TTS quality — Māori/Kiwi pronunciation + cadence shaping | ✅ Done — PR #780 | 🟡 Medium |
 | [#678](https://github.com/NickMonrad/kernel-ai-assistant/issues/678) | Optional native Android STT engine alongside Vosk | 🔄 In Progress — PR #714 | 🟡 Medium |
 | [#700](https://github.com/NickMonrad/kernel-ai-assistant/issues/700) | Parakeet CTC STT evaluation | ⬜ Pending | 🟡 Medium |
 | [#703](https://github.com/NickMonrad/kernel-ai-assistant/issues/703) | Whisper.cpp vs Vosk STT evaluation | ⬜ Pending | 🟡 Medium |
+| [#754](https://github.com/NickMonrad/kernel-ai-assistant/issues/754) | Verbal stop command during TTS playback | ✅ Done — PR #789 | 🟡 Medium |
+| [#755](https://github.com/NickMonrad/kernel-ai-assistant/issues/755) | Incremental / low-latency streaming TTS during generation | ✅ Done — PR #780 | 🔴 High |
+| [#770](https://github.com/NickMonrad/kernel-ai-assistant/issues/770) | Sherpa voice quality evaluation | ✅ Done — PR #780 | 🟡 Medium |
+| [#775](https://github.com/NickMonrad/kernel-ai-assistant/issues/775) | TTS quality fixes (URL colon preservation, speech rate clamping, sentence splitting) | ✅ Done — PR #780 | 🟡 Medium |
+| [#781](https://github.com/NickMonrad/kernel-ai-assistant/issues/781) | Semaine emotional TTS styles | ⬜ Pending | 🟢 Low |
+| [#782](https://github.com/NickMonrad/kernel-ai-assistant/issues/782) | VCTK speaker selection | ⬜ Pending | 🟢 Low |
+| [#783](https://github.com/NickMonrad/kernel-ai-assistant/issues/783) | Kokoro-82M / VoxSherpa research | ⬜ Pending | 🟢 Low |
+| [#784](https://github.com/NickMonrad/kernel-ai-assistant/issues/784) | Kiwi language corpus tuning | ⬜ Pending | 🟢 Low |
+| [#785](https://github.com/NickMonrad/kernel-ai-assistant/issues/785) | Per-message speaker button | ✅ Done — PR #789 | 🟡 Medium |
+| [#786](https://github.com/NickMonrad/kernel-ai-assistant/issues/786) | Expanded TTS settings (pitch, auto-speak toggle, max spoken sentences) | ✅ Done — PR #789 | 🟡 Medium |
+| [#788](https://github.com/NickMonrad/kernel-ai-assistant/issues/788) | VITS noise_scale expressiveness tuning | ⬜ Pending | 🟢 Low |
 | [#617](https://github.com/NickMonrad/kernel-ai-assistant/issues/617) | Homescreen widget for quick actions / voice | ⬜ Pending | 🟡 Medium |
 | [#659](https://github.com/NickMonrad/kernel-ai-assistant/issues/659) | Translator skill with multilingual TTS | ⬜ Pending | 🟡 Medium |
 | [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word — Picovoice Porcupine | ⬜ Pending | 🟡 Medium |
 | [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode — real-time streaming interaction | ⬜ Pending | 🟢 Low |
 
-**Current state after PR #780:**
+**Current state after merged PRs #780 and #789:**
 
-- TTS cadence and pronunciation quality improved: numbered lists, colons, and dashes now produce natural speech pauses; `kia ora` pronounced correctly as a blended Māori word.
-- Speech rate is now user-configurable (0.5–1.5×) via the Voice Settings slider; default 0.85×.
-- 9 en_GB Piper voices now available (was 5): added alba, aru, semaine, vctk.
-- Next voice quality priorities: VCTK multi-speaker selection (#782), Semaine emotional styles (#781), expanded TTS settings — pitch, auto-speak, max length (#786), Kokoro-82M evaluation (#783).
+- Streaming TTS (`runStreamingPlayback()`), per-message speaker button, verbal stop command, and expanded TTS settings are all shipped.
+- Voice quality slice complete: URL colon preservation in `cleanTextForSpeech()`, speech rate clamping on the non-streaming read-path, abbreviation-aware sentence splitting (`truncateForSpeech()` with `KNOWN_ABBREV` + `INITIALS_REGEX`), and Sherpa quality evaluation done on Samsung Galaxy S23 Ultra.
+- `autoSpeakEnabled` is now a cached field in `ChatViewModel` — chat auto-speak is fully decoupled from the Quick Actions `spokenResponsesEnabled` toggle.
+- Remaining voice quality research: Semaine emotional styles (#781), VCTK speaker selection (#782), Kokoro-82M/VoxSherpa (#783), Kiwi corpus tuning (#784), and VITS noise_scale expressiveness (#788).
+- Fallback-path issues and the appointment QIR bug ([#773](https://github.com/NickMonrad/kernel-ai-assistant/issues/773)) remain tracked separately.
 
 ---
 
@@ -531,6 +542,17 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#620](https://github.com/NickMonrad/kernel-ai-assistant/issues/620) | Bypass `needsConfirmation` for no-param MiniLM matches | Phase 3G | ✅ Done |
 | [#621](https://github.com/NickMonrad/kernel-ai-assistant/issues/621) | Multi-turn QIR: dispatch pending intent on user confirmation | Phase 3G | ✅ Done |
 | [#624](https://github.com/NickMonrad/kernel-ai-assistant/issues/624) | Add more NZ truth memories (Kiwi memes + cultural touchpoints) | Phase 3B | ⬜ Pending |
+| [#754](https://github.com/NickMonrad/kernel-ai-assistant/issues/754) | Verbal stop command during TTS playback | Phase 3F | ✅ Done — PR #789 |
+| [#755](https://github.com/NickMonrad/kernel-ai-assistant/issues/755) | Incremental / low-latency streaming TTS during generation | Phase 3F | ✅ Done — PR #780 |
+| [#770](https://github.com/NickMonrad/kernel-ai-assistant/issues/770) | Sherpa voice quality evaluation | Phase 3F | ✅ Done — PR #780 |
+| [#775](https://github.com/NickMonrad/kernel-ai-assistant/issues/775) | TTS quality fixes (URL colon, speech rate, sentence splitting) | Phase 3F | ✅ Done — PR #780 |
+| [#781](https://github.com/NickMonrad/kernel-ai-assistant/issues/781) | Semaine emotional TTS styles | Phase 3F | ⬜ Pending |
+| [#782](https://github.com/NickMonrad/kernel-ai-assistant/issues/782) | VCTK speaker selection | Phase 3F | ⬜ Pending |
+| [#783](https://github.com/NickMonrad/kernel-ai-assistant/issues/783) | Kokoro-82M / VoxSherpa research | Phase 3F | ⬜ Pending |
+| [#784](https://github.com/NickMonrad/kernel-ai-assistant/issues/784) | Kiwi language corpus tuning | Phase 3F | ⬜ Pending |
+| [#785](https://github.com/NickMonrad/kernel-ai-assistant/issues/785) | Per-message speaker button | Phase 3F | ✅ Done — PR #789 |
+| [#786](https://github.com/NickMonrad/kernel-ai-assistant/issues/786) | Expanded TTS settings (pitch, auto-speak, max sentences) | Phase 3F | ✅ Done — PR #789 |
+| [#788](https://github.com/NickMonrad/kernel-ai-assistant/issues/788) | VITS noise_scale expressiveness tuning | Phase 3F | ⬜ Pending |
 
 ---
 
