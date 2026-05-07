@@ -1665,6 +1665,7 @@ class ChatViewModel @Inject constructor(
             } while (needsHallucinationRetry)
 
             } catch (e: Exception) {
+                Log.e("KernelAI", "Inference exception in sendMessage — generation failed", e)
                 _voiceMode.value = null
                 pendingVoiceReply = false
                 _voiceCaptureState.value = VoiceCaptureState.Idle
