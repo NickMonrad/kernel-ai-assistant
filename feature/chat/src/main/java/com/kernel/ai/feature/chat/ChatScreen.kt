@@ -115,6 +115,13 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import android.Manifest
+import android.content.pm.PackageManager
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.feature.chat.R
@@ -168,8 +175,44 @@ fun ChatScreen(
             onNavigateToSettings = onNavigateToSettings,
         )
         is ChatUiState.Ready -> {
+            val context = LocalContext.current
             val isSeeding by viewModel.isSeeding.collectAsState()
             val speakingMessageId by viewModel.speakingMessageId.collectAsStateWithLifecycle()
+
+            // Track which voice action is pending while we await the permission result.
+            var pendingVoiceAction by rememberSaveable { mutableStateOf<String?>(null) }
+            val micPermissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission(),
+            ) { granted ->
+                val action = pendingVoiceAction
+                pendingVoiceAction = null
+                Log.d("ChatScreen", "Microphone permission result granted=$granted action=$action")
+                if (granted) {
+                    when (action) {
+                        "ptt" -> viewModel.startVoiceInput()
+                        "loop" -> viewModel.startBackAndForthVoiceInput()
+                    }
+                } else {
+                    viewModel.onMicrophonePermissionDenied()
+                }
+            }
+
+            fun requestVoiceCapture(action: String) {
+                val granted = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.RECORD_AUDIO,
+                ) == PackageManager.PERMISSION_GRANTED
+                if (granted) {
+                    when (action) {
+                        "ptt" -> viewModel.startVoiceInput()
+                        "loop" -> viewModel.startBackAndForthVoiceInput()
+                    }
+                } else {
+                    pendingVoiceAction = action
+                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            }
+
             ChatContent(
                 state = state,
                 isSeeding = isSeeding,
@@ -186,8 +229,8 @@ fun ChatScreen(
                 voiceCaptureState = voiceCaptureState,
                 voicePlaybackState = voicePlaybackState,
                 voiceMode = voiceMode,
-                onStartVoiceInput = viewModel::startVoiceInput,
-                onStartBackAndForthVoiceInput = viewModel::startBackAndForthVoiceInput,
+                onStartVoiceInput = { requestVoiceCapture("ptt") },
+                onStartBackAndForthVoiceInput = { requestVoiceCapture("loop") },
                 onStopVoiceInput = viewModel::stopVoiceInput,
                 onStopVoiceOutput = viewModel::stopVoiceOutput,
                 speakingMessageId = speakingMessageId,

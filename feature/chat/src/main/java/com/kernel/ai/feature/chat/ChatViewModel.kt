@@ -886,6 +886,10 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun onMicrophonePermissionDenied() {
+        _error.value = "Microphone permission is required for voice input."
+    }
+
     fun stopVoiceInput() {
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
