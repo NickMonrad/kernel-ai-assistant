@@ -7,6 +7,47 @@ package com.kernel.ai.feature.chat
 internal fun stripMarkdownForClipboard(text: String): String =
     stripMarkdown(convertLatexToUnicode(text))
 
+/**
+ * Returns [text] truncated to at most [maxSentences] sentences (split at `.`, `!`, `?`).
+ * If [maxSentences] is 0 or negative the full [text] is returned unchanged (unlimited).
+ * If [text] contains fewer than [maxSentences] sentence-ending boundaries the full text
+ * is returned so short responses are never cut off.
+ */
+private val KNOWN_ABBREV = setOf("dr", "mr", "mrs", "ms", "prof", "st", "vs", "etc", "jr", "sr")
+private val INITIALS_REGEX = Regex("""([A-Za-z]\.)+""")  // matches "U.S.", "e.g.", "i.e."
+
+private fun isAbbreviationFragment(fragment: String): Boolean {
+    val trimmed = fragment.trim()
+    if (trimmed.contains(' ')) return false          // multi-word — never an abbreviation fragment
+    val withoutTrailingPunct = trimmed.trimEnd('.', '!', '?', '"', '\'', ')')
+    return withoutTrailingPunct.lowercase() in KNOWN_ABBREV ||
+           INITIALS_REGEX.matches(withoutTrailingPunct + ".")
+}
+
+internal fun truncateForSpeech(text: String, maxSentences: Int): String {
+    if (maxSentences <= 0) return text
+    val sentenceRegex = Regex("""[^.!?]*[.!?]["')]*""")
+    val fragments = sentenceRegex.findAll(text).map { it.value }.toList()
+    // Only merge fragments that are known abbreviations (Dr., Mr., e.g., U.S.) forward into
+    // the next fragment. Single-word complete sentences like "Sure." or "Yes." are real
+    // sentence boundaries and must NOT be merged.
+    val sentences = buildList {
+        var pending = ""
+        for (fragment in fragments) {
+            if (isAbbreviationFragment(fragment)) {
+                pending += fragment
+            } else {
+                add(pending + fragment)
+                pending = ""
+            }
+        }
+        // Any trailing pending text (abbreviation at very end of input) is its own entry.
+        if (pending.isNotEmpty()) add(pending)
+    }
+    if (sentences.isEmpty() || sentences.size <= maxSentences) return text
+    return sentences.take(maxSentences).joinToString("").trimEnd()
+}
+
 internal fun normalizeChatTextForSpeech(text: String): String =
     stripMarkdownForClipboard(text)
         .replace(Regex("""\r?\n\s*\d+\.\s+"""), ". ")   // numbered list item boundary → sentence break
