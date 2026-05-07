@@ -20,6 +20,7 @@ import android.util.Log
 import android.view.KeyEvent
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
+import com.kernel.ai.core.memory.ImportantDateRepository
 import com.kernel.ai.core.memory.clock.AlarmDraft
 import com.kernel.ai.core.memory.clock.AlarmRepeatRule
 import com.kernel.ai.core.memory.clock.WorldClockCatalog
@@ -109,6 +110,9 @@ interface ClockAlertController {
  *   get_weather             — Opens Google search for weather (params: location?)
  *   get_system_info         — Returns storage and RAM info — returns DirectReply
  *   get_date_diff           — Native date arithmetic: days/weeks until or since a date (params: target_date, from_date?) — returns DirectReply
+ *   save_important_date     — Stores a taught recurring personal date (params: label, date) — returns DirectReply
+ *   list_important_dates    — Lists taught recurring personal dates — returns DirectReply
+ *   remove_important_date   — Deletes a taught recurring personal date (params: label) — returns DirectReply
  *   save_memory             — Saves content to long-term core memory (params: content)
  *   set_brightness          — Sets screen brightness (params: value?, direction?, is_percent?)
  */
@@ -120,6 +124,7 @@ class NativeIntentHandler @Inject constructor(
     private val listItemDao: ListItemDao,
     private val listNameDao: ListNameDao,
     private val contactAliasRepository: ContactAliasRepository,
+    private val importantDateRepository: ImportantDateRepository,
     private val memoryRepository: MemoryRepository,
     private val embeddingEngine: EmbeddingEngine,
 ) {
@@ -188,6 +193,9 @@ class NativeIntentHandler @Inject constructor(
                 "get_weather" -> getWeather(params)
                 "get_date_diff" -> getDateDiff(params)
                 "get_system_info" -> getSystemInfo()
+                "save_important_date" -> saveImportantDate(params)
+                "list_important_dates" -> listImportantDates()
+                "remove_important_date" -> removeImportantDate(params)
                 "save_memory" -> saveMemory(params)
                 "set_brightness" -> setBrightness(params)
                 else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
@@ -242,7 +250,8 @@ class NativeIntentHandler @Inject constructor(
             "add_to_list", "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list",
             "smart_home_on", "smart_home_off",
             "get_weather", "get_date_diff", "get_system_info",
-            "save_memory",
+            "save_important_date", "list_important_dates", "remove_important_date",
+            "save_memory", 
         )
 
         private val GENERIC_MEDIA_QUERY_KEYS = setOf(
@@ -1815,6 +1824,66 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
+    // ── Important Dates ─────────────────────────────────────────────────────────
+
+    private data class ParsedImportantDateInput(
+        val month: Int,
+        val day: Int,
+        val year: Int?,
+    )
+
+    private fun saveImportantDate(params: Map<String, String>): SkillResult {
+        val label = params["label"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("save_important_date", "No label specified")
+        val rawDate = params["date"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("save_important_date", "No date specified")
+        val parsed = parseImportantDateInput(rawDate)
+            ?: return SkillResult.Failure(
+                "save_important_date",
+                "Could not parse date '$rawDate' — use a date like '15 March' or '22 June 2018'.",
+            )
+
+        runBlocking {
+            importantDateRepository.save(
+                label = label,
+                month = parsed.month,
+                day = parsed.day,
+                year = parsed.year,
+            )
+        }
+
+        return SkillResult.DirectReply(
+            "I'll remember ${label.trim()} as ${formatImportantDate(parsed.month, parsed.day, parsed.year)}.",
+        )
+    }
+
+    private fun listImportantDates(): SkillResult {
+        val today = LocalDate.now()
+        val dates = runBlocking { importantDateRepository.getAll() }
+        if (dates.isEmpty()) {
+            return SkillResult.DirectReply("You haven't taught me any important dates yet.")
+        }
+
+        val lines = dates
+            .sortedBy { resolveRecurringDate(it.month, it.day, today) }
+            .map { "• ${it.label} — ${formatImportantDate(it.month, it.day, it.year)}" }
+
+        return SkillResult.DirectReply(
+            "Important dates:\n" + lines.joinToString("\n"),
+        )
+    }
+
+    private fun removeImportantDate(params: Map<String, String>): SkillResult {
+        val label = params["label"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("remove_important_date", "No label specified")
+        val deleted = runBlocking { importantDateRepository.deleteByLabel(label) }
+        return if (deleted > 0) {
+            SkillResult.DirectReply("Removed important date ${label.trim()}.")
+        } else {
+            SkillResult.DirectReply("I couldn't find an important date named ${label.trim()}.")
+        }
+    }
+
     // ── Date Diff ─────────────────────────────────────────────────────────────
 
     private fun getDateDiff(params: Map<String, String>): SkillResult {
@@ -1894,8 +1963,54 @@ class NativeIntentHandler @Inject constructor(
         emptyMessage = emptyMessage,
     )
 
+    private fun resolveRecurringDate(month: Int, day: Int, today: LocalDate): LocalDate {
+        val candidate = LocalDate.of(today.year, month, day)
+        return if (!candidate.isBefore(today)) candidate else LocalDate.of(today.year + 1, month, day)
+    }
+
+    private fun formatImportantDate(month: Int, day: Int, year: Int?): String {
+        val date = LocalDate.of(year ?: 2000, month, day)
+        val pattern = if (year != null) "d MMMM yyyy" else "d MMMM"
+        return date.format(DateTimeFormatter.ofPattern(pattern, Locale.ENGLISH))
+    }
+
+    private fun parseImportantDateInput(input: String): ParsedImportantDateInput? {
+        val sanitized = input.trim()
+            .replace(Regex("""\b(\d{1,2})(st|nd|rd|th)\b""", RegexOption.IGNORE_CASE), "$1")
+            .replace(",", "")
+        val fullDateFormatters = listOf(
+            DateTimeFormatter.ISO_LOCAL_DATE,
+            DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH),
+            DateTimeFormatter.ofPattern("MMMM d yyyy", Locale.ENGLISH),
+            DateTimeFormatter.ofPattern("d/M/yyyy"),
+            DateTimeFormatter.ofPattern("M/d/yyyy"),
+            DateTimeFormatter.ofPattern("d-M-yyyy"),
+            DateTimeFormatter.ofPattern("M-d-yyyy"),
+        )
+        for (formatter in fullDateFormatters) {
+            try {
+                val date = LocalDate.parse(sanitized, formatter)
+                return ParsedImportantDateInput(date.monthValue, date.dayOfMonth, date.year)
+            } catch (_: Exception) {
+            }
+        }
+
+        val partialDateFormatters = listOf(
+            DateTimeFormatter.ofPattern("d MMMM", Locale.ENGLISH),
+            DateTimeFormatter.ofPattern("MMMM d", Locale.ENGLISH),
+        )
+        for (formatter in partialDateFormatters) {
+            try {
+                val monthDay = MonthDay.parse(sanitized, formatter)
+                return ParsedImportantDateInput(monthDay.monthValue, monthDay.dayOfMonth, null)
+            } catch (_: Exception) {
+            }
+        }
+        return null
+    }
+
     /**
-     * Parses a date string in various natural formats, including named NZ/common holidays.
+     * Parses a date string in various natural formats, including taught important dates and named NZ/common holidays.
      * For dates without a year, picks the next upcoming occurrence.
      */
     private fun parseDateString(input: String): LocalDate? {
@@ -1903,12 +2018,14 @@ class NativeIntentHandler @Inject constructor(
         val today = LocalDate.now()
         val year = today.year
 
-        // Named holidays — next upcoming occurrence
+        runBlocking { importantDateRepository.findByLabel(s) }?.let { stored ->
+            return resolveRecurringDate(stored.month, stored.day, today)
+        }
+
         fun nextOccurrence(month: Int, day: Int): LocalDate {
             val candidate = LocalDate.of(year, month, day)
             return if (!candidate.isBefore(today)) candidate else LocalDate.of(year + 1, month, day)
         }
-        // Nth weekday helper: e.g. nthWeekday(2, DayOfWeek.SUNDAY, Month.MAY, year) = 2nd Sunday in May
         fun nthWeekday(n: Int, dow: java.time.DayOfWeek, month: java.time.Month, y: Int): LocalDate {
             val first = LocalDate.of(y, month, 1)
             val firstMatch = first.with(java.time.temporal.TemporalAdjusters.nextOrSame(dow))
@@ -1928,11 +2045,9 @@ class NativeIntentHandler @Inject constructor(
             "waitangi day", "waitangi" -> return nextOccurrence(2, 6)
             "anzac day", "anzac" -> return nextOccurrence(4, 25)
             "valentines day", "valentine's day", "valentines" -> return nextOccurrence(2, 14)
-            // Floating holidays (NZ): Mother's Day = 2nd Sunday May, Father's Day = 1st Sunday September
             "mothers day", "mother's day", "mothers" -> return nextFloating(java.time.Month.MAY, 2)
             "fathers day", "father's day", "fathers" -> return nextFloating(java.time.Month.SEPTEMBER, 1)
             "easter" -> {
-                // Computus (anonymous Gregorian algorithm)
                 fun easterDate(y: Int): LocalDate {
                     val a = y % 19; val b = y / 100; val c = y % 100
                     val d = b / 4; val e = b % 4; val f = (b + 8) / 25
@@ -1948,32 +2063,12 @@ class NativeIntentHandler @Inject constructor(
             }
         }
 
-        // Explicit date formats (ordered most-to-least specific)
-        val formatters = listOf(
-            DateTimeFormatter.ISO_LOCAL_DATE,                              // 2026-08-22
-            DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH),   // 22 August 2026
-            DateTimeFormatter.ofPattern("MMMM d yyyy", Locale.ENGLISH),   // August 22 2026
-            DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.ENGLISH),  // August 22, 2026
-            DateTimeFormatter.ofPattern("d/MM/yyyy"),                      // 22/08/2026
-            DateTimeFormatter.ofPattern("MM/dd/yyyy"),                     // 08/22/2026
-            DateTimeFormatter.ofPattern("d-MM-yyyy"),                      // 22-08-2026
-        )
-        for (fmt in formatters) {
-            try { return LocalDate.parse(s, fmt) } catch (_: Exception) {}
-        }
-
-        // Partial dates without year — pick next upcoming occurrence
-        val partialFormatters = listOf(
-            DateTimeFormatter.ofPattern("d MMMM", Locale.ENGLISH),  // 22 August
-            DateTimeFormatter.ofPattern("MMMM d", Locale.ENGLISH),  // August 22
-            DateTimeFormatter.ofPattern("MMMM", Locale.ENGLISH),    // August (1st of that month)
-        )
-        for (fmt in partialFormatters) {
-            try {
-                val md = MonthDay.parse(s, fmt)
-                val candidate = md.atYear(year)
-                return if (!candidate.isBefore(today)) candidate else md.atYear(year + 1)
-            } catch (_: Exception) {}
+        parseImportantDateInput(s)?.let { parsed ->
+            return if (parsed.year != null) {
+                LocalDate.of(parsed.year, parsed.month, parsed.day)
+            } else {
+                resolveRecurringDate(parsed.month, parsed.day, today)
+            }
         }
         return null
     }
