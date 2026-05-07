@@ -519,7 +519,13 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             .build()
 
         track.play()
-        track.playbackParams = PlaybackParams().setPitch(sherpaPitch.value)
+        // Only apply PlaybackParams when pitch differs from unity — routing all audio through
+        // Android's SONIC time-stretcher (even at pitch=1.0) reduces perceived loudness.
+        // Speed is fixed at 1.0 here; Sherpa already controls tempo at synthesis time.
+        val pitch = sherpaPitch.value
+        if (pitch != 1.0f) {
+            track.playbackParams = PlaybackParams().setPitch(pitch).setSpeed(1.0f)
+        }
         try {
             var offset = 0
             while (offset < samples.size && !stopped &&
