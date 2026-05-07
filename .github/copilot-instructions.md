@@ -119,7 +119,7 @@ User input
 - **Jetpack Compose** with Material 3 Dynamic Color, dark default (AMOLED-friendly)
 - **Chat-centric:** conversations list as home, chat screen as primary interaction
 - **Multiple conversations** with Room-persisted history (create/delete/rename)
-- **Voice:** tap-to-toggle with auto-stop on silence (future: wake word)
+- **Voice:** Push-to-talk and streaming modes with auto-stop on silence. Per-message speaker button (`VolumeUp` icon) on every assistant bubble — plays/stops TTS for that message independently of voice mode. Verbal stop commands ("stop", "cancel", "be quiet", "shut up", "silence") cancel TTS mid-stream and stop mic re-arm. Settings include a pitch slider (Sherpa, 0.5–2.0×), an `autoSpeakEnabled` toggle for chat auto-speak (decoupled from the Quick Actions `spokenResponsesEnabled` toggle), and a max spoken sentences cap — all grouped in a "Chat voice behaviour" section. `truncateForSpeech()` uses `KNOWN_ABBREV` + `INITIALS_REGEX` for abbreviation-aware sentence splitting. Future: wake word detection.
 - **Skill results:** inline rich cards in the conversation stream
 - **Persona:** friendly, concise, slightly playful default (future: configurable)
 
