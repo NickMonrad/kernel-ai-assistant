@@ -181,6 +181,7 @@ class ChatViewModel @Inject constructor(
     private var isVoiceStreamingEnabledForTurn = false
     private var suppressVoiceOutputForCurrentResponse = false
     private var spokenResponsesEnabled = true
+    private var autoSpeakEnabled = true
     private val _isSpeakingResponse = MutableStateFlow(false)
 
     /**
@@ -351,7 +352,10 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            voiceInputController.events.collect { event ->
+            voiceOutputPreferences.autoSpeak.collect { enabled ->
+                autoSpeakEnabled = enabled
+            }
+        }
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
@@ -1405,7 +1409,7 @@ class ChatViewModel @Inject constructor(
                 }
             }.ifBlank { null }
             prepareVoicePlaybackForTurn(
-                streamingEnabled = spokenResponsesEnabled &&
+                streamingEnabled = autoSpeakEnabled &&
                     !isToolQueryForTurn &&
                     !_correctGroundedFactsEnabled.value,
             )
@@ -1901,8 +1905,8 @@ class ChatViewModel @Inject constructor(
         val shouldSpeak = pendingVoiceReply
         pendingVoiceReply = false
         awaitingVoicePlaybackCompletion = false
-        if (!shouldSpeak || !spokenResponsesEnabled || suppressVoiceOutputForCurrentResponse) return
-        if (!voiceOutputPreferences.autoSpeak.first()) return
+        if (!shouldSpeak || !autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) return
+        // autoSpeakEnabled already reflects voiceOutputPreferences.autoSpeak via the cached field
         awaitingVoicePlaybackCompletion = true
         activeVoiceStreamingSession = voiceOutputController.openStreamingSession(
             VoiceSpeakRequest(text = "", locale = Locale.getDefault()),
@@ -1910,7 +1914,7 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun streamVoiceToken(token: String) {
-        if (!spokenResponsesEnabled || suppressVoiceOutputForCurrentResponse || !isVoiceStreamingEnabledForTurn) {
+        if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse || !isVoiceStreamingEnabledForTurn) {
             return
         }
         activeVoiceStreamingBuffer.append(token)
@@ -1931,7 +1935,7 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun finalizeVoicePlaybackForResponse(finalContent: String) {
-        if (!spokenResponsesEnabled || suppressVoiceOutputForCurrentResponse) {
+        if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) {
             stopVoicePlayback()
             return
         }
@@ -2039,13 +2043,7 @@ class ChatViewModel @Inject constructor(
         val shouldSpeak = pendingVoiceReply
         pendingVoiceReply = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
-        if (!shouldSpeak || !spokenResponsesEnabled) {
-            awaitingVoicePlaybackCompletion = false
-            _voiceMode.value = null
-            return
-        }
-
-        if (!voiceOutputPreferences.autoSpeak.first()) {
+        if (!shouldSpeak || !autoSpeakEnabled) {
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
             return
