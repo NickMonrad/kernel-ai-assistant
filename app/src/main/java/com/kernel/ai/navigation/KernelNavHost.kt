@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
@@ -152,6 +153,20 @@ fun KernelNavHost(
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
                         navController.navigate(ROUTE_SIDE_PANEL) {
+                            popUpTo(ROUTE_LIST) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                )
+                NavigationDrawerItem(
+                    label = { Text("Important dates") },
+                    icon = { Icon(Icons.Default.Event, contentDescription = null) },
+                    selected = currentBaseRoute == ROUTE_IMPORTANT_DATES,
+                    onClick = {
+                        coroutineScope.launch { drawerState.close() }
+                        navController.navigate(ROUTE_IMPORTANT_DATES) {
                             popUpTo(ROUTE_LIST) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
@@ -369,9 +384,6 @@ fun KernelNavHost(
                         },
                         onNavigateToMemory = {
                             navController.navigate(ROUTE_MEMORY)
-                        },
-                        onNavigateToImportantDates = {
-                            navController.navigate(ROUTE_IMPORTANT_DATES)
                         },
                         onNavigateToVoice = {
                             navController.navigate(ROUTE_VOICE)

@@ -1,11 +1,5 @@
 package com.kernel.ai.feature.settings
 
-import android.Manifest
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,12 +16,10 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,21 +37,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.launch
 
 /** Amber / HuggingFace brand colour — same as in OnboardingScreen. */
 private val HfOrange = Color(0xFFFF9D00)
@@ -70,7 +55,6 @@ fun SettingsScreen(
     onBack: () -> Unit = {},
     onNavigateToUserProfile: () -> Unit = {},
     onNavigateToMemory: () -> Unit = {},
-    onNavigateToImportantDates: () -> Unit = {},
     onNavigateToVoice: () -> Unit = {},
     onNavigateToModelSettings: () -> Unit = {},
     onNavigateToModelManagement: (preferred: Boolean) -> Unit = {},
@@ -80,28 +64,6 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val uriHandler = LocalUriHandler.current
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    var hasCalendarPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) == android.content.pm.PackageManager.PERMISSION_GRANTED,
-        )
-    }
-    var showCalendarPermissionRationale by remember { mutableStateOf(false) }
-    val calendarPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        hasCalendarPermission = granted
-        coroutineScope.launch {
-            snackbarHostState.showSnackbar(
-                if (granted) {
-                    "Calendar birthday access enabled."
-                } else {
-                    "Calendar birthday access denied. You can enable it later from Settings."
-                },
-            )
-        }
-    }
     LaunchedEffect(Unit) {
         viewModel.saveError.collect { message ->
             snackbarHostState.showSnackbar(message)
@@ -233,17 +195,6 @@ fun SettingsScreen(
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onNavigateToImportantDates() },
-                headlineContent = { Text("Important dates") },
-                supportingContent = { Text("Browse and edit taught dates") },
-                leadingContent = { Icon(Icons.Default.Event, contentDescription = null) },
-                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-            )
-            HorizontalDivider()
-
-            ListItem(
-                modifier = Modifier
-                    .fillMaxWidth()
                     .clickable { onNavigateToVoice() },
                 headlineContent = { Text("Voice") },
                 supportingContent = { Text("Speech and spoken response settings") },
@@ -252,43 +203,6 @@ fun SettingsScreen(
             )
             HorizontalDivider()
 
-            ListItem(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        val activity = context.findActivity()
-                        if (hasCalendarPermission) {
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar("Calendar birthday access is already enabled.")
-                            }
-                        } else if (activity != null &&
-                            ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_CALENDAR)
-                        ) {
-                            showCalendarPermissionRationale = true
-                        } else {
-                            calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
-                        }
-                    },
-                headlineContent = { Text("Calendar birthdays") },
-                supportingContent = {
-                    Text(
-                        if (hasCalendarPermission) {
-                            "Use synced contact birthdays in date queries"
-                        } else {
-                            "Optional — enable synced contact birthdays for important date lookups"
-                        },
-                    )
-                },
-                leadingContent = { Icon(Icons.Default.AccountCircle, contentDescription = null) },
-                trailingContent = {
-                    Text(
-                        if (hasCalendarPermission) "Allowed" else "Off",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-            )
-            HorizontalDivider()
 
             // ── App ───────────────────────────────────────────────────────────
             Spacer(modifier = Modifier.height(4.dp))
@@ -310,32 +224,6 @@ fun SettingsScreen(
             )
             HorizontalDivider()
         }
-    }
-    if (showCalendarPermissionRationale) {
-        AlertDialog(
-            onDismissRequest = { showCalendarPermissionRationale = false },
-            title = { Text("Allow calendar birthday access?") },
-            text = {
-                Text(
-                    "This lets Kernel AI read synced birthday calendar events so queries like 'how many days until Jane's birthday' work without teaching the date manually.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showCalendarPermissionRationale = false
-                        calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
-                    },
-                ) {
-                    Text("Continue")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCalendarPermissionRationale = false }) {
-                    Text("Not now")
-                }
-            },
-        )
     }
 }
 
@@ -468,8 +356,3 @@ private fun HuggingFaceAccountRowNotSignedInPreview() {
 }
 
 
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}

@@ -1,5 +1,14 @@
 package com.kernel.ai.feature.settings
 
+import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -35,11 +45,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,10 +59,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.time.Instant
 import java.time.LocalDate
@@ -66,16 +82,47 @@ fun ImportantDatesScreen(
     viewModel: ImportantDatesViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     var editingDate by remember { mutableStateOf<ImportantDateListItem?>(null) }
     var pendingDelete by remember { mutableStateOf<ImportantDateListItem?>(null) }
     var createRequested by remember { mutableStateOf(false) }
+    var showCalendarPermissionRationale by remember { mutableStateOf(false) }
+    var showCalendarPermissionSettingsHint by remember { mutableStateOf(false) }
+    val calendarPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        viewModel.refreshCalendarBirthdays()
+        coroutineScope.launch {
+            snackbarHostState.showSnackbar(
+                if (granted) {
+                    "Calendar birthdays enabled."
+                } else {
+                    "Calendar birthdays stay off. You can enable them here later."
+                },
+            )
+        }
+    }
+    val visibleSyncedBirthdayCount = remember(uiState.upcomingDates, uiState.laterDates) {
+        (uiState.upcomingDates + uiState.laterDates).count { it.source == ImportantDateSource.CALENDAR }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.messages.collect { message ->
             snackbarHostState.showSnackbar(message)
         }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshCalendarBirthdays()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Scaffold(
@@ -102,27 +149,34 @@ fun ImportantDatesScreen(
                 .padding(innerPadding),
             contentPadding = PaddingValues(bottom = 88.dp),
         ) {
-            if (!uiState.calendarPermissionGranted) {
-                item {
-                    ListItem(
-                        headlineContent = { Text("Calendar birthdays are off") },
-                        supportingContent = {
-                            Text("Enable Calendar birthdays in Settings to show synced birthdays here. Taught dates still work without it.")
-                        },
-                        leadingContent = { Icon(Icons.Default.Event, contentDescription = null) },
-                    )
-                    HorizontalDivider()
-                }
-            }
-
-            if (uiState.isRefreshingCalendarBirthdays) {
-                item {
-                    ListItem(
-                        headlineContent = { Text("Refreshing synced birthdays…") },
-                        supportingContent = { Text("Pulling the latest read-only birthdays from Android Calendar.") },
-                    )
-                    HorizontalDivider()
-                }
+            item {
+                CalendarBirthdayAccessRow(
+                    enabled = uiState.calendarPermissionGranted,
+                    syncedBirthdayCount = visibleSyncedBirthdayCount,
+                    isRefreshing = uiState.isRefreshingCalendarBirthdays,
+                    onToggle = { enabled ->
+                        if (enabled) {
+                            if (uiState.calendarPermissionGranted) {
+                                viewModel.refreshCalendarBirthdays()
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Calendar birthdays refreshed.")
+                                }
+                            } else {
+                                val activity = context.findActivity()
+                                if (activity != null &&
+                                    ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_CALENDAR)
+                                ) {
+                                    showCalendarPermissionRationale = true
+                                } else {
+                                    calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+                                }
+                            }
+                        } else if (uiState.calendarPermissionGranted) {
+                            showCalendarPermissionSettingsHint = true
+                        }
+                    },
+                )
+                HorizontalDivider()
             }
 
             if (!uiState.hasAnyDates) {
@@ -230,8 +284,105 @@ fun ImportantDatesScreen(
             },
         )
     }
+
+    if (showCalendarPermissionRationale) {
+        AlertDialog(
+            onDismissRequest = { showCalendarPermissionRationale = false },
+            title = { Text("Allow calendar birthdays?") },
+            text = {
+                Text(
+                    "This reads Android Calendar birthday calendars and birthday-style events like 'Jane's Birthday'. Matching taught dates still take precedence.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCalendarPermissionRationale = false
+                        calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+                    },
+                ) {
+                    Text("Continue")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCalendarPermissionRationale = false }) {
+                    Text("Not now")
+                }
+            },
+        )
+    }
+
+    if (showCalendarPermissionSettingsHint) {
+        AlertDialog(
+            onDismissRequest = { showCalendarPermissionSettingsHint = false },
+            title = { Text("Turn off calendar birthdays?") },
+            text = {
+                Text(
+                    "Android does not let the app revoke Calendar access directly. Open App info to turn this off in system permissions.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCalendarPermissionSettingsHint = false
+                        context.openAppPermissionSettings()
+                    },
+                ) {
+                    Text("Open settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCalendarPermissionSettingsHint = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
 }
 
+@Composable
+private fun CalendarBirthdayAccessRow(
+    enabled: Boolean,
+    syncedBirthdayCount: Int,
+    isRefreshing: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggle(!enabled) },
+        headlineContent = { Text("Calendar birthdays") },
+        supportingContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    if (enabled) {
+                        "Reads Android Calendar birthday calendars and birthday-style events such as 'Jane's Birthday'."
+                    } else {
+                        "Optional — include read-only birthdays from Android Calendar alongside taught dates."
+                    },
+                )
+                Text(
+                    when {
+                        isRefreshing -> "Refreshing synced birthdays…"
+                        !enabled -> "Turn this on here when you want birthday lookups without teaching each date manually."
+                        syncedBirthdayCount == 0 -> "No synced birthdays are visible yet. Matching taught dates still override synced entries."
+                        syncedBirthdayCount == 1 -> "Showing 1 synced birthday. Matching taught dates override synced entries."
+                        else -> "Showing $syncedBirthdayCount synced birthdays. Matching taught dates override synced entries."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        leadingContent = { Icon(Icons.Default.Event, contentDescription = null) },
+        trailingContent = {
+            Switch(
+                checked = enabled,
+                onCheckedChange = onToggle,
+            )
+        },
+    )
+}
 @Composable
 private fun ImportantDatesSectionHeader(title: String) {
     Text(
@@ -252,7 +403,7 @@ private fun EmptyImportantDatesState(modifier: Modifier = Modifier) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Tap + to add one here, or teach Jandal by saying something like 'remember mum's birthday is 15 March'.",
+            text = "Tap + to add one here, teach Jandal with something like 'remember mum's birthday is 15 March', or turn on Calendar birthdays above for read-only synced birthdays.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -462,3 +613,17 @@ private fun formatStoredDate(month: Int, day: Int, year: Int?): String {
 
 private fun formatNextOccurrence(date: LocalDate): String =
     "Next: ${date.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH))}"
+
+private fun Context.openAppPermissionSettings() {
+    val intent = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.fromParts("package", packageName, null),
+    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    startActivity(intent)
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
