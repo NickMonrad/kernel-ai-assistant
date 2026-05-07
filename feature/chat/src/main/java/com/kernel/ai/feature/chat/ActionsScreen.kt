@@ -64,9 +64,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
@@ -495,9 +497,8 @@ fun ActionsScreen(
     // Slot-fill sheet — shown when QIR needs a missing parameter.
     // Swipe-down or cancel = silent dismiss, no log entry.
     pendingSlot?.let { slot ->
-        SlotFillBottomSheet(
-            promptMessage = slot.request.promptMessage,
-            inputMode = slot.inputMode,
+        PendingSlotBottomSheet(
+            slot = slot,
             uiState = uiState,
             voiceCaptureState = voiceCaptureState,
             autoVoiceReplyArmed = slotReplyAutoRearmArmed,
@@ -525,6 +526,39 @@ fun ActionsScreen(
             dismissButton = {
                 TextButton(onClick = { showClearConfirmation = false }) { Text("Cancel") }
             },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PendingSlotBottomSheet(
+    slot: ActionsViewModel.PendingSlotState,
+    uiState: ActionsViewModel.UiState,
+    voiceCaptureState: ActionsViewModel.VoiceCaptureState,
+    autoVoiceReplyArmed: Boolean,
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit,
+    onVoiceReply: () -> Unit,
+    onStopVoiceReply: () -> Unit,
+) {
+    key(
+        slot.request.intentName,
+        slot.request.missingSlot.name,
+        slot.request.promptMessage,
+        slot.request.existingParams.toList(),
+        slot.inputMode,
+    ) {
+        SlotFillBottomSheet(
+            promptMessage = slot.request.promptMessage,
+            inputMode = slot.inputMode,
+            uiState = uiState,
+            voiceCaptureState = voiceCaptureState,
+            autoVoiceReplyArmed = autoVoiceReplyArmed,
+            onDismiss = onDismiss,
+            onSubmit = onSubmit,
+            onVoiceReply = onVoiceReply,
+            onStopVoiceReply = onStopVoiceReply,
         )
     }
 }
@@ -631,7 +665,9 @@ private fun SlotFillBottomSheet(
                 onValueChange = { inputText = it },
                 placeholder = { Text("Your answer…") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("slot_reply_input"),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { submit() }),
                 trailingIcon = {
@@ -658,6 +694,7 @@ private fun SlotFillBottomSheet(
                             IconButton(
                                 onClick = { submit() },
                                 enabled = inputText.isNotBlank(),
+                                modifier = Modifier.testTag("slot_reply_submit_button"),
                             ) {
                                 Icon(Icons.Default.Send, contentDescription = "Submit")
                             }

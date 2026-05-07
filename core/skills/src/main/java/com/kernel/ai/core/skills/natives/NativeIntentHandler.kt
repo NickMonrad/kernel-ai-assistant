@@ -30,6 +30,7 @@ import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -611,19 +612,27 @@ class NativeIntentHandler @Inject constructor(
 
     // ── Calendar ──────────────────────────────────────────────────────────────
 
+    private fun resolveCalendarSchedule(dateStr: String, explicitTimeStr: String?): Pair<LocalDate, String?>? {
+        val extractedDateTime = QuickIntentRouter.extractCalendarHints(dateStr)
+        val normalizedDateStr = extractedDateTime["date"]?.takeIf { it.isNotBlank() } ?: dateStr
+        val date = resolveDate(normalizedDateStr) ?: return null
+        val timeStr = explicitTimeStr?.takeIf { it.isNotBlank() }
+            ?: extractedDateTime["time"]?.takeIf { it.isNotBlank() }
+        return date to timeStr
+    }
+
     private fun createCalendarEvent(params: Map<String, String>): SkillResult {
         val title = params["title"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("run_intent", "title is required for create_calendar_event.")
         val dateStr = params["date"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("run_intent", "date is required (YYYY-MM-DD) for create_calendar_event.")
-
-        val date = resolveDate(dateStr)
-            ?: return SkillResult.Failure(
-                "run_intent",
-                "Could not parse date '$dateStr' — use YYYY-MM-DD or a relative term like 'next wednesday'.",
-            )
-
-        val timeStr = params["time"]?.takeIf { it.isNotBlank() }
+        val (date, timeStr) = resolveCalendarSchedule(
+            dateStr = dateStr,
+            explicitTimeStr = params["time"],
+        ) ?: return SkillResult.Failure(
+            "run_intent",
+            "Could not parse date '$dateStr' — use YYYY-MM-DD or a relative term like 'next wednesday'.",
+        )
         val durationMinutes = params["duration_minutes"]?.toIntOrNull() ?: 60
         if (durationMinutes <= 0) {
             return SkillResult.Failure("run_intent", "duration_minutes must be greater than 0 (received: $durationMinutes).")
@@ -1481,26 +1490,31 @@ class NativeIntentHandler @Inject constructor(
         return previous[right.length]
     }
 
-    /** Resolves a contact name to an email address. Only pre-populates on unique match. */
+    private data class ContactEmailCandidate(
+        val contactId: String,
+        val displayName: String,
+        val emailAddress: String,
+        val isPrimary: Boolean,
+        val isSuperPrimary: Boolean,
+    )
+
+    /** Resolves a contact name to an email address. Only pre-populates on deterministic match. */
     private fun resolveContactEmail(name: String): String? {
         return try {
             val aliasMatch = runBlocking { contactAliasRepository.getByAlias(name) }
             if (aliasMatch != null) {
-                val aliasEmails = queryContactEmails(
+                val aliasEmails = queryContactEmailCandidates(
                     selection = "${ContactsContract.CommonDataKinds.Email.CONTACT_ID} = ?",
                     selectionArgs = arrayOf(aliasMatch.contactId),
-                ).distinct()
-                when (aliasEmails.size) {
-                    1 -> {
-                        Log.d(TAG, "Email resolved via alias '$name' → ${aliasEmails[0]}")
-                        return aliasEmails[0]
-                    }
-                    0 -> Log.d(TAG, "Alias '${aliasMatch.alias}' found but no email found for contactId=${aliasMatch.contactId}")
-                    else -> {
-                        Log.d(TAG, "Alias '${aliasMatch.alias}' resolved to multiple emails — not pre-populating")
-                        return null
-                    }
+                )
+                selectPreferredEmailCandidate(aliasEmails)?.let { selected ->
+                    Log.d(TAG, "Email resolved via alias '$name' → ${selected.emailAddress}")
+                    return selected.emailAddress
                 }
+                Log.d(
+                    TAG,
+                    "Alias '${aliasMatch.alias}' found but no deterministic email found for contactId=${aliasMatch.contactId}",
+                )
             }
 
             val nameLookups = buildList {
@@ -1508,20 +1522,62 @@ class NativeIntentHandler @Inject constructor(
                 aliasMatch?.displayName
                     ?.takeIf { it.isNotBlank() && !it.equals(name, ignoreCase = true) }
                     ?.let(::add)
-            }
-
-            val matches = nameLookups
-                .flatMap { lookupName ->
-                    queryContactEmails(
-                        selection = "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?",
-                        selectionArgs = arrayOf("%$lookupName%"),
+            }.distinct()
+            val rankedMatches = nameLookups.flatMap { lookupName ->
+                val lookupKey = normalizeContactLookupKey(lookupName)
+                val lookupTokens = tokenizeContactLookupTerms(lookupName)
+                val exactMatches = queryContactEmailCandidates(
+                    selection = lookupTokens.joinToString(" AND ") {
+                        "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?"
+                    },
+                    selectionArgs = lookupTokens.map { "%$it%" }.toTypedArray(),
+                )
+                val matches = if (exactMatches.isNotEmpty() || lookupTokens.size <= 1) {
+                    exactMatches
+                } else {
+                    queryContactEmailCandidates(
+                        selection = lookupTokens.joinToString(" OR ") {
+                            "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?"
+                        },
+                        selectionArgs = lookupTokens.map { "%$it%" }.toTypedArray(),
                     )
                 }
-                .distinct()
-            when (matches.size) {
-                0 -> { Log.d(TAG, "No email found for '$name'"); null }
-                1 -> { Log.d(TAG, "Email resolved: '$name' → ${matches[0]}"); matches[0] }
-                else -> { Log.d(TAG, "Multiple emails match '$name' — not pre-populating"); null }
+                matches
+                    .distinctBy { "${it.contactId}:${it.emailAddress}" }
+                    .mapNotNull { candidate ->
+                        scoreContactEmailCandidate(
+                            requestedKey = lookupKey,
+                            requestedTokens = lookupTokens,
+                            candidate = candidate,
+                        )?.let { score -> candidate to score }
+                    }
+            }
+                .groupBy { "${it.first.contactId}:${it.first.emailAddress}" }
+                .values
+                .map { entries -> entries.maxBy { it.second } }
+            when {
+                rankedMatches.isEmpty() -> {
+                    Log.d(TAG, "No email found for '$name'")
+                    null
+                }
+                else -> {
+                    val bestScore = rankedMatches.maxOf { it.second }
+                    val topMatches = rankedMatches.filter { it.second == bestScore }
+                    val topContactIds = topMatches
+                        .map { it.first.contactId }
+                        .toSet()
+                    if (topContactIds.size != 1) {
+                        Log.d(TAG, "Multiple contacts match '$name' at top score — not pre-populating email")
+                        null
+                    } else {
+                        selectPreferredEmailCandidate(topMatches.map { it.first })?.emailAddress?.also {
+                            Log.d(TAG, "Email resolved: '$name' → $it")
+                        } ?: run {
+                            Log.d(TAG, "Multiple emails match '$name' without a primary address — not pre-populating")
+                            null
+                        }
+                    }
+                }
             }
         } catch (e: SecurityException) {
             Log.w(TAG, "READ_CONTACTS permission not granted — cannot resolve email for '$name'", e)
@@ -1532,14 +1588,51 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
-    private fun queryContactEmails(
+    private fun scoreContactEmailCandidate(
+        requestedKey: String,
+        requestedTokens: List<String>,
+        candidate: ContactEmailCandidate,
+    ): Int? {
+        val candidateKey = normalizeContactLookupKey(candidate.displayName)
+        if (candidateKey.isBlank()) return null
+        val candidateTokens = candidateKey.split(" ").filter { it.isNotBlank() }
+        val requestedPhrase = requestedTokens.joinToString(" ")
+        val fuzzyTokenScore = scoreFuzzyContactTokens(requestedTokens, candidateTokens)
+        return when {
+            candidateKey == requestedKey -> 500
+            candidateKey.startsWith("$requestedPhrase ") -> 420
+            candidateTokens.any { it == requestedKey } -> 380
+            requestedTokens.all { token -> candidateTokens.contains(token) } -> 320
+            candidateKey.contains(requestedPhrase) -> 260
+            candidateKey.contains(requestedKey.replace(" ", "")) -> 220
+            fuzzyTokenScore != null -> fuzzyTokenScore
+            else -> null
+        }
+    }
+
+    private fun selectPreferredEmailCandidate(candidates: List<ContactEmailCandidate>): ContactEmailCandidate? {
+        val uniqueCandidates = candidates.distinctBy { "${it.contactId}:${it.emailAddress}" }
+        return when {
+            uniqueCandidates.isEmpty() -> null
+            uniqueCandidates.size == 1 -> uniqueCandidates.first()
+            else -> {
+                uniqueCandidates.singleOrNull { it.isSuperPrimary }
+                    ?: uniqueCandidates.singleOrNull { it.isPrimary }
+            }
+        }
+    }
+
+    private fun queryContactEmailCandidates(
         selection: String,
         selectionArgs: Array<String>,
-    ): List<String> {
+    ): List<ContactEmailCandidate> {
         val uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI
         val projection = arrayOf(
             ContactsContract.CommonDataKinds.Email.ADDRESS,
             ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY,
+            ContactsContract.CommonDataKinds.Email.CONTACT_ID,
+            ContactsContract.CommonDataKinds.Email.IS_PRIMARY,
+            ContactsContract.CommonDataKinds.Email.IS_SUPER_PRIMARY,
         )
         return context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
             buildList {
@@ -1547,7 +1640,24 @@ class NativeIntentHandler @Inject constructor(
                     val address = cursor.getString(
                         cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Email.ADDRESS),
                     )
-                    if (!address.isNullOrBlank()) add(address)
+                    if (address.isNullOrBlank()) continue
+                    add(
+                        ContactEmailCandidate(
+                            contactId = cursor.getString(
+                                cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Email.CONTACT_ID),
+                            ) ?: "",
+                            displayName = cursor.getString(
+                                cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY),
+                            ) ?: "",
+                            emailAddress = address,
+                            isPrimary = cursor.getInt(
+                                cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Email.IS_PRIMARY),
+                            ) == 1,
+                            isSuperPrimary = cursor.getInt(
+                                cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Email.IS_SUPER_PRIMARY),
+                            ) == 1,
+                        ),
+                    )
                 }
             }
         }.orEmpty()

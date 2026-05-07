@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
@@ -172,10 +174,20 @@ resetExperimentalFlags()
             val config = currentConfig ?: return@withContext
             val backend = _activeBackend.value ?: BackendType.CPU
 
-            safeClose(conversation, "conversation")
-           conversation = eng.createConversation(buildConversationConfig(backend, config))
-            resetExperimentalFlags()
-            _isGenerating.value = false
+            // Signal any active generation to stop so it releases generationMutex promptly.
+            if (_isGenerating.value) {
+                Log.d(TAG, "resetConversation: signalling cancellation to active generation")
+                conversation?.cancelProcess()
+            }
+
+            // Wait for generationMutex so we don't close the conversation while
+            // generate() or generateOnce() is suspended mid-flight using it.
+            generationMutex.withLock {
+                safeClose(conversation, "conversation")
+                conversation = eng.createConversation(buildConversationConfig(backend, config))
+                resetExperimentalFlags()
+                _isGenerating.value = false
+            }
         }
     }
 
@@ -186,11 +198,24 @@ resetExperimentalFlags()
             val backend = _activeBackend.value ?: BackendType.CPU
 
             currentConfig = config.copy(systemPrompt = systemPrompt)
-            safeClose(conversation, "conversation")
-           conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
-            resetExperimentalFlags()
-            _isGenerating.value = false
-            Log.i(TAG, "System prompt updated and conversation reset")
+
+            // Signal any active generation to stop so it releases generationMutex promptly.
+            if (_isGenerating.value) {
+                Log.d(TAG, "updateSystemPrompt: signalling cancellation to active generation")
+                conversation?.cancelProcess()
+            }
+
+            // Wait for generationMutex so we don't close the conversation while
+            // generate() or generateOnce() is suspended mid-flight using it.
+            // withLock suspends the coroutine (not the dispatcher thread), so the
+            // LlmDispatcher remains available to run the active generation's awaitClose.
+            generationMutex.withLock {
+                safeClose(conversation, "conversation")
+                conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
+                resetExperimentalFlags()
+                _isGenerating.value = false
+                Log.i(TAG, "System prompt updated and conversation reset")
+            }
         }
     }
 
@@ -312,7 +337,9 @@ resetExperimentalFlags()
         awaitClose {
             _isGenerating.value = false
             InferenceGenerationService.stop(context)
-            conv.cancelProcess()
+            try { conv.cancelProcess() } catch (e: Exception) {
+                Log.w(TAG, "cancelProcess failed in awaitClose — ignoring", e)
+            }
             generationMutex.unlock()
         }
     }.flowOn(LlmDispatcher)
@@ -368,8 +395,13 @@ resetExperimentalFlags()
                     }
                 },
             )
-            latch.await()
-            sb.toString()
+            try {
+                withTimeout(30_000) { latch.await() }
+                sb.toString()
+            } catch (e: TimeoutCancellationException) {
+                Log.w(TAG, "generateOnce: timed out after 30s waiting for generation — returning empty")
+                ""
+            }
         } finally {
             generationMutex.unlock()
         }
