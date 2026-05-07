@@ -41,6 +41,8 @@ data class VoiceUiState(
     val androidNativeLanguageSummary: String? = null,
     val hasDownloadedSherpaVoice: Boolean = false,
     val isSelectedSherpaVoiceDownloaded: Boolean = false,
+    /** Active speaker ID for multi-speaker voices (VCTK). Stored as sid 0–108. */
+    val activeSpeakerId: Int = 0,
 )
 
 @HiltViewModel
@@ -130,6 +132,11 @@ class VoiceViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            voiceOutputPreferences.activeSpeakerId.collect { sid ->
+                _uiState.update { it.copy(activeSpeakerId = sid) }
+            }
+        }
+        viewModelScope.launch {
             voiceInputPreferences.autoStartAlertVoiceCommandsEnabled.collect { enabled ->
                 _uiState.update { it.copy(autoStartAlertVoiceCommandsEnabled = enabled) }
             }
@@ -212,6 +219,13 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(maxSpokenSentences = count) }
         viewModelScope.launch {
             voiceOutputPreferences.setMaxSpokenSentences(count)
+        }
+    }
+
+    fun setActiveSpeakerId(sid: Int) {
+        _uiState.update { it.copy(activeSpeakerId = sid) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setActiveSpeakerId(sid)
         }
     }
 
