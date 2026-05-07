@@ -62,8 +62,10 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 🗑️ **Alarm multiselect delete** — select multiple alarms in the Alarms screen and delete them at once
 - 📝 **Bulk list add** — add multiple items to a list in one request ("save all ingredients to shopping list")
 - 🗣️ **Offline voice controls** — push-to-talk Quick Actions plus spoken responses managed from **Settings → Voice**
-- 🔊 **Streaming spoken chat replies** — chat TTS begins playback before generation completes; numbered lists, colons, and dashes produce natural speech pauses; `kia ora` pronounced correctly as a blended Māori word
-- 🎚️ **Configurable speech rate** — 0.5–1.5× slider in **Settings → Voice** (default 0.85×), persisted across sessions; 9 en_GB Piper voices available (alba, aru, semaine, vctk added in PR #780)
+- 🔊 **Streaming spoken chat replies** — chat TTS begins playback before generation completes; preprocessing layer handles URL colon preservation, speech rate clamping, and abbreviation-aware sentence splitting (`KNOWN_ABBREV` + `INITIALS_REGEX`) so "Dr.", "Mr.", "e.g." don't break sentences; Sherpa voice quality evaluated and tuned on device
+- 🔊 **Per-message speaker button** — `VolumeUp` icon on every assistant bubble; tap to play or stop that message's TTS independently of voice mode
+- ⚙️ **Expanded TTS settings** — pitch slider (Sherpa only, 0.5–2.0×), auto-speak chat replies toggle (decoupled from Quick Actions via `autoSpeakEnabled` field), max spoken sentences dropdown (0 = unlimited, 2, 3, 5); all grouped in a **"Chat voice behaviour"** section in Settings
+- 🛑 **Verbal stop command** — saying "stop", "stop speaking", "cancel", "be quiet", "shut up", or "silence" during TTS playback cancels speech and stops mic re-arm
 
 ### Coming Soon
 - 💬 **Expanded multi-turn dialog** — broader confirmation, digression, and slot-filling coverage across more intents *(Phase 3G, #708 and follow-ups)*
