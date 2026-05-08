@@ -2013,6 +2013,7 @@ class NativeIntentHandler @Inject constructor(
         val fullDateFormatters = listOf(
             DateTimeFormatter.ISO_LOCAL_DATE,
             DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH),
+            DateTimeFormatter.ofPattern("d 'of' MMMM yyyy", Locale.ENGLISH),
             DateTimeFormatter.ofPattern("MMMM d yyyy", Locale.ENGLISH),
             DateTimeFormatter.ofPattern("d/M/yyyy"),
             DateTimeFormatter.ofPattern("M/d/yyyy"),
@@ -2029,6 +2030,7 @@ class NativeIntentHandler @Inject constructor(
 
         val partialDateFormatters = listOf(
             DateTimeFormatter.ofPattern("d MMMM", Locale.ENGLISH),
+            DateTimeFormatter.ofPattern("d 'of' MMMM", Locale.ENGLISH),
             DateTimeFormatter.ofPattern("MMMM d", Locale.ENGLISH),
         )
         for (formatter in partialDateFormatters) {
