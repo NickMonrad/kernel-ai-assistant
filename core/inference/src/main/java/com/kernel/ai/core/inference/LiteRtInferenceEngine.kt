@@ -45,6 +45,32 @@ import javax.inject.Singleton
 
 private const val TAG = "LiteRtInferenceEngine"
 
+@OptIn(ExperimentalApi::class)
+internal inline fun <T> withSpeculativeDecodingEnabledForInit(enabled: Boolean, block: () -> T): T {
+    ExperimentalFlags.enableSpeculativeDecoding = enabled
+    return try {
+        block()
+    } finally {
+        ExperimentalFlags.enableSpeculativeDecoding = false
+    }
+}
+
+internal fun resolveSpeculativeDecodingForInit(
+    requested: Boolean,
+    modelPath: String,
+    capabilityProbe: (String) -> Boolean = ::modelSupportsSpeculativeDecoding,
+): Boolean {
+    if (!requested) return false
+    return try {
+        capabilityProbe(modelPath)
+    } catch (_: Exception) {
+        false
+    }
+}
+
+private fun modelSupportsSpeculativeDecoding(modelPath: String): Boolean =
+    Capabilities(modelPath).use { it.hasSpeculativeDecodingSupport() }
+
 /**
  * LiteRT-LM implementation of [InferenceEngine].
  *
@@ -451,26 +477,17 @@ class LiteRtInferenceEngine @Inject constructor(
                 // MTP speculative decoding must be enabled BEFORE Engine.initialize() —
                 // Gallery pattern: the flag is compiled into the engine at init time, not at
                 // createConversation() time. Check Capabilities first to guard unsupported models.
-                var supportsSpeculativeDecoding = false
-                if (config.speculativeDecodingEnabled) {
-                    try {
-                        Capabilities(config.modelPath).use {
-                            supportsSpeculativeDecoding = it.hasSpeculativeDecodingSupport()
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Capabilities check failed, assuming no MTP support: ${e.message}")
-                    }
+                val speculativeDecoding = resolveSpeculativeDecodingForInit(
+                    requested = config.speculativeDecodingEnabled,
+                    modelPath = config.modelPath,
+                )
+                Log.d(TAG, "Speculative decoding: requested=${config.speculativeDecodingEnabled} active=$speculativeDecoding")
+                val eng = withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
+                    Engine(engineConfig).also { it.initialize() }
                 }
-                val speculativeDecoding = config.speculativeDecodingEnabled && supportsSpeculativeDecoding
-                ExperimentalFlags.enableSpeculativeDecoding = speculativeDecoding
-                Log.d(TAG, "Speculative decoding: requested=${config.speculativeDecodingEnabled} supported=$supportsSpeculativeDecoding active=$speculativeDecoding")
-                val eng = Engine(engineConfig)
-                eng.initialize()
-                ExperimentalFlags.enableSpeculativeDecoding = false
                 Log.i(TAG, "Backend $backendType initialized successfully")
                 return Pair(eng, backendType)
             } catch (e: Exception) {
-                ExperimentalFlags.enableSpeculativeDecoding = false
                 Log.w(TAG, "Backend $backendType failed: ${e.message}")
                 lastException = e
             }
