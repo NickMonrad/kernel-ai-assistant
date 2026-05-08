@@ -41,6 +41,7 @@ import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.SlotFillResult
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -2121,10 +2122,13 @@ class ChatViewModel @Inject constructor(
      * pre-sets [emotionOverrideSid] on the voice controller so TTS uses the right Semaine
      * speaker without the LLM needing to call [SetVoiceEmotionSkill] itself.
      *
+     * Only fires when [SherpaPiperVoice.SemaineMedium] is the active voice — no-ops silently
+     * for all other voices to avoid injecting invalid sids into single-speaker Sherpa engines.
+     *
      * Returns a [System:] context string to inject into the prompt so Jandal acknowledges
-     * the voice style naturally, or null if no emotion was detected.
+     * the voice style naturally, or null if no emotion was detected / wrong voice.
      */
-    private fun detectAndApplyVoiceEmotion(text: String): String? {
+    private suspend fun detectAndApplyVoiceEmotion(text: String): String? {
         val emotionToSid = mapOf(
             "neutral" to 0, "happy" to 1, "sad" to 2, "angry" to 3, "worried" to 4,
         )
@@ -2132,6 +2136,8 @@ class ChatViewModel @Inject constructor(
         val emotion = (match.groups["emotion1"] ?: match.groups["emotion2"] ?: match.groups["emotion3"])
             ?.value?.lowercase() ?: return null
         val sid = emotionToSid[emotion] ?: return null
+        val activeVoice = voiceOutputPreferences.selectedSherpaVoice.first()
+        if (activeVoice != SherpaPiperVoice.SemaineMedium) return null
         voiceOutputController.setEmotionOverrideSid(sid)
         Log.d("KernelAI", "Voice emotion pre-intercept: $emotion → sid=$sid")
         return "[System: set_voice_emotion — Voice tone set to $emotion for this reply.]"
