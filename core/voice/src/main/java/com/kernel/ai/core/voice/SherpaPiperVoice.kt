@@ -71,7 +71,9 @@ enum class SherpaPiperVoice(
         assetDirectoryName = "vits-piper-en_GB-semaine-medium",
         downloadKey = "en_GB-semaine-medium",
         approxDownloadBytes = 70_000_000L,
-        speakerCount = 5,
+        // speakerCount left at default 1: the shared activeSpeakerId preference is VCTK-specific;
+        // using it for Semaine would bleed VCTK speaker selections into the neutral-only path.
+        // Expose a dedicated Semaine emotional style picker before setting speakerCount = 5 here.
     ),
     VctkMedium(
         displayName = "VCTK",

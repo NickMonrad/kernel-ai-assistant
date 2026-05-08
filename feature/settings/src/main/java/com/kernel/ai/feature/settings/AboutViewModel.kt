@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDateTime
@@ -57,16 +59,20 @@ class AboutViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(AboutUiState(verboseLogging = defaultVerboseLoggingEnabled))
     val uiState: StateFlow<AboutUiState> = _uiState.asStateFlow()
 
+    private val verboseLoggingMutex = Mutex()
+
     init {
         viewModelScope.launch {
-            try {
-                val enabled = dataStore.data.map { prefs -> prefs[KEY_VERBOSE_LOGGING] ?: defaultVerboseLoggingEnabled }.first()
-                _uiState.update { it.copy(verboseLogging = enabled) }
-                voiceOutputPreferences.setVerboseLogging(enabled)
-            } catch (e: Exception) {
-                // Silently fail — verbose logging is optional
-                _uiState.update { it.copy(verboseLogging = defaultVerboseLoggingEnabled) }
-                voiceOutputPreferences.setVerboseLogging(defaultVerboseLoggingEnabled)
+            verboseLoggingMutex.withLock {
+                try {
+                    val enabled = dataStore.data.map { prefs -> prefs[KEY_VERBOSE_LOGGING] ?: defaultVerboseLoggingEnabled }.first()
+                    _uiState.update { it.copy(verboseLogging = enabled) }
+                    voiceOutputPreferences.setVerboseLogging(enabled)
+                } catch (e: Exception) {
+                    // Silently fail — verbose logging is optional
+                    _uiState.update { it.copy(verboseLogging = defaultVerboseLoggingEnabled) }
+                    voiceOutputPreferences.setVerboseLogging(defaultVerboseLoggingEnabled)
+                }
             }
         }
     }
@@ -74,14 +80,16 @@ class AboutViewModel @Inject constructor(
     fun setVerboseLogging(enabled: Boolean) {
         _uiState.update { it.copy(verboseLogging = enabled) }
         viewModelScope.launch {
-            try {
-                dataStore.edit { prefs ->
-                    prefs[KEY_VERBOSE_LOGGING] = enabled
+            verboseLoggingMutex.withLock {
+                try {
+                    dataStore.edit { prefs ->
+                        prefs[KEY_VERBOSE_LOGGING] = enabled
+                    }
+                    voiceOutputPreferences.setVerboseLogging(enabled)
+                } catch (e: Exception) {
+                    _uiState.update { it.copy(verboseLogging = !enabled) }
+                    runCatching { voiceOutputPreferences.setVerboseLogging(!enabled) }
                 }
-                voiceOutputPreferences.setVerboseLogging(enabled)
-            } catch (e: Exception) {
-                _uiState.update { it.copy(verboseLogging = !enabled) }
-                voiceOutputPreferences.setVerboseLogging(!enabled)
             }
         }
     }
