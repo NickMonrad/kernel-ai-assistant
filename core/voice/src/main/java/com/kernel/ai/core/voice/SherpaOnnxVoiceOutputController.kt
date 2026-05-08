@@ -100,6 +100,13 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     /** Reflected `generate(String, Int, Float): GeneratedAudio` method. */
     @Volatile private var generateMethod: java.lang.reflect.Method? = null
 
+    // ── Verbose logging ──────────────────────────────────────────────────────
+    @Volatile private var verboseLoggingEnabled = false
+
+    override fun setVerboseLogging(enabled: Boolean) {
+        verboseLoggingEnabled = enabled
+    }
+
     // ── Playback cancellation ────────────────────────────────────────────────
     @Volatile private var stopped = false
     @Volatile private var nextPlaybackToken = 0L
@@ -157,7 +164,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 val synthStart = System.currentTimeMillis()
                 val audioResult = genMethod.invoke(tts, request.text, effectiveSid, sherpaSpeed.value)
                     ?: return@withContext VoiceOutputResult.Unavailable("Sherpa returned null audio.")
-                Log.d(TAG, "Sherpa synthesis: ${System.currentTimeMillis() - synthStart}ms for " +
+                if (verboseLoggingEnabled) Log.d(TAG, "Sherpa synthesis: ${System.currentTimeMillis() - synthStart}ms for " +
                     "${request.text.length} chars, voice=${voice.name}, sid=$effectiveSid")
 
                 val samples = reflectGetSamples(audioResult)
@@ -353,7 +360,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                     Log.e(TAG, "Sherpa streaming generate() failed", e)
                     return
                 }
-                Log.d(TAG, "Sherpa streaming chunk: ${System.currentTimeMillis() - synthStart}ms " +
+                if (verboseLoggingEnabled) Log.d(TAG, "Sherpa streaming chunk: ${System.currentTimeMillis() - synthStart}ms " +
                     "for ${chunk.text.length} chars, sid=$effectiveSid")
                 val samples = reflectGetSamples(audioResult)
                 val sampleRate = reflectGetSampleRate(audioResult)
