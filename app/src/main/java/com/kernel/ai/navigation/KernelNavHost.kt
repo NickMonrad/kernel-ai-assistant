@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
@@ -42,6 +43,7 @@ import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
 import com.kernel.ai.feature.settings.AboutScreen
 import com.kernel.ai.feature.settings.ContactAliasesScreen
+import com.kernel.ai.feature.settings.ImportantDatesScreen
 import com.kernel.ai.feature.settings.ListItemsScreen
 import com.kernel.ai.feature.settings.ListsScreen
 import com.kernel.ai.feature.settings.MemoryScreen
@@ -62,6 +64,7 @@ private const val ROUTE_CHAT = "chat"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_USER_PROFILE = "settings/user_profile"
 private const val ROUTE_MEMORY = "settings/memory"
+private const val ROUTE_IMPORTANT_DATES = "settings/important_dates"
 private const val ROUTE_VOICE = "settings/voice"
 private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
 private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management?scrollTo={scrollTo}"
@@ -150,6 +153,20 @@ fun KernelNavHost(
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
                         navController.navigate(ROUTE_SIDE_PANEL) {
+                            popUpTo(ROUTE_LIST) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                )
+                NavigationDrawerItem(
+                    label = { Text("Important dates") },
+                    icon = { Icon(Icons.Default.Event, contentDescription = null) },
+                    selected = currentBaseRoute == ROUTE_IMPORTANT_DATES,
+                    onClick = {
+                        coroutineScope.launch { drawerState.close() }
+                        navController.navigate(ROUTE_IMPORTANT_DATES) {
                             popUpTo(ROUTE_LIST) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
@@ -392,6 +409,12 @@ fun KernelNavHost(
 
                 composable(ROUTE_MEMORY) {
                     MemoryScreen(
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(ROUTE_IMPORTANT_DATES) {
+                    ImportantDatesScreen(
                         onBack = { navController.popBackStack() },
                     )
                 }

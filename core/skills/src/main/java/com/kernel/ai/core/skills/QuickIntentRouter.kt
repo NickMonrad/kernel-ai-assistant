@@ -133,6 +133,22 @@ class QuickIntentRouter(
                 promptTemplate = "What would you like to call the list?",
             ),
         ),
+        "save_important_date" to mapOf(
+            "label" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "label",
+                promptTemplate = "What important date should I save?",
+            ),
+            "date" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "date",
+                promptTemplate = "What date is {label}?",
+            ),
+        ),
+        "remove_important_date" to mapOf(
+            "label" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "label",
+                promptTemplate = "Which important date should I remove?",
+            ),
+        ),
         "save_memory" to mapOf(
             "content" to com.kernel.ai.core.skills.slot.SlotSpec(
                 name = "content",
@@ -163,6 +179,24 @@ class QuickIntentRouter(
     private fun normalizeOptionalItem(raw: String): String? = raw.trim()
         .takeIf { it.isNotBlank() }
         ?.takeUnless { it.lowercase() in placeholderItems }
+
+    private fun normalizeImportantDateLabel(raw: String): String = raw.trim()
+        .replace(Regex("""^(?:my|the)\s+""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""^(?:an?\s+)?important\s+date(?:\s+for)?\s+""", RegexOption.IGNORE_CASE), "")
+        .trim()
+
+    private fun normalizeImportantDateLabelOrNull(raw: String): String? =
+        normalizeImportantDateLabel(raw).takeIf { it.isNotBlank() }
+
+    private val importantDateValuePattern =
+        "(?:\\d{1,2}(?:st|nd|rd|th)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|[a-zA-Z]+\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})"
+
+    private fun extractImportantDateParams(label: String, date: String): Map<String, String> {
+        val params = mutableMapOf<String, String>()
+        normalizeImportantDateLabelOrNull(label)?.let { params["label"] = it }
+        date.trim().takeIf { it.isNotBlank() }?.let { params["date"] = it }
+        return params
+    }
 
 
 
@@ -2252,7 +2286,7 @@ class QuickIntentRouter(
                 """(?:how\s+(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?(?:until|till|to|before))\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "until") }
         ),
         // "how many days since March 1" / "how long since Easter"
         IntentPattern(
@@ -2261,7 +2295,7 @@ class QuickIntentRouter(
                 """(?:how\s+(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?since)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "since") }
         ),
         // "days until Christmas" / "weeks until New Year"
         IntentPattern(
@@ -2270,7 +2304,7 @@ class QuickIntentRouter(
                 """(?:days?|weeks?)\s+(?:until|till|to)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "until") }
         ),
         // "what day of the week is 22 August" / "what day is Christmas"  (not "what day is X this year")
         IntentPattern(
@@ -2416,6 +2450,90 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
             requiredSlots = slotContract("create_list"),
+        ),
+        // ── Important Dates ──
+        IntentPattern(
+            intentName = "list_important_dates",
+            regex = Regex(
+                """^(?:list|show(?:\s+me)?|what(?:'s|\s+are))\s+(?:my\s+)?important dates$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+date(?:\s+for)?\s+)?(.+?)\s+(?:is|as|on)\s+($importantDateValuePattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractImportantDateParams(
+                    label = match.groupValues[1],
+                    date = match.groupValues[2],
+                )
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^my\s+(.+?)\s+is\s+($importantDateValuePattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractImportantDateParams(
+                    label = match.groupValues[1],
+                    date = match.groupValues[2],
+                )
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^(?:add|create)(?:\s+an?)?\s+important\s+date(?:\s+for)?\s+(.+?)\s+($importantDateValuePattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractImportantDateParams(
+                    label = match.groupValues[1],
+                    date = match.groupValues[2],
+                )
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^(?:remember|save|store|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+date(?:\s+for)?\s+)?(.+?\b(?:birthday|anniversary)\b.*)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                normalizeImportantDateLabelOrNull(match.groupValues[1])?.let { mapOf("label" to it) } ?: emptyMap()
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "remove_important_date",
+            regex = Regex(
+                """^(?:remove|delete|forget)\s+(.+?)\s+from\s+(?:my\s+)?important dates$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                normalizeImportantDateLabelOrNull(match.groupValues[1])?.let { mapOf("label" to it) } ?: emptyMap()
+            },
+            requiredSlots = slotContract("remove_important_date"),
+        ),
+        IntentPattern(
+            intentName = "remove_important_date",
+            regex = Regex(
+                """^(?:remove|delete|forget)\s+(.+?\b(?:birthday|anniversary)\b.*)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                normalizeImportantDateLabelOrNull(match.groupValues[1])?.let { mapOf("label" to it) } ?: emptyMap()
+            },
+            requiredSlots = slotContract("remove_important_date"),
         ),
         // "remove milk from my shopping list" / "take eggs off the grocery list"
         IntentPattern(

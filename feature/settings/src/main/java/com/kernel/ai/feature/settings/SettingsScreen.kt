@@ -64,7 +64,6 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val uriHandler = LocalUriHandler.current
-
     LaunchedEffect(Unit) {
         viewModel.saveError.collect { message ->
             snackbarHostState.showSnackbar(message)
@@ -203,6 +202,7 @@ fun SettingsScreen(
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()
+
 
             // ── App ───────────────────────────────────────────────────────────
             Spacer(modifier = Modifier.height(4.dp))
@@ -354,4 +354,5 @@ private fun HuggingFaceAccountRowNotSignedInPreview() {
         )
     }
 }
+
 

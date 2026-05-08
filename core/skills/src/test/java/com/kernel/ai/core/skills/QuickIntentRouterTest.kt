@@ -738,6 +738,26 @@ class QuickIntentRouterTest {
             assertEquals("London", intent.params["location"])
         }
 
+    @Test
+    fun `date diff until phrases tag direction as until`() {
+        val result = regexOnlyRouter.route("how long until Christmas")
+        assertRegexMatch(result, "get_date_diff", "how long until Christmas")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("until", intent.params["direction"])
+        assertEquals("Christmas", intent.params["target_date"])
+    }
+
+    @Test
+    fun `date diff since phrases tag direction as since`() {
+        val result = regexOnlyRouter.route("how long since Easter")
+        assertRegexMatch(result, "get_date_diff", "how long since Easter")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("since", intent.params["direction"])
+        assertEquals("Easter", intent.params["target_date"])
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // E4B FALLTHROUGH — these should NEVER match Tier 2
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1535,6 +1555,56 @@ class QuickIntentRouterTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // IMPORTANT DATES TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Important Dates")
+    inner class ImportantDates {
+
+        @ParameterizedTest(name = "Save important date: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#importantDateSaveRegexPhrases")
+        fun `should match save important date phrases with extracted params`(
+            input: String,
+            expectedLabel: String,
+            expectedDate: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "save_important_date", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedLabel, intent.params["label"], "label for '$input'")
+            assertEquals(expectedDate, intent.params["date"], "date for '$input'")
+        }
+
+        @ParameterizedTest(name = "NeedsSlot save important date: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#importantDateSaveNeedsSlotPhrases")
+        fun `should return NeedsSlot for important date phrases missing date`(input: String, expectedLabel: String) {
+            val result = regexOnlyRouter.route(input)
+            val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+
+            assertEquals("save_important_date", needsSlot.intent.intentName)
+            assertEquals("date", needsSlot.missingSlot.name)
+            assertEquals(expectedLabel, needsSlot.intent.params["label"])
+        }
+
+        @Test
+        fun `should match list important dates phrase`() {
+            assertRegexMatch(regexOnlyRouter.route("list my important dates"), "list_important_dates", "list my important dates")
+        }
+
+        @ParameterizedTest(name = "Remove important date: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#importantDateRemoveRegexPhrases")
+        fun `should match remove important date phrases`(input: String, expectedLabel: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "remove_important_date", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedLabel, intent.params["label"], "label for '$input'")
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // SAVE MEMORY TESTS
     // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1727,6 +1797,10 @@ class QuickIntentRouterTest {
         addCases(weatherUvRegexPhrases(), "get_weather", "Weather UV (regex)")
         addCases(weatherAqiRegexPhrases(), "get_weather", "Weather AQI (regex)")
         addCases(weatherSunriseRegexPhrases(), "get_weather", "Weather Sunrise/Sunset (regex)")
+        addCases(importantDateSaveRegexPhrases(), "save_important_date", "Important Dates Save (regex)")
+        addCases(importantDateSaveNeedsSlotPhrases(), "save_important_date", "Important Dates Save (needs slot)")
+        addCases(importantDateRemoveRegexPhrases(), "remove_important_date", "Important Dates Remove (regex)")
+        addCases(listImportantDatesRegexPhrases(), "list_important_dates", "Important Dates List (regex)")
         addCases(saveMemoryRegexPhrases(), "save_memory", "Save Memory (regex)")
         addCases(saveMemoryNeedsSlotPhrases(), "save_memory", "Save Memory (needs slot)")
         addCases(brightnessRegexPhrases(), "set_brightness", "Brightness (regex)")
@@ -2762,16 +2836,45 @@ class QuickIntentRouterTest {
             Arguments.of("save to memory: important note", "important note"),
             Arguments.of("can you save to memory that my dog is named Xena", "my dog is named Xena"),
             Arguments.of("note that the gate code is 4567", "the gate code is 4567"),
-            Arguments.of("don't forget that mum's birthday is March 3", "mum's birthday is March 3"),
             Arguments.of("store that my doctor is Dr Smith", "my doctor is Dr Smith"),
         )
-
         @JvmStatic
         fun saveMemoryNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("remember something"),
             Arguments.of("save something to memory"),
             Arguments.of("make a note"),
             Arguments.of("take a note"),
+        )
+
+
+        @JvmStatic
+        fun importantDateSaveRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("remember my mum's birthday is 15 March", "mum's birthday", "15 March"),
+            Arguments.of("save our anniversary as 22 June 2018", "our anniversary", "22 June 2018"),
+            Arguments.of("don't forget that dad's birthday is March 3", "dad's birthday", "March 3"),
+            Arguments.of("my wedding anniversary is 2018-06-22", "wedding anniversary", "2018-06-22"),
+            Arguments.of("add important date freya's birthday 22 August", "freya's birthday", "22 August"),
+            Arguments.of("add an important date for freya's birthday on 22 August", "freya's birthday", "22 August"),
+        )
+
+        @JvmStatic
+        fun importantDateSaveNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("remember my mum's birthday", "mum's birthday"),
+            Arguments.of("save our anniversary", "our anniversary"),
+            Arguments.of("add important date freya's birthday", "freya's birthday"),
+        )
+
+        @JvmStatic
+        fun listImportantDatesRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("list my important dates"),
+            Arguments.of("show me important dates"),
+        )
+
+        @JvmStatic
+        fun importantDateRemoveRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("remove mum's birthday", "mum's birthday"),
+            Arguments.of("forget our anniversary", "our anniversary"),
+            Arguments.of("delete dad's birthday from my important dates", "dad's birthday"),
         )
 
         // ── Brightness ───────────────────────────────────────────────────────────

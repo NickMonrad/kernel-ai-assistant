@@ -23,6 +23,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Contact lookup for SMS, email, and call by name -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Calendar lookup for synced contact birthdays -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
     <!-- Microphone access for offline Quick Actions voice input -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Required to read/write the Do Not Disturb (interruption filter) policy -->

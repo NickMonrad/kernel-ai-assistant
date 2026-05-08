@@ -6,6 +6,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.kernel.ai.core.memory.dao.ContactAliasDao
+import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
@@ -21,6 +22,7 @@ import com.kernel.ai.core.memory.dao.StopwatchDao
 import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.entity.ContactAliasEntity
+import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
@@ -54,10 +56,11 @@ import java.time.ZoneId
         StopwatchStateEntity::class,
         StopwatchLapEntity::class,
         ContactAliasEntity::class,
+        ImportantDateEntity::class,
         ListItemEntity::class,
         ListNameEntity::class,
     ],
-    version = 31,
+    version = 32,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -76,6 +79,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun worldClockDao(): WorldClockDao
     abstract fun stopwatchDao(): StopwatchDao
     abstract fun contactAliasDao(): ContactAliasDao
+    abstract fun importantDateDao(): ImportantDateDao
     abstract fun listItemDao(): ListItemDao
     abstract fun listNameDao(): ListNameDao
     abstract fun kiwiMemoryDao(): KiwiMemoryDao
@@ -399,6 +403,28 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_30_31 = object : Migration(30, 31) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE model_settings ADD COLUMN speculativeDecodingEnabled INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /** Creates important_dates table for taught recurring personal dates (#632). */
+        val MIGRATION_31_32 = object : Migration(31, 32) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `important_dates` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `label` TEXT NOT NULL,
+                        `normalized_label` TEXT NOT NULL,
+                        `month` INTEGER NOT NULL,
+                        `day` INTEGER NOT NULL,
+                        `year` INTEGER DEFAULT NULL,
+                        `created_at` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_important_dates_normalized_label` ON `important_dates` (`normalized_label`)"
+                )
             }
         }
     }
