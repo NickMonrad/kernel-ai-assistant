@@ -14,6 +14,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.verify
+import com.kernel.ai.core.voice.VoiceOutputPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
@@ -46,6 +47,7 @@ class AboutViewModelTest {
     private val packageManager: PackageManager = mockk()
     private val packageInfo: PackageInfo = mockk()
     private val cacheDir: File = mockk()
+    private val voiceOutputPreferences: VoiceOutputPreferences = mockk(relaxed = true)
     private val preferencesState = MutableStateFlow<Preferences>(emptyPreferences())
     private val dataStore: DataStore<Preferences> = object : DataStore<Preferences> {
         override val data: Flow<Preferences> = preferencesState
@@ -72,7 +74,7 @@ class AboutViewModelTest {
         every { cacheDir.absolutePath } returns "/data/user/0/com.kernel.ai.test/cache"
         every { cacheDir.mkdirs() } returns true
         preferencesState.value = emptyPreferences()
-        viewModel = AboutViewModel(context, dataStore)
+        viewModel = AboutViewModel(context, dataStore, voiceOutputPreferences)
     }
 
     @AfterEach
