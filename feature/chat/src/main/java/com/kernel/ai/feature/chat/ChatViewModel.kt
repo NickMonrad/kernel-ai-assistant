@@ -1156,6 +1156,14 @@ class ChatViewModel @Inject constructor(
                 pendingConfirmationIntent = null
             }
 
+            // Emotion pre-intercept: detect "in a X voice" / "sound X" patterns before QIR.
+            // Sets the TTS emotion override immediately so TTS speaks in the right style even
+            // when the LLM generates the response — no tool call needed from the model.
+            val emotionSystemContext = detectAndApplyVoiceEmotion(text)
+            if (emotionSystemContext != null) {
+                systemContext = emotionSystemContext
+            }
+
             val weatherFollowUpLocation = WeatherConversationReferenceResolver.resolveLocation(
                 query = text,
                 messages = _messages.value.dropLast(1),
@@ -2107,6 +2115,36 @@ class ChatViewModel @Inject constructor(
 
     private fun looksLikeRawToolCall(response: String): Boolean =
         com.kernel.ai.feature.chat.looksLikeRawToolCall(response)
+
+    /**
+     * Detects voice emotion modifier phrases ("in a sad voice", "sound angry", etc.) and
+     * pre-sets [emotionOverrideSid] on the voice controller so TTS uses the right Semaine
+     * speaker without the LLM needing to call [SetVoiceEmotionSkill] itself.
+     *
+     * Returns a [System:] context string to inject into the prompt so Jandal acknowledges
+     * the voice style naturally, or null if no emotion was detected.
+     */
+    private fun detectAndApplyVoiceEmotion(text: String): String? {
+        val emotionToSid = mapOf(
+            "neutral" to 0, "happy" to 1, "sad" to 2, "angry" to 3, "worried" to 4,
+        )
+        val match = VOICE_EMOTION_PATTERN.find(text) ?: return null
+        val emotion = (match.groups["emotion1"] ?: match.groups["emotion2"] ?: match.groups["emotion3"])
+            ?.value?.lowercase() ?: return null
+        val sid = emotionToSid[emotion] ?: return null
+        voiceOutputController.setEmotionOverrideSid(sid)
+        Log.d("KernelAI", "Voice emotion pre-intercept: $emotion → sid=$sid")
+        return "[System: set_voice_emotion — Voice tone set to $emotion for this reply.]"
+    }
+
+    companion object {
+        private val VOICE_EMOTION_PATTERN = Regex(
+            """(?:in\s+an?\s+(?<emotion1>neutral|happy|sad|angry|worried)\s+voice""" +
+                """|sound\s+(?<emotion2>neutral|happy|sad|angry|worried)""" +
+                """|speak\s+(?:in\s+an?\s+)?(?<emotion3>neutral|happy|sad|angry|worried)(?:\s+voice)?)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+    }
 }
 
 /** C2 correction prepended to the prompt when a hallucination retry is attempted (#487). */

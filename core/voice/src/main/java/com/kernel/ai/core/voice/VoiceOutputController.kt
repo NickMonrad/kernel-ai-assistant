@@ -60,4 +60,10 @@ interface VoiceOutputController {
 
     /** Suspending variant of [stop]; default delegates to [stop]. */
     suspend fun stopSpeaking() { stop() }
+
+    /**
+     * Sets a transient emotion override for the next TTS call (Semaine voice only).
+     * Resets automatically after the call completes. No-op for non-Semaine voices.
+     */
+    fun setEmotionOverrideSid(sid: Int) {}
 }

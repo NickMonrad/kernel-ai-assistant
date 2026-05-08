@@ -103,7 +103,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     // ── Emotion override (transient, per-utterance, in-memory only) ──────────
     @Volatile private var emotionOverrideSid: Int = -1
 
-    fun setEmotionOverrideSid(sid: Int) {
+    override fun setEmotionOverrideSid(sid: Int) {
         emotionOverrideSid = sid
     }
 
