@@ -182,6 +182,7 @@ class QuickIntentRouter(
 
     private fun normalizeImportantDateLabel(raw: String): String = raw.trim()
         .replace(Regex("""^(?:my|the)\s+""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""^(?:an?\s+)?important\s+date(?:\s+for)?\s+""", RegexOption.IGNORE_CASE), "")
         .trim()
 
     private fun normalizeImportantDateLabelOrNull(raw: String): String? =
@@ -2462,7 +2463,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:remember|save|store|note|don't\s+forget)(?:\s+that)?\s+(.+?)\s+(?:is|as)\s+($importantDateValuePattern)$""",
+                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+date(?:\s+for)?\s+)?(.+?)\s+(?:is|as|on)\s+($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2490,7 +2491,21 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:remember|save|store)(?:\s+that)?\s+(.+?\b(?:birthday|anniversary)\b.*)$""",
+                """^(?:add|create)(?:\s+an?)?\s+important\s+date(?:\s+for)?\s+(.+?)\s+($importantDateValuePattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractImportantDateParams(
+                    label = match.groupValues[1],
+                    date = match.groupValues[2],
+                )
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^(?:remember|save|store|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+date(?:\s+for)?\s+)?(.+?\b(?:birthday|anniversary)\b.*)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->

@@ -2853,12 +2853,15 @@ class QuickIntentRouterTest {
             Arguments.of("save our anniversary as 22 June 2018", "our anniversary", "22 June 2018"),
             Arguments.of("don't forget that dad's birthday is March 3", "dad's birthday", "March 3"),
             Arguments.of("my wedding anniversary is 2018-06-22", "wedding anniversary", "2018-06-22"),
+            Arguments.of("add important date freya's birthday 22 August", "freya's birthday", "22 August"),
+            Arguments.of("add an important date for freya's birthday on 22 August", "freya's birthday", "22 August"),
         )
 
         @JvmStatic
         fun importantDateSaveNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("remember my mum's birthday", "mum's birthday"),
             Arguments.of("save our anniversary", "our anniversary"),
+            Arguments.of("add important date freya's birthday", "freya's birthday"),
         )
 
         @JvmStatic
