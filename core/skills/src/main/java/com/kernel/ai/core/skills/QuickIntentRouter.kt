@@ -183,13 +183,14 @@ class QuickIntentRouter(
     private fun normalizeImportantDateLabel(raw: String): String = raw.trim()
         .replace(Regex("""^(?:my|the)\s+""", RegexOption.IGNORE_CASE), "")
         .replace(Regex("""^(?:an?\s+)?important\s+date(?:\s+for)?\s+""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""\s+as\s+(?:an?\s+)?important\s+date$""", RegexOption.IGNORE_CASE), "")
         .trim()
 
     private fun normalizeImportantDateLabelOrNull(raw: String): String? =
         normalizeImportantDateLabel(raw).takeIf { it.isNotBlank() }
 
     private val importantDateValuePattern =
-        "(?:\\d{1,2}(?:st|nd|rd|th)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|[a-zA-Z]+\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})"
+        "(?:\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|[a-zA-Z]+\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})"
 
     private fun extractImportantDateParams(label: String, date: String): Map<String, String> {
         val params = mutableMapOf<String, String>()
