@@ -187,4 +187,23 @@ class VoiceOutputPreferences @Inject constructor(
             prefs[activeSpeakerIdKey] = sid.coerceIn(0, 108)
         }
     }
+
+    private val verboseLoggingKey = booleanPreferencesKey("verbose_logging_enabled")
+
+    val verboseLogging: Flow<Boolean> = context.voiceOutputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice output preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs -> prefs[verboseLoggingKey] ?: false }
+
+    suspend fun setVerboseLogging(enabled: Boolean) {
+        context.voiceOutputPrefsDataStore.edit { prefs ->
+            prefs[verboseLoggingKey] = enabled
+        }
+    }
 }

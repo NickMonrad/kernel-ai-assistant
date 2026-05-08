@@ -10,7 +10,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -44,7 +44,7 @@ sealed class ExportState {
 class AboutViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     @Named("about") private val dataStore: DataStore<Preferences>,
-    private val voiceOutputController: VoiceOutputController,
+    private val voiceOutputPreferences: VoiceOutputPreferences,
 ) : ViewModel() {
 
     private companion object {
@@ -62,26 +62,26 @@ class AboutViewModel @Inject constructor(
             try {
                 val enabled = dataStore.data.map { prefs -> prefs[KEY_VERBOSE_LOGGING] ?: defaultVerboseLoggingEnabled }.first()
                 _uiState.update { it.copy(verboseLogging = enabled) }
-                voiceOutputController.setVerboseLogging(enabled)
+                voiceOutputPreferences.setVerboseLogging(enabled)
             } catch (e: Exception) {
                 // Silently fail — verbose logging is optional
                 _uiState.update { it.copy(verboseLogging = defaultVerboseLoggingEnabled) }
-                voiceOutputController.setVerboseLogging(defaultVerboseLoggingEnabled)
+                voiceOutputPreferences.setVerboseLogging(defaultVerboseLoggingEnabled)
             }
         }
     }
 
     fun setVerboseLogging(enabled: Boolean) {
         _uiState.update { it.copy(verboseLogging = enabled) }
-        voiceOutputController.setVerboseLogging(enabled)
         viewModelScope.launch {
             try {
                 dataStore.edit { prefs ->
                     prefs[KEY_VERBOSE_LOGGING] = enabled
                 }
+                voiceOutputPreferences.setVerboseLogging(enabled)
             } catch (e: Exception) {
                 _uiState.update { it.copy(verboseLogging = !enabled) }
-                voiceOutputController.setVerboseLogging(!enabled)
+                voiceOutputPreferences.setVerboseLogging(!enabled)
             }
         }
     }

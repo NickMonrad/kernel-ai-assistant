@@ -101,11 +101,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     @Volatile private var generateMethod: java.lang.reflect.Method? = null
 
     // ── Verbose logging ──────────────────────────────────────────────────────
-    @Volatile private var verboseLoggingEnabled = false
-
-    override fun setVerboseLogging(enabled: Boolean) {
-        verboseLoggingEnabled = enabled
-    }
+    private val verboseLoggingEnabled: StateFlow<Boolean> = voiceOutputPreferences.verboseLogging
+        .stateIn(scope, SharingStarted.Eagerly, false)
 
     // ── Playback cancellation ────────────────────────────────────────────────
     @Volatile private var stopped = false
@@ -127,6 +124,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     @Volatile private var audioFocusRequest: AudioFocusRequest? = null
 
     // ── VoiceOutputController ────────────────────────────────────────────────
+
+    /** Returns 0 for single-speaker voices; clamps stored sid for multi-speaker. */
+    private fun effectiveSid(speakerCount: Int): Int =
+        if (speakerCount > 1) activeSpeakerId.value.coerceIn(0, speakerCount - 1) else 0
 
     override suspend fun warmUp(): VoiceOutputResult = withContext(Dispatchers.IO) {
         initialize(voiceOutputPreferences.selectedSherpaVoice.first())
@@ -152,11 +153,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             // it has a matching start — stops the back-and-forth loop from firing on a stopped
             // or failed synthesis where no audio was ever played.
             var speakingStarted = false
-            // For single-speaker voices (speakerCount == 1) always use sid=0 — the stored
-            // activeSpeakerId may have been set while a multi-speaker voice (e.g. VCTK) was
-            // active and must not bleed into single-speaker synthesis.
-            val effectiveSid = if (voice.speakerCount > 1)
-                activeSpeakerId.value.coerceIn(0, voice.speakerCount - 1) else 0
+            val effectiveSid = effectiveSid(voice.speakerCount)
             return@withContext try {
                 // Reflect: GeneratedAudio audio = tts.generate(text, sid, speed)
                 // Synthesis can take 1-3s for medium models, longer for high-quality ones;
@@ -164,7 +161,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 val synthStart = System.currentTimeMillis()
                 val audioResult = genMethod.invoke(tts, request.text, effectiveSid, sherpaSpeed.value)
                     ?: return@withContext VoiceOutputResult.Unavailable("Sherpa returned null audio.")
-                if (verboseLoggingEnabled) Log.d(TAG, "Sherpa synthesis: ${System.currentTimeMillis() - synthStart}ms for " +
+                if (verboseLoggingEnabled.value) Log.d(TAG, "Sherpa synthesis: ${System.currentTimeMillis() - synthStart}ms for " +
                     "${request.text.length} chars, voice=${voice.name}, sid=$effectiveSid")
 
                 val samples = reflectGetSamples(audioResult)
@@ -337,8 +334,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         val tts = ttsInstance ?: return
         val genMethod = generateMethod ?: return
         // For single-speaker voices always use sid=0; for multi-speaker, clamp to valid range.
-        val effectiveSid = if (speakerCount > 1)
-            activeSpeakerId.value.coerceIn(0, speakerCount - 1) else 0
+        val effectiveSid = effectiveSid(speakerCount)
         var emittedStarted = false
         var requestedAudioFocus = false
         try {
@@ -360,7 +356,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                     Log.e(TAG, "Sherpa streaming generate() failed", e)
                     return
                 }
-                if (verboseLoggingEnabled) Log.d(TAG, "Sherpa streaming chunk: ${System.currentTimeMillis() - synthStart}ms " +
+                if (verboseLoggingEnabled.value) Log.d(TAG, "Sherpa streaming chunk: ${System.currentTimeMillis() - synthStart}ms " +
                     "for ${chunk.text.length} chars, sid=$effectiveSid")
                 val samples = reflectGetSamples(audioResult)
                 val sampleRate = reflectGetSampleRate(audioResult)

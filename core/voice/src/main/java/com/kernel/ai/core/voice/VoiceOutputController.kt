@@ -60,7 +60,4 @@ interface VoiceOutputController {
 
     /** Suspending variant of [stop]; default delegates to [stop]. */
     suspend fun stopSpeaking() { stop() }
-
-    /** Enables or disables verbose timing / diagnostic logging. Default is a no-op. */
-    fun setVerboseLogging(enabled: Boolean) {}
 }
