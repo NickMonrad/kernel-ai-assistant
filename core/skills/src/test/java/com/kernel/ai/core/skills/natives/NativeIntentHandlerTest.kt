@@ -1046,6 +1046,29 @@ class NativeIntentHandlerTest {
         assertTrue(content.contains(expected.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.ENGLISH))), content)
     }
 
+    @Test
+    fun `calculate_arithmetic returns deterministic direct reply`() {
+        val result = handler.handle(
+            "calculate_arithmetic",
+            mapOf("expression" to "18.5% of 240"),
+        )
+
+        assertEquals(SkillResult.DirectReply("The result is 44.4."), result)
+    }
+
+    @Test
+    fun `calculate_arithmetic reports malformed expressions cleanly`() {
+        val result = handler.handle(
+            "calculate_arithmetic",
+            mapOf("expression" to "2 + )"),
+        )
+
+        assertEquals(
+            SkillResult.Failure("calculate_arithmetic", "Unexpected token ')'"),
+            result,
+        )
+    }
+
 
     private data class PhoneRow(
         val contactId: String,
