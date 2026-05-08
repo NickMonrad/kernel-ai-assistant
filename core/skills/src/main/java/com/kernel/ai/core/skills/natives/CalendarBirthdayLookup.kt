@@ -41,7 +41,7 @@ class CalendarBirthdayLookup @Inject constructor(
         if (queryTokens.isEmpty()) return null
         val partialMatches = birthdays.filter { entry ->
             val entryTokens = entry.normalizedLabel.split(" ").filter { it.isNotBlank() }.toSet()
-            entryTokens.containsAll(queryTokens)
+            entryTokens.containsAll(queryTokens) || queryTokens.containsAll(entryTokens)
         }
         return partialMatches.singleOrNull()
     }

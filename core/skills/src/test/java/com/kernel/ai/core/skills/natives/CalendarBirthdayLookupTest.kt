@@ -64,6 +64,39 @@ class CalendarBirthdayLookupTest {
     }
 
     @Test
+    fun `findBirthday matches a shorter synced birthday label from a mapped full contact name`() {
+        val context = mockk<Context>(relaxed = true)
+        val contentResolver = mockk<ContentResolver>(relaxed = true)
+        val cursor = birthdayCursor(
+            title = "Alice Birthday",
+            dtStart = LocalDate.of(2020, 4, 5).atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli(),
+            isAllDay = true,
+            calendarDisplayName = "Birthdays",
+            accountType = "com.google",
+        )
+        every { context.checkSelfPermission(Manifest.permission.READ_CALENDAR) } returns PackageManager.PERMISSION_GRANTED
+        every { context.contentResolver } returns contentResolver
+        every {
+            contentResolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                any(),
+                any(),
+                any(),
+                any(),
+            )
+        } returns cursor
+
+        val lookup = CalendarBirthdayLookup(context)
+
+        val birthday = lookup.findBirthday("Alice Smith's birthday")
+
+        assertNotNull(birthday)
+        assertEquals("Alice", birthday?.label)
+        assertEquals(4, birthday?.month)
+        assertEquals(5, birthday?.day)
+    }
+
+    @Test
     fun `findBirthday returns null without calendar permission`() {
         val context = mockk<Context>(relaxed = true)
         every { context.checkSelfPermission(Manifest.permission.READ_CALENDAR) } returns PackageManager.PERMISSION_DENIED
