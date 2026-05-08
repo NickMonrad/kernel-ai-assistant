@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,6 +38,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -52,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.core.voice.VctkSpeakerMetadata
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
@@ -81,6 +84,7 @@ fun VoiceScreen(
         onDownloadVoice = viewModel::downloadSherpaVoice,
         onCancelVoiceDownload = viewModel::cancelSherpaVoiceDownload,
         onDeleteVoice = viewModel::deleteSherpaVoice,
+        onActiveSpeakerIdChanged = viewModel::setActiveSpeakerId,
     )
 }
 
@@ -102,6 +106,7 @@ private fun VoiceScreenContent(
     onDownloadVoice: (SherpaPiperVoice) -> Unit,
     onCancelVoiceDownload: (SherpaPiperVoice) -> Unit,
     onDeleteVoice: (SherpaPiperVoice) -> Unit,
+    onActiveSpeakerIdChanged: (Int) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -420,8 +425,87 @@ private fun VoiceScreenContent(
                     )
                     HorizontalDivider()
                 }
+
+                if (uiState.selectedSherpaVoice == SherpaPiperVoice.VctkMedium &&
+                    uiState.isSelectedSherpaVoiceDownloaded
+                ) {
+                    VctkSpeakerSelector(
+                        activeSpeakerId = uiState.activeSpeakerId,
+                        onSpeakerSelected = onActiveSpeakerIdChanged,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
             }
 
+        }
+    }
+}
+
+/**
+ * Speaker selector for the `en_GB-vctk-medium` multi-speaker voice.
+ *
+ * Shows gender filter chips to narrow the list, then lists matching speakers as radio rows.
+ * The outer [VoiceScreen] already wraps everything in a verticalScroll Column, so this composable
+ * uses a plain (non-lazy) Column — safe for 109 items since they are lightweight rows.
+ */
+@Composable
+private fun VctkSpeakerSelector(
+    activeSpeakerId: Int,
+    onSpeakerSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // "All" represented as null; "Male" / "Female" as strings
+    var genderFilter by remember { mutableStateOf<String?>(null) }
+
+    val filtered = remember(genderFilter) {
+        if (genderFilter == null) VctkSpeakerMetadata.speakers
+        else VctkSpeakerMetadata.speakers.filter { it.gender == genderFilter }
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = "VCTK speaker",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+
+        Text(
+            text = "VCTK contains 109 British English speakers with varied accents. Selected: ${VctkSpeakerMetadata.displayLabel(activeSpeakerId)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+        )
+
+        // Gender filter chips
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        ) {
+            listOf(null to "All", "Female" to "Female", "Male" to "Male").forEach { (value, label) ->
+                FilterChip(
+                    selected = genderFilter == value,
+                    onClick = { genderFilter = value },
+                    label = { Text(label) },
+                )
+            }
+        }
+
+        HorizontalDivider()
+
+        filtered.forEach { speaker ->
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                headlineContent = { Text(speaker.speakerCode) },
+                supportingContent = { Text("${speaker.gender} · ${speaker.accent}") },
+                trailingContent = {
+                    RadioButton(
+                        selected = activeSpeakerId == speaker.sid,
+                        onClick = { onSpeakerSelected(speaker.sid) },
+                    )
+                },
+            )
+            HorizontalDivider()
         }
     }
 }
@@ -768,6 +852,7 @@ private fun VoiceScreenPreview() {
             onDownloadVoice = {},
             onCancelVoiceDownload = {},
             onDeleteVoice = {},
+            onActiveSpeakerIdChanged = {},
         )
     }
 }
