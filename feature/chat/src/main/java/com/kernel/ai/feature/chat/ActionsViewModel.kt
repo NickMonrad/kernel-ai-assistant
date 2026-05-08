@@ -94,7 +94,7 @@ class ActionsViewModel @Inject constructor(
     /** One-shot navigation/UI events consumed by the screen. */
     sealed interface UiEvent {
         /** Query couldn't be handled by quick actions — navigate to chat for LLM processing. */
-        data class NavigateToChat(val query: String) : UiEvent
+        data class NavigateToChat(val query: String, val fromVoice: Boolean = false) : UiEvent
         object RequestPhonePermission : UiEvent
     }
 
@@ -399,7 +399,7 @@ class ActionsViewModel @Inject constructor(
                         )
                         quickActionDao.insert(entity)
                         speakForVoice(inputMode, entity.resultText)
-                        _events.emit(UiEvent.NavigateToChat(normalizedQuery))
+                        _events.emit(UiEvent.NavigateToChat(normalizedQuery, fromVoice = inputMode == InputMode.Voice))
                     }
                     is QuickIntentRouter.RouteResult.NeedsSlot -> {
                         // Pause execution — show slot prompt in a ModalBottomSheet.

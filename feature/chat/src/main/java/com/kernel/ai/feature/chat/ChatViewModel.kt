@@ -963,7 +963,7 @@ class ChatViewModel @Inject constructor(
         _speakingMessageId.value = null
     }
 
-    fun submitInitialQueryIfNeeded(initialQuery: String) {
+    fun submitInitialQueryIfNeeded(initialQuery: String, fromVoice: Boolean = false) {
         val normalized = initialQuery.trim()
         if (normalized.isBlank()) return
         val alreadyPresent = _messages.value.any {
@@ -976,7 +976,7 @@ class ChatViewModel @Inject constructor(
             return
         }
         onInputChanged(normalized)
-        sendMessage()
+        sendMessage(if (fromVoice) SubmitMode.Voice else SubmitMode.Text)
     }
 
     fun renameConversation(newTitle: String) {

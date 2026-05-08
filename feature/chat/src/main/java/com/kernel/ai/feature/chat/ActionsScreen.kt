@@ -104,7 +104,7 @@ fun ActionsScreen(
     adbSlotReply: String? = null,
     onAutoOpenSheetConsumed: () -> Unit = {},
     onAutoStartVoiceConsumed: () -> Unit = {},
-    onNavigateToChat: (query: String) -> Unit = {},
+    onNavigateToChat: (query: String, fromVoice: Boolean) -> Unit = { _, _ -> },
     onNewConversation: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     viewModel: ActionsViewModel = hiltViewModel(),
@@ -225,7 +225,7 @@ fun ActionsScreen(
             when (event) {
                 is ActionsViewModel.UiEvent.NavigateToChat -> {
                     viewModel.pauseTransientVoiceUi(reason = "navigateToChat")
-                    onNavigateToChat(event.query)
+                    onNavigateToChat(event.query, event.fromVoice)
                 }
                 ActionsViewModel.UiEvent.RequestPhonePermission ->
                     phonePermissionLauncher.launch(Manifest.permission.CALL_PHONE)

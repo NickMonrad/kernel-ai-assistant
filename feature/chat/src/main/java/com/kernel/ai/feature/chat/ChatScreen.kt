@@ -138,6 +138,7 @@ import com.kernel.ai.feature.chat.model.ToolCallInfo
 fun ChatScreen(
     conversationId: String? = null,
     initialQuery: String? = null,
+    fromVoice: Boolean = false,
     onBack: () -> Unit = {},
     onNewConversation: () -> Unit = {},
     onNavigateToList: () -> Unit = {},
@@ -162,7 +163,7 @@ fun ChatScreen(
                 viewModel.isConversationReady.first { it }
             }
             if (ready != null) {
-                viewModel.submitInitialQueryIfNeeded(initialQuery)
+                viewModel.submitInitialQueryIfNeeded(initialQuery, fromVoice = fromVoice)
             }
         }
     }
