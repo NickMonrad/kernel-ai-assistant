@@ -37,12 +37,7 @@ class CalendarBirthdayLookup @Inject constructor(
         val birthdays = loadBirthdays()
         birthdays.firstOrNull { it.normalizedLabel == normalizedQuery }?.let { return it }
 
-        val queryTokens = normalizedQuery.split(" ").filter { it.isNotBlank() }.toSet()
-        if (queryTokens.isEmpty()) return null
-        val partialMatches = birthdays.filter { entry ->
-            val entryTokens = entry.normalizedLabel.split(" ").filter { it.isNotBlank() }.toSet()
-            entryTokens.containsAll(queryTokens) || queryTokens.containsAll(entryTokens)
-        }
+        val partialMatches = birthdays.filter { labelsPotentiallyMatch(it.label, label) }
         return partialMatches.singleOrNull()
     }
 
@@ -126,9 +121,40 @@ class CalendarBirthdayLookup @Inject constructor(
         return label.takeIf { it.isNotBlank() }
     }
 
-    private fun normalizeBirthdayLookupLabel(raw: String): String = ImportantDateRepository.normalizeLabel(
-        raw.replace(Regex("""\bbirthday\b""", RegexOption.IGNORE_CASE), "").trim(),
-    )
+    companion object {
+        fun labelsPotentiallyMatch(left: String, right: String): Boolean {
+            val leftTokens = matchTokens(left)
+            val rightTokens = matchTokens(right)
+            if (leftTokens.isEmpty() || rightTokens.isEmpty()) return false
+            return containsAllEquivalent(leftTokens, rightTokens) || containsAllEquivalent(rightTokens, leftTokens)
+        }
+
+        private fun containsAllEquivalent(container: List<String>, query: List<String>): Boolean =
+            query.all { queryToken -> container.any { containerToken -> tokensEquivalent(containerToken, queryToken) } }
+
+        private fun tokensEquivalent(left: String, right: String): Boolean {
+            if (left == right) return true
+            return tokenVariants(left).intersect(tokenVariants(right)).isNotEmpty()
+        }
+
+        private fun tokenVariants(token: String): Set<String> {
+            val trimmed = token.trim().lowercase(Locale.ENGLISH)
+            if (trimmed.isBlank()) return emptySet()
+
+            val variants = linkedSetOf(trimmed)
+            if (trimmed.endsWith("s") && trimmed.length > 3) {
+                variants += trimmed.dropLast(1)
+            }
+            return variants
+        }
+
+        private fun matchTokens(raw: String): List<String> =
+            normalizeBirthdayLookupLabel(raw).split(" ").filter { it.isNotBlank() }
+
+        private fun normalizeBirthdayLookupLabel(raw: String): String = ImportantDateRepository.normalizeLabel(
+            raw.replace(Regex("""\bbirthday\b""", RegexOption.IGNORE_CASE), "").trim(),
+        )
+    }
 
     private fun toLocalDate(startMillis: Long, isAllDay: Boolean): LocalDate {
         val zone = if (isAllDay) ZoneId.of("UTC") else ZoneId.systemDefault()

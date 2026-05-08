@@ -124,6 +124,43 @@ class ImportantDatesViewModelTest {
     }
 
     @Test
+    fun `buildUiState hides calendar birthdays when taught label differs only by missing apostrophe`() {
+        val today = LocalDate.of(2026, 1, 10)
+        val taught = listOf(
+            ImportantDateListItem(
+                label = "Lachlans birthday",
+                normalizedLabel = "lachlans birthday",
+                month = 8,
+                day = 22,
+                year = null,
+                source = ImportantDateSource.TAUGHT,
+                nextOccurrence = LocalDate.of(2026, 8, 22),
+            ),
+        )
+        val synced = listOf(
+            ImportantDateListItem(
+                label = "Lachlan",
+                normalizedLabel = "lachlan",
+                month = 8,
+                day = 22,
+                year = null,
+                source = ImportantDateSource.CALENDAR,
+                nextOccurrence = LocalDate.of(2026, 8, 22),
+            ),
+        )
+
+        val state = ImportantDatesViewModel.buildUiState(
+            taughtDates = taught,
+            calendarBirthdays = synced,
+            hasCalendarPermission = true,
+            isRefreshing = false,
+            today = today,
+        )
+
+        assertEquals(listOf("Lachlans birthday"), state.laterDates.map { it.label })
+    }
+
+    @Test
     fun `saveTaughtDate renames existing entry without keeping the old label`() = runTest {
         val viewModel = ImportantDatesViewModel(repository, calendarBirthdayLookup)
         advanceUntilIdle()

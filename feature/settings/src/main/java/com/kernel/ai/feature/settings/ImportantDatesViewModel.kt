@@ -152,8 +152,12 @@ class ImportantDatesViewModel @Inject constructor(
             isRefreshing: Boolean,
             today: LocalDate,
         ): ImportantDatesUiState {
-            val taughtLabels = taughtDates.map { it.normalizedLabel }.toSet()
-            val merged = (taughtDates + calendarBirthdays.filter { it.normalizedLabel !in taughtLabels })
+            val merged = (taughtDates + calendarBirthdays.filter { calendarBirthday ->
+                taughtDates.none { taughtDate ->
+                    taughtDate.normalizedLabel == calendarBirthday.normalizedLabel ||
+                        CalendarBirthdayLookup.labelsPotentiallyMatch(taughtDate.label, calendarBirthday.label)
+                }
+            })
                 .sortedWith(
                     compareBy<ImportantDateListItem> { it.nextOccurrence }
                         .thenBy { it.label.lowercase() },

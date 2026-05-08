@@ -97,6 +97,39 @@ class CalendarBirthdayLookupTest {
     }
 
     @Test
+    fun `findBirthday matches a taught birthday phrased without an apostrophe`() {
+        val context = mockk<Context>(relaxed = true)
+        val contentResolver = mockk<ContentResolver>(relaxed = true)
+        val cursor = birthdayCursor(
+            title = "Lachlan Birthday",
+            dtStart = LocalDate.of(2020, 8, 22).atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli(),
+            isAllDay = true,
+            calendarDisplayName = "Birthdays",
+            accountType = "com.google",
+        )
+        every { context.checkSelfPermission(Manifest.permission.READ_CALENDAR) } returns PackageManager.PERMISSION_GRANTED
+        every { context.contentResolver } returns contentResolver
+        every {
+            contentResolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                any(),
+                any(),
+                any(),
+                any(),
+            )
+        } returns cursor
+
+        val lookup = CalendarBirthdayLookup(context)
+
+        val birthday = lookup.findBirthday("Lachlans birthday")
+
+        assertNotNull(birthday)
+        assertEquals("Lachlan", birthday?.label)
+        assertEquals(8, birthday?.month)
+        assertEquals(22, birthday?.day)
+    }
+
+    @Test
     fun `findBirthday returns null without calendar permission`() {
         val context = mockk<Context>(relaxed = true)
         every { context.checkSelfPermission(Manifest.permission.READ_CALENDAR) } returns PackageManager.PERMISSION_DENIED
