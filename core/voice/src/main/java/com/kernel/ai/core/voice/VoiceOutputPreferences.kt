@@ -33,6 +33,7 @@ class VoiceOutputPreferences @Inject constructor(
     private val voiceGainKey = floatPreferencesKey("voice_gain")
     private val autoSpeakKey = booleanPreferencesKey("voice_auto_speak")
     private val maxSpokenSentencesKey = intPreferencesKey("voice_max_spoken_sentences")
+    private val activeSpeakerIdKey = intPreferencesKey("voice_active_speaker_id")
 
     val spokenResponsesEnabled: Flow<Boolean> = context.voiceOutputPrefsDataStore.data
         .catch { e ->
@@ -167,6 +168,23 @@ class VoiceOutputPreferences @Inject constructor(
     suspend fun setMaxSpokenSentences(count: Int) {
         context.voiceOutputPrefsDataStore.edit { prefs ->
             prefs[maxSpokenSentencesKey] = count.coerceIn(0, 10)
+        }
+    }
+
+    val activeSpeakerId: Flow<Int> = context.voiceOutputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice output preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs -> (prefs[activeSpeakerIdKey] ?: 0).coerceIn(0, 108) }
+
+    suspend fun setActiveSpeakerId(sid: Int) {
+        context.voiceOutputPrefsDataStore.edit { prefs ->
+            prefs[activeSpeakerIdKey] = sid.coerceIn(0, 108)
         }
     }
 }

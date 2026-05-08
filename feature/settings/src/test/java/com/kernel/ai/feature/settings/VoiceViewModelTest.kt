@@ -47,6 +47,7 @@ class VoiceViewModelTest {
     private val voiceGain = MutableStateFlow(1.5f)
     private val autoSpeak = MutableStateFlow(true)
     private val maxSpokenSentences = MutableStateFlow(0)
+    private val activeSpeakerId = MutableStateFlow(0)
     private val sherpaDownloadStates: MutableStateFlow<Map<SherpaPiperVoice, VoicePackDownloadState>> =
         MutableStateFlow(
             SherpaPiperVoice.entries.associateWith {
@@ -79,6 +80,7 @@ class VoiceViewModelTest {
         every { voiceOutputPreferences.voiceGain } returns voiceGain
         every { voiceOutputPreferences.autoSpeak } returns autoSpeak
         every { voiceOutputPreferences.maxSpokenSentences } returns maxSpokenSentences
+        every { voiceOutputPreferences.activeSpeakerId } returns activeSpeakerId
         coEvery { voiceOutputPreferences.setSpokenResponsesEnabled(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedSherpaVoice(any()) } just Runs
@@ -87,6 +89,7 @@ class VoiceViewModelTest {
         coEvery { voiceOutputPreferences.setVoiceGain(any()) } just Runs
         coEvery { voiceOutputPreferences.setAutoSpeak(any()) } just Runs
         coEvery { voiceOutputPreferences.setMaxSpokenSentences(any()) } just Runs
+        coEvery { voiceOutputPreferences.setActiveSpeakerId(any()) } just Runs
         every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
         every { sherpaVoicePackDownloadManager.startDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.cancelDownload(any()) } just Runs
