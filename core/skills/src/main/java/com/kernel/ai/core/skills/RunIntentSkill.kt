@@ -46,6 +46,9 @@ class RunIntentSkill @Inject constructor(
                     "set_alarm",
                     "set_timer",
                     "create_calendar_event",
+                    "save_important_date",
+                    "list_important_dates",
+                    "remove_important_date",
                     // System toggles
                     "toggle_dnd_on",
                     "toggle_dnd_off",
@@ -96,6 +99,9 @@ class RunIntentSkill @Inject constructor(
         "Calendar event (explicit date) → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Lunch\",\"date\":\"2026-04-15\",\"time\":\"12:30\"}')",
         "Calendar event (relative date) → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Cancel MightyApe\",\"date\":\"next thursday\",\"time\":\"16:00\"}')",
         "Calendar with attendees → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Dinner\",\"date\":\"friday\",\"time\":\"19:00\",\"attendees\":\"Sarah,John\"}')",
+        "Save important date → runIntent(intentName=\"save_important_date\", parameters='{\"label\":\"mum's birthday\",\"date\":\"15 March\"}')",
+        "List important dates → runIntent(intentName=\"list_important_dates\", parameters='{}')",
+        "Remove important date → runIntent(intentName=\"remove_important_date\", parameters='{\"label\":\"mum's birthday\"}')",
         // System toggles
         "Turn on DND → runIntent(intentName=\"toggle_dnd_on\", parameters=\"{}\")",
         "Enable Wi-Fi → runIntent(intentName=\"toggle_wifi\", parameters='{\"state\":\"on\"}')",
@@ -137,6 +143,9 @@ class RunIntentSkill @Inject constructor(
         appendLine("  set_alarm — params: time (\"10pm\", \"9:30am\"), day (optional: \"tomorrow\", \"monday\"), label (optional)")
         appendLine("  set_timer — params: duration_seconds (\"180\" for 3 min), label (optional)")
         appendLine("  create_calendar_event — params: title, date (pass relative terms as-is: \"tomorrow\", \"next thursday\", \"this friday\"; or YYYY-MM-DD for explicit dates), time (HH:MM), duration_minutes (optional), description (optional), attendees (optional, comma-separated contact names)")
+        appendLine("  save_important_date — params: label, date (e.g. \"15 March\" or \"22 June 2018\")")
+        appendLine("  list_important_dates — no params")
+        appendLine("  remove_important_date — params: label")
         appendLine()
         appendLine("SYSTEM TOGGLES:")
         appendLine("  toggle_dnd_on, toggle_dnd_off — No params")
