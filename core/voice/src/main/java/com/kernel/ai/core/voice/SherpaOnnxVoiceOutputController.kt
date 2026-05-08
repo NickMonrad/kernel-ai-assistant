@@ -84,6 +84,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     private val sherpaGain: StateFlow<Float> = voiceOutputPreferences.voiceGain
         .stateIn(scope, SharingStarted.Eagerly, 1.5f)
 
+    /** Active speaker ID for multi-speaker voices (e.g. VCTK). Stored in preferences, default 0. */
+    private val activeSpeakerId: StateFlow<Int> = voiceOutputPreferences.activeSpeakerId
+        .stateIn(scope, SharingStarted.Eagerly, 0)
+
     // ── Lifecycle state ──────────────────────────────────────────────────────
     private enum class InitState { UNINITIALIZED, AVAILABLE, UNAVAILABLE }
 
@@ -145,7 +149,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 // Reflect: GeneratedAudio audio = tts.generate(text, sid=0, speed)
                 // Synthesis can take 1-3s; only emit SpeakingStarted once audio is ready
                 // and playback is actually about to begin — not before.
-                val audioResult = genMethod.invoke(tts, request.text, 0, sherpaSpeed.value)
+                val audioResult = genMethod.invoke(tts, request.text, activeSpeakerId.value, sherpaSpeed.value)
                     ?: return@withContext VoiceOutputResult.Unavailable("Sherpa returned null audio.")
 
                 val samples = reflectGetSamples(audioResult)
@@ -329,7 +333,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                     requestedAudioFocus = true
                 }
                 val audioResult = try {
-                    genMethod.invoke(tts, chunk.text, 0, sherpaSpeed.value)
+                    genMethod.invoke(tts, chunk.text, activeSpeakerId.value, sherpaSpeed.value)
                         ?: return
                 } catch (e: Exception) {
                     Log.e(TAG, "Sherpa streaming generate() failed", e)

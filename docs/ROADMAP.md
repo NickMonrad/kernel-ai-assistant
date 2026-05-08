@@ -206,12 +206,12 @@ Active follow-on model/runtime investigations now live under
 | [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Maps & location — navigate, open, nearby search | ⬜ Pending | 🟡 Medium |
 | [#327](https://github.com/NickMonrad/kernel-ai-assistant/issues/327) | Full date-specific alarms via `AlarmManager.setExact()` | ⬜ Pending | 🟢 Low |
 | [#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407) | WebSearchSkill — LLM tool calling via Brave/Tavily API | ⬜ Pending | 🟡 Medium |
-| [#631](https://github.com/NickMonrad/kernel-ai-assistant/issues/631) | Important dates — taught dates + calendar birthday integration | ⬜ Pending | 🟡 Medium |
+| [#631](https://github.com/NickMonrad/kernel-ai-assistant/issues/631) | Important dates — taught dates + calendar birthday integration | ✅ Done — PR #797 | 🟡 Medium |
 | [#638](https://github.com/NickMonrad/kernel-ai-assistant/issues/638) | Messaging-app intents (WhatsApp, Signal, Telegram, etc.) | ⬜ Pending | 🟡 Medium |
 | [#658](https://github.com/NickMonrad/kernel-ai-assistant/issues/658) | Deterministic arithmetic / calculator tool | ⬜ Pending | 🔴 High |
 | [#662](https://github.com/NickMonrad/kernel-ai-assistant/issues/662) | Lists management upgrades (rename, pin, sort, edit items, favorites, due dates) | ⬜ Pending | 🟡 Medium |
 | [#676](https://github.com/NickMonrad/kernel-ai-assistant/issues/676) | Native unit conversion tool | ⬜ Pending | 🟡 Medium |
-| [#677](https://github.com/NickMonrad/kernel-ai-assistant/issues/677) | World clock and timezone lookup | ⬜ Pending | 🟢 Low |
+| [#677](https://github.com/NickMonrad/kernel-ai-assistant/issues/677) | World clock and timezone lookup | ✅ Done — PR #743 | 🟢 Low |
 | [#697](https://github.com/NickMonrad/kernel-ai-assistant/issues/697) | Multi-day weather forecast card in chat | ✅ Done — PR #710 | 🟡 Medium |
 
 **Already completed skills:**
@@ -282,7 +282,7 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | [#770](https://github.com/NickMonrad/kernel-ai-assistant/issues/770) | Sherpa voice quality evaluation | ✅ Done — PR #780 | 🟡 Medium |
 | [#775](https://github.com/NickMonrad/kernel-ai-assistant/issues/775) | TTS quality fixes (URL colon preservation, speech rate clamping, sentence splitting) | ✅ Done — PR #780 | 🟡 Medium |
 | [#781](https://github.com/NickMonrad/kernel-ai-assistant/issues/781) | Semaine emotional TTS styles | ⬜ Pending | 🟢 Low |
-| [#782](https://github.com/NickMonrad/kernel-ai-assistant/issues/782) | VCTK speaker selection | ⬜ Pending | 🟢 Low |
+| [#782](https://github.com/NickMonrad/kernel-ai-assistant/issues/782) | VCTK speaker selection | ✅ Done — PR #805 | 🟢 Low |
 | [#783](https://github.com/NickMonrad/kernel-ai-assistant/issues/783) | Kokoro-82M / VoxSherpa research | ⬜ Pending | 🟢 Low |
 | [#784](https://github.com/NickMonrad/kernel-ai-assistant/issues/784) | Kiwi language corpus tuning | ⬜ Pending | 🟢 Low |
 | [#785](https://github.com/NickMonrad/kernel-ai-assistant/issues/785) | Per-message speaker button | ✅ Done — PR #789 | 🟡 Medium |
@@ -298,14 +298,14 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | [#65](https://github.com/NickMonrad/kernel-ai-assistant/issues/65) | "Hey Jandal" wake word — Picovoice Porcupine | ⬜ Pending | 🟡 Medium |
 | [#64](https://github.com/NickMonrad/kernel-ai-assistant/issues/64) | Live mode — real-time streaming interaction | ⬜ Pending | 🟢 Low |
 
-**Current state after merged PRs #780 and #789:**
+**Current state after merged PRs #780, #789, and #805:**
 
-> **Dependency note:** #782 (VCTK speaker selection) should ship before #781 (emotional styles) as it builds the sid selection mechanism #781 depends on.
+> **Dependency note:** #782 (VCTK speaker selection) is shipped — #781 (emotional styles) can now build on the sid selection mechanism.
 
-- Streaming TTS (`runStreamingPlayback()`), per-message speaker button, verbal stop command, and expanded TTS settings are all shipped.
+- Streaming TTS (`runStreamingPlayback()`), per-message speaker button, verbal stop command, expanded TTS settings, and VCTK multi-speaker selection are all shipped.
 - Voice quality slice complete: URL colon preservation in `cleanTextForSpeech()`, speech rate clamping on the non-streaming read-path, abbreviation-aware sentence splitting (`truncateForSpeech()` with `KNOWN_ABBREV` + `INITIALS_REGEX`), and Sherpa quality evaluation done on Samsung Galaxy S23 Ultra.
 - `autoSpeakEnabled` is now a cached field in `ChatViewModel` — chat auto-speak is fully decoupled from the Quick Actions `spokenResponsesEnabled` toggle.
-- Remaining voice quality research: Semaine emotional styles (#781), VCTK speaker selection (#782), Kokoro-82M/VoxSherpa (#783), Kiwi corpus tuning (#784), and VITS noise_scale expressiveness (#788).
+- Remaining voice quality research: Semaine emotional styles (#781), Kokoro-82M/VoxSherpa (#783), Kiwi corpus tuning (#784), and VITS noise_scale expressiveness (#788).
 - Fallback-path issues and the appointment QIR bug ([#773](https://github.com/NickMonrad/kernel-ai-assistant/issues/773)) remain tracked separately.
 
 ---
@@ -554,7 +554,7 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#770](https://github.com/NickMonrad/kernel-ai-assistant/issues/770) | Sherpa voice quality evaluation | Phase 3F | ✅ Done — PR #780 |
 | [#775](https://github.com/NickMonrad/kernel-ai-assistant/issues/775) | TTS quality fixes (URL colon, speech rate, sentence splitting) | Phase 3F | ✅ Done — PR #780 |
 | [#781](https://github.com/NickMonrad/kernel-ai-assistant/issues/781) | Semaine emotional TTS styles | Phase 3F | ⬜ Pending |
-| [#782](https://github.com/NickMonrad/kernel-ai-assistant/issues/782) | VCTK speaker selection | Phase 3F | ⬜ Pending |
+| [#782](https://github.com/NickMonrad/kernel-ai-assistant/issues/782) | VCTK speaker selection | Phase 3F | ✅ Done — PR #805 |
 | [#783](https://github.com/NickMonrad/kernel-ai-assistant/issues/783) | Kokoro-82M / VoxSherpa research | Phase 3F | ⬜ Pending |
 | [#784](https://github.com/NickMonrad/kernel-ai-assistant/issues/784) | Kiwi language corpus tuning | Phase 3F | ⬜ Pending |
 | [#785](https://github.com/NickMonrad/kernel-ai-assistant/issues/785) | Per-message speaker button | Phase 3F | ✅ Done — PR #789 |
