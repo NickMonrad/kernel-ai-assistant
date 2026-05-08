@@ -55,6 +55,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VctkSpeakerMetadata
+import com.kernel.ai.core.voice.VoiceExpressiveness
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
@@ -85,6 +86,7 @@ fun VoiceScreen(
         onCancelVoiceDownload = viewModel::cancelSherpaVoiceDownload,
         onDeleteVoice = viewModel::deleteSherpaVoice,
         onActiveSpeakerIdChanged = viewModel::setActiveSpeakerId,
+        onVoiceExpressivenessChanged = viewModel::setVoiceExpressiveness,
     )
 }
 
@@ -107,6 +109,7 @@ private fun VoiceScreenContent(
     onCancelVoiceDownload: (SherpaPiperVoice) -> Unit,
     onDeleteVoice: (SherpaPiperVoice) -> Unit,
     onActiveSpeakerIdChanged: (Int) -> Unit,
+    onVoiceExpressivenessChanged: (VoiceExpressiveness) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -412,6 +415,34 @@ private fun VoiceScreenContent(
                             )
                         },
                     )
+                }
+
+                // Expressiveness chip selector — controls VITS noise_scale / noise_scale_w
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    Text(
+                        text = "Expressiveness",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = "Controls VITS noise parameters. Higher = more varied, expressive delivery. Changing this reinitialises the TTS engine on the next utterance.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VoiceExpressiveness.entries.forEach { level ->
+                            FilterChip(
+                                selected = uiState.voiceExpressiveness == level,
+                                onClick = { onVoiceExpressivenessChanged(level) },
+                                label = {
+                                    Text(
+                                        level.name.lowercase()
+                                            .replaceFirstChar { it.uppercase() },
+                                    )
+                                },
+                            )
+                        }
+                    }
                 }
 
                 uiState.sherpaVoices.forEach { voiceRow ->
@@ -853,6 +884,7 @@ private fun VoiceScreenPreview() {
             onCancelVoiceDownload = {},
             onDeleteVoice = {},
             onActiveSpeakerIdChanged = {},
+            onVoiceExpressivenessChanged = {},
         )
     }
 }

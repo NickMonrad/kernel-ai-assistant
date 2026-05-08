@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
+import com.kernel.ai.core.voice.VoiceExpressiveness
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
@@ -43,6 +44,8 @@ data class VoiceUiState(
     val isSelectedSherpaVoiceDownloaded: Boolean = false,
     /** Active speaker ID for multi-speaker voices (VCTK). Stored as sid 0–108. */
     val activeSpeakerId: Int = 0,
+    /** VITS noise_scale expressiveness setting (Low/Medium/High). */
+    val voiceExpressiveness: VoiceExpressiveness = VoiceExpressiveness.MEDIUM,
 )
 
 @HiltViewModel
@@ -137,6 +140,11 @@ class VoiceViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            voiceOutputPreferences.voiceExpressiveness.collect { e ->
+                _uiState.update { it.copy(voiceExpressiveness = e) }
+            }
+        }
+        viewModelScope.launch {
             voiceInputPreferences.autoStartAlertVoiceCommandsEnabled.collect { enabled ->
                 _uiState.update { it.copy(autoStartAlertVoiceCommandsEnabled = enabled) }
             }
@@ -226,6 +234,13 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(activeSpeakerId = sid) }
         viewModelScope.launch {
             voiceOutputPreferences.setActiveSpeakerId(sid)
+        }
+    }
+
+    fun setVoiceExpressiveness(e: VoiceExpressiveness) {
+        _uiState.update { it.copy(voiceExpressiveness = e) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setVoiceExpressiveness(e)
         }
     }
 

@@ -34,6 +34,7 @@ android {
 dependencies {
     implementation(project(":core:inference"))
     implementation(project(":core:memory"))
+    implementation(project(":core:voice"))
 
     // LiteRT-LM — needed for ToolSet, @Tool, @ToolParam annotations on KernelAIToolSet
     implementation(libs.litertlm.android)

@@ -29,6 +29,7 @@ class SkillRegistry @Inject constructor(
         if (registry.isEmpty()) return ""
         val others = registry.values
             .filter { it.name !in HIDDEN_FROM_PUBLIC_SKILL_LIST }
+            .filter { it.isEnabled() }
             .sortedBy { it.name }
 
         return buildString {

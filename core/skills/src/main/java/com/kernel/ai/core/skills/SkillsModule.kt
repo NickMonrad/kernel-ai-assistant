@@ -7,6 +7,7 @@ import com.kernel.ai.core.skills.natives.GetWeatherSkill
 import com.kernel.ai.core.skills.natives.GetWeatherUnifiedSkill
 import com.kernel.ai.core.skills.natives.SaveMemorySkill
 import com.kernel.ai.core.skills.natives.SearchMemorySkill
+import com.kernel.ai.core.skills.natives.SetVoiceEmotionSkill
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -58,6 +59,10 @@ abstract class SkillsModule {
     @Binds
     @IntoSet
     abstract fun bindMealPlannerSkill(skill: MealPlannerSkill): Skill
+
+    @Binds
+    @IntoSet
+    abstract fun bindSetVoiceEmotionSkill(skill: SetVoiceEmotionSkill): Skill
 
     /** Bind MiniLMIntentClassifier as the IntentClassifier for QuickIntentRouter. */
     @Binds

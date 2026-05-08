@@ -5,6 +5,7 @@ import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
+import com.kernel.ai.core.voice.VoiceExpressiveness
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
@@ -48,6 +49,7 @@ class VoiceViewModelTest {
     private val autoSpeak = MutableStateFlow(true)
     private val maxSpokenSentences = MutableStateFlow(0)
     private val activeSpeakerId = MutableStateFlow(0)
+    private val voiceExpressiveness = MutableStateFlow(VoiceExpressiveness.MEDIUM)
     private val sherpaDownloadStates: MutableStateFlow<Map<SherpaPiperVoice, VoicePackDownloadState>> =
         MutableStateFlow(
             SherpaPiperVoice.entries.associateWith {
@@ -81,6 +83,7 @@ class VoiceViewModelTest {
         every { voiceOutputPreferences.autoSpeak } returns autoSpeak
         every { voiceOutputPreferences.maxSpokenSentences } returns maxSpokenSentences
         every { voiceOutputPreferences.activeSpeakerId } returns activeSpeakerId
+        every { voiceOutputPreferences.voiceExpressiveness } returns voiceExpressiveness
         coEvery { voiceOutputPreferences.setSpokenResponsesEnabled(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedSherpaVoice(any()) } just Runs
@@ -90,6 +93,7 @@ class VoiceViewModelTest {
         coEvery { voiceOutputPreferences.setAutoSpeak(any()) } just Runs
         coEvery { voiceOutputPreferences.setMaxSpokenSentences(any()) } just Runs
         coEvery { voiceOutputPreferences.setActiveSpeakerId(any()) } just Runs
+        coEvery { voiceOutputPreferences.setVoiceExpressiveness(any()) } just Runs
         every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
         every { sherpaVoicePackDownloadManager.startDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.cancelDownload(any()) } just Runs

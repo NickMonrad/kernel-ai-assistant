@@ -39,5 +39,13 @@ interface Skill {
             }
         }
 
+    /**
+     * Whether this skill should be included in the system prompt skill listing.
+     * Override to return false when a skill is only relevant in certain contexts
+     * (e.g. [SetVoiceEmotionSkill] is only useful when Semaine voice is active).
+     * Defaults to true — all skills enabled.
+     */
+    fun isEnabled(): Boolean = true
+
     suspend fun execute(call: SkillCall): SkillResult
 }

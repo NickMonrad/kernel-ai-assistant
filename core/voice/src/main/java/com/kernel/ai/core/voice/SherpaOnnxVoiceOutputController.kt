@@ -88,11 +88,24 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     private val activeSpeakerId: StateFlow<Int> = voiceOutputPreferences.activeSpeakerId
         .stateIn(scope, SharingStarted.Eagerly, 0)
 
+    /** VITS noise_scale expressiveness setting; triggers reinit when changed. */
+    private val expressiveness: StateFlow<VoiceExpressiveness> =
+        voiceOutputPreferences.voiceExpressiveness
+            .stateIn(scope, SharingStarted.Eagerly, VoiceExpressiveness.MEDIUM)
+
     // ── Lifecycle state ──────────────────────────────────────────────────────
     private enum class InitState { UNINITIALIZED, AVAILABLE, UNAVAILABLE }
 
     @Volatile private var initState = InitState.UNINITIALIZED
     @Volatile private var initializedVoice: SherpaPiperVoice? = null
+    @Volatile private var initializedExpressiveness: VoiceExpressiveness? = null
+
+    // ── Emotion override (transient, per-utterance, in-memory only) ──────────
+    @Volatile private var emotionOverrideSid: Int = -1
+
+    fun setEmotionOverrideSid(sid: Int) {
+        emotionOverrideSid = sid
+    }
 
     /** Reflected handle to `OfflineTts` instance; non-null iff [initState] == AVAILABLE. */
     @Volatile private var ttsInstance: Any? = null
@@ -141,6 +154,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             stopped = false
             val myGeneration = nonStreamingPlaybackGeneration.incrementAndGet()
 
+            // Capture effective sid now (before any await) and reset override so it is
+            // single-utterance-only. Reset happens in the finally block below.
+            val effectiveSid = if (emotionOverrideSid >= 0) emotionOverrideSid else activeSpeakerId.value
+
             // Track whether SpeakingStarted was emitted so SpeakingStopped is only sent when
             // it has a matching start — stops the back-and-forth loop from firing on a stopped
             // or failed synthesis where no audio was ever played.
@@ -149,7 +166,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 // Reflect: GeneratedAudio audio = tts.generate(text, sid=0, speed)
                 // Synthesis can take 1-3s; only emit SpeakingStarted once audio is ready
                 // and playback is actually about to begin — not before.
-                val audioResult = genMethod.invoke(tts, request.text, activeSpeakerId.value, sherpaSpeed.value)
+                val audioResult = genMethod.invoke(tts, request.text, effectiveSid, sherpaSpeed.value)
                     ?: return@withContext VoiceOutputResult.Unavailable("Sherpa returned null audio.")
 
                 val samples = reflectGetSamples(audioResult)
@@ -169,6 +186,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 releaseAudioFocus()
                 if (speakingStarted) _events.emit(VoiceOutputEvent.SpeakingStopped)
                 VoiceOutputResult.Unavailable("Sherpa generate failed: ${e.message}")
+            } finally {
+                emotionOverrideSid = -1
             }
         }
 
@@ -237,7 +256,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
      * otherwise (AAR missing, assets missing, or any reflection error).
      */
     private fun initialize(voice: SherpaPiperVoice): VoiceOutputResult {
-        if (initializedVoice != voice) {
+        if (initializedVoice != voice || initializedExpressiveness != expressiveness.value) {
             resetForVoice(voice)
         }
         return when (initState) {
@@ -276,7 +295,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         }
 
         return try {
-            val config = buildOfflineTtsConfig(modelDir)
+            val config = buildOfflineTtsConfig(modelDir, expressiveness.value)
             val configClass = Class.forName(SHERPA_OFFLINE_TTS_CONFIG_CLASS)
             val ctor = ttsClass.getConstructor(
                 android.content.res.AssetManager::class.java,
@@ -295,6 +314,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             ttsInstance = instance
             generateMethod = gen
             initState = InitState.AVAILABLE
+            initializedExpressiveness = expressiveness.value
             Log.i(TAG, "Sherpa-ONNX TTS initialised — voice: ${voice.downloadKey} at ${modelDir.absolutePath}")
             VoiceOutputResult.Spoken
         } catch (e: Exception) {
@@ -310,6 +330,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         generateMethod = null
         initState = InitState.UNINITIALIZED
         initializedVoice = voice
+        initializedExpressiveness = null
     }
 
     private suspend fun runStreamingPlayback(
@@ -319,6 +340,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     ) {
         val tts = ttsInstance ?: return
         val genMethod = generateMethod ?: return
+        // Capture effective sid at session start — emotion override is per-utterance only.
+        val effectiveSid = if (emotionOverrideSid >= 0) emotionOverrideSid else activeSpeakerId.value
         var emittedStarted = false
         var requestedAudioFocus = false
         try {
@@ -333,7 +356,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                     requestedAudioFocus = true
                 }
                 val audioResult = try {
-                    genMethod.invoke(tts, chunk.text, activeSpeakerId.value, sherpaSpeed.value)
+                    genMethod.invoke(tts, chunk.text, effectiveSid, sherpaSpeed.value)
                         ?: return
                 } catch (e: Exception) {
                     Log.e(TAG, "Sherpa streaming generate() failed", e)
@@ -349,6 +372,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 }
             }
         } finally {
+            emotionOverrideSid = -1
             releaseAudioFocus()
             if (finishStreamingPlayback(playbackToken)) {
                 _events.emit(VoiceOutputEvent.SpeakingStopped)
@@ -396,7 +420,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
      * OfflineTtsConfig          { model, ruleFsts, maxNumSentences }
      * ```
      */
-    private fun buildOfflineTtsConfig(modelDir: File): Any {
+    private fun buildOfflineTtsConfig(modelDir: File, expressiveness: VoiceExpressiveness): Any {
         val vitsClass = Class.forName(SHERPA_VITS_MODEL_CONFIG_CLASS)
         val modelConfigClass = Class.forName(SHERPA_MODEL_CONFIG_CLASS)
         val configClass = Class.forName(SHERPA_OFFLINE_TTS_CONFIG_CLASS)
@@ -406,6 +430,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         setProperty(vitsConfig, "model", File(modelDir, SHERPA_MODEL_ONNX_FILE).absolutePath)
         setProperty(vitsConfig, "tokens", File(modelDir, SHERPA_TOKENS_FILE).absolutePath)
         setProperty(vitsConfig, "dataDir", File(modelDir, SHERPA_ESPEAK_DATA_DIR).absolutePath)
+        setProperty(vitsConfig, "noiseScale", expressiveness.noiseScale)
+        setProperty(vitsConfig, "noiseScaleW", expressiveness.noiseScaleW)
 
         // OfflineTtsModelConfig
         val modelConfig = newInstance(modelConfigClass)
