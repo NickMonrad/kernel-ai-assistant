@@ -12,6 +12,7 @@ import android.provider.ContactsContract
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
+import com.kernel.ai.core.memory.ImportantDateRepository
 import com.kernel.ai.core.memory.clock.ClockAlarm
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.clock.ClockStopwatch
@@ -20,6 +21,7 @@ import com.kernel.ai.core.memory.clock.StopwatchStatus
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ContactAliasEntity
+import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.skills.SkillResult
@@ -41,16 +43,19 @@ import org.junit.jupiter.api.Test
 import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.flow.flowOf
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class NativeIntentHandlerTest {
     private val context = mockk<Context>(relaxed = true)
     private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val contactAliasRepository = mockk<ContactAliasRepository>(relaxed = true)
+    private val importantDateRepository = mockk<ImportantDateRepository>(relaxed = true)
+    private val calendarBirthdayLookup = mockk<CalendarBirthdayLookup>(relaxed = true)
     private val clockRepository = mockk<ClockRepository>(relaxed = true)
     private val clockAlertController = mockk<ClockAlertController>(relaxed = true)
     private val listItemDao = mockk<ListItemDao>(relaxed = true)
     private val listNameDao = mockk<ListNameDao>(relaxed = true)
-
     private val handler = NativeIntentHandler(
         context = context,
         clockRepository = clockRepository,
@@ -58,6 +63,8 @@ class NativeIntentHandlerTest {
         listItemDao = listItemDao,
         listNameDao = listNameDao,
         contactAliasRepository = contactAliasRepository,
+        importantDateRepository = importantDateRepository,
+        calendarBirthdayLookup = calendarBirthdayLookup,
         memoryRepository = mockk<MemoryRepository>(relaxed = true),
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
     )
@@ -864,6 +871,181 @@ class NativeIntentHandlerTest {
         assertEquals(true, compact)
         assertEquals(false, contact)
     }
+
+    @Test
+    fun `save important date stores parsed recurring date`() {
+        every { Log.d(any<String>(), any<String>()) } returns 0
+        coEvery { importantDateRepository.save("mum's birthday", 3, 15, null) } just Runs
+
+        val result = handler.handle(
+            "save_important_date",
+            mapOf("label" to "mum's birthday", "date" to "15 March"),
+        )
+
+        assertTrue(result is SkillResult.DirectReply)
+        assertEquals(
+            "I'll remember mum's birthday as 15 March.",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 1) { importantDateRepository.save("mum's birthday", 3, 15, null) }
+    }
+
+    @Test
+    fun `list important dates returns stored entries`() {
+        coEvery { importantDateRepository.getAll() } returns listOf(
+            ImportantDateEntity(label = "mum's birthday", normalizedLabel = "mum birthday", month = 3, day = 15),
+            ImportantDateEntity(label = "our anniversary", normalizedLabel = "our anniversary", month = 6, day = 22, year = 2018),
+        )
+
+        val result = handler.handle("list_important_dates", emptyMap())
+
+        assertTrue(result is SkillResult.DirectReply)
+        val reply = (result as SkillResult.DirectReply).content
+        assertTrue(reply.contains("Important dates:"))
+        assertTrue(reply.contains("mum's birthday — 15 March"))
+        assertTrue(reply.contains("our anniversary — 22 June 2018"))
+    }
+
+    @Test
+    fun `remove important date deletes by label`() {
+        coEvery { importantDateRepository.deleteByLabel("mum's birthday") } returns 1
+
+        val result = handler.handle("remove_important_date", mapOf("label" to "mum's birthday"))
+
+        assertTrue(result is SkillResult.DirectReply)
+        assertEquals("Removed important date mum's birthday.", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { importantDateRepository.deleteByLabel("mum's birthday") }
+    }
+
+    @Test
+    fun `parseDateString resolves taught important dates before holiday lookup`() {
+        val today = LocalDate.now()
+        val expected = LocalDate.of(today.year, 3, 15).let {
+            if (!it.isBefore(today)) it else LocalDate.of(today.year + 1, 3, 15)
+        }
+        coEvery { importantDateRepository.findByLabel("mum's birthday") } returns ImportantDateEntity(
+            label = "mum's birthday",
+            normalizedLabel = "mum birthday",
+            month = 3,
+            day = 15,
+        )
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseDateString",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "mum's birthday") as LocalDate?
+
+        assertEquals(expected, resolved)
+    }
+
+    @Test
+    fun `parseDateString resolves calendar birthdays when taught date missing`() {
+        val today = LocalDate.now()
+        val expected = LocalDate.of(today.year, 4, 5).let {
+            if (!it.isBefore(today)) it else LocalDate.of(today.year + 1, 4, 5)
+        }
+        coEvery { importantDateRepository.findByLabel("jane's birthday") } returns null
+        every { calendarBirthdayLookup.findBirthday("jane's birthday") } returns CalendarBirthdayLookup.BirthdayEntry(
+            label = "Jane Smith",
+            normalizedLabel = "jane smith",
+            month = 4,
+            day = 5,
+        )
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseDateString",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "jane's birthday") as LocalDate?
+
+        assertEquals(expected, resolved)
+    }
+
+    @Test
+    fun `parseDateString resolves mapped birthday aliases through contact names`() {
+        val today = LocalDate.now()
+        val expected = LocalDate.of(today.year, 4, 5).let {
+            if (!it.isBefore(today)) it else LocalDate.of(today.year + 1, 4, 5)
+        }
+        coEvery { importantDateRepository.findByLabel("my wife's birthday") } returns null
+        every { calendarBirthdayLookup.findBirthday("my wife's birthday") } returns null
+        coEvery { contactAliasRepository.getByAlias("wife") } returns ContactAliasEntity(
+            alias = "wife",
+            displayName = "Alice Smith",
+            contactId = "42",
+            phoneNumber = "021111222",
+        )
+        every { calendarBirthdayLookup.findBirthday("Alice Smith") } returns CalendarBirthdayLookup.BirthdayEntry(
+            label = "Alice Smith",
+            normalizedLabel = "alice smith",
+            month = 4,
+            day = 5,
+        )
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseDateString",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "my wife's birthday") as LocalDate?
+
+        assertEquals(expected, resolved)
+        coVerify(exactly = 1) { contactAliasRepository.getByAlias("wife") }
+        verify(exactly = 1) { calendarBirthdayLookup.findBirthday("Alice Smith") }
+    }
+
+    @Test
+    fun `parseDateString prefers taught dates over calendar birthdays`() {
+        val today = LocalDate.now()
+        val expected = LocalDate.of(today.year, 3, 15).let {
+            if (!it.isBefore(today)) it else LocalDate.of(today.year + 1, 3, 15)
+        }
+        coEvery { importantDateRepository.findByLabel("mum's birthday") } returns ImportantDateEntity(
+            label = "mum's birthday",
+            normalizedLabel = "mum birthday",
+            month = 3,
+            day = 15,
+        )
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseDateString",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "mum's birthday") as LocalDate?
+
+        assertEquals(expected, resolved)
+        verify(exactly = 0) { calendarBirthdayLookup.findBirthday(any()) }
+    }
+
+    @Test
+    fun `get_date_diff since uses the most recent recurring important date`() {
+        val today = LocalDate.now()
+        val expected = LocalDate.of(today.year, 3, 1).let {
+            if (!it.isAfter(today)) it else LocalDate.of(today.year - 1, 3, 1)
+        }
+        coEvery { importantDateRepository.findByLabel("my wedding anniversary") } returns ImportantDateEntity(
+            label = "my wedding anniversary",
+            normalizedLabel = "wedding anniversary",
+            month = 3,
+            day = 1,
+            year = 2018,
+        )
+
+        val result = handler.handle(
+            "get_date_diff",
+            mapOf("target_date" to "my wedding anniversary", "direction" to "since"),
+        )
+
+        assertTrue(result is SkillResult.DirectReply)
+        val content = (result as SkillResult.DirectReply).content
+        assertTrue(content.contains("ago"), content)
+        assertTrue(content.contains(expected.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.ENGLISH))), content)
+    }
+
 
     private data class PhoneRow(
         val contactId: String,
