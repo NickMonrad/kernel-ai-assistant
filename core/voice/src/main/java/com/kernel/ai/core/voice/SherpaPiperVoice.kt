@@ -10,6 +10,11 @@ enum class SherpaPiperVoice(
     val downloadKey: String,
     /** Approximate compressed download size in bytes (used for progress UI). */
     val approxDownloadBytes: Long,
+    /**
+     * Number of speakers in the Piper model. Single-speaker voices always use sid=0; the stored
+     * [activeSpeakerId] preference must not be applied to them.
+     */
+    val speakerCount: Int = 1,
 ) {
     JennyDioco(
         displayName = "Jenny Dioco",
@@ -66,6 +71,7 @@ enum class SherpaPiperVoice(
         assetDirectoryName = "vits-piper-en_GB-semaine-medium",
         downloadKey = "en_GB-semaine-medium",
         approxDownloadBytes = 70_000_000L,
+        speakerCount = 5,
     ),
     VctkMedium(
         displayName = "VCTK",
@@ -73,6 +79,7 @@ enum class SherpaPiperVoice(
         assetDirectoryName = "vits-piper-en_GB-vctk-medium",
         downloadKey = "en_GB-vctk-medium",
         approxDownloadBytes = 70_000_000L,
+        speakerCount = 109,
     ),
     AmyMedium(
         displayName = "Amy",
