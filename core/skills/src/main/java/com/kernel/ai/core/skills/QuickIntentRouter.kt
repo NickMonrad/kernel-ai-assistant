@@ -2285,7 +2285,7 @@ class QuickIntentRouter(
                 """(?:how\s+(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?(?:until|till|to|before))\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "until") }
         ),
         // "how many days since March 1" / "how long since Easter"
         IntentPattern(
@@ -2294,7 +2294,7 @@ class QuickIntentRouter(
                 """(?:how\s+(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?since)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "since") }
         ),
         // "days until Christmas" / "weeks until New Year"
         IntentPattern(
@@ -2303,7 +2303,7 @@ class QuickIntentRouter(
                 """(?:days?|weeks?)\s+(?:until|till|to)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "until") }
         ),
         // "what day of the week is 22 August" / "what day is Christmas"  (not "what day is X this year")
         IntentPattern(

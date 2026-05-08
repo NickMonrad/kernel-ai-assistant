@@ -1891,13 +1891,14 @@ class NativeIntentHandler @Inject constructor(
         val targetStr = params["target_date"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("get_date_diff", "No target_date provided")
         val today = LocalDate.now()
+        val preferPast = params["direction"] == "since"
         val fromDate = params["from_date"]?.takeIf { it.isNotBlank() }
             ?.let { parseDateString(it) } ?: today
-        val targetDate = parseDateString(targetStr)
+        val targetDate = parseDateString(targetStr, preferPast = preferPast)
             ?: return SkillResult.Failure(
                 "get_date_diff",
                 if (targetStr.contains("birthday", ignoreCase = true) && !calendarBirthdayLookup.hasPermission()) {
-                    "Could not parse date: \"$targetStr\". If this is a synced contact birthday, enable Calendar access in Settings first."
+                    "Could not parse date: \"$targetStr\". If this is a synced contact birthday, enable Calendar birthdays in Important dates first."
                 } else {
                     "Could not parse date: \"$targetStr\""
                 },
@@ -1971,9 +1972,13 @@ class NativeIntentHandler @Inject constructor(
         emptyMessage = emptyMessage,
     )
 
-    private fun resolveRecurringDate(month: Int, day: Int, today: LocalDate): LocalDate {
+    private fun resolveRecurringDate(month: Int, day: Int, today: LocalDate, preferPast: Boolean = false): LocalDate {
         val candidate = LocalDate.of(today.year, month, day)
-        return if (!candidate.isBefore(today)) candidate else LocalDate.of(today.year + 1, month, day)
+        return if (preferPast) {
+            if (!candidate.isAfter(today)) candidate else LocalDate.of(today.year - 1, month, day)
+        } else {
+            if (!candidate.isBefore(today)) candidate else LocalDate.of(today.year + 1, month, day)
+        }
     }
 
     private fun formatImportantDate(month: Int, day: Int, year: Int?): String {
@@ -2019,19 +2024,21 @@ class NativeIntentHandler @Inject constructor(
 
     /**
      * Parses a date string in various natural formats, including taught important dates and named NZ/common holidays.
-     * For dates without a year, picks the next upcoming occurrence.
+     * For dates without a year, resolves either the next or most recent occurrence depending on `preferPast`.
      */
-    private fun parseDateString(input: String): LocalDate? {
+    private fun parseDateString(input: String): LocalDate? = parseDateString(input, preferPast = false)
+
+    private fun parseDateString(input: String, preferPast: Boolean): LocalDate? {
         val s = input.trim()
         val today = LocalDate.now()
         val year = today.year
 
         runBlocking { importantDateRepository.findByLabel(s) }?.let { stored ->
-            return resolveRecurringDate(stored.month, stored.day, today)
+            return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
         }
         if (s.contains("birthday", ignoreCase = true)) {
             calendarBirthdayLookup.findBirthday(s)?.let { birthday ->
-                return resolveRecurringDate(birthday.month, birthday.day, today)
+                return resolveRecurringDate(birthday.month, birthday.day, today, preferPast = preferPast)
             }
 
             val aliasBirthdayLabel = ImportantDateRepository.normalizeLabel(
@@ -2040,58 +2047,72 @@ class NativeIntentHandler @Inject constructor(
             if (aliasBirthdayLabel.isNotBlank()) {
                 runBlocking { contactAliasRepository.getByAlias(aliasBirthdayLabel) }?.let { alias ->
                     calendarBirthdayLookup.findBirthday(alias.displayName)?.let { birthday ->
-                        return resolveRecurringDate(birthday.month, birthday.day, today)
+                        return resolveRecurringDate(birthday.month, birthday.day, today, preferPast = preferPast)
                     }
                 }
             }
         }
 
-        fun nextOccurrence(month: Int, day: Int): LocalDate {
-            val candidate = LocalDate.of(year, month, day)
-            return if (!candidate.isBefore(today)) candidate else LocalDate.of(year + 1, month, day)
-        }
+        fun resolveFixedDate(month: Int, day: Int): LocalDate =
+            resolveRecurringDate(month, day, today, preferPast = preferPast)
+
         fun nthWeekday(n: Int, dow: java.time.DayOfWeek, month: java.time.Month, y: Int): LocalDate {
             val first = LocalDate.of(y, month, 1)
             val firstMatch = first.with(java.time.temporal.TemporalAdjusters.nextOrSame(dow))
             return firstMatch.plusWeeks((n - 1).toLong())
         }
-        fun nextFloating(month: java.time.Month, nthSunday: Int): LocalDate {
+
+        fun resolveFloating(month: java.time.Month, nthSunday: Int): LocalDate {
             val candidate = nthWeekday(nthSunday, java.time.DayOfWeek.SUNDAY, month, year)
-            return if (!candidate.isBefore(today)) candidate else nthWeekday(nthSunday, java.time.DayOfWeek.SUNDAY, month, year + 1)
-        }
-        when (s.lowercase().replace(Regex("[''`]"), "").trim()) {
-            "christmas", "christmas day", "xmas" -> return nextOccurrence(12, 25)
-            "new years day", "new years", "new year", "new year's day", "new year day" ->
-                return LocalDate.of(year + 1, 1, 1).let {
-                    if (!LocalDate.of(year, 1, 1).isBefore(today)) LocalDate.of(year, 1, 1) else it
-                }
-            "halloween" -> return nextOccurrence(10, 31)
-            "waitangi day", "waitangi" -> return nextOccurrence(2, 6)
-            "anzac day", "anzac" -> return nextOccurrence(4, 25)
-            "valentines day", "valentine's day", "valentines" -> return nextOccurrence(2, 14)
-            "mothers day", "mother's day", "mothers" -> return nextFloating(java.time.Month.MAY, 2)
-            "fathers day", "father's day", "fathers" -> return nextFloating(java.time.Month.SEPTEMBER, 1)
-            "easter" -> {
-                fun easterDate(y: Int): LocalDate {
-                    val a = y % 19; val b = y / 100; val c = y % 100
-                    val d = b / 4; val e = b % 4; val f = (b + 8) / 25
-                    val g = (b - f + 1) / 3; val h = (19 * a + b - d - g + 15) % 30
-                    val i = c / 4; val k = c % 4; val l = (32 + 2 * e + 2 * i - h - k) % 7
-                    val m = (a + 11 * h + 22 * l) / 451
-                    val month = (h + l - 7 * m + 114) / 31
-                    val day = ((h + l - 7 * m + 114) % 31) + 1
-                    return LocalDate.of(y, month, day)
-                }
-                val thisYearEaster = easterDate(year)
-                return if (!thisYearEaster.isBefore(today)) thisYearEaster else easterDate(year + 1)
+            return if (preferPast) {
+                if (!candidate.isAfter(today)) candidate else nthWeekday(nthSunday, java.time.DayOfWeek.SUNDAY, month, year - 1)
+            } else {
+                if (!candidate.isBefore(today)) candidate else nthWeekday(nthSunday, java.time.DayOfWeek.SUNDAY, month, year + 1)
             }
+        }
+
+        fun resolveEaster(): LocalDate {
+            fun easterDate(y: Int): LocalDate {
+                val a = y % 19; val b = y / 100; val c = y % 100
+                val d = b / 4; val e = b % 4; val f = (b + 8) / 25
+                val g = (b - f + 1) / 3; val h = (19 * a + b - d - g + 15) % 30
+                val i = c / 4; val k = c % 4; val l = (32 + 2 * e + 2 * i - h - k) % 7
+                val m = (a + 11 * h + 22 * l) / 451
+                val month = (h + l - 7 * m + 114) / 31
+                val day = ((h + l - 7 * m + 114) % 31) + 1
+                return LocalDate.of(y, month, day)
+            }
+
+            val candidate = easterDate(year)
+            return if (preferPast) {
+                if (!candidate.isAfter(today)) candidate else easterDate(year - 1)
+            } else {
+                if (!candidate.isBefore(today)) candidate else easterDate(year + 1)
+            }
+        }
+
+        when (s.lowercase().replace(Regex("[''`]"), "").trim()) {
+            "christmas", "christmas day", "xmas" -> return resolveFixedDate(12, 25)
+            "new years day", "new years", "new year", "new year's day", "new year day" ->
+                return if (preferPast) {
+                    if (!LocalDate.of(year, 1, 1).isAfter(today)) LocalDate.of(year, 1, 1) else LocalDate.of(year - 1, 1, 1)
+                } else {
+                    if (!LocalDate.of(year, 1, 1).isBefore(today)) LocalDate.of(year, 1, 1) else LocalDate.of(year + 1, 1, 1)
+                }
+            "halloween" -> return resolveFixedDate(10, 31)
+            "waitangi day", "waitangi" -> return resolveFixedDate(2, 6)
+            "anzac day", "anzac" -> return resolveFixedDate(4, 25)
+            "valentines day", "valentine's day", "valentines" -> return resolveFixedDate(2, 14)
+            "mothers day", "mother's day", "mothers" -> return resolveFloating(java.time.Month.MAY, 2)
+            "fathers day", "father's day", "fathers" -> return resolveFloating(java.time.Month.SEPTEMBER, 1)
+            "easter" -> return resolveEaster()
         }
 
         parseImportantDateInput(s)?.let { parsed ->
             return if (parsed.year != null) {
                 LocalDate.of(parsed.year, parsed.month, parsed.day)
             } else {
-                resolveRecurringDate(parsed.month, parsed.day, today)
+                resolveRecurringDate(parsed.month, parsed.day, today, preferPast = preferPast)
             }
         }
         return null

@@ -43,6 +43,8 @@ import org.junit.jupiter.api.Test
 import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.flow.flowOf
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class NativeIntentHandlerTest {
     private val context = mockk<Context>(relaxed = true)
@@ -1017,6 +1019,31 @@ class NativeIntentHandlerTest {
 
         assertEquals(expected, resolved)
         verify(exactly = 0) { calendarBirthdayLookup.findBirthday(any()) }
+    }
+
+    @Test
+    fun `get_date_diff since uses the most recent recurring important date`() {
+        val today = LocalDate.now()
+        val expected = LocalDate.of(today.year, 3, 1).let {
+            if (!it.isAfter(today)) it else LocalDate.of(today.year - 1, 3, 1)
+        }
+        coEvery { importantDateRepository.findByLabel("my wedding anniversary") } returns ImportantDateEntity(
+            label = "my wedding anniversary",
+            normalizedLabel = "wedding anniversary",
+            month = 3,
+            day = 1,
+            year = 2018,
+        )
+
+        val result = handler.handle(
+            "get_date_diff",
+            mapOf("target_date" to "my wedding anniversary", "direction" to "since"),
+        )
+
+        assertTrue(result is SkillResult.DirectReply)
+        val content = (result as SkillResult.DirectReply).content
+        assertTrue(content.contains("ago"), content)
+        assertTrue(content.contains(expected.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.ENGLISH))), content)
     }
 
 

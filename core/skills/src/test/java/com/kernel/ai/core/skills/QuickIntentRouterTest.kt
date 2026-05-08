@@ -738,6 +738,26 @@ class QuickIntentRouterTest {
             assertEquals("London", intent.params["location"])
         }
 
+    @Test
+    fun `date diff until phrases tag direction as until`() {
+        val result = regexOnlyRouter.route("how long until Christmas")
+        assertRegexMatch(result, "get_date_diff", "how long until Christmas")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("until", intent.params["direction"])
+        assertEquals("Christmas", intent.params["target_date"])
+    }
+
+    @Test
+    fun `date diff since phrases tag direction as since`() {
+        val result = regexOnlyRouter.route("how long since Easter")
+        assertRegexMatch(result, "get_date_diff", "how long since Easter")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("since", intent.params["direction"])
+        assertEquals("Easter", intent.params["target_date"])
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // E4B FALLTHROUGH — these should NEVER match Tier 2
     // ═══════════════════════════════════════════════════════════════════════════
