@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -190,6 +191,9 @@ class VoiceOutputPreferences @Inject constructor(
 
     private val verboseLoggingKey = booleanPreferencesKey("verbose_logging_enabled")
 
+    private val defaultVerboseLogging: Boolean
+        get() = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
     val verboseLogging: Flow<Boolean> = context.voiceOutputPrefsDataStore.data
         .catch { e ->
             if (e is IOException) {
@@ -199,7 +203,7 @@ class VoiceOutputPreferences @Inject constructor(
                 throw e
             }
         }
-        .map { prefs -> prefs[verboseLoggingKey] ?: false }
+        .map { prefs -> prefs[verboseLoggingKey] ?: defaultVerboseLogging }
 
     suspend fun setVerboseLogging(enabled: Boolean) {
         context.voiceOutputPrefsDataStore.edit { prefs ->
