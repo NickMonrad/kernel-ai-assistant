@@ -110,6 +110,7 @@ interface ClockAlertController {
  *   get_weather             — Opens Google search for weather (params: location?)
  *   get_system_info         — Returns storage and RAM info — returns DirectReply
  *   get_date_diff           — Native date arithmetic: days/weeks until or since a date (params: target_date, from_date?) — returns DirectReply
+ *   calculate_arithmetic    — Deterministic arithmetic/calculator evaluator (params: expression) — returns DirectReply
  *   save_important_date     — Stores a taught recurring personal date (params: label, date) — returns DirectReply
  *   list_important_dates    — Lists taught recurring personal dates — returns DirectReply
  *   remove_important_date   — Deletes a taught recurring personal date (params: label) — returns DirectReply
@@ -193,6 +194,7 @@ class NativeIntentHandler @Inject constructor(
                 "smart_home_off" -> handleSmartHome(params["device"] ?: "device", false)
                 "get_weather" -> getWeather(params)
                 "get_date_diff" -> getDateDiff(params)
+                "calculate_arithmetic" -> calculateArithmetic(params)
                 "get_system_info" -> getSystemInfo()
                 "save_important_date" -> saveImportantDate(params)
                 "list_important_dates" -> listImportantDates()
@@ -250,7 +252,7 @@ class NativeIntentHandler @Inject constructor(
             "open_app", "navigate_to", "find_nearby",
             "add_to_list", "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list",
             "smart_home_on", "smart_home_off",
-            "get_weather", "get_date_diff", "get_system_info",
+            "get_weather", "get_date_diff", "get_system_info", "calculate_arithmetic",
             "save_important_date", "list_important_dates", "remove_important_date",
             "save_memory", 
         )
@@ -1959,6 +1961,23 @@ class NativeIntentHandler @Inject constructor(
                 breakdownText = breakdownText,
             ),
         )
+    }
+
+    private fun calculateArithmetic(params: Map<String, String>): SkillResult {
+        val expression = params["expression"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("calculate_arithmetic", "No expression provided")
+
+        return try {
+            val result = ArithmeticExpressionEvaluator.evaluate(expression)
+            val content = if (result.isApproximate) {
+                "The result is approximately ${result.value.toPlainString()}."
+            } else {
+                "The result is ${result.value.toPlainString()}."
+            }
+            SkillResult.DirectReply(content)
+        } catch (e: IllegalArgumentException) {
+            SkillResult.Failure("calculate_arithmetic", e.message ?: "Could not evaluate expression")
+        }
     }
 
     private fun buildListPreview(

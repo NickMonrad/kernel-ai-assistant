@@ -102,6 +102,8 @@ class RunIntentSkill @Inject constructor(
         "Save important date → runIntent(intentName=\"save_important_date\", parameters='{\"label\":\"mum's birthday\",\"date\":\"15 March\"}')",
         "List important dates → runIntent(intentName=\"list_important_dates\", parameters='{}')",
         "Remove important date → runIntent(intentName=\"remove_important_date\", parameters='{\"label\":\"mum's birthday\"}')",
+        "Calculator → runIntent(intentName=\"calculate_arithmetic\", parameters='{\"expression\":\"18.5% of 240\"}')",
+        "Math helpers → runIntent(intentName=\"calculate_arithmetic\", parameters='{\"expression\":\"round(sqrt((25^2)) + abs(-2.6) + (10 % 3), 2)\"}')",
         // System toggles
         "Turn on DND → runIntent(intentName=\"toggle_dnd_on\", parameters=\"{}\")",
         "Enable Wi-Fi → runIntent(intentName=\"toggle_wifi\", parameters='{\"state\":\"on\"}')",
@@ -146,6 +148,9 @@ class RunIntentSkill @Inject constructor(
         appendLine("  save_important_date — params: label, date (e.g. \"15 March\" or \"22 June 2018\")")
         appendLine("  list_important_dates — no params")
         appendLine("  remove_important_date — params: label")
+        appendLine()
+        appendLine("CALCULATOR:")
+        appendLine("  calculate_arithmetic — params: expression (calculator expression or simple arithmetic phrase)")
         appendLine()
         appendLine("SYSTEM TOGGLES:")
         appendLine("  toggle_dnd_on, toggle_dnd_off — No params")
@@ -206,6 +211,11 @@ class RunIntentSkill @Inject constructor(
         appendLine()
         appendLine("Volume rule: 'set volume to 50%', 'volume 7' → runIntent with intentName=set_volume.")
         appendLine("If user says percentage (0-100), set is_percent=\"true\". If 1-10, set is_percent=\"false\".")
+        appendLine()
+        appendLine("Calculator rule: for arithmetic or calculator-style questions, ALWAYS call")
+        appendLine("runIntent with intentName=calculate_arithmetic instead of doing the math yourself.")
+        appendLine("Pass the math in expression exactly as symbols when already present (e.g. '245 * 17'),")
+        appendLine("or as a simple phrase the evaluator understands (e.g. '18.5% of 240').")
         appendLine()
         appendLine("Media rule: For music playback, use play_media with query (song name) and artist.")
         appendLine("For albums, use play_media_album. For playlists, use play_media_playlist.")
