@@ -758,6 +758,20 @@ class QuickIntentRouterTest {
         assertEquals("Easter", intent.params["target_date"])
     }
 
+    @Nested
+    @DisplayName("Calculator")
+    inner class Calculator {
+        @ParameterizedTest(name = "Regex: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#calculatorRegexPhrases")
+        fun `should match calculator phrases with expression param`(input: String, expectedExpression: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "calculate_arithmetic", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedExpression, intent.params["expression"])
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // E4B FALLTHROUGH — these should NEVER match Tier 2
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1740,6 +1754,7 @@ class QuickIntentRouterTest {
         addCases(batteryRegexPhrases(), "get_battery", "Battery (regex)")
         addCases(batteryClassifierPhrases(), "get_battery", "Battery (classifier)")
         addCases(dateDiffRegexPhrases(), "get_date_diff", "Date Diff (regex)")
+        addCases(calculatorRegexPhrases(), "calculate_arithmetic", "Calculator (regex)")
         addCases(timeRegexPhrases(), "get_time", "Time (regex)")
         addCases(timeClassifierPhrases(), "get_time", "Time (classifier)")
         addCases(volumeRegexPhrases(), "set_volume", "Volume (regex)")
@@ -2132,6 +2147,14 @@ class QuickIntentRouterTest {
             Arguments.of("when is Easter"),
             Arguments.of("how many days until 2026-08-22"),
             Arguments.of("how long until August 22 2026"),
+        )
+
+        @JvmStatic
+        fun calculatorRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("245 * 17", "245 * 17"),
+            Arguments.of("what is 18.5% of 240", "18.5% of 240"),
+            Arguments.of("12 divided by 3", "12 divided by 3"),
+            Arguments.of("calculate round(sqrt((25^2)) + abs(-2.6) + (10 % 3), 2)", "round(sqrt((25^2)) + abs(-2.6) + (10 % 3), 2)"),
         )
 
         @JvmStatic
