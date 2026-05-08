@@ -29,7 +29,7 @@ class SetVoiceEmotionSkill @Inject constructor(
             "emotion" to SkillParameter(
                 type = "string",
                 description = "The emotional style for the next spoken response. " +
-                    "One of: neutral, happy, sad, worried.",
+                    "One of: neutral, happy, sad, angry, worried.",
             ),
         ),
         required = listOf("emotion"),
@@ -38,21 +38,23 @@ class SetVoiceEmotionSkill @Inject constructor(
 set_voice_emotion: Set the emotional tone of the spoken voice for the current reply.
 
 Parameters:
-- emotion (required, string): One of "neutral", "happy", "sad", "worried"
+- emotion (required, string): One of "neutral", "happy", "sad", "angry", "worried"
 
 Emotion → Semaine speaker mapping:
   neutral → calm, measured delivery (default)
   happy   → upbeat, positive tone
   sad     → subdued, gentle tone
+  angry   → intense, forceful delivery
   worried → concerned, careful delivery
 
 Use sparingly and only when the user's emotional context clearly warrants it.
-For example: happy when delivering good news, worried when the user is stressed.
+For example: happy when delivering good news, angry when venting, worried when the user is stressed.
 ONLY effective when Semaine voice is selected — has no effect with other voices.
     """.trimIndent()
 
     // sid mapping matches en_GB-semaine-medium speaker_id_map exactly
-    private val emotionToSid = mapOf("neutral" to 0, "happy" to 1, "sad" to 2, "worried" to 3)
+    // neutral=0, happy=1, sad=2, angry=3, worried=4
+    private val emotionToSid = mapOf("neutral" to 0, "happy" to 1, "sad" to 2, "angry" to 3, "worried" to 4)
 
     /**
      * Only include this skill in the system prompt when Semaine is the active voice.
@@ -71,7 +73,7 @@ ONLY effective when Semaine voice is selected — has no effect with other voice
         val sid = emotionToSid[emotion]
             ?: return SkillResult.Failure(
                 name,
-                "Unknown emotion '$emotion'. Use: neutral, happy, sad, worried",
+                "Unknown emotion '$emotion'. Use: neutral, happy, sad, angry, worried",
             )
         voiceController.setEmotionOverrideSid(sid)
         return SkillResult.Success("Voice emotion set to $emotion.")

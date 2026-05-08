@@ -90,8 +90,15 @@ class SetVoiceEmotionSkillTest {
     }
 
     @Test
-    fun `worried maps to sid 3`() = runTest {
+    fun `worried maps to sid 4`() = runTest {
         val result = skill.execute(SkillCall("set_voice_emotion", mapOf("emotion" to "worried")))
+        verify { voiceController.setEmotionOverrideSid(4) }
+        assertInstanceOf(SkillResult.Success::class.java, result)
+    }
+
+    @Test
+    fun `angry maps to sid 3`() = runTest {
+        val result = skill.execute(SkillCall("set_voice_emotion", mapOf("emotion" to "angry")))
         verify { voiceController.setEmotionOverrideSid(3) }
         assertInstanceOf(SkillResult.Success::class.java, result)
     }
@@ -107,11 +114,11 @@ class SetVoiceEmotionSkillTest {
 
     @Test
     fun `unknown emotion returns Failure`() = runTest {
-        val result = skill.execute(SkillCall("set_voice_emotion", mapOf("emotion" to "angry")))
+        val result = skill.execute(SkillCall("set_voice_emotion", mapOf("emotion" to "disgusted")))
         assertInstanceOf(SkillResult.Failure::class.java, result)
         val failure = result as SkillResult.Failure
         assertEquals("set_voice_emotion", failure.skillName)
-        assertTrue(failure.error.contains("angry"), "Error message should mention the bad emotion")
+        assertTrue(failure.error.contains("disgusted"), "Error message should mention the bad emotion")
     }
 
     @Test
