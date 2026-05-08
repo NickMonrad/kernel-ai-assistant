@@ -2326,6 +2326,26 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
         ),
 
+        // ── Calculator ──
+        // Symbolic expressions and helper functions: "245 * 17", "what is round(sqrt(25^2), 2)"
+        IntentPattern(
+            intentName = "calculate_arithmetic",
+            regex = Regex(
+                """^(?:(?:what(?:'s|\s+is)|calculate|compute|evaluate)\s+)?((?=.*(?:[+*/^%()]|\b(?:sqrt|abs|floor|ceil|round)\b))(?:(?:sqrt|abs|floor|ceil|round)|[-+*/%^().,\d\s])+)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("expression" to match.groupValues[1].trim()) },
+        ),
+        // Worded calculator phrases: "what is 18.5 percent of 240", "12 divided by 3", "5 plus 7"
+        IntentPattern(
+            intentName = "calculate_arithmetic",
+            regex = Regex(
+                """^(?:(?:what(?:'s|\s+is)|calculate|compute|evaluate)\s+)?((?:-?\d+(?:\.\d+)?\s*(?:%|percent)\s+of\s+-?\d+(?:\.\d+)?|-?\d+(?:\.\d+)?(?:\s+(?:plus|minus|times|multiplied\s+by|divided\s+by|over|mod(?:ulo)?|to\s+the\s+power\s+of|raised\s+to)\s+-?\d+(?:\.\d+)?)+))$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("expression" to match.groupValues[1].trim()) },
+        ),
+
         // ── Lists ──
         // "add milk to my list" / "put eggs on the list" (item present, list missing) → ask which list
         IntentPattern(
