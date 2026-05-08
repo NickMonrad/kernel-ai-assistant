@@ -260,6 +260,64 @@ class SlotFillerManagerTest {
     }
 
     @Test
+    fun `important date slot fill extracts terminal date from natural sentence reply`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "save_important_date",
+                existingParams = mapOf("label" to "Emily's birthday"),
+                missingSlot = SlotSpec(
+                    name = "date",
+                    promptTemplate = "What date is {label}?",
+                ),
+            ),
+        )
+
+        val completed = assertInstanceOf(
+            SlotFillResult.Completed::class.java,
+            manager.onUserReply(conversationOne, "Can you remember that Emily's birthday is 19 November"),
+        )
+
+        assertFalse(manager.hasPending)
+        assertEquals(
+            mapOf(
+                "label" to "Emily's birthday",
+                "date" to "19 November",
+            ),
+            completed.params,
+        )
+    }
+
+    @Test
+    fun `important date slot fill keeps ordinal of month date replies`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "save_important_date",
+                existingParams = mapOf("label" to "Emily's birthday"),
+                missingSlot = SlotSpec(
+                    name = "date",
+                    promptTemplate = "What date is {label}?",
+                ),
+            ),
+        )
+
+        val completed = assertInstanceOf(
+            SlotFillResult.Completed::class.java,
+            manager.onUserReply(conversationOne, "on 19th of November"),
+        )
+
+        assertFalse(manager.hasPending)
+        assertEquals(
+            mapOf(
+                "label" to "Emily's birthday",
+                "date" to "19th of November",
+            ),
+            completed.params,
+        )
+    }
+
+    @Test
     fun `blank reply cancels and clears pending request`() {
         manager.startSlotFill(
             conversationOne,

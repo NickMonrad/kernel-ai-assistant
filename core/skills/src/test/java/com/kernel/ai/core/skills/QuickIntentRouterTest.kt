@@ -2878,6 +2878,8 @@ class QuickIntentRouterTest {
             Arguments.of("my wedding anniversary is 2018-06-22", "wedding anniversary", "2018-06-22"),
             Arguments.of("add important date freya's birthday 22 August", "freya's birthday", "22 August"),
             Arguments.of("add an important date for freya's birthday on 22 August", "freya's birthday", "22 August"),
+            Arguments.of("can you remember that Emily's birthday is 19 November", "Emily's birthday", "19 November"),
+            Arguments.of("add Emily's birthday as an important date on 19th of November", "Emily's birthday", "19th of November"),
         )
 
         @JvmStatic
