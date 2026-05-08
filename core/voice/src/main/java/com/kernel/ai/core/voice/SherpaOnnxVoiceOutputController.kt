@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -101,10 +102,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     @Volatile private var initializedExpressiveness: VoiceExpressiveness? = null
 
     // ── Emotion override (transient, per-utterance, in-memory only) ──────────
-    @Volatile private var emotionOverrideSid: Int = -1
+    private val emotionOverrideSid = AtomicInteger(-1)
 
     override fun setEmotionOverrideSid(sid: Int) {
-        emotionOverrideSid = sid
+        emotionOverrideSid.set(sid)
     }
 
     /** Reflected handle to `OfflineTts` instance; non-null iff [initState] == AVAILABLE. */
@@ -156,7 +157,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
 
             // Capture effective sid now (before any await) and reset override so it is
             // single-utterance-only. Reset happens in the finally block below.
-            val effectiveSid = if (emotionOverrideSid >= 0) emotionOverrideSid else activeSpeakerId.value
+            val effectiveSid = if (emotionOverrideSid.get() >= 0) emotionOverrideSid.get() else activeSpeakerId.value
 
             // Track whether SpeakingStarted was emitted so SpeakingStopped is only sent when
             // it has a matching start — stops the back-and-forth loop from firing on a stopped
@@ -187,7 +188,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 if (speakingStarted) _events.emit(VoiceOutputEvent.SpeakingStopped)
                 VoiceOutputResult.Unavailable("Sherpa generate failed: ${e.message}")
             } finally {
-                emotionOverrideSid = -1
+                emotionOverrideSid.set(-1)
             }
         }
 
@@ -341,7 +342,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         val tts = ttsInstance ?: return
         val genMethod = generateMethod ?: return
         // Capture effective sid at session start — emotion override is per-utterance only.
-        val effectiveSid = if (emotionOverrideSid >= 0) emotionOverrideSid else activeSpeakerId.value
+        val effectiveSid = if (emotionOverrideSid.get() >= 0) emotionOverrideSid.get() else activeSpeakerId.value
         var emittedStarted = false
         var requestedAudioFocus = false
         try {
@@ -372,7 +373,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 }
             }
         } finally {
-            emotionOverrideSid = -1
+            emotionOverrideSid.set(-1)
             releaseAudioFocus()
             if (finishStreamingPlayback(playbackToken)) {
                 _events.emit(VoiceOutputEvent.SpeakingStopped)

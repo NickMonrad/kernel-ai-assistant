@@ -1158,12 +1158,9 @@ class ChatViewModel @Inject constructor(
             }
 
             // Emotion pre-intercept: detect "in a X voice" / "sound X" patterns before QIR.
-            // Sets the TTS emotion override immediately so TTS speaks in the right style even
-            // when the LLM generates the response — no tool call needed from the model.
-            val emotionSystemContext = detectAndApplyVoiceEmotion(text)
-            if (emotionSystemContext != null) {
-                systemContext = emotionSystemContext
-            }
+            // The override is applied only if QIR falls through to the LLM — applying it for
+            // skill-matched queries would style TTS with an emotion the LLM never knew about.
+            val emotionDetection = detectVoiceEmotion(text)
 
             val weatherFollowUpLocation = WeatherConversationReferenceResolver.resolveLocation(
                 query = text,
@@ -1209,6 +1206,13 @@ class ChatViewModel @Inject constructor(
                     )
                     return@launch
                 }
+            }
+            // Apply emotion override only when QIR falls through to the LLM. Applying it for
+            // skill-matched queries would let TTS speak with an emotion the LLM wasn't told about.
+            if (routeResult is QuickIntentRouter.RouteResult.FallThrough && emotionDetection != null) {
+                systemContext = emotionDetection.systemContext
+                voiceOutputController.setEmotionOverrideSid(emotionDetection.sid)
+                Log.d("KernelAI", "Voice emotion pre-intercept applied: sid=${emotionDetection.sid}")
             }
             if (matchedIntent != null) {
                 // Calendar intent matched by classifier but params not extractable via regex —
@@ -1290,6 +1294,7 @@ class ChatViewModel @Inject constructor(
                 initGemma4()
                 if (!inferenceEngine.isReady.value) {
                     // Model still not ready (e.g. file absent) — tell the user and bail.
+                    voiceOutputController.setEmotionOverrideSid(-1)
                     appendAssistantMessage(convId, "Still loading the AI model, please try again in a moment.", shouldIndex = false)
                     return@launch
                 }
@@ -2067,6 +2072,7 @@ class ChatViewModel @Inject constructor(
         pendingVoiceReply = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
         if (!shouldSpeak || !autoSpeakEnabled) {
+            voiceOutputController.setEmotionOverrideSid(-1)
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
             return
@@ -2118,17 +2124,17 @@ class ChatViewModel @Inject constructor(
         com.kernel.ai.feature.chat.looksLikeRawToolCall(response)
 
     /**
-     * Detects voice emotion modifier phrases ("in a sad voice", "sound angry", etc.) and
-     * pre-sets [emotionOverrideSid] on the voice controller so TTS uses the right Semaine
-     * speaker without the LLM needing to call [SetVoiceEmotionSkill] itself.
+     * Detects voice emotion modifier phrases ("in a sad voice", "sound angry", etc.).
      *
      * Only fires when [SherpaPiperVoice.SemaineMedium] is the active voice — no-ops silently
      * for all other voices to avoid injecting invalid sids into single-speaker Sherpa engines.
      *
-     * Returns a [System:] context string to inject into the prompt so Jandal acknowledges
-     * the voice style naturally, or null if no emotion was detected / wrong voice.
+     * Returns an [EmotionDetection] with the target sid and a [System:] context string to
+     * inject into the prompt, or null if no emotion was detected / wrong voice selected.
+     * Does NOT set [emotionOverrideSid] — the caller applies the override only when the
+     * query is confirmed to reach the LLM (i.e. QIR FallThrough).
      */
-    private suspend fun detectAndApplyVoiceEmotion(text: String): String? {
+    private suspend fun detectVoiceEmotion(text: String): EmotionDetection? {
         val emotionToSid = mapOf(
             "neutral" to 0, "happy" to 1, "sad" to 2, "angry" to 3, "worried" to 4,
         )
@@ -2138,10 +2144,11 @@ class ChatViewModel @Inject constructor(
         val sid = emotionToSid[emotion] ?: return null
         val activeVoice = voiceOutputPreferences.selectedSherpaVoice.first()
         if (activeVoice != SherpaPiperVoice.SemaineMedium) return null
-        voiceOutputController.setEmotionOverrideSid(sid)
-        Log.d("KernelAI", "Voice emotion pre-intercept: $emotion → sid=$sid")
-        return "[System: set_voice_emotion — Voice tone set to $emotion for this reply.]"
+        Log.d("KernelAI", "Voice emotion detected: $emotion → sid=$sid")
+        return EmotionDetection(sid, "[System: set_voice_emotion — Voice tone set to $emotion for this reply.]")
     }
+
+    private data class EmotionDetection(val sid: Int, val systemContext: String)
 
     companion object {
         private val VOICE_EMOTION_PATTERN = Regex(
