@@ -891,6 +891,24 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `save important date accepts ordinal of month phrasing`() {
+        every { Log.d(any<String>(), any<String>()) } returns 0
+        coEvery { importantDateRepository.save("Emily's birthday", 11, 19, null) } just Runs
+
+        val result = handler.handle(
+            "save_important_date",
+            mapOf("label" to "Emily's birthday", "date" to "19th of November"),
+        )
+
+        assertTrue(result is SkillResult.DirectReply)
+        assertEquals(
+            "I'll remember Emily's birthday as 19 November.",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 1) { importantDateRepository.save("Emily's birthday", 11, 19, null) }
+    }
+
+    @Test
     fun `list important dates returns stored entries`() {
         coEvery { importantDateRepository.getAll() } returns listOf(
             ImportantDateEntity(label = "mum's birthday", normalizedLabel = "mum birthday", month = 3, day = 15),

@@ -114,6 +114,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     /** Reflected `generate(String, Int, Float): GeneratedAudio` method. */
     @Volatile private var generateMethod: java.lang.reflect.Method? = null
 
+    // ── Verbose logging ──────────────────────────────────────────────────────
+    private val verboseLoggingEnabled: StateFlow<Boolean> = voiceOutputPreferences.verboseLogging
+        .stateIn(scope, SharingStarted.Eagerly, false)
+
     // ── Playback cancellation ────────────────────────────────────────────────
     @Volatile private var stopped = false
     @Volatile private var nextPlaybackToken = 0L
@@ -135,6 +139,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
 
     // ── VoiceOutputController ────────────────────────────────────────────────
 
+    /** Returns 0 for single-speaker voices; clamps stored sid for multi-speaker. */
+    private fun effectiveSid(speakerCount: Int): Int =
+        if (speakerCount > 1) activeSpeakerId.value.coerceIn(0, speakerCount - 1) else 0
+
     override suspend fun warmUp(): VoiceOutputResult = withContext(Dispatchers.IO) {
         initialize(voiceOutputPreferences.selectedSherpaVoice.first())
     }
@@ -155,20 +163,23 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             stopped = false
             val myGeneration = nonStreamingPlaybackGeneration.incrementAndGet()
 
-            // Capture effective sid now (before any await) and reset override so it is
-            // single-utterance-only. Reset happens in the finally block below.
-            val effectiveSid = if (emotionOverrideSid.get() >= 0) emotionOverrideSid.get() else activeSpeakerId.value
+            // Emotion override is per-utterance for Semaine; for all other voices effectiveSid handles clamping.
+            // Override resets to -1 in the finally block — single utterance only.
+            val effectiveSid = if (emotionOverrideSid.get() >= 0) emotionOverrideSid.get() else effectiveSid(voice.speakerCount)
 
             // Track whether SpeakingStarted was emitted so SpeakingStopped is only sent when
             // it has a matching start — stops the back-and-forth loop from firing on a stopped
             // or failed synthesis where no audio was ever played.
             var speakingStarted = false
             return@withContext try {
-                // Reflect: GeneratedAudio audio = tts.generate(text, sid=0, speed)
-                // Synthesis can take 1-3s; only emit SpeakingStarted once audio is ready
-                // and playback is actually about to begin — not before.
+                // Reflect: GeneratedAudio audio = tts.generate(text, sid, speed)
+                // Synthesis can take 1-3s for medium models, longer for high-quality ones;
+                // only emit SpeakingStarted once audio is ready and playback is about to begin.
+                val synthStart = System.currentTimeMillis()
                 val audioResult = genMethod.invoke(tts, request.text, effectiveSid, sherpaSpeed.value)
                     ?: return@withContext VoiceOutputResult.Unavailable("Sherpa returned null audio.")
+                if (verboseLoggingEnabled.value) Log.d(TAG, "Sherpa synthesis: ${System.currentTimeMillis() - synthStart}ms for " +
+                    "${request.text.length} chars, voice=${voice.name}, sid=$effectiveSid")
 
                 val samples = reflectGetSamples(audioResult)
                 val sampleRate = reflectGetSampleRate(audioResult)
@@ -213,6 +224,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 playbackToken = playbackToken,
                 request = request,
                 chunks = chunks,
+                speakerCount = voice.speakerCount,
             )
         }
         synchronized(playbackLock) {
@@ -338,11 +350,12 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         playbackToken: Long,
         request: VoiceSpeakRequest,
         chunks: Channel<StreamingChunk>,
+        speakerCount: Int,
     ) {
         val tts = ttsInstance ?: return
         val genMethod = generateMethod ?: return
-        // Capture effective sid at session start — emotion override is per-utterance only.
-        val effectiveSid = if (emotionOverrideSid.get() >= 0) emotionOverrideSid.get() else activeSpeakerId.value
+        // Emotion override is per-utterance for Semaine; for all other voices effectiveSid handles clamping.
+        val effectiveSid = if (emotionOverrideSid.get() >= 0) emotionOverrideSid.get() else effectiveSid(speakerCount)
         var emittedStarted = false
         var requestedAudioFocus = false
         try {
@@ -356,6 +369,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                     requestAudioFocus()
                     requestedAudioFocus = true
                 }
+                val synthStart = System.currentTimeMillis()
                 val audioResult = try {
                     genMethod.invoke(tts, chunk.text, effectiveSid, sherpaSpeed.value)
                         ?: return
@@ -363,6 +377,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                     Log.e(TAG, "Sherpa streaming generate() failed", e)
                     return
                 }
+                if (verboseLoggingEnabled.value) Log.d(TAG, "Sherpa streaming chunk: ${System.currentTimeMillis() - synthStart}ms " +
+                    "for ${chunk.text.length} chars, sid=$effectiveSid")
                 val samples = reflectGetSamples(audioResult)
                 val sampleRate = reflectGetSampleRate(audioResult)
                 if (!stopped && isStreamingPlaybackActive(playbackToken)) {
