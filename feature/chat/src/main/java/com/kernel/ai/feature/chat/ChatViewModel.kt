@@ -62,6 +62,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -948,7 +949,7 @@ class ChatViewModel @Inject constructor(
         speakMessageJob = viewModelScope.launch {
             val maxSentences = voiceOutputPreferences.maxSpokenSentences.first()
             val textToSpeak = truncateForSpeech(normalizedText, maxSentences)
-            try {
+            val speakResult = try {
                 // Use the streaming session path so sentence 1 starts playing while
                 // sentence 2 is being synthesised — critical for long responses with
                 // high-quality voices (e.g. LessacHigh) which synthesise slowly.
@@ -967,7 +968,10 @@ class ChatViewModel @Inject constructor(
                     ) ?: break
                     val isLast = buffer.isBlank()
                     session.append(chunk, isFinal = isLast)
-                    if (isLast) { finalised = true; break }
+                    if (isLast) {
+                        finalised = true
+                        break
+                    }
                 }
                 // Flush any residual text that didn't form a clean chunk boundary.
                 // Skip if the loop already sent isFinal=true on the last chunk.
@@ -975,10 +979,20 @@ class ChatViewModel @Inject constructor(
                     val remaining = finalizeChatTextForSpeech(buffer.toString())
                     session.append(remaining, isFinal = true)
                 }
+                VoiceOutputResult.Spoken
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start per-message speech playback", e)
+                VoiceOutputResult.Unavailable("Voice playback failed to start.")
             } finally {
                 // speakingMessageId is cleared by SpeakingStopped event (when audio finishes)
                 // or by stopSpeaking() (when cancelled). Do not clear here — the job ends as
                 // soon as chunks are queued, long before audio playback completes.
+            }
+            if (speakResult is VoiceOutputResult.Unavailable && _speakingMessageId.value == messageId) {
+                _speakingMessageId.value = null
+                speakMessageJob = null
             }
         }
     }

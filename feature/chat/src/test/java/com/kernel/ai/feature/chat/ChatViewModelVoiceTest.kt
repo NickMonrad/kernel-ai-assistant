@@ -204,7 +204,7 @@ class ChatViewModelVoiceTest {
         coVerify {
             voiceOutputController.openStreamingSession(any())
         }
-        assertEquals(listOf("Hi back" to true), streamedChunks)
+        assertEquals(listOf("Hi back." to true), streamedChunks)
     }
 
     @Test
@@ -336,7 +336,7 @@ class ChatViewModelVoiceTest {
         coVerify(exactly = 1) {
             voiceOutputController.openStreamingSession(any())
         }
-        assertEquals(listOf("Hi back" to true), streamedChunks)
+        assertEquals(listOf("Hi back." to true), streamedChunks)
     }
 
     @Test
@@ -385,6 +385,22 @@ class ChatViewModelVoiceTest {
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
         verify(atLeast = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `speaker button state stays active until playback stops`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.speakMessage("assistant-1", "Hello there")
+        advanceUntilIdle()
+
+        assertEquals("assistant-1", viewModel.speakingMessageId.value)
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertNull(viewModel.speakingMessageId.value)
     }
 
     @Test
