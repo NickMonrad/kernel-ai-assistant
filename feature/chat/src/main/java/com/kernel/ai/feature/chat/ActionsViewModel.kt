@@ -38,7 +38,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
-private const val SLOT_REPLY_REARM_DELAY_MS = 350L
+private const val SLOT_REPLY_REARM_DELAY_MS = 700L
 private const val VOICE_REPLY_TTS_DELAY_MS = 150L
 private const val VOICE_COMMAND_DUPLICATE_WINDOW_MS = 2_000L
 private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
