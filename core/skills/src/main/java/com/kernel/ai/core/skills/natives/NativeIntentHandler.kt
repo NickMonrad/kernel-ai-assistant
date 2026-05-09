@@ -1977,7 +1977,13 @@ class NativeIntentHandler @Inject constructor(
             } else {
                 "The result is ${result.value.toPlainString()}."
             }
-            SkillResult.DirectReply(content)
+            val spokenSummary = if (result.isApproximate) {
+                val rounded = result.value.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros()
+                "The result is approximately ${rounded.toPlainString()}."
+            } else {
+                null
+            }
+            SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: IllegalArgumentException) {
             SkillResult.Failure("calculate_arithmetic", e.message ?: "Could not evaluate expression")
         }

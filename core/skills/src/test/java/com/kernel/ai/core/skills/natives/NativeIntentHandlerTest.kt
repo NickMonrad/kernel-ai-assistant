@@ -1075,6 +1075,22 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `calculate_arithmetic rounds spoken summary for approximate replies`() {
+        val result = handler.handle(
+            "calculate_arithmetic",
+            mapOf("expression" to "1 / 3"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "The result is approximately 0.3333333333333333.",
+                spokenSummary = "The result is approximately 0.33.",
+            ),
+            result,
+        )
+    }
+
+    @Test
     fun `calculate_arithmetic reports malformed expressions cleanly`() {
         val result = handler.handle(
             "calculate_arithmetic",
