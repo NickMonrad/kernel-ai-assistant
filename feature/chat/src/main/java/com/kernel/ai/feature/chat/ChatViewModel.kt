@@ -942,7 +942,32 @@ class ChatViewModel @Inject constructor(
             val maxSentences = voiceOutputPreferences.maxSpokenSentences.first()
             val textToSpeak = truncateForSpeech(normalizedText, maxSentences)
             try {
-                voiceOutputController.speak(VoiceSpeakRequest(text = textToSpeak))
+                // Use the streaming session path so sentence 1 starts playing while
+                // sentence 2 is being synthesised — critical for long responses with
+                // high-quality voices (e.g. LessacHigh) which synthesise slowly.
+                val session = voiceOutputController.openStreamingSession(
+                    VoiceSpeakRequest(text = textToSpeak),
+                )
+                val buffer = StringBuilder(textToSpeak)
+                var finalised = false
+                while (buffer.isNotBlank()) {
+                    val isShort = buffer.length < CHAT_VOICE_MIN_CHUNK_LENGTH
+                    val chunk = popNextStreamingSpeechChunk(
+                        buffer = buffer,
+                        minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
+                        preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
+                        force = isShort,
+                    ) ?: break
+                    val isLast = buffer.isBlank()
+                    session.append(chunk, isFinal = isLast)
+                    if (isLast) { finalised = true; break }
+                }
+                // Flush any residual text that didn't form a clean chunk boundary.
+                // Skip if the loop already sent isFinal=true on the last chunk.
+                if (!finalised) {
+                    val remaining = finalizeChatTextForSpeech(buffer.toString())
+                    session.append(remaining, isFinal = true)
+                }
             } finally {
                 if (_speakingMessageId.value == messageId) {
                     _speakingMessageId.value = null
