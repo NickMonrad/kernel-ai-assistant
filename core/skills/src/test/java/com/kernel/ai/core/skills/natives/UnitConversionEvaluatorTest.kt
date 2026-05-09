@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
 
 class UnitConversionEvaluatorTest {
     @Test
-    fun `convert weight exact metric conversion`() {
+    fun `convert mass exact metric conversion`() {
         val result = UnitConversionEvaluator.convert("500", "grams", "kg")
 
         assertEquals("500", result.inputValue.toPlainString())
@@ -19,19 +19,27 @@ class UnitConversionEvaluatorTest {
     }
 
     @Test
-    fun `convert distance exact mile to kilometer conversion`() {
-        val result = UnitConversionEvaluator.convert("5", "miles", "km")
+    fun `convert length exact metric scaling`() {
+        val result = UnitConversionEvaluator.convert("1.5", "m", "cm")
 
-        assertEquals("8.04672", result.outputValue.toPlainString())
+        assertEquals("150", result.outputValue.toPlainString())
         assertFalse(result.isApproximate)
     }
 
     @Test
-    fun `convert weight marks non terminating results approximate`() {
-        val result = UnitConversionEvaluator.convert("5", "kg", "pounds")
+    fun `convert length supports common imperial units`() {
+        val result = UnitConversionEvaluator.convert("100", "meters", "yards")
 
-        assertEquals("11.02311311", result.outputValue.toPlainString())
+        assertEquals("109.36132983", result.outputValue.toPlainString())
         assertTrue(result.isApproximate)
+    }
+
+    @Test
+    fun `convert volume supports kitchen measures`() {
+        val result = UnitConversionEvaluator.convert("1", "gallon", "liters")
+
+        assertEquals("3.785411784", result.outputValue.toPlainString())
+        assertFalse(result.isApproximate)
     }
 
     @Test
@@ -51,6 +59,30 @@ class UnitConversionEvaluatorTest {
     }
 
     @Test
+    fun `convert temperature supports exact freezing point conversions`() {
+        val result = UnitConversionEvaluator.convert("32", "fahrenheit", "celsius")
+
+        assertEquals("0", result.outputValue.toPlainString())
+        assertFalse(result.isApproximate)
+    }
+
+    @Test
+    fun `convert temperature allows negative values above absolute zero`() {
+        val result = UnitConversionEvaluator.convert("-40", "celsius", "fahrenheit")
+
+        assertEquals("-40", result.outputValue.toPlainString())
+        assertFalse(result.isApproximate)
+    }
+
+    @Test
+    fun `convert temperature marks non terminating results approximate`() {
+        val result = UnitConversionEvaluator.convert("1", "fahrenheit", "celsius")
+
+        assertEquals("-17.22222222", result.outputValue.toPlainString())
+        assertTrue(result.isApproximate)
+    }
+
+    @Test
     fun `convert rejects cross category conversions`() {
         val error = assertThrows(IllegalArgumentException::class.java) {
             UnitConversionEvaluator.convert("5", "miles", "kilograms")
@@ -62,18 +94,27 @@ class UnitConversionEvaluatorTest {
     @Test
     fun `convert rejects unsupported target units`() {
         val error = assertThrows(IllegalArgumentException::class.java) {
-            UnitConversionEvaluator.convert("5", "miles", "yards")
+            UnitConversionEvaluator.convert("5", "miles", "parsecs")
         }
 
-        assertEquals("Unsupported unit 'yards'", error.message)
+        assertEquals("Unsupported unit 'parsecs'", error.message)
     }
 
     @Test
-    fun `convert rejects negative values`() {
+    fun `convert rejects negative non temperature values`() {
         val error = assertThrows(IllegalArgumentException::class.java) {
             UnitConversionEvaluator.convert("-5", "miles", "km")
         }
 
         assertEquals("Conversion value must be non-negative", error.message)
+    }
+
+    @Test
+    fun `convert rejects temperatures below absolute zero`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            UnitConversionEvaluator.convert("-500", "fahrenheit", "celsius")
+        }
+
+        assertEquals("Temperature cannot be below absolute zero", error.message)
     }
 }

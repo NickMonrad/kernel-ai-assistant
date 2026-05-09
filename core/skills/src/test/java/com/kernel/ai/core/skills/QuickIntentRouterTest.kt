@@ -2916,7 +2916,11 @@ class QuickIntentRouterTest {
             Arguments.of("convert 5 miles to km", "5", "miles", "km"),
             Arguments.of("what is 500 grams in ounces", "500", "grams", "ounces"),
             Arguments.of("60 mph in km/h", "60", "mph", "km/h"),
+            Arguments.of("100m to yards", "100", "m", "yards"),
+            Arguments.of("convert 2 liters to cups", "2", "liters", "cups"),
+            Arguments.of("32 fahrenheit to celsius", "32", "fahrenheit", "celsius"),
             Arguments.of("how many kilometers are 5 miles", "5", "miles", "kilometers"),
+            Arguments.of("how many cups are in 2 liters", "2", "liters", "cups"),
         )
 
         @JvmStatic
@@ -2924,7 +2928,11 @@ class QuickIntentRouterTest {
             Arguments.of("convert 5 miles to km"),
             Arguments.of("what is 500 grams in ounces"),
             Arguments.of("60 mph in km/h"),
+            Arguments.of("100m to yards"),
+            Arguments.of("convert 2 liters to cups"),
+            Arguments.of("32 fahrenheit to celsius"),
             Arguments.of("how many kilometers are 5 miles"),
+            Arguments.of("how many cups are in 2 liters"),
         )
         @JvmStatic
         fun listImportantDatesRegexPhrases(): Stream<Arguments> = Stream.of(

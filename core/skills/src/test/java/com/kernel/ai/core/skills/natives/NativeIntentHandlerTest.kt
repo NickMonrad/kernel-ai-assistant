@@ -1114,17 +1114,46 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `convert_units marks approximate reciprocal conversions`() {
+    fun `convert_units rounds spoken summary for approximate replies`() {
         val result = handler.handle(
             "convert_units",
-            mapOf("value" to "5", "from_unit" to "kg", "to_unit" to "pounds"),
+            mapOf("value" to "100", "from_unit" to "m", "to_unit" to "yards"),
         )
 
         assertEquals(
             SkillResult.DirectReply(
-                "5 kilograms is approximately 11.02311311 pounds.",
-                spokenSummary = "5 kilograms is approximately 11.02 pounds.",
+                "100 meters is approximately 109.36132983 yards.",
+                spokenSummary = "100 meters is approximately 109.36 yards.",
             ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units supports kitchen volume replies`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "2", "from_unit" to "liters", "to_unit" to "cups"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "2 liters is approximately 8.45350568 cups.",
+                spokenSummary = "2 liters is approximately 8.45 cups.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units supports temperature replies`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "32", "from_unit" to "fahrenheit", "to_unit" to "celsius"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply("32 degrees Fahrenheit is 0 degrees Celsius."),
             result,
         )
     }
@@ -1133,11 +1162,11 @@ class NativeIntentHandlerTest {
     fun `convert_units reports unsupported units cleanly`() {
         val result = handler.handle(
             "convert_units",
-            mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "yards"),
+            mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "parsecs"),
         )
 
         assertEquals(
-            SkillResult.Failure("convert_units", "Unsupported unit 'yards'"),
+            SkillResult.Failure("convert_units", "Unsupported unit 'parsecs'"),
             result,
         )
     }

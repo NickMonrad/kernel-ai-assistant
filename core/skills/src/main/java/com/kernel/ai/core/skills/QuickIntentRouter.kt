@@ -6,6 +6,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 
+import com.kernel.ai.core.skills.natives.UnitConversionEvaluator
 /**
  * Tier 2: Fast Intent Layer — pure Kotlin regex + future BERT-tiny zero-shot classifier.
  *
@@ -193,8 +194,7 @@ class QuickIntentRouter(
         "(?:\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|[a-zA-Z]+\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})"
 
     private val unitConversionValuePattern = "-?\\d+(?:\\.\\d+)?"
-    private val unitConversionUnitPattern =
-        "(?:kilometers?\\s+per\\s+hour|kilometres?\\s+per\\s+hour|miles?\\s+per\\s+hour|km/h|kmh|kph|mph|kilometers?|kilometres?|miles?|kilograms?|ounces?|pounds?|grams?|kms?|kgs?|lbs?|oz|km|mi|kg|lb|g)"
+    private val unitConversionUnitPattern = UnitConversionEvaluator.supportedRouterRegexPattern()
 
     private fun extractUnitConversionParams(value: String, fromUnit: String, toUnit: String): Map<String, String> = mapOf(
         "value" to value.trim(),
@@ -2355,11 +2355,11 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("expression" to match.groupValues[1].trim()) },
         ),
-        // Unit conversion phrases: "convert 5 miles to km", "what is 60 mph in km/h", "5 kg to pounds"
+        // Unit conversion phrases: "convert 5 miles to km", "what is 60 mph in km/h", "100m to yards"
         IntentPattern(
             intentName = "convert_units",
             regex = Regex(
-                """^(?:(?:convert|what(?:'s|\s+is))\s+)?($unitConversionValuePattern)\s+($unitConversionUnitPattern)\s+(?:to|in|into)\s+($unitConversionUnitPattern)$""",
+                """^(?:(?:convert|what(?:'s|\s+is))\s+)?($unitConversionValuePattern)\s*($unitConversionUnitPattern)\s+(?:to|in|into)\s+($unitConversionUnitPattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2370,11 +2370,11 @@ class QuickIntentRouter(
                 )
             },
         ),
-        // Reversed conversion phrasing: "how many kilometers is 5 miles"
+        // Reversed conversion phrasing: "how many kilometers are 5 miles", "how many cups are in 2 liters"
         IntentPattern(
             intentName = "convert_units",
             regex = Regex(
-                """^how\s+many\s+($unitConversionUnitPattern)\s+(?:is|are)\s+($unitConversionValuePattern)\s+($unitConversionUnitPattern)$""",
+                """^how\s+many\s+($unitConversionUnitPattern)\s+(?:is|are)(?:\s+in)?\s+($unitConversionValuePattern)\s*($unitConversionUnitPattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
