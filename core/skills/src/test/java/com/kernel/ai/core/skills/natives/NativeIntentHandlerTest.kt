@@ -1105,7 +1105,10 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            SkillResult.DirectReply("5 kilograms is approximately 11.02311311 pounds."),
+            SkillResult.DirectReply(
+                "5 kilograms is approximately 11.02311311 pounds.",
+                spokenSummary = "5 kilograms is approximately 11.02 pounds.",
+            ),
             result,
         )
     }

@@ -37,6 +37,7 @@ import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.DayOfWeek
 import java.time.Instant
+import java.math.RoundingMode
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -1999,7 +2000,13 @@ class NativeIntentHandler @Inject constructor(
             } else {
                 "${result.inputValue.toPlainString()} $sourceDisplay is ${result.outputValue.toPlainString()} $targetDisplay."
             }
-            SkillResult.DirectReply(content)
+            val spokenSummary = if (result.isApproximate) {
+                val rounded = result.outputValue.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros()
+                "${result.inputValue.toPlainString()} $sourceDisplay is approximately ${rounded.toPlainString()} $targetDisplay."
+            } else {
+                null
+            }
+            SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: IllegalArgumentException) {
             SkillResult.Failure("convert_units", e.message ?: "Could not convert units")
         }

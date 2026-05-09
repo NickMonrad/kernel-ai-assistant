@@ -43,6 +43,14 @@ class UnitConversionEvaluatorTest {
     }
 
     @Test
+    fun `convert speed accepts spaced slash aliases`() {
+        val result = UnitConversionEvaluator.convert("60", "km / h", "mph")
+
+        assertEquals("37.28227153", result.outputValue.toPlainString())
+        assertTrue(result.isApproximate)
+    }
+
+    @Test
     fun `convert rejects cross category conversions`() {
         val error = assertThrows(IllegalArgumentException::class.java) {
             UnitConversionEvaluator.convert("5", "miles", "kilograms")
@@ -58,5 +66,14 @@ class UnitConversionEvaluatorTest {
         }
 
         assertEquals("Unsupported unit 'yards'", error.message)
+    }
+
+    @Test
+    fun `convert rejects negative values`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            UnitConversionEvaluator.convert("-5", "miles", "km")
+        }
+
+        assertEquals("Conversion value must be non-negative", error.message)
     }
 }

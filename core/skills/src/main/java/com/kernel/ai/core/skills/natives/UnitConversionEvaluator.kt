@@ -140,7 +140,9 @@ internal object UnitConversionEvaluator {
         require(trimmed.isNotBlank()) { "No conversion value provided" }
         require(trimmed.length <= MAX_INPUT_LENGTH) { "Conversion value is too long" }
         return try {
-            BigDecimal(trimmed)
+            BigDecimal(trimmed).also { value ->
+                require(value >= BigDecimal.ZERO) { "Conversion value must be non-negative" }
+            }
         } catch (_: NumberFormatException) {
             throw IllegalArgumentException("Invalid conversion value '$rawValue'")
         }
@@ -156,6 +158,7 @@ internal object UnitConversionEvaluator {
     private fun normalizeUnit(raw: String): String =
         raw.lowercase(Locale.ENGLISH)
             .replace('.', ' ')
+            .replace(Regex("""\s*/\s*"""), "/")
             .replace(Regex("""\s+"""), " ")
             .trim()
 
