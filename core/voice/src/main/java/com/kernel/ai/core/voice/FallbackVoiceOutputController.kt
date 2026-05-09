@@ -61,6 +61,10 @@ class FallbackVoiceOutputController @Inject constructor(
         androidTts.stop()
     }
 
+    override fun setEmotionOverrideSid(sid: Int) {
+        activeController.value.setEmotionOverrideSid(sid)
+    }
+
     private suspend fun warmUpAndroidTts(): VoiceOutputResult {
         activate(androidTts)
         return androidTts.warmUp()
