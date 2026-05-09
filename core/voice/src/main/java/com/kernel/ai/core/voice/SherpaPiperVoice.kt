@@ -67,13 +67,13 @@ enum class SherpaPiperVoice(
     ),
     SemaineMedium(
         displayName = "Semaine",
-        description = "Expressive British English voice with multiple emotional styles (neutral, happy, sad, angry, worried). Uses neutral style (sid=0) by default.",
+        description = "Expressive British English multi-speaker voice. Choose between Prudence (calm) and Poppy (upbeat) in Settings → Voice.",
         assetDirectoryName = "vits-piper-en_GB-semaine-medium",
         downloadKey = "en_GB-semaine-medium",
         approxDownloadBytes = 70_000_000L,
-        // speakerCount left at default 1: the shared activeSpeakerId preference is VCTK-specific;
-        // using it for Semaine would bleed VCTK speaker selections into the neutral-only path.
-        // Expose a dedicated Semaine emotional style picker before setting speakerCount = 5 here.
+        // The model has 4 speakers (sid 0–3). Only the two female speakers are exposed in the UI;
+        // speakerCount = 4 so that effectiveSid correctly clamps to 0..3.
+        speakerCount = 4,
     ),
     VctkMedium(
         displayName = "VCTK",

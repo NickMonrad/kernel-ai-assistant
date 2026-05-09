@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,6 +44,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +57,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.voice.SemaineSpeakerMetadata
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VctkSpeakerMetadata
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -414,26 +419,71 @@ private fun VoiceScreenContent(
                     )
                 }
 
+                // Tracks whether the speaker selector is expanded; resets to true on voice change.
+                var speakerSelectorExpanded by rememberSaveable(uiState.selectedSherpaVoice) {
+                    mutableStateOf(true)
+                }
+
                 uiState.sherpaVoices.forEach { voiceRow ->
+                    val isSelected = uiState.selectedSherpaVoice == voiceRow.voice
+                    val isDownloaded = voiceRow.downloadState is VoicePackDownloadState.Downloaded
+                    val isMultiSpeaker = voiceRow.voice == SherpaPiperVoice.VctkMedium ||
+                        voiceRow.voice == SherpaPiperVoice.SemaineMedium
+
                     SherpaVoiceRow(
                         rowState = voiceRow,
-                        isSelected = uiState.selectedSherpaVoice == voiceRow.voice,
+                        isSelected = isSelected,
                         onSelect = { onSherpaVoiceSelected(voiceRow.voice) },
                         onDownload = { onDownloadVoice(voiceRow.voice) },
                         onCancel = { onCancelVoiceDownload(voiceRow.voice) },
                         onDelete = { onDeleteVoice(voiceRow.voice) },
                     )
                     HorizontalDivider()
-                }
 
-                if (uiState.selectedSherpaVoice == SherpaPiperVoice.VctkMedium &&
-                    uiState.isSelectedSherpaVoiceDownloaded
-                ) {
-                    VctkSpeakerSelector(
-                        activeSpeakerId = uiState.activeSpeakerId,
-                        onSpeakerSelected = onActiveSpeakerIdChanged,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
+                    if (isSelected && isDownloaded && isMultiSpeaker) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 0.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "Speaker",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 8.dp),
+                            )
+                            IconButton(onClick = { speakerSelectorExpanded = !speakerSelectorExpanded }) {
+                                Icon(
+                                    imageVector = if (speakerSelectorExpanded) {
+                                        Icons.Default.ExpandLess
+                                    } else {
+                                        Icons.Default.ExpandMore
+                                    },
+                                    contentDescription = if (speakerSelectorExpanded) {
+                                        "Collapse speaker selector"
+                                    } else {
+                                        "Expand speaker selector"
+                                    },
+                                )
+                            }
+                        }
+                        AnimatedVisibility(visible = speakerSelectorExpanded) {
+                            when (voiceRow.voice) {
+                                SherpaPiperVoice.VctkMedium -> VctkSpeakerSelector(
+                                    activeSpeakerId = uiState.activeSpeakerId,
+                                    onSpeakerSelected = onActiveSpeakerIdChanged,
+                                )
+                                SherpaPiperVoice.SemaineMedium -> SemaineSpeakerSelector(
+                                    activeSpeakerId = uiState.activeSpeakerId,
+                                    onSpeakerSelected = onActiveSpeakerIdChanged,
+                                )
+                                else -> Unit
+                            }
+                        }
+                    }
                 }
             }
 
@@ -501,6 +551,55 @@ private fun VctkSpeakerSelector(
                 trailingContent = {
                     RadioButton(
                         selected = activeSpeakerId == speaker.sid,
+                        onClick = { onSpeakerSelected(speaker.sid) },
+                    )
+                },
+            )
+            HorizontalDivider()
+        }
+    }
+}
+
+/**
+ * Speaker selector for the `en_GB-semaine-medium` multi-speaker voice.
+ *
+ * Exposes all 4 speakers: Prudence, Spike, Obadiah, and Poppy.
+ */
+@Composable
+private fun SemaineSpeakerSelector(
+    activeSpeakerId: Int,
+    onSpeakerSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // Clamp to valid Semaine range so UI stays consistent with effectiveSid() in the controller.
+    // A stale VCTK sid (e.g. 50) would otherwise show no RadioButton selected while TTS plays
+    // sid=3 (Poppy) and the description text names Prudence.
+    val effectiveId = activeSpeakerId.coerceIn(0, SherpaPiperVoice.SemaineMedium.speakerCount - 1)
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = "Semaine speaker",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+
+        Text(
+            text = "Semaine has 4 speakers with distinct characters. Selected: ${SemaineSpeakerMetadata.displayLabel(effectiveId)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+        )
+
+        HorizontalDivider()
+
+        SemaineSpeakerMetadata.speakers.forEach { speaker ->
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                headlineContent = { Text(speaker.displayName) },
+                supportingContent = { Text(speaker.description) },
+                trailingContent = {
+                    RadioButton(
+                        selected = effectiveId == speaker.sid,
                         onClick = { onSpeakerSelected(speaker.sid) },
                     )
                 },

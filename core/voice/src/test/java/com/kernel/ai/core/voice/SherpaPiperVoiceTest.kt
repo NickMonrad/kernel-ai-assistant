@@ -12,6 +12,11 @@ class SherpaPiperVoiceTest {
     }
 
     @Test
+    fun `SemaineMedium speakerCount is 4 to cover all model sids`() {
+        assertEquals(4, SherpaPiperVoice.SemaineMedium.speakerCount)
+    }
+
+    @Test
     fun `catalog includes expanded English voices with unique release identifiers`() {
         val expectedNewVoices = setOf(
             SherpaPiperVoice.AlanMedium,
