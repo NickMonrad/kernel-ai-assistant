@@ -136,11 +136,16 @@ private fun findSpeechChunkBoundary(
         return SpeechChunkBoundary(index = text.length, type = SpeechChunkBoundaryType.FORCED)
     }
 
-    var strongBoundary = -1
+    // Scan forward and return at the FIRST suitable boundary rather than the last.
+    // The previous forEachIndexed approach kept overwriting boundary positions and returned
+    // the last sentence end in the buffer — causing the entire text (e.g. 3000+ chars) to
+    // be returned as one chunk instead of the first sentence (~150 chars).
     var softBoundary = -1
     var whitespaceBoundary = -1
 
-    text.forEachIndexed { index, char ->
+    for (index in text.indices) {
+        val char = text[index]
+
         if (char.isWhitespace()) {
             whitespaceBoundary = index + 1
         }
@@ -148,30 +153,35 @@ private fun findSpeechChunkBoundary(
             '.', '!', '?' -> {
                 val next = text.getOrNull(index + 1)
                 if (next == null || next.isWhitespace() || next == '"' || next == '\'' || next == ')') {
-                    strongBoundary = index + 1
+                    val boundary = index + 1
+                    if (boundary >= minChunkLength) {
+                        return SpeechChunkBoundary(index = boundary, type = SpeechChunkBoundaryType.STRONG)
+                    }
                 }
             }
             '\n' -> {
-                strongBoundary = index + 1
+                val boundary = index + 1
+                if (boundary >= minChunkLength) {
+                    return SpeechChunkBoundary(index = boundary, type = SpeechChunkBoundaryType.STRONG)
+                }
             }
             ',', ';', ':' -> {
                 softBoundary = index + 1
             }
         }
+
+        // Past preferred length: accept the best soft or whitespace boundary we have so far.
+        if (index + 1 >= preferredChunkLength) {
+            if (softBoundary >= minChunkLength) {
+                return SpeechChunkBoundary(index = softBoundary, type = SpeechChunkBoundaryType.SOFT)
+            }
+            if (whitespaceBoundary >= minChunkLength) {
+                return SpeechChunkBoundary(index = whitespaceBoundary, type = SpeechChunkBoundaryType.WHITESPACE)
+            }
+        }
     }
 
-    return when {
-        strongBoundary >= minChunkLength -> {
-            SpeechChunkBoundary(index = strongBoundary, type = SpeechChunkBoundaryType.STRONG)
-        }
-        text.length >= preferredChunkLength && softBoundary >= minChunkLength -> {
-            SpeechChunkBoundary(index = softBoundary, type = SpeechChunkBoundaryType.SOFT)
-        }
-        text.length >= preferredChunkLength && whitespaceBoundary >= minChunkLength -> {
-            SpeechChunkBoundary(index = whitespaceBoundary, type = SpeechChunkBoundaryType.WHITESPACE)
-        }
-        else -> null
-    }
+    return null
 }
 
 private fun applySpeechPronunciationOverrides(text: String): String =
