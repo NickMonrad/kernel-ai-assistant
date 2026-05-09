@@ -10,6 +10,7 @@ import android.media.PlaybackParams
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -337,34 +338,56 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         val effectiveSid = effectiveSid(speakerCount)
         var emittedStarted = false
         var requestedAudioFocus = false
+
+        // Pipeline: synthesis and playback run as concurrent coroutines connected by a bounded
+        // channel. While chunk N is playing, chunk N+1 is already being synthesised. This
+        // eliminates the per-chunk gap that occurred when synthesis only started after the
+        // previous chunk finished playing (e.g. 6–8 s gaps for LessacHigh).
+        // Capacity of 2 lets synthesis stay at most 2 chunks ahead of playback, capping memory
+        // usage while still guaranteeing the next chunk is ready the moment the current one ends.
+        val audioQueue = Channel<Pair<FloatArray, Int>>(capacity = 2)
         try {
-            for (chunk in chunks) {
-                if (stopped || !isStreamingPlaybackActive(playbackToken)) break
-                if (!emittedStarted) {
-                    _events.emit(VoiceOutputEvent.SpeakingStarted(request.text.ifBlank { chunk.text }))
-                    emittedStarted = true
+            coroutineScope {
+                // ── Synthesis producer ────────────────────────────────────────────────────
+                val synthJob = launch {
+                    try {
+                        for (chunk in chunks) {
+                            if (stopped || !isStreamingPlaybackActive(playbackToken)) break
+                            val synthStart = System.currentTimeMillis()
+                            val audioResult = try {
+                                genMethod.invoke(tts, chunk.text, effectiveSid, sherpaSpeed.value)
+                                    ?: break
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Sherpa streaming generate() failed", e)
+                                break
+                            }
+                            if (verboseLoggingEnabled.value) Log.d(TAG, "Sherpa streaming chunk: ${System.currentTimeMillis() - synthStart}ms " +
+                                "for ${chunk.text.length} chars, sid=$effectiveSid")
+                            audioQueue.send(Pair(reflectGetSamples(audioResult), reflectGetSampleRate(audioResult)))
+                            if (chunk.isFinal) break
+                        }
+                    } finally {
+                        audioQueue.close()
+                    }
                 }
-                if (!requestedAudioFocus) {
-                    requestAudioFocus()
-                    requestedAudioFocus = true
-                }
-                val synthStart = System.currentTimeMillis()
-                val audioResult = try {
-                    genMethod.invoke(tts, chunk.text, effectiveSid, sherpaSpeed.value)
-                        ?: return
-                } catch (e: Exception) {
-                    Log.e(TAG, "Sherpa streaming generate() failed", e)
-                    return
-                }
-                if (verboseLoggingEnabled.value) Log.d(TAG, "Sherpa streaming chunk: ${System.currentTimeMillis() - synthStart}ms " +
-                    "for ${chunk.text.length} chars, sid=$effectiveSid")
-                val samples = reflectGetSamples(audioResult)
-                val sampleRate = reflectGetSampleRate(audioResult)
-                if (!stopped && isStreamingPlaybackActive(playbackToken)) {
-                    playOnAudioTrack(samples, sampleRate)
-                }
-                if (chunk.isFinal) {
-                    break
+
+                // ── Playback consumer ─────────────────────────────────────────────────────
+                launch {
+                    for ((samples, sampleRate) in audioQueue) {
+                        if (stopped || !isStreamingPlaybackActive(playbackToken)) break
+                        if (!emittedStarted) {
+                            _events.emit(VoiceOutputEvent.SpeakingStarted(request.text.ifBlank { "" }))
+                            emittedStarted = true
+                        }
+                        if (!requestedAudioFocus) {
+                            requestAudioFocus()
+                            requestedAudioFocus = true
+                        }
+                        playOnAudioTrack(samples, sampleRate)
+                    }
+                    // Playback finished (or stopped early) — cancel synthesis so it doesn't
+                    // keep producing chunks that will never be consumed.
+                    synthJob.cancel()
                 }
             }
         } finally {
