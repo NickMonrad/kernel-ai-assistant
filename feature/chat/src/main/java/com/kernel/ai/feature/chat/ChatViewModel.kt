@@ -419,6 +419,13 @@ class ChatViewModel @Inject constructor(
                     VoiceOutputEvent.SpeakingStopped -> {
                         _isSpeakingResponse.value = false
                         _voicePlaybackState.value = VoicePlaybackState.Idle
+                        // Clear per-message speaker icon when streaming playback ends.
+                        // The speakMessageJob finishes as soon as chunks are queued (not when
+                        // audio finishes), so we rely on this event to reset the icon.
+                        if (_speakingMessageId.value != null) {
+                            _speakingMessageId.value = null
+                            speakMessageJob = null
+                        }
                         val shouldHandleCompletion = awaitingVoicePlaybackCompletion
                         awaitingVoicePlaybackCompletion = false
                         if (!shouldHandleCompletion) return@collect
@@ -969,9 +976,9 @@ class ChatViewModel @Inject constructor(
                     session.append(remaining, isFinal = true)
                 }
             } finally {
-                if (_speakingMessageId.value == messageId) {
-                    _speakingMessageId.value = null
-                }
+                // speakingMessageId is cleared by SpeakingStopped event (when audio finishes)
+                // or by stopSpeaking() (when cancelled). Do not clear here — the job ends as
+                // soon as chunks are queued, long before audio playback completes.
             }
         }
     }
