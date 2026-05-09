@@ -296,7 +296,9 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | [#756](https://github.com/NickMonrad/kernel-ai-assistant/issues/756) | Research: evaluate custom Piper voice training | ⬜ Pending | 🟢 Low |
 | [#790](https://github.com/NickMonrad/kernel-ai-assistant/issues/790) | Voice slot-fill retry on no-speech + cancel phrases | ⬜ Pending | 🟡 Medium |
 | [#791](https://github.com/NickMonrad/kernel-ai-assistant/issues/791) | Start-listening audio cue for Quick Actions voice capture | ⬜ Pending | 🟢 Low |
-| [#675](https://github.com/NickMonrad/kernel-ai-assistant/issues/675) | Comprehensive Quick Actions + weather voice QA matrix | ⬜ Pending | 🟡 Medium |
+| [#823](https://github.com/NickMonrad/kernel-ai-assistant/issues/823) | Voice memo / note-taking native skill | ⬜ Pending | 🟡 Medium |
+| [#675](https://github.com/NickMonrad/kernel-ai-assistant/issues/675) | Comprehensive Quick Actions + weather voice QA matrix | 🔴 Closed — superseded by #824 | 🟡 Medium |
+| [#824](https://github.com/NickMonrad/kernel-ai-assistant/issues/824) | QA gate: Phase 3F real-device voice validation (current stack) | ⬜ Pending | 🟡 Medium |
 | [#588](https://github.com/NickMonrad/kernel-ai-assistant/issues/588) | VoiceSession architecture for slot-fill + follow-on assistant mode | ⬜ Pending | 🟡 Medium |
 | [#617](https://github.com/NickMonrad/kernel-ai-assistant/issues/617) | Homescreen widget for quick actions / voice | ⬜ Pending | 🟡 Medium |
 | [#659](https://github.com/NickMonrad/kernel-ai-assistant/issues/659) | Translator skill with multilingual TTS | ⬜ Pending | 🟡 Medium |
@@ -578,8 +580,10 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#784](https://github.com/NickMonrad/kernel-ai-assistant/issues/784) | Kiwi language corpus tuning | Phase 3F | ⬜ Pending |
 | [#790](https://github.com/NickMonrad/kernel-ai-assistant/issues/790) | Voice slot-fill retry on no-speech + cancel phrases | Phase 3F | ⬜ Pending |
 | [#791](https://github.com/NickMonrad/kernel-ai-assistant/issues/791) | Start-listening audio cue for Quick Actions voice capture | Phase 3F | ⬜ Pending |
+| [#823](https://github.com/NickMonrad/kernel-ai-assistant/issues/823) | Voice memo / note-taking native skill | Phase 3F | ⬜ Pending |
+| [#824](https://github.com/NickMonrad/kernel-ai-assistant/issues/824) | QA gate: Phase 3F real-device voice validation (current stack) | Phase 3F | ⬜ Pending |
 | [#821](https://github.com/NickMonrad/kernel-ai-assistant/issues/821) | Sherpa-ONNX / Sherpa-ncnn STT + VAD evaluation | Phase 3F | ⬜ Pending |
-| [#675](https://github.com/NickMonrad/kernel-ai-assistant/issues/675) | Comprehensive Quick Actions + weather voice QA matrix | Phase 3F | ⬜ Pending |
+| [#675](https://github.com/NickMonrad/kernel-ai-assistant/issues/675) | Comprehensive Quick Actions + weather voice QA matrix | Phase 3F | 🔴 Closed |
 | [#588](https://github.com/NickMonrad/kernel-ai-assistant/issues/588) | VoiceSession architecture for slot-fill + follow-on assistant mode | Phase 3F | ⬜ Pending |
 
 ---
