@@ -115,7 +115,7 @@ Measured on-device from production logs. "tok/s" counts output tokens delivered 
 
 **Multi-Token Prediction (MTP / speculative decoding)**
 
-MTP uses a bundled drafter model to speculatively generate multiple tokens per GPU step. The benefit scales with response length — on long responses (~400+ tokens) we observed a **~2× wall-time speedup**; on short responses the overhead is negligible. Toggle in Settings → Model → E-4B panel.
+MTP speeds up decode by speculatively generating multiple tokens per step. LiteRT-LM recommends it on GPU backends, and Jandal enables it during engine initialisation only when the loaded Gemma 4 model reports support. The toggle is available in Settings → Model for Gemma 4 model cards and requires an app restart. The benefit scales with response length — on long responses (~400+ tokens) we observed a **~2× wall-time speedup**; on short responses the overhead is negligible.
 
 | Response length | MTP off | MTP on | Speedup |
 |----------------|---------|--------|---------|
