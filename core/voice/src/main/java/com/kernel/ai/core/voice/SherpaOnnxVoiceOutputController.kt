@@ -611,7 +611,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 // MODE_STREAM: stop() is non-blocking — buffered samples continue to drain.
                 // Wait until PLAYSTATE_STOPPED so release() doesn't cut the audio tail,
                 // and SpeakingStopped fires only after audio has actually finished playing.
-                while (track.playState != AudioTrack.PLAYSTATE_STOPPED) {
+                // Also check stopped so a concurrent controller.stop() call breaks out fast.
+                while (!stopped && track.playState != AudioTrack.PLAYSTATE_STOPPED) {
                     Thread.sleep(10)
                 }
             } else {
