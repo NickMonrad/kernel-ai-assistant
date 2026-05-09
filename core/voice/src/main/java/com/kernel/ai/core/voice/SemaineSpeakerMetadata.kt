@@ -16,10 +16,7 @@ data class SemaineSpeaker(
 }
 
 /**
- * Bundled metadata for the two exposed female speakers in the `en_GB-semaine-medium` Piper model.
- *
- * The Semaine model has 4 speakers total (sid 0–3). Only the two female speakers are exposed
- * here — the male speakers (sid 1 "Spike" and sid 2 "Obadiah") are intentionally excluded.
+ * Bundled metadata for all 4 speakers in the `en_GB-semaine-medium` Piper model.
  *
  * Sid mapping sourced from the en_GB-semaine-medium.onnx.json speaker_id_map:
  *   0 = prudence, 1 = spike, 2 = obadiah, 3 = poppy
@@ -28,6 +25,8 @@ object SemaineSpeakerMetadata {
 
     val speakers: List<SemaineSpeaker> = listOf(
         SemaineSpeaker(sid = 0, displayName = "Prudence", description = "female, calm"),
+        SemaineSpeaker(sid = 1, displayName = "Spike",    description = "male, neutral"),
+        SemaineSpeaker(sid = 2, displayName = "Obadiah",  description = "male, melancholic"),
         SemaineSpeaker(sid = 3, displayName = "Poppy",    description = "female, upbeat"),
     )
 

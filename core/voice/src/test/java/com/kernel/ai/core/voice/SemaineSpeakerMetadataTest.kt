@@ -7,41 +7,43 @@ import org.junit.jupiter.api.Test
 class SemaineSpeakerMetadataTest {
 
     @Test
-    fun `only female speakers are exposed`() {
-        assertTrue(SemaineSpeakerMetadata.speakers.isNotEmpty())
-        assertTrue(
-            SemaineSpeakerMetadata.speakers.all { it.description.contains("female") },
-            "Expected all exposed Semaine speakers to be female",
-        )
+    fun `all 4 speakers are exposed`() {
+        assertEquals(4, SemaineSpeakerMetadata.speakers.size, "Expected exactly 4 Semaine speakers")
     }
 
     @Test
-    fun `Prudence has sid 0 and Poppy has sid 3`() {
+    fun `Prudence sid 0 Spike sid 1 Obadiah sid 2 Poppy sid 3`() {
         val prudence = SemaineSpeakerMetadata.speakers.firstOrNull { it.displayName == "Prudence" }
-        val poppy = SemaineSpeakerMetadata.speakers.firstOrNull { it.displayName == "Poppy" }
+        val spike    = SemaineSpeakerMetadata.speakers.firstOrNull { it.displayName == "Spike" }
+        val obadiah  = SemaineSpeakerMetadata.speakers.firstOrNull { it.displayName == "Obadiah" }
+        val poppy    = SemaineSpeakerMetadata.speakers.firstOrNull { it.displayName == "Poppy" }
 
         assertEquals(0, prudence?.sid, "Prudence should be sid=0")
-        assertEquals(3, poppy?.sid, "Poppy should be sid=3")
+        assertEquals(1, spike?.sid,    "Spike should be sid=1")
+        assertEquals(2, obadiah?.sid,  "Obadiah should be sid=2")
+        assertEquals(3, poppy?.sid,    "Poppy should be sid=3")
     }
 
     @Test
-    fun `male speakers spike and obadiah are not exposed`() {
-        val names = SemaineSpeakerMetadata.speakers.map { it.displayName.lowercase() }
-        assertTrue("spike" !in names, "Spike (male) must not be exposed")
-        assertTrue("obadiah" !in names, "Obadiah (male) must not be exposed")
+    fun `Spike is male neutral and Obadiah is male melancholic`() {
+        val spike   = SemaineSpeakerMetadata.speakers.first { it.displayName == "Spike" }
+        val obadiah = SemaineSpeakerMetadata.speakers.first { it.displayName == "Obadiah" }
+
+        assertEquals("male, neutral",     spike.description)
+        assertEquals("male, melancholic", obadiah.description)
     }
 
     @Test
-    fun `displayLabel returns label for known sids`() {
-        assertEquals("Prudence — female, calm", SemaineSpeakerMetadata.displayLabel(0))
-        assertEquals("Poppy — female, upbeat", SemaineSpeakerMetadata.displayLabel(3))
+    fun `displayLabel returns label for all known sids`() {
+        assertEquals("Prudence — female, calm",     SemaineSpeakerMetadata.displayLabel(0))
+        assertEquals("Spike — male, neutral",       SemaineSpeakerMetadata.displayLabel(1))
+        assertEquals("Obadiah — male, melancholic", SemaineSpeakerMetadata.displayLabel(2))
+        assertEquals("Poppy — female, upbeat",      SemaineSpeakerMetadata.displayLabel(3))
     }
 
     @Test
     fun `displayLabel falls back to Prudence for unknown sids`() {
-        // A sid that is a valid model sid but not exposed (e.g. Spike = 1)
-        assertEquals("Prudence — female, calm", SemaineSpeakerMetadata.displayLabel(1))
-        // A VCTK-range sid that might bleed through if a user was previously on VCTK
+        // A sid outside the 0-3 range that might bleed through if a user was previously on VCTK
         assertEquals("Prudence — female, calm", SemaineSpeakerMetadata.displayLabel(50))
     }
 
