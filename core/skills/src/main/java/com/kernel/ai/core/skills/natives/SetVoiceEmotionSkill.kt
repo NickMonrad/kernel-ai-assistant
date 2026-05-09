@@ -20,10 +20,11 @@ class SetVoiceEmotionSkill @Inject constructor(
 ) : Skill {
     override val name = "set_voice_emotion"
     override val description =
-        "Sets the emotional tone of the spoken voice for the current reply. " +
-            "Only effective when the Semaine voice is selected. " +
-            "Use sparingly — match the user's emotional context. " +
-            "Do NOT use with other voices."
+        "Sets the emotional tone of the spoken voice for the CURRENT reply. " +
+            "Call this SILENTLY before composing your response — never describe that you are setting the tone. " +
+            "Trigger: (a) user explicitly asks for a voice tone/emotion (e.g. 'say that in a sad voice', " +
+            "'use a happy tone', 'sound angry'); (b) context strongly warrants it (delivering sad news → sad, " +
+            "celebrating → happy). One of: neutral, happy, sad, angry, worried."
     override val schema = SkillSchema(
         parameters = mapOf(
             "emotion" to SkillParameter(
@@ -47,9 +48,21 @@ Emotion → Semaine speaker mapping:
   angry   → intense, forceful delivery
   worried → concerned, careful delivery
 
-Use sparingly and only when the user's emotional context clearly warrants it.
-For example: happy when delivering good news, angry when venting, worried when the user is stressed.
-ONLY effective when Semaine voice is selected — has no effect with other voices.
+CRITICAL: Call this tool SILENTLY as the FIRST action — never say "I'm setting the voice" or "I've set the voice".
+Just call the tool, then compose your response. The tone change happens automatically.
+
+When to call:
+  • User asks for a specific tone:
+      "tell me a joke in a sad voice"              → set_voice_emotion(emotion="sad"), then tell a joke
+      "say that in a happy voice"                  → set_voice_emotion(emotion="happy"), then answer
+      "sound worried" / "use an angry tone"        → set_voice_emotion(emotion=matching_emotion)
+      "set your voice to sad"                      → set_voice_emotion(emotion="sad"), confirm done
+  • Context strongly warrants it:
+      Delivering genuinely bad news → sad
+      Celebrating something → happy
+      Warning about a serious risk → worried
+
+Do NOT say "I don't have a tool" — this tool is available. Do NOT narrate calling it.
     """.trimIndent()
 
     // sid mapping matches en_GB-semaine-medium speaker_id_map exactly
