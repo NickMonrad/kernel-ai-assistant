@@ -503,7 +503,7 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
-        advanceTimeBy(699)
+        advanceTimeBy(349)
         runCurrent()
         coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
         advanceTimeBy(1)
@@ -543,7 +543,7 @@ class ActionsViewModelVoiceTest {
         voiceViewModel.onSlotReply("Nick")
         advanceUntilIdle()
 
-        advanceTimeBy(701)
+        advanceTimeBy(351)
         runCurrent()
         coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
 
@@ -553,7 +553,7 @@ class ActionsViewModelVoiceTest {
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         runCurrent()
-        advanceTimeBy(701)
+        advanceTimeBy(351)
         runCurrent()
 
         coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
