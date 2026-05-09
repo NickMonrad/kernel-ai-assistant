@@ -53,6 +53,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.voice.SemaineSpeakerMetadata
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VctkSpeakerMetadata
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -435,6 +436,16 @@ private fun VoiceScreenContent(
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
+
+                if (uiState.selectedSherpaVoice == SherpaPiperVoice.SemaineMedium &&
+                    uiState.isSelectedSherpaVoiceDownloaded
+                ) {
+                    SemaineSpeakerSelector(
+                        activeSpeakerId = uiState.activeSpeakerId,
+                        onSpeakerSelected = onActiveSpeakerIdChanged,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
             }
 
         }
@@ -498,6 +509,52 @@ private fun VctkSpeakerSelector(
                 modifier = Modifier.fillMaxWidth(),
                 headlineContent = { Text(speaker.speakerCode) },
                 supportingContent = { Text("${speaker.gender} · ${speaker.accent}") },
+                trailingContent = {
+                    RadioButton(
+                        selected = activeSpeakerId == speaker.sid,
+                        onClick = { onSpeakerSelected(speaker.sid) },
+                    )
+                },
+            )
+            HorizontalDivider()
+        }
+    }
+}
+
+/**
+ * Speaker selector for the `en_GB-semaine-medium` multi-speaker voice.
+ *
+ * Exposes only the two female speakers (Prudence and Poppy). The male speakers
+ * (Spike and Obadiah) are intentionally excluded.
+ */
+@Composable
+private fun SemaineSpeakerSelector(
+    activeSpeakerId: Int,
+    onSpeakerSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = "Semaine speaker",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+
+        Text(
+            text = "Choose between two female Semaine speakers. Selected: ${SemaineSpeakerMetadata.displayLabel(activeSpeakerId)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+        )
+
+        HorizontalDivider()
+
+        SemaineSpeakerMetadata.speakers.forEach { speaker ->
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                headlineContent = { Text(speaker.displayName) },
+                supportingContent = { Text(speaker.description) },
                 trailingContent = {
                     RadioButton(
                         selected = activeSpeakerId == speaker.sid,
