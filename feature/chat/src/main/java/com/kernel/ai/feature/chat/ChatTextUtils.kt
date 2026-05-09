@@ -171,12 +171,17 @@ private fun findSpeechChunkBoundary(
         }
 
         // Past preferred length: accept the best soft or whitespace boundary we have so far.
+        // Prefer SOFT only if it's at least as recent as the last whitespace; otherwise a stale
+        // early comma would be chosen over a whitespace boundary much closer to preferredChunkLength.
         if (index + 1 >= preferredChunkLength) {
-            if (softBoundary >= minChunkLength) {
+            if (softBoundary >= minChunkLength && softBoundary >= whitespaceBoundary) {
                 return SpeechChunkBoundary(index = softBoundary, type = SpeechChunkBoundaryType.SOFT)
             }
             if (whitespaceBoundary >= minChunkLength) {
                 return SpeechChunkBoundary(index = whitespaceBoundary, type = SpeechChunkBoundaryType.WHITESPACE)
+            }
+            if (softBoundary >= minChunkLength) {
+                return SpeechChunkBoundary(index = softBoundary, type = SpeechChunkBoundaryType.SOFT)
             }
         }
     }

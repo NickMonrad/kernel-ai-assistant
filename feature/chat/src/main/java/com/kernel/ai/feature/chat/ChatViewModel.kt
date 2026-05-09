@@ -59,6 +59,7 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -950,23 +951,30 @@ class ChatViewModel @Inject constructor(
                 )
                 val buffer = StringBuilder(textToSpeak)
                 var finalised = false
-                while (buffer.isNotBlank()) {
-                    val isShort = buffer.length < CHAT_VOICE_MIN_CHUNK_LENGTH
-                    val chunk = popNextStreamingSpeechChunk(
-                        buffer = buffer,
-                        minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
-                        preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
-                        force = isShort,
-                    ) ?: break
-                    val isLast = buffer.isBlank()
-                    session.append(chunk, isFinal = isLast)
-                    if (isLast) { finalised = true; break }
-                }
-                // Flush any residual text that didn't form a clean chunk boundary.
-                // Skip if the loop already sent isFinal=true on the last chunk.
-                if (!finalised) {
-                    val remaining = finalizeChatTextForSpeech(buffer.toString())
-                    session.append(remaining, isFinal = true)
+                try {
+                    while (buffer.isNotBlank()) {
+                        val isShort = buffer.length < CHAT_VOICE_MIN_CHUNK_LENGTH
+                        val chunk = popNextStreamingSpeechChunk(
+                            buffer = buffer,
+                            minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
+                            preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
+                            force = isShort,
+                        ) ?: break
+                        val isLast = buffer.isBlank()
+                        session.append(chunk, isFinal = isLast)
+                        if (isLast) { finalised = true; break }
+                    }
+                    // Flush any residual text that didn't form a clean chunk boundary.
+                    // Skip if the loop already sent isFinal=true on the last chunk.
+                    if (!finalised) {
+                        val remaining = finalizeChatTextForSpeech(buffer.toString())
+                        session.append(remaining, isFinal = true)
+                    }
+                } catch (e: CancellationException) {
+                    // Ensure the controller's streaming worker is torn down immediately rather
+                    // than blocking indefinitely on channel receive.
+                    voiceOutputController.stop()
+                    throw e
                 }
             } finally {
                 if (_speakingMessageId.value == messageId) {

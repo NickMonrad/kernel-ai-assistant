@@ -571,6 +571,10 @@ private fun SemaineSpeakerSelector(
     onSpeakerSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Clamp to valid Semaine range so UI stays consistent with effectiveSid() in the controller.
+    // A stale VCTK sid (e.g. 50) would otherwise show no RadioButton selected while TTS plays
+    // sid=3 (Poppy) and the description text names Prudence.
+    val effectiveId = activeSpeakerId.coerceIn(0, SherpaPiperVoice.SemaineMedium.speakerCount - 1)
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = "Semaine speaker",
@@ -580,7 +584,7 @@ private fun SemaineSpeakerSelector(
         )
 
         Text(
-            text = "Semaine has 4 speakers with distinct characters. Selected: ${SemaineSpeakerMetadata.displayLabel(activeSpeakerId)}",
+            text = "Semaine has 4 speakers with distinct characters. Selected: ${SemaineSpeakerMetadata.displayLabel(effectiveId)}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
@@ -595,7 +599,7 @@ private fun SemaineSpeakerSelector(
                 supportingContent = { Text(speaker.description) },
                 trailingContent = {
                     RadioButton(
-                        selected = activeSpeakerId == speaker.sid,
+                        selected = effectiveId == speaker.sid,
                         onClick = { onSpeakerSelected(speaker.sid) },
                     )
                 },
