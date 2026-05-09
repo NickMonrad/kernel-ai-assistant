@@ -1593,4 +1593,96 @@ class ActionsViewModelVoiceTest {
         // Retry should have kicked in (no error shown yet after the fresh press).
         assertEquals(null, viewModel.error.value)
     }
+
+    @Test
+    fun `slot-fill retry budget resets when user manually re-taps mic after exhaustion`() = runTest(dispatcher) {
+        // #825: startVoiceSlotReply() must reset slotReplyVoiceRetryCount so that a user who
+        // manually re-taps the mic after the budget is exhausted gets a fresh set of retries.
+        every { quickIntentRouter.route("send a text to Dave") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_sms",
+                    params = mapOf("contact" to "Dave"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "message",
+                    promptTemplate = "What would you like to say to {contact}?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.executeAction("send a text to Dave", InputMode.Voice)
+        advanceUntilIdle()
+
+        // ── Exhaust the retry budget (SLOT_REPLY_MAX_VOICE_RETRIES = 2 retries) ──
+
+        // Initial mic session.
+        viewModel.startVoiceSlotReply()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+
+        // Error 1 → retry 1: reprompt spoken, auto-rearm armed.
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech"))
+        advanceUntilIdle()
+
+        // Simulate TTS completing → auto-rearm restarts mic.
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Dave?"),
+        )
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351L)
+        runCurrent()
+
+        // Error 2 → retry 2: reprompt spoken again, auto-rearm armed.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech"))
+        advanceUntilIdle()
+
+        // Simulate TTS completing → auto-rearm restarts mic.
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Dave?"),
+        )
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351L)
+        runCurrent()
+
+        // Error 3 → budget exhausted: slot visible, voice idle, no further TTS retry.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech"))
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.pendingSlot.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        // Only 2 reprompt speaks during the two auto-retries above.
+        coVerify(exactly = 2) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> { it.text.startsWith("Sorry, I didn't catch that.") },
+            )
+        }
+
+        // ── User manually re-taps the mic — budget must reset ──
+
+        viewModel.startVoiceSlotReply()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+
+        // First error of the new session → reprompt should fire (retry budget is fresh).
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech"))
+        advanceUntilIdle()
+
+        // A 3rd reprompt speak confirms the retry path fired (not the exhaustion path).
+        coVerify(atLeast = 3) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> { it.text.startsWith("Sorry, I didn't catch that.") },
+            )
+        }
+        assertNotNull(viewModel.pendingSlot.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
 }

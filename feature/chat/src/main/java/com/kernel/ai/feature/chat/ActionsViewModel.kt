@@ -352,6 +352,10 @@ class ActionsViewModel @Inject constructor(
 
     fun startVoiceSlotReply() {
         if (_pendingSlot.value == null) return
+        // #825: Reset slot retry budget on manual mic re-tap, mirroring what startVoiceCommand()
+        // does for commandVoiceRetryCount. This ensures the user gets a fresh set of retries
+        // if they tap the mic again after the budget was exhausted.
+        slotReplyVoiceRetryCount = 0
         Log.d(TAG, "ActionsViewModel: startVoiceSlotReply pendingSlot=true")
         setSlotReplyAutoRearmArmed(false, "startVoiceSlotReply")
         clearExpectedSlotPromptSpeech()
@@ -685,6 +689,9 @@ class ActionsViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         // QuickIntentRouter is a @Singleton — no cleanup needed here.
+        // startListeningCuePlayer is also a @Singleton that intentionally outlives this ViewModel
+        // (it is process-scoped). Its release() hook exists for audio-system recovery scenarios
+        // and is NOT called here — doing so would break the shared singleton for other callers.
     }
 
     // ── Private helpers ─────────────────────────────────────────────────────
