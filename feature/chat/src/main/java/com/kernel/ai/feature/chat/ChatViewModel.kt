@@ -1027,6 +1027,9 @@ class ChatViewModel @Inject constructor(
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
             var groundingContext: String? = null
+            // May be updated by the emotion pre-intercept to strip the voice modifier phrase
+            // from the text sent to the LLM (the user-facing conversation message keeps `text`).
+            var promptText = text
             var isToolQueryForTurn = false
             // Set true when QIR routes to a device action, OR when the LLM calls a non-indexable
             // tool (run_intent, get_weather, etc.) — suppresses RAG indexing for both the user
@@ -1213,6 +1216,7 @@ class ChatViewModel @Inject constructor(
                 systemContext = emotionDetection.systemContext
                 voiceOutputController.setEmotionOverrideSid(emotionDetection.sid)
                 Log.d("KernelAI", "Voice emotion pre-intercept applied: sid=${emotionDetection.sid}")
+                emotionDetection.strippedText?.let { promptText = it }
             }
             if (matchedIntent != null) {
                 // Calendar intent matched by classifier but params not extractable via regex —
@@ -1426,7 +1430,7 @@ class ChatViewModel @Inject constructor(
                 if (!isToolQuery) {
                     append("[System: ${jandalPersona.buildGreetingInstruction(isFirstReply, jandalPersona.currentPersonaMode)}]\n\n")
                 }
-                append(text)
+                append(promptText)
             }
             groundingContext = buildString {
                 if (effectiveRagContext.isNotBlank()) append(effectiveRagContext)
@@ -2145,10 +2149,18 @@ class ChatViewModel @Inject constructor(
         val activeVoice = voiceOutputPreferences.selectedSherpaVoice.first()
         if (activeVoice != SherpaPiperVoice.SemaineMedium) return null
         Log.d("KernelAI", "Voice emotion detected: $emotion → sid=$sid")
-        return EmotionDetection(sid, "[System: set_voice_emotion — Voice tone set to $emotion for this reply.]")
+        val stripped = text.replace(match.value, "", ignoreCase = true)
+            .replace(Regex("\\s{2,}"), " ").trim().ifBlank { null }
+        return EmotionDetection(
+            sid = sid,
+            systemContext = "[System: Voice mode — Your speaking voice has been set to $emotion for this response. " +
+                "Respond with content that matches that emotional tone. " +
+                "Do not mention voice settings or claim you cannot change your voice.]",
+            strippedText = stripped,
+        )
     }
 
-    private data class EmotionDetection(val sid: Int, val systemContext: String)
+    private data class EmotionDetection(val sid: Int, val systemContext: String, val strippedText: String?)
 
     companion object {
         private val VOICE_EMOTION_PATTERN = Regex(
