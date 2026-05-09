@@ -59,11 +59,13 @@ internal fun resolveSpeculativeDecodingForInit(
     requested: Boolean,
     modelPath: String,
     capabilityProbe: (String) -> Boolean = ::modelSupportsSpeculativeDecoding,
+    onProbeFailure: (String, Exception) -> Unit = { _, _ -> },
 ): Boolean {
     if (!requested) return false
     return try {
         capabilityProbe(modelPath)
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        onProbeFailure(modelPath, e)
         false
     }
 }
@@ -480,6 +482,9 @@ class LiteRtInferenceEngine @Inject constructor(
                 val speculativeDecoding = resolveSpeculativeDecodingForInit(
                     requested = config.speculativeDecodingEnabled,
                     modelPath = config.modelPath,
+                    onProbeFailure = { modelPath, error ->
+                        Log.w(TAG, "Speculative decoding capability probe failed for $modelPath: ${error.message}")
+                    },
                 )
                 Log.d(TAG, "Speculative decoding: requested=${config.speculativeDecodingEnabled} active=$speculativeDecoding")
                 val eng = withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
