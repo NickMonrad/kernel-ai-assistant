@@ -2147,7 +2147,10 @@ class ChatViewModel @Inject constructor(
             ?.value?.lowercase() ?: return null
         val sid = emotionToSid[emotion] ?: return null
         val activeVoice = voiceOutputPreferences.selectedSherpaVoice.first()
-        if (activeVoice != SherpaPiperVoice.SemaineMedium) return null
+        if (activeVoice != SherpaPiperVoice.SemaineMedium) {
+            Log.d("KernelAI", "Voice emotion pattern matched '$emotion' but voice=$activeVoice (not Semaine) — skipping override")
+            return null
+        }
         Log.d("KernelAI", "Voice emotion detected: $emotion → sid=$sid")
         val stripped = text.replace(match.value, "", ignoreCase = true)
             .replace(Regex("\\s{2,}"), " ").trim().ifBlank { null }

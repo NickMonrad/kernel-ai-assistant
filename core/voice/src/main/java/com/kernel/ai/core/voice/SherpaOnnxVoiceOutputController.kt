@@ -105,6 +105,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     private val emotionOverrideSid = AtomicInteger(-1)
 
     override fun setEmotionOverrideSid(sid: Int) {
+        Log.d(TAG, "setEmotionOverrideSid: $sid (was ${emotionOverrideSid.get()})")
         emotionOverrideSid.set(sid)
     }
 
@@ -369,7 +370,9 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 }
                 // Read emotion override lazily per-chunk so tool calls (set_voice_emotion) that
                 // fire mid-generation are picked up before synthesis starts for each sentence.
-                val chunkSid = if (emotionOverrideSid.get() >= 0) emotionOverrideSid.get() else effectiveSid(speakerCount)
+                val overrideSid = emotionOverrideSid.get()
+                val chunkSid = if (overrideSid >= 0) overrideSid else effectiveSid(speakerCount)
+                Log.d(TAG, "runStreamingPlayback chunk: overrideSid=$overrideSid effectiveSid=${effectiveSid(speakerCount)} chunkSid=$chunkSid speakerCount=$speakerCount")
                 val synthStart = System.currentTimeMillis()
                 val audioResult = try {
                     genMethod.invoke(tts, chunk.text, chunkSid, sherpaSpeed.value)
@@ -390,6 +393,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 }
             }
         } finally {
+            Log.d(TAG, "runStreamingPlayback finally: resetting emotionOverrideSid from ${emotionOverrideSid.get()} to -1")
             emotionOverrideSid.set(-1)
             releaseAudioFocus()
             if (finishStreamingPlayback(playbackToken)) {
@@ -417,6 +421,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     private fun clearStreamingPlayback(): Boolean = synchronized(playbackLock) {
         val active = activeStreamingPlayback ?: return@synchronized false
         activeStreamingPlayback = null
+        Log.d(TAG, "clearStreamingPlayback: cancelling worker (emotionOverrideSid=${emotionOverrideSid.get()})")
         active.chunks.close()
         active.worker.cancel()
         true
