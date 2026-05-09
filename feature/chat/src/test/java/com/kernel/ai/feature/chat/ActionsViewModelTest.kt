@@ -9,6 +9,7 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.SkillSchema
+import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -47,6 +48,7 @@ class ActionsViewModelTest {
     private val voiceInputController: VoiceInputController = mockk()
     private val voiceOutputController: VoiceOutputController = mockk()
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
+    private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val insertedActions = mutableListOf<QuickActionEntity>()
     private val spokenResponsesEnabled = MutableStateFlow(false)
 
@@ -79,6 +81,7 @@ class ActionsViewModelTest {
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
         )
     }
 

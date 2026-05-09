@@ -13,6 +13,7 @@ import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.normalizeSlotReply
+import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
@@ -41,6 +42,9 @@ private const val SLOT_REPLY_REARM_DELAY_MS = 350L
 private const val VOICE_REPLY_TTS_DELAY_MS = 150L
 private const val VOICE_COMMAND_DUPLICATE_WINDOW_MS = 2_000L
 private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
+private const val SLOT_REPLY_MAX_VOICE_RETRIES = 2
+private const val COMMAND_MAX_VOICE_RETRIES = 1
+private val VOICE_ESCAPE_PHRASES = setOf("stop", "cancel", "stop that")
 
 /** Input modality for an action. Carried through slot-fill state for voice-readiness (#350/#588). */
 enum class InputMode { Text, Voice }
@@ -65,6 +69,7 @@ class ActionsViewModel @Inject constructor(
     private val voiceInputController: VoiceInputController,
     private val voiceOutputController: VoiceOutputController,
     private val voiceOutputPreferences: VoiceOutputPreferences,
+    private val startListeningCuePlayer: StartListeningCuePlayer,
 ) : ViewModel() {
 
     // ── Action history ──────────────────────────────────────────────────────
@@ -152,6 +157,19 @@ class ActionsViewModel @Inject constructor(
     private var recentVoiceCommandAtMs: Long = 0L
     private var spokenResponsesEnabled = true
 
+    /**
+     * Tracks how many automatic voice retries have been attempted for the current
+     * slot-fill reply session. Reset each time a new slot is primed. Capped at
+     * [SLOT_REPLY_MAX_VOICE_RETRIES] to avoid endless looping.
+     */
+    private var slotReplyVoiceRetryCount = 0
+
+    /**
+     * Tracks automatic voice retries for an idle command capture session.
+     * Capped at [COMMAND_MAX_VOICE_RETRIES] to keep idle retry conservative.
+     */
+    private var commandVoiceRetryCount = 0
+
     init {
         viewModelScope.launch {
             voiceOutputPreferences.spokenResponsesEnabled.collect { enabled ->
@@ -176,6 +194,8 @@ class ActionsViewModel @Inject constructor(
                             ?.transcript
                             .orEmpty()
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, currentTranscript)
+                        // #791: Play the start-listening earcon now that the mic is truly open.
+                        startListeningCuePlayer.playCue()
                     }
                     is VoiceInputEvent.PartialTranscript -> {
                         if (!ownsVoiceCapture(event.mode)) return@collect
@@ -187,14 +207,72 @@ class ActionsViewModel @Inject constructor(
                         _voiceCaptureState.value = VoiceCaptureState.Processing(event.mode, normalizedTranscript)
                         when (event.mode) {
                             VoiceCaptureMode.Command -> executeAction(normalizedTranscript, InputMode.Voice)
-                            VoiceCaptureMode.SlotReply -> onSlotReply(normalizedTranscript)
+                            VoiceCaptureMode.SlotReply -> {
+                                // #790: Recognise escape phrases — abort slot-fill cleanly.
+                                if (isVoiceEscapePhrase(normalizedTranscript)) {
+                                    Log.d(TAG, "ActionsViewModel: escape phrase \"$normalizedTranscript\" — cancelling slot-fill")
+                                    cancelSlotFill()
+                                } else {
+                                    onSlotReply(normalizedTranscript)
+                                }
+                            }
                             VoiceCaptureMode.AlertCommand -> Unit
                         }
                     }
                     is VoiceInputEvent.Error -> {
                         if (!ownsVoiceCapture(event.mode)) return@collect
-                        _voiceCaptureState.value = VoiceCaptureState.Idle
-                        _error.value = event.message
+                        // #790: Auto-retry with reprompt on voice errors during slot-fill or idle command.
+                        when (event.mode) {
+                            VoiceCaptureMode.SlotReply -> {
+                                val pending = _pendingSlot.value
+                                if (pending != null && pending.inputMode == InputMode.Voice &&
+                                    slotReplyVoiceRetryCount < SLOT_REPLY_MAX_VOICE_RETRIES
+                                ) {
+                                    slotReplyVoiceRetryCount++
+                                    Log.d(
+                                        TAG,
+                                        "ActionsViewModel: slot-reply voice error — retry " +
+                                            "$slotReplyVoiceRetryCount/$SLOT_REPLY_MAX_VOICE_RETRIES",
+                                    )
+                                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                                    val prompt = pending.request.promptMessage
+                                    val retryPrompt = "Sorry, I didn't catch that. $prompt"
+                                    // Re-arm so the existing SpeakingStopped handler restarts the mic.
+                                    setSlotReplyAutoRearmArmed(true, "slotReplyVoiceRetry")
+                                    expectedSlotPromptSpeech = retryPrompt
+                                    slotPromptPlaybackStarted = false
+                                    speakForVoice(InputMode.Voice, retryPrompt)
+                                } else {
+                                    // Budget exhausted or no slot active — keep slot visible, let user type.
+                                    Log.d(
+                                        TAG,
+                                        "ActionsViewModel: slot-reply voice error — retry budget exhausted, " +
+                                            "waiting for manual input",
+                                    )
+                                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                                    setSlotReplyAutoRearmArmed(false, "slotReplyVoiceRetryExhausted")
+                                }
+                            }
+                            VoiceCaptureMode.Command -> {
+                                if (commandVoiceRetryCount < COMMAND_MAX_VOICE_RETRIES) {
+                                    commandVoiceRetryCount++
+                                    Log.d(
+                                        TAG,
+                                        "ActionsViewModel: command voice error — retry " +
+                                            "$commandVoiceRetryCount/$COMMAND_MAX_VOICE_RETRIES",
+                                    )
+                                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                                    startVoiceCapture(VoiceCaptureMode.Command)
+                                } else {
+                                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                                    _error.value = event.message
+                                }
+                            }
+                            VoiceCaptureMode.AlertCommand -> {
+                                _voiceCaptureState.value = VoiceCaptureState.Idle
+                                _error.value = event.message
+                            }
+                        }
                     }
                     is VoiceInputEvent.ListeningStopped -> {
                         if (!ownsVoiceCapture(event.mode)) return@collect
@@ -267,6 +345,8 @@ class ActionsViewModel @Inject constructor(
     // ── Public API ──────────────────────────────────────────────────────────
 
     fun startVoiceCommand() {
+        // #790: Reset command retry budget on fresh user-initiated press.
+        commandVoiceRetryCount = 0
         startVoiceCapture(VoiceCaptureMode.Command)
     }
 
@@ -553,6 +633,8 @@ class ActionsViewModel @Inject constructor(
             "ActionsViewModel: primePendingSlot intent=$intentName inputMode=$inputMode " +
                 "missing=${missingSlot.name} delayVoicePrompt=$delayVoicePrompt",
         )
+        // #790: Reset retry budget whenever a fresh slot is primed.
+        slotReplyVoiceRetryCount = 0
         _pendingSlot.value = PendingSlotState(
             request = PendingSlotRequest(
                 intentName = intentName,
@@ -805,6 +887,13 @@ class ActionsViewModel @Inject constructor(
         recentVoiceCommandAtMs = nowMs
         return isDuplicate
     }
+
+    /**
+     * Returns true when [text] is a recognised escape phrase that should abort
+     * an in-progress slot-fill voice session (#790).
+     */
+    private fun isVoiceEscapePhrase(text: String): Boolean =
+        text.trim().lowercase() in VOICE_ESCAPE_PHRASES
 
     private fun toSpokenSummary(text: String): String {
         val normalized = text.lineSequence()
