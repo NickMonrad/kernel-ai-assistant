@@ -354,8 +354,6 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     ) {
         val tts = ttsInstance ?: return
         val genMethod = generateMethod ?: return
-        // Emotion override is per-utterance for Semaine; for all other voices effectiveSid handles clamping.
-        val effectiveSid = if (emotionOverrideSid.get() >= 0) emotionOverrideSid.get() else effectiveSid(speakerCount)
         var emittedStarted = false
         var requestedAudioFocus = false
         try {
@@ -369,16 +367,19 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                     requestAudioFocus()
                     requestedAudioFocus = true
                 }
+                // Read emotion override lazily per-chunk so tool calls (set_voice_emotion) that
+                // fire mid-generation are picked up before synthesis starts for each sentence.
+                val chunkSid = if (emotionOverrideSid.get() >= 0) emotionOverrideSid.get() else effectiveSid(speakerCount)
                 val synthStart = System.currentTimeMillis()
                 val audioResult = try {
-                    genMethod.invoke(tts, chunk.text, effectiveSid, sherpaSpeed.value)
+                    genMethod.invoke(tts, chunk.text, chunkSid, sherpaSpeed.value)
                         ?: return
                 } catch (e: Exception) {
                     Log.e(TAG, "Sherpa streaming generate() failed", e)
                     return
                 }
                 if (verboseLoggingEnabled.value) Log.d(TAG, "Sherpa streaming chunk: ${System.currentTimeMillis() - synthStart}ms " +
-                    "for ${chunk.text.length} chars, sid=$effectiveSid")
+                    "for ${chunk.text.length} chars, sid=$chunkSid")
                 val samples = reflectGetSamples(audioResult)
                 val sampleRate = reflectGetSampleRate(audioResult)
                 if (!stopped && isStreamingPlaybackActive(playbackToken)) {
