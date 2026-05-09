@@ -262,7 +262,16 @@ class ActionsViewModel @Inject constructor(
                                             "$commandVoiceRetryCount/$COMMAND_MAX_VOICE_RETRIES",
                                     )
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
-                                    startVoiceCapture(VoiceCaptureMode.Command)
+                                    // Speak reprompt then re-open mic after TTS completes.
+                                    // If spoken responses are off, re-open immediately.
+                                    pendingVoiceSpeechJob = viewModelScope.launch {
+                                        if (spokenResponsesEnabled) {
+                                            voiceOutputController.speak(
+                                                VoiceSpeakRequest("Sorry, I didn't catch that. Please try again.")
+                                            )
+                                        }
+                                        startVoiceCapture(VoiceCaptureMode.Command)
+                                    }
                                 } else {
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
                                     _error.value = event.message
