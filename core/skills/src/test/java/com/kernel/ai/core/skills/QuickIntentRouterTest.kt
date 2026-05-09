@@ -772,6 +772,27 @@ class QuickIntentRouterTest {
         }
     }
 
+    @Nested
+    @DisplayName("Unit conversion")
+    inner class UnitConversion {
+        @ParameterizedTest(name = "Regex: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#unitConversionRegexPhrases")
+        fun `should match conversion phrases with extracted params`(
+            input: String,
+            expectedValue: String,
+            expectedFromUnit: String,
+            expectedToUnit: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "convert_units", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedValue, intent.params["value"])
+            assertEquals(expectedFromUnit, intent.params["from_unit"])
+            assertEquals(expectedToUnit, intent.params["to_unit"])
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // E4B FALLTHROUGH — these should NEVER match Tier 2
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1755,6 +1776,7 @@ class QuickIntentRouterTest {
         addCases(batteryClassifierPhrases(), "get_battery", "Battery (classifier)")
         addCases(dateDiffRegexPhrases(), "get_date_diff", "Date Diff (regex)")
         addCases(calculatorRegexPhrases(), "calculate_arithmetic", "Calculator (regex)")
+        addCases(unitConversionCoveragePhrases(), "convert_units", "Unit conversion (regex)")
         addCases(timeRegexPhrases(), "get_time", "Time (regex)")
         addCases(timeClassifierPhrases(), "get_time", "Time (classifier)")
         addCases(volumeRegexPhrases(), "set_volume", "Volume (regex)")
@@ -2889,6 +2911,21 @@ class QuickIntentRouterTest {
             Arguments.of("add important date freya's birthday", "freya's birthday"),
         )
 
+        @JvmStatic
+        fun unitConversionRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("convert 5 miles to km", "5", "miles", "km"),
+            Arguments.of("what is 500 grams in ounces", "500", "grams", "ounces"),
+            Arguments.of("60 mph in km/h", "60", "mph", "km/h"),
+            Arguments.of("how many kilometers are 5 miles", "5", "miles", "kilometers"),
+        )
+
+        @JvmStatic
+        fun unitConversionCoveragePhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("convert 5 miles to km"),
+            Arguments.of("what is 500 grams in ounces"),
+            Arguments.of("60 mph in km/h"),
+            Arguments.of("how many kilometers are 5 miles"),
+        )
         @JvmStatic
         fun listImportantDatesRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("list my important dates"),

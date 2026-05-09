@@ -1087,6 +1087,42 @@ class NativeIntentHandlerTest {
         )
     }
 
+    @Test
+    fun `convert_units returns deterministic direct reply`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "km"),
+        )
+
+        assertEquals(SkillResult.DirectReply("5 miles is 8.04672 kilometers."), result)
+    }
+
+    @Test
+    fun `convert_units marks approximate reciprocal conversions`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "5", "from_unit" to "kg", "to_unit" to "pounds"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply("5 kilograms is approximately 11.02311311 pounds."),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units reports unsupported units cleanly`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "yards"),
+        )
+
+        assertEquals(
+            SkillResult.Failure("convert_units", "Unsupported unit 'yards'"),
+            result,
+        )
+    }
+
 
     private data class PhoneRow(
         val contactId: String,
