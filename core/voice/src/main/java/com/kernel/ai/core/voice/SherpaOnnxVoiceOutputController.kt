@@ -607,6 +607,17 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 offset = end
             }
             if (!stopped) {
+                // Write silence padding equal to the hardware output latency before calling
+                // stop(). PLAYSTATE_STOPPED fires when AudioFlinger's mixer buffer is empty,
+                // but the hardware HAL and DSP pipeline (Samsung Adapt Sound / Dolby Atmos)
+                // can hold an additional 100–300 ms of frames that get silently discarded by
+                // track.release(). Padding with silence equal to track.latency pushes the
+                // real speech samples earlier in the playback queue, ensuring they have
+                // cleared the hardware pipeline before PLAYSTATE_STOPPED is reached.
+                val latencyFrames = (sampleRate.toLong() * audioTrackLatencyMs(track).coerceIn(0, 400) / 1000L).toInt()
+                if (latencyFrames > 0 && !stopped) {
+                    track.write(FloatArray(latencyFrames), 0, latencyFrames, AudioTrack.WRITE_BLOCKING)
+                }
                 track.stop()
                 // MODE_STREAM: stop() is non-blocking — buffered samples continue to drain.
                 // Wait until PLAYSTATE_STOPPED so release() doesn't cut the audio tail,
@@ -680,5 +691,16 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
 
         /** Floats per AudioTrack write chunk (~92 ms at 22050 Hz). */
         const val AUDIO_CHUNK_FLOATS = 2048
+
+        /**
+         * Returns the hardware output latency of [track] in milliseconds via reflection.
+         * `AudioTrack.getLatency()` exists on all API levels but is hidden from the public
+         * SDK surface. We access it reflectively with a safe fallback to 0 if unavailable.
+         */
+        fun audioTrackLatencyMs(track: AudioTrack): Int = try {
+            AudioTrack::class.java.getMethod("getLatency").invoke(track) as? Int ?: 0
+        } catch (_: Exception) {
+            0
+        }
     }
 }
