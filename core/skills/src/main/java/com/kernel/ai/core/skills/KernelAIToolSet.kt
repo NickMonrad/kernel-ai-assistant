@@ -48,6 +48,7 @@ class KernelAIToolSet @Inject constructor(
     @Volatile private var lastToolRequest: String? = null
     @Volatile private var lastToolResult: String? = null
     @Volatile private var lastToolPresentation: ToolPresentation? = null
+    @Volatile private var lastToolSpokenSummary: String? = null
 
     fun resetTurnState() {
         toolCalledInThisTurn = false
@@ -55,6 +56,7 @@ class KernelAIToolSet @Inject constructor(
         lastToolRequest = null
         lastToolResult = null
         lastToolPresentation = null
+        lastToolSpokenSummary = null
     }
 
     fun wasToolCalled(): Boolean = toolCalledInThisTurn
@@ -62,6 +64,7 @@ class KernelAIToolSet @Inject constructor(
     fun lastToolRequest(): String? = lastToolRequest
     fun lastToolResult(): String? = lastToolResult
     fun lastToolPresentation(): ToolPresentation? = lastToolPresentation
+    fun lastToolSpokenSummary(): String? = lastToolSpokenSummary
 
     private fun setLastToolCall(name: String, request: String) {
         lastToolName = name
@@ -222,6 +225,11 @@ class KernelAIToolSet @Inject constructor(
                 is SkillResult.DirectReply -> result.presentation
                 else -> null
             }
+            lastToolSpokenSummary = when (result) {
+                is SkillResult.Success -> result.spokenSummary
+                is SkillResult.DirectReply -> result.spokenSummary
+                else -> null
+            }
             when (result) {
                 is SkillResult.Success -> mapOf("result" to result.content)
                 is SkillResult.DirectReply -> mapOf("result" to result.content)
@@ -231,6 +239,7 @@ class KernelAIToolSet @Inject constructor(
             }
         } catch (e: Exception) {
             lastToolPresentation = null
+            lastToolSpokenSummary = null
             Log.e(TAG, "ToolSet: $skillName execution failed", e)
             mapOf("error" to (e.message ?: "Unknown error executing $skillName"))
         }

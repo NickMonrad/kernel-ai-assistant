@@ -24,7 +24,7 @@ class RunIntentSkill @Inject constructor(
     override val name = "run_intent"
     override val description =
         "Perform a native Android device action. Supports flashlight, alarm, timer, calendar, email, SMS, " +
-            "Do Not Disturb, volume control, system toggles (Wi-Fi, Bluetooth, airplane mode, hotspot), " +
+            "Do Not Disturb, volume control, deterministic arithmetic and unit conversion, system toggles (Wi-Fi, Bluetooth, airplane mode, hotspot), " +
             "media playback (local, YouTube, Spotify, Netflix, Plex), navigation, calls, app launching, and info queries. " +
             "For alarms: pass the time exactly as the user said it using the 'time' parameter (e.g. time:\"10pm\", time:\"9:30am\", time:\"22:00\"). " +
             "For calendar events, date accepts YYYY-MM-DD or relative terms like 'tomorrow', 'next wednesday', 'this friday'."
@@ -49,6 +49,8 @@ class RunIntentSkill @Inject constructor(
                     "save_important_date",
                     "list_important_dates",
                     "remove_important_date",
+                    "calculate_arithmetic",
+                    "convert_units",
                     // System toggles
                     "toggle_dnd_on",
                     "toggle_dnd_off",
@@ -104,6 +106,7 @@ class RunIntentSkill @Inject constructor(
         "Remove important date → runIntent(intentName=\"remove_important_date\", parameters='{\"label\":\"mum's birthday\"}')",
         "Calculator → runIntent(intentName=\"calculate_arithmetic\", parameters='{\"expression\":\"18.5% of 240\"}')",
         "Math helpers → runIntent(intentName=\"calculate_arithmetic\", parameters='{\"expression\":\"round(sqrt((25^2)) + abs(-2.6) + (10 % 3), 2)\"}')",
+        "Unit conversion → runIntent(intentName=\"convert_units\", parameters='{\"value\":\"100\",\"from_unit\":\"m\",\"to_unit\":\"yards\"}')",
         // System toggles
         "Turn on DND → runIntent(intentName=\"toggle_dnd_on\", parameters=\"{}\")",
         "Enable Wi-Fi → runIntent(intentName=\"toggle_wifi\", parameters='{\"state\":\"on\"}')",
@@ -151,6 +154,7 @@ class RunIntentSkill @Inject constructor(
         appendLine()
         appendLine("CALCULATOR:")
         appendLine("  calculate_arithmetic — params: expression (calculator expression or simple arithmetic phrase)")
+        appendLine("  convert_units — params: value, from_unit, to_unit (supported common units across length, mass, volume, temperature, and speed)")
         appendLine()
         appendLine("SYSTEM TOGGLES:")
         appendLine("  toggle_dnd_on, toggle_dnd_off — No params")
@@ -216,6 +220,11 @@ class RunIntentSkill @Inject constructor(
         appendLine("runIntent with intentName=calculate_arithmetic instead of doing the math yourself.")
         appendLine("Pass the math in expression exactly as symbols when already present (e.g. '245 * 17'),")
         appendLine("or as a simple phrase the evaluator understands (e.g. '18.5% of 240').")
+        appendLine()
+        appendLine("Conversion rule: for supported deterministic unit conversions, call runIntent with")
+        appendLine("intentName=convert_units instead of doing the conversion yourself.")
+        appendLine("Pass value as a decimal string and pass explicit normalized units in from_unit/to_unit")
+        appendLine("such as m, yd, km, mi, mg, g, kg, oz, lb, mL, L, tsp, tbsp, cups, gallons, celsius, fahrenheit, kelvin, m/s, mph, or km/h.")
         appendLine()
         appendLine("Media rule: For music playback, use play_media with query (song name) and artist.")
         appendLine("For albums, use play_media_album. For playlists, use play_media_playlist.")

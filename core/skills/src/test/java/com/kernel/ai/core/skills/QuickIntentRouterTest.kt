@@ -772,6 +772,27 @@ class QuickIntentRouterTest {
         }
     }
 
+    @Nested
+    @DisplayName("Unit conversion")
+    inner class UnitConversion {
+        @ParameterizedTest(name = "Regex: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#unitConversionRegexPhrases")
+        fun `should match conversion phrases with extracted params`(
+            input: String,
+            expectedValue: String,
+            expectedFromUnit: String,
+            expectedToUnit: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "convert_units", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedValue, intent.params["value"])
+            assertEquals(expectedFromUnit, intent.params["from_unit"])
+            assertEquals(expectedToUnit, intent.params["to_unit"])
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // E4B FALLTHROUGH — these should NEVER match Tier 2
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1755,6 +1776,7 @@ class QuickIntentRouterTest {
         addCases(batteryClassifierPhrases(), "get_battery", "Battery (classifier)")
         addCases(dateDiffRegexPhrases(), "get_date_diff", "Date Diff (regex)")
         addCases(calculatorRegexPhrases(), "calculate_arithmetic", "Calculator (regex)")
+        addCases(unitConversionCoveragePhrases(), "convert_units", "Unit conversion (regex)")
         addCases(timeRegexPhrases(), "get_time", "Time (regex)")
         addCases(timeClassifierPhrases(), "get_time", "Time (classifier)")
         addCases(volumeRegexPhrases(), "set_volume", "Volume (regex)")
@@ -2889,6 +2911,39 @@ class QuickIntentRouterTest {
             Arguments.of("add important date freya's birthday", "freya's birthday"),
         )
 
+        @JvmStatic
+        fun unitConversionRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("convert 5 miles to km", "5", "miles", "km"),
+            Arguments.of("what is 500 grams in ounces", "500", "grams", "ounces"),
+            Arguments.of("60 mph in km/h", "60", "mph", "km/h"),
+            Arguments.of("100m to yards", "100", "m", "yards"),
+            Arguments.of("convert 2 liters to cups", "2", "liters", "cups"),
+            Arguments.of("32 fahrenheit to celsius", "32", "fahrenheit", "celsius"),
+            Arguments.of("how many kilometers are 5 miles", "5", "miles", "kilometers"),
+            Arguments.of("how many cups are in 2 liters", "2", "liters", "cups"),
+            Arguments.of("how many cups in 2 L", "2", "L", "cups"),
+            Arguments.of("how many yards in 350 m", "350", "m", "yards"),
+            Arguments.of("convert 189 cm to feet and inches", "189", "cm", "inches"),
+            Arguments.of("convert 6 feet 2 inches to cm", "74", "inches", "cm"),
+            Arguments.of("convert 100 km an hour to metres a second", "100", "kilometers per hour", "metres per second"),
+        )
+
+        @JvmStatic
+        fun unitConversionCoveragePhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("convert 5 miles to km"),
+            Arguments.of("what is 500 grams in ounces"),
+            Arguments.of("60 mph in km/h"),
+            Arguments.of("100m to yards"),
+            Arguments.of("convert 2 liters to cups"),
+            Arguments.of("32 fahrenheit to celsius"),
+            Arguments.of("how many kilometers are 5 miles"),
+            Arguments.of("how many cups are in 2 liters"),
+            Arguments.of("how many cups in 2 L"),
+            Arguments.of("how many yards in 350 m"),
+            Arguments.of("convert 189 cm to feet and inches"),
+            Arguments.of("convert 6 feet 2 inches to cm"),
+            Arguments.of("convert 100 km an hour to metres a second"),
+        )
         @JvmStatic
         fun listImportantDatesRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("list my important dates"),
