@@ -1510,6 +1510,7 @@ class ChatViewModel @Inject constructor(
                 kernelAIToolSet.resetTurnState()
                 hallucinationRetryAttempted = false
                 var rawToolCallRetryAttempted = false
+                var blankResponseRetryAttempted = false
                 var currentPrompt = prompt
                 var needsHallucinationRetry: Boolean
 
@@ -1550,21 +1551,40 @@ class ChatViewModel @Inject constructor(
                             }
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
 
-                            // Guard: LiteRT occasionally produces 0 tokens (TTFT=-1ms) when
-                            // the GPU KV-cache enters a corrupted state. LiteRT self-heals by
-                            // resetting the session, but without this guard the UI shows a blank
-                            // assistant bubble and an empty string gets indexed into RAG (#841).
+                            // Guard: LiteRT occasionally produces 0 tokens (TTFT=-1ms) when the model
+                            // generates an immediate EOS — often triggered by an unusual RAG injection
+                            // creating a token pattern where EOS is most likely. LiteRT then
+                            // self-heals by resetting the session (#841).
+                            // Retry once without RAG context (stripped prompt) before showing fallback.
                             if (fullContent.isBlank()) {
-                                Log.w("KernelAI", "blank_response_guard: LiteRT produced 0 tokens — showing fallback")
-                                val fallback = "I lost my train of thought there — could you say that again?"
-                                _messages.update { msgs ->
-                                    msgs.map {
-                                        if (it.id == assistantMsgId) it.copy(content = fallback, isStreaming = false) else it
+                                if (!blankResponseRetryAttempted) {
+                                    blankResponseRetryAttempted = true
+                                    Log.w("KernelAI", "blank_response_guard: 0 tokens — retrying without RAG context")
+                                    currentPrompt = buildString {
+                                        if (systemContext != null) append("$systemContext\n\n")
+                                        append("[System: ${jandalPersona.buildGreetingInstruction(false, jandalPersona.currentPersonaMode)}]\n\n")
+                                        append(text)
                                     }
+                                    accumulatedContent = StringBuilder()
+                                    accumulatedThinking = StringBuilder()
+                                    activeStreamingContent = accumulatedContent
+                                    activeStreamingThinking = accumulatedThinking
+                                    _messages.update { msgs ->
+                                        msgs.map { if (it.id == assistantMsgId) it.copy(content = "", isStreaming = true) else it }
+                                    }
+                                    needsHallucinationRetry = true
+                                } else {
+                                    Log.w("KernelAI", "blank_response_guard: retry also produced 0 tokens — showing fallback")
+                                    val fallback = "I lost my train of thought there — could you say that again?"
+                                    _messages.update { msgs ->
+                                        msgs.map {
+                                            if (it.id == assistantMsgId) it.copy(content = fallback, isStreaming = false) else it
+                                        }
+                                    }
+                                    conversationRepository.addMessage(convId, "assistant", fallback, thinking)
+                                    finalizeVoicePlaybackForResponse(fallback)
+                                    // Skip RAG indexing — fallback text is noise
                                 }
-                                conversationRepository.addMessage(convId, "assistant", fallback, thinking)
-                                finalizeVoicePlaybackForResponse(fallback)
-                                // Skip RAG indexing — fallback text is noise
                                 return@collect
                             }
 
