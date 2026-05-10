@@ -482,7 +482,61 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 | `navigate_to` / `find_nearby` / `open_app` | Navigation / nearby / launcher intents | Explicit Android intents | ✅ |
 | `get_battery` / `get_time` / `get_date` | Deterministic device info | Android APIs / `LocalDateTime` | ✅ |
 | `get_date_diff` | Deterministic date arithmetic | `LocalDate` calculation | ✅ |
+| `convert_units` | Deterministic unit conversion (length, mass, volume, temperature, speed) | `UnitConversionEvaluator` via `NativeIntentHandler` | ✅ |
 | `add_to_list` / `bulk_add_to_list` / `create_list` / `get_list_items` / `remove_from_list` | Room-backed list management | `NativeIntentHandler` + Room DAOs | ✅ |
+
+
+> **`convert_units` deterministic routing and reply contract:** `QuickIntentRouter` matches direct phrasing (`convert 5 miles to km`, `60 mph in m/s`), reversed phrasing (`how many cups in 2 L`), mixed-target phrasing (`convert 189 cm to feet and inches`), and spoken-STT variants (`convert 100 km an hour to metres a second`). The router normalises aliases before execution, including uppercase short forms like `L`/`mL`, natural spoken speed phrases (`km an hour`, `metres a second`), and mixed feet/inches input (`6 feet 2 inches` → total inches). `UnitConversionEvaluator` enforces same-category conversion only, rejects unsupported units and invalid physical values (for example below absolute zero), and marks non-terminating or mixed-unit results as approximate. Display text keeps full precision; spoken/TTS output uses `spokenSummary` rounded to 2 decimal places for verbose scalar results and 1 decimal place for the inches component of mixed feet/inches replies so speech stays concise without hiding exact on-screen values.
+
+#### `convert_units` supported capabilities
+
+**Supported conversion families and units**
+
+| Family | Supported units |
+|--------|------------------|
+| Mass | `mg`, `g`, `kg`, `oz`, `lb` |
+| Distance | `mm`, `cm`, `m`, `km`, `in`, `ft`, `yd`, `mi` |
+| Volume | `mL`, `L`, `tsp`, `tbsp`, `fl oz`, `cup`, `pt`, `qt`, `gal` |
+| Speed | `m/s`, `km/h`, `mph` |
+| Temperature | `celsius`, `fahrenheit`, `kelvin` |
+
+**Accepted phrasing patterns**
+
+- Direct phrasing: `convert 5 miles to km`, `60 mph in m/s`, `100m to yards`
+- Reversed phrasing: `how many cups are in 2 liters`, `how many cups in 2 L`, `how many yards in 350 m`
+- Mixed target output: `convert 189 cm to feet and inches`
+- Mixed source input: `convert 6 feet 2 inches to cm`
+- Spoken/STT-friendly variants: `convert 100 km an hour to metres a second`
+
+**Alias and normalization behavior**
+
+- Metric spelling variants: `meter`/`metre`, `liter`/`litre`, `kilometer`/`kilometre`
+- Short forms: `L`, `mL`, `km`, `cm`, `mm`, `kg`, `oz`, `lb`, `yd`, `mi`, `ft`, `in`
+- Speed synonyms: `km/h`, `kmh`, `kph`, `m/s`, `mps`, `mph`
+- Spoken speed phrases normalized before evaluation:
+  - `km a hour`, `km an hour` → `kilometers per hour`
+  - `meter(s) a second`, `meter(s) an second` → `meters per second`
+  - `metre(s) a second`, `metre(s) an second` → `metres per second`
+- Mixed feet/inches input is normalized to total inches before deterministic evaluation
+- Mixed `feet and inches` output is produced by converting to inches first, then formatting a feet + inches breakdown for reply text
+
+**Behavior and guardrails**
+
+- Only same-category conversions are allowed; cross-category conversions fail clearly
+- Unsupported units fail clearly instead of guessing
+- Invalid physical values fail clearly, including temperatures below absolute zero
+- Negative non-temperature values are rejected
+- Display replies keep full precision
+- Spoken/TTS replies are rounded for readability:
+  - scalar results: 2 decimal places when a shorter spoken form differs from the displayed exact value
+  - mixed feet/inches replies: inches rounded to 1 decimal place in speech
+- Approximate wording is used for non-terminating decimal results and mixed-unit breakdown replies
+
+**Explicit non-goals in this implementation**
+
+- No ingredient-aware cooking density conversions
+- No currency conversion or exchange-rate lookup
+- No cross-category interpretation such as inferring mass from volume without material context
 
 > **Alarm/timer ownership:** Core alarm and timer behavior now stays inside the app-owned
 > clock backend. If exact alarms are unavailable, the action fails truthfully instead of
