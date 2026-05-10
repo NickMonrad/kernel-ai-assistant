@@ -181,6 +181,7 @@ class ChatViewModel @Inject constructor(
     private var activeVoiceStreamingSession: VoiceOutputStreamingSession? = null
     private var activeVoiceStreamingBuffer = StringBuilder()
     private var isVoiceStreamingEnabledForTurn = false
+    private var activeVoiceGroundingContext: String? = null
     private var suppressVoiceOutputForCurrentResponse = false
     private var spokenResponsesEnabled = true
     private var autoSpeakEnabled = true
@@ -1495,9 +1496,8 @@ class ChatViewModel @Inject constructor(
                 }
             }.ifBlank { null }
             prepareVoicePlaybackForTurn(
-                streamingEnabled = autoSpeakEnabled &&
-                    !isToolQueryForTurn &&
-                    !_correctGroundedFactsEnabled.value,
+                streamingEnabled = autoSpeakEnabled && !isToolQueryForTurn,
+                groundingContext = groundingContext,
             )
 
             } finally {
@@ -1822,6 +1822,7 @@ class ChatViewModel @Inject constructor(
         isVoiceStreamingEnabledForTurn = false
         activeVoiceStreamingBuffer = StringBuilder()
         activeVoiceStreamingSession = null
+        activeVoiceGroundingContext = null
         voiceOutputController.stop()
         _isSpeakingResponse.value = false
     }
@@ -1989,9 +1990,13 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private suspend fun prepareVoicePlaybackForTurn(streamingEnabled: Boolean) {
+    private suspend fun prepareVoicePlaybackForTurn(
+        streamingEnabled: Boolean,
+        groundingContext: String?,
+    ) {
         activeVoiceStreamingBuffer = StringBuilder()
         activeVoiceStreamingSession = null
+        activeVoiceGroundingContext = groundingContext
         isVoiceStreamingEnabledForTurn = streamingEnabled
         val shouldSpeak = pendingVoiceReply
         pendingVoiceReply = false
@@ -2021,7 +2026,15 @@ class ChatViewModel @Inject constructor(
                 preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
                 force = force,
             ) ?: break
-            speakVoiceChunk(session, chunk, isFinal = false)
+            speakVoiceChunk(
+                session = session,
+                chunk = maybeCorrectStreamingSpeechChunk(
+                    chunk = chunk,
+                    groundingContext = activeVoiceGroundingContext,
+                    correctionEnabled = _correctGroundedFactsEnabled.value,
+                ),
+                isFinal = false,
+            )
         }
     }
 
@@ -2042,7 +2055,11 @@ class ChatViewModel @Inject constructor(
                 ) ?: break
                 bufferedChunks += chunk
             }
-            finalizeChatTextForSpeech(bufferedChunks.joinToString(" ").trim())
+            maybeCorrectStreamingSpeechChunk(
+                chunk = finalizeChatTextForSpeech(bufferedChunks.joinToString(" ").trim()),
+                groundingContext = activeVoiceGroundingContext,
+                correctionEnabled = _correctGroundedFactsEnabled.value,
+            )
         } else {
             finalizeChatTextForSpeech(finalContent)
         }
@@ -2050,6 +2067,7 @@ class ChatViewModel @Inject constructor(
         handleVoiceOutputResult(result)
         activeVoiceStreamingSession = null
         activeVoiceStreamingBuffer = StringBuilder()
+        activeVoiceGroundingContext = null
         isVoiceStreamingEnabledForTurn = false
     }
 
@@ -2232,6 +2250,16 @@ private fun shouldIndexToolCallResult(skillName: String): Boolean = when (skillN
  *
  * Broader paraphrasing is left untouched so analytical answers still read naturally.
  */
+internal fun maybeCorrectStreamingSpeechChunk(
+    chunk: String,
+    groundingContext: String?,
+    correctionEnabled: Boolean,
+): String = if (correctionEnabled) {
+    correctGroundedFacts(chunk, groundingContext)
+} else {
+    chunk
+}
+
 internal fun correctGroundedFacts(response: String, groundingContext: String?): String {
     if (groundingContext.isNullOrBlank()) return response
 

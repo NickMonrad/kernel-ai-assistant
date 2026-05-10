@@ -187,6 +187,30 @@ class ChatTextUtilsTest {
 
             assertEquals("Keeorah everyone.", chunk)
         }
+
+        @Test
+        fun `streaming correction repairs grounded percentage chunks when enabled`() {
+            assertEquals(
+                "Battery is at 92%.",
+                maybeCorrectStreamingSpeechChunk(
+                    chunk = "Battery is at 9%.",
+                    groundingContext = "[System: Battery is at 92%]",
+                    correctionEnabled = true,
+                ),
+            )
+        }
+
+        @Test
+        fun `streaming correction leaves chunk unchanged when disabled`() {
+            assertEquals(
+                "Battery is at 9%.",
+                maybeCorrectStreamingSpeechChunk(
+                    chunk = "Battery is at 9%.",
+                    groundingContext = "[System: Battery is at 92%]",
+                    correctionEnabled = false,
+                ),
+            )
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
