@@ -389,7 +389,7 @@ private fun ChatContent(
                                 onCopy = { content -> onCopyMessage(content) },
                                 showThinkingProcess = state.showThinkingProcess,
                                 isSpeaking = speakingMessageId == message.id,
-                                onSpeak = { onSpeakMessage(message.id, message.content) },
+                                onSpeak = { onSpeakMessage(message.id, message.toolCall?.spokenSummary ?: message.content) },
                             )
                         }
                         if (state.isLoadingModel) {

@@ -208,9 +208,9 @@ Active follow-on model/runtime investigations now live under
 | [#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407) | WebSearchSkill — LLM tool calling via Brave/Tavily API | ⬜ Pending | 🟡 Medium |
 | [#631](https://github.com/NickMonrad/kernel-ai-assistant/issues/631) | Important dates — taught dates + calendar birthday integration | ✅ Done — PR #797 | 🟡 Medium |
 | [#638](https://github.com/NickMonrad/kernel-ai-assistant/issues/638) | Messaging-app intents (WhatsApp, Signal, Telegram, etc.) | ⬜ Pending | 🟡 Medium |
-| [#658](https://github.com/NickMonrad/kernel-ai-assistant/issues/658) | Deterministic arithmetic / calculator tool | ⬜ Pending | 🔴 High |
+| [#658](https://github.com/NickMonrad/kernel-ai-assistant/issues/658) | Deterministic arithmetic / calculator tool | ✅ Done — PR #807 | 🔴 High |
 | [#662](https://github.com/NickMonrad/kernel-ai-assistant/issues/662) | Lists management upgrades (rename, pin, sort, edit items, favorites, due dates) | ⬜ Pending | 🟡 Medium |
-| [#676](https://github.com/NickMonrad/kernel-ai-assistant/issues/676) | Native unit conversion tool | ⬜ Pending | 🟡 Medium |
+| [#676](https://github.com/NickMonrad/kernel-ai-assistant/issues/676) | Native unit conversion tool | 🔄 In progress — PR #816 | 🟡 Medium |
 | [#677](https://github.com/NickMonrad/kernel-ai-assistant/issues/677) | World clock and timezone lookup | ✅ Done — PR #743 | 🟢 Low |
 | [#697](https://github.com/NickMonrad/kernel-ai-assistant/issues/697) | Multi-day weather forecast card in chat | ✅ Done — PR #710 | 🟡 Medium |
 

@@ -6,6 +6,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 
+import com.kernel.ai.core.skills.natives.UnitConversionEvaluator
 /**
  * Tier 2: Fast Intent Layer — pure Kotlin regex + future BERT-tiny zero-shot classifier.
  *
@@ -191,6 +192,50 @@ class QuickIntentRouter(
 
     private val importantDateValuePattern =
         "(?:\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|[a-zA-Z]+\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})"
+
+    private val unitConversionValuePattern = "-?\\d+(?:\\.\\d+)?"
+    private val unitConversionUnitPattern = UnitConversionEvaluator.supportedRouterRegexPattern()
+
+    private val mixedUnitConversionTargetPattern = UnitConversionEvaluator.supportedMixedUnitRouterRegexPattern()
+    private val feetAndInchesInputPattern = "(-?\\d+(?:\\.\\d+)?)\\s*(?:ft|foot|feet)\\s+(-?\\d+(?:\\.\\d+)?)\\s*(?:in|inch|inches)"
+    private fun extractUnitConversionParams(value: String, fromUnit: String, toUnit: String): Map<String, String> = mapOf(
+        "value" to value.trim(),
+        "from_unit" to normalizeUnitConversionPhrase(fromUnit),
+        "to_unit" to normalizeUnitConversionTarget(toUnit),
+    )
+
+    private fun extractFeetAndInchesConversionParams(feet: String, inches: String, toUnit: String): Map<String, String> {
+        val totalInches = try {
+            java.math.BigDecimal(feet.trim()).multiply(java.math.BigDecimal("12"))
+                .add(java.math.BigDecimal(inches.trim()))
+                .stripTrailingZeros()
+                .toPlainString()
+        } catch (_: NumberFormatException) {
+            feet.trim()
+        }
+        return mapOf(
+            "value" to totalInches,
+            "from_unit" to "inches",
+            "to_unit" to normalizeUnitConversionTarget(toUnit),
+        )
+    }
+
+    private fun normalizeUnitConversionTarget(raw: String): String = normalizeUnitConversionPhrase(
+        when (raw.trim().lowercase()) {
+            "feet and inches", "foot and inches" -> "inches"
+            else -> raw.trim()
+        },
+    )
+
+    private fun normalizeUnitConversionPhrase(raw: String): String = raw.trim()
+        .replace(Regex("""\bkm\s+an\s+hour\b""", RegexOption.IGNORE_CASE), "kilometers per hour")
+        .replace(Regex("""\bkm\s+a\s+hour\b""", RegexOption.IGNORE_CASE), "kilometers per hour")
+        .replace(Regex("""\bkilometers?\s+an\s+hour\b""", RegexOption.IGNORE_CASE), "kilometers per hour")
+        .replace(Regex("""\bkilometres?\s+an\s+hour\b""", RegexOption.IGNORE_CASE), "kilometres per hour")
+        .replace(Regex("""\bmeters?\s+a\s+second\b""", RegexOption.IGNORE_CASE), "meters per second")
+        .replace(Regex("""\bmeters?\s+an\s+second\b""", RegexOption.IGNORE_CASE), "meters per second")
+        .replace(Regex("""\bmetres?\s+a\s+second\b""", RegexOption.IGNORE_CASE), "metres per second")
+        .replace(Regex("""\bmetres?\s+an\s+second\b""", RegexOption.IGNORE_CASE), "metres per second")
 
     private fun extractImportantDateParams(label: String, date: String): Map<String, String> {
         val params = mutableMapOf<String, String>()
@@ -2326,7 +2371,7 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim()) },
         ),
 
-        // ── Calculator ──
+        // ── Calculator / Conversion ──
         // Symbolic expressions and helper functions: "245 * 17", "what is round(sqrt(25^2), 2)"
         IntentPattern(
             intentName = "calculate_arithmetic",
@@ -2345,7 +2390,64 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("expression" to match.groupValues[1].trim()) },
         ),
-
+        // Unit conversion phrases: "convert 5 miles to km", "what is 60 mph in km/h", "100m to yards"
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is))\s+)?($unitConversionValuePattern)\s*($unitConversionUnitPattern)\s+(?:to|in|into)\s+($unitConversionUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    toUnit = match.groupValues[3],
+                )
+            },
+        ),
+        // Reversed conversion phrasing: "how many kilometers are 5 miles", "how many cups are in 2 liters"
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^how\s+many\s+($unitConversionUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($unitConversionValuePattern)\s*($unitConversionUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is))\s+)?($unitConversionValuePattern)\s*($unitConversionUnitPattern)\s+(?:to|in|into)\s+($mixedUnitConversionTargetPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    toUnit = match.groupValues[3],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is))\s+)?$feetAndInchesInputPattern\s+(?:to|in|into)\s+($unitConversionUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractFeetAndInchesConversionParams(
+                    feet = match.groupValues[1],
+                    inches = match.groupValues[2],
+                    toUnit = match.groupValues[3],
+                )
+            },
+        ),
         // ── Lists ──
         // "add milk to my list" / "put eggs on the list" (item present, list missing) → ask which list
         IntentPattern(

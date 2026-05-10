@@ -37,6 +37,7 @@ import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.DayOfWeek
 import java.time.Instant
+import java.math.RoundingMode
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -111,6 +112,7 @@ interface ClockAlertController {
  *   get_system_info         — Returns storage and RAM info — returns DirectReply
  *   get_date_diff           — Native date arithmetic: days/weeks until or since a date (params: target_date, from_date?) — returns DirectReply
  *   calculate_arithmetic    — Deterministic arithmetic/calculator evaluator (params: expression) — returns DirectReply
+ *   convert_units           — Deterministic unit conversion (params: value, from_unit, to_unit) — returns DirectReply
  *   save_important_date     — Stores a taught recurring personal date (params: label, date) — returns DirectReply
  *   list_important_dates    — Lists taught recurring personal dates — returns DirectReply
  *   remove_important_date   — Deletes a taught recurring personal date (params: label) — returns DirectReply
@@ -195,6 +197,7 @@ class NativeIntentHandler @Inject constructor(
                 "get_weather" -> getWeather(params)
                 "get_date_diff" -> getDateDiff(params)
                 "calculate_arithmetic" -> calculateArithmetic(params)
+                "convert_units" -> convertUnits(params)
                 "get_system_info" -> getSystemInfo()
                 "save_important_date" -> saveImportantDate(params)
                 "list_important_dates" -> listImportantDates()
@@ -252,7 +255,7 @@ class NativeIntentHandler @Inject constructor(
             "open_app", "navigate_to", "find_nearby",
             "add_to_list", "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list",
             "smart_home_on", "smart_home_off",
-            "get_weather", "get_date_diff", "get_system_info", "calculate_arithmetic",
+            "get_weather", "get_date_diff", "get_system_info", "calculate_arithmetic", "convert_units",
             "save_important_date", "list_important_dates", "remove_important_date",
             "save_memory", 
         )
@@ -1974,12 +1977,60 @@ class NativeIntentHandler @Inject constructor(
             } else {
                 "The result is ${result.value.toPlainString()}."
             }
-            SkillResult.DirectReply(content)
+            val spokenSummary = if (result.isApproximate) {
+                val rounded = result.value.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros()
+                "The result is approximately ${rounded.toPlainString()}."
+            } else {
+                null
+            }
+            SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: IllegalArgumentException) {
             SkillResult.Failure("calculate_arithmetic", e.message ?: "Could not evaluate expression")
         }
     }
 
+    private fun convertUnits(params: Map<String, String>): SkillResult {
+        val value = params["value"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("convert_units", "No conversion value provided")
+        val fromUnit = params["from_unit"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("convert_units", "No source unit provided")
+        val toUnit = params["to_unit"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("convert_units", "No target unit provided")
+
+        return try {
+            val result = UnitConversionEvaluator.convert(value, fromUnit, toUnit)
+            val sourceDisplay = result.fromUnit.displayName(result.inputValue)
+            val mixedBreakdown = result.mixedUnitBreakdown
+            val targetDisplay = result.toUnit.displayName(result.outputValue)
+            val content = if (mixedBreakdown != null) {
+                val primaryDisplay = mixedBreakdown.primaryUnit.displayName(mixedBreakdown.primaryValue)
+                val secondaryDisplay = mixedBreakdown.secondaryUnit.displayName(mixedBreakdown.secondaryValue)
+                "${result.inputValue.toPlainString()} $sourceDisplay is approximately ${mixedBreakdown.primaryValue.toPlainString()} $primaryDisplay and ${mixedBreakdown.secondaryValue.toPlainString()} $secondaryDisplay (${result.outputValue.toPlainString()} $targetDisplay)."
+            } else if (result.isApproximate) {
+                "${result.inputValue.toPlainString()} $sourceDisplay is approximately ${result.outputValue.toPlainString()} $targetDisplay."
+            } else {
+                "${result.inputValue.toPlainString()} $sourceDisplay is ${result.outputValue.toPlainString()} $targetDisplay."
+            }
+            val spokenSummary = if (mixedBreakdown != null) {
+                val roundedInches = mixedBreakdown.secondaryValue.setScale(1, RoundingMode.HALF_UP).stripTrailingZeros()
+                val primaryDisplay = mixedBreakdown.primaryUnit.displayName(mixedBreakdown.primaryValue)
+                val secondaryDisplay = mixedBreakdown.secondaryUnit.displayName(roundedInches)
+                "${result.inputValue.toPlainString()} $sourceDisplay is approximately ${mixedBreakdown.primaryValue.toPlainString()} $primaryDisplay and ${roundedInches.toPlainString()} $secondaryDisplay."
+            } else {
+                val rounded = result.outputValue.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros()
+                if (result.isApproximate) {
+                    "${result.inputValue.toPlainString()} $sourceDisplay is approximately ${rounded.toPlainString()} $targetDisplay."
+                } else if (rounded.compareTo(result.outputValue) != 0) {
+                    "${result.inputValue.toPlainString()} $sourceDisplay is ${rounded.toPlainString()} $targetDisplay."
+                } else {
+                    null
+                }
+            }
+            SkillResult.DirectReply(content, spokenSummary = spokenSummary)
+        } catch (e: IllegalArgumentException) {
+            SkillResult.Failure("convert_units", e.message ?: "Could not convert units")
+        }
+    }
     private fun buildListPreview(
         listName: String,
         items: List<ListItemEntity>,
