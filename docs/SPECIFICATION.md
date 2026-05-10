@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-05-06 (chat voice streaming and TTS quality tuning refresh)
+> **Last updated:** 2026-05-09 (voice interface overhaul: Sherpa TTS, streaming, multi-speaker, chat voice; colloquial weather routing; important dates; world clock; multi-day forecast; spec sync for 18 completed roadmap items)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -68,8 +68,8 @@ The assistant is built on a **Brain–Memory–Action** triad, orchestrated cent
 
 | Model | Role | Size | Backend | Loading |
 |-------|------|------|---------|---------|
-| Gemma-4 E-4B | Reasoning, tool calling | ~3.4GB | GPU (OpenCL) | Eager at startup |
-| Gemma-4 E-2B | Reasoning (8GB devices) | ~1.5GB | GPU (OpenCL) | Eager at startup |
+| Gemma-4 E-4B | Reasoning, tool calling | ~3.4GB | GPU (OpenCL) | Eager at startup; stored in external shared storage to survive reinstalls (#20, PR #57) |
+| Gemma-4 E-2B | Reasoning (8GB devices) | ~1.5GB | GPU (OpenCL) | Eager at startup; stored in external shared storage to survive reinstalls |
 | EmbeddingGemma-300M | Semantic embeddings (768-dim) | <200MB | CPU | Lazy on first RAG query |
 
 > **FunctionGemma-270M deprecated (Apr 2026):** Its 289MB footprint causes lmkd to
@@ -115,11 +115,15 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 - **Proactive reset:** At ~75% capacity, `ChatViewModel` injects history-aware system prompt
   and resets the conversation, preserving selected turns
 - **Token estimation:** `ContextWindowManager.estimateTokens()` (~4 chars/token heuristic)
+- **Cancel generation:** Tapping cancel clears the stuck spinner and resets the LiteRT
+  conversation state (`#28`). Without this fix, a cancelled generation would leave the UI
+  in a perpetual loading state with stale LiteRT conversation context.
 
 ### 3.2 Prompt Assembly Order
 
 ```
 [System Prompt]          ← persona (FULL / HALF / BORING; MINIMAL for tool turns), date/time
+[Runtime Context]        ← model name, backend (GPU/NPU/CPU), device info (`#81`, `#82`)
 [User Profile]           ← structured YAML injection (name, role, environment, context, rules)
 [Core Memories]          ← permanent facts split by category:
                             user (coreTopK=10), agent_identity (identityTopK=5)
@@ -484,6 +488,8 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 | `get_date_diff` | Deterministic date arithmetic | `LocalDate` calculation | ✅ |
 | `convert_units` | Deterministic unit conversion (length, mass, volume, temperature, speed) | `UnitConversionEvaluator` via `NativeIntentHandler` | ✅ |
 | `add_to_list` / `bulk_add_to_list` / `create_list` / `get_list_items` / `remove_from_list` | Room-backed list management | `NativeIntentHandler` + Room DAOs | ✅ |
+| `important_dates` | Taught dates + calendar birthday integration via Calendar Provider | `NativeIntentHandler` + `ContentResolver` query on `CalendarContract.Events` | ✅ — PR #797 |
+| `world_clock` | Timezone lookup and world clock display | `ZoneId` / `ZonedDateTime` with timezone database | ✅ — PR #743 |
 
 
 > **`convert_units` deterministic routing and reply contract:** `QuickIntentRouter` matches direct phrasing (`convert 5 miles to km`, `60 mph in m/s`), reversed phrasing (`how many cups in 2 L`), mixed-target phrasing (`convert 189 cm to feet and inches`), and spoken-STT variants (`convert 100 km an hour to metres a second`). The router normalises aliases before execution, including uppercase short forms like `L`/`mL`, natural spoken speed phrases (`km an hour`, `metres a second`), and mixed feet/inches input (`6 feet 2 inches` → total inches). `UnitConversionEvaluator` enforces same-category conversion only, rejects unsupported units and invalid physical values (for example below absolute zero), and marks non-terminating or mixed-unit results as approximate. Display text keeps full precision; spoken/TTS output uses `spokenSummary` rounded to 2 decimal places for verbose scalar results and 1 decimal place for the inches component of mixed feet/inches replies so speech stays concise without hiding exact on-screen values.
@@ -562,6 +568,19 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 | `get-weather-city` | `assets/skills/get-weather-city/index.html` | ✅ (legacy city-weather path; unified `getWeather()` is preferred) |
 | `query-wikipedia` | `assets/skills/query-wikipedia/index.html` | ✅ |
 
+> **Colloquial + indirect weather routing (`#608`, `#663`, PR #667):** The QuickIntentRouter
+> includes dedicated patterns for colloquial weather phrases (e.g. "how's the weather",
+> "what's it like outside", "weather forecast") so these queries are routed directly to the
+> weather skill instead of falling through to the LLM. Indirect-location resolution uses
+> Nominatim geocoding to resolve city names and landmarks to coordinates when the user
+> specifies a location by name rather than GPS.
+>
+> **Multi-day weather forecast card (PR #710, `#697`):** The weather skill returns a
+> day-by-day forecast with WMO weather emoji (☀️🌤️⛅☁️🌧️❄️⛈️), min/max temps, and
+> precipitation summaries. This renders as a rich card inline in the chat stream.
+> Forecast is triggered by `forecast_days > 0` or `query_type = "forecast"` in the
+> `get-weather-city` JS skill (legacy path) and via the unified `getWeather()` skill entry.
+>
 > **`get-weather-city` forecast support (PR #269):** Pass `forecast_days` (integer 1–7) for a
 > day-by-day forecast instead of current conditions. When `forecast_days > 0` or
 > `query_type = "forecast"`, the skill calls the Open-Meteo `daily` API
@@ -586,6 +605,8 @@ and awaits the result with a 15s timeout.
 | `save_memory` | Persist a note/fact to `core_memories_vec` | ✅ (explicit trigger only — see memory rule below) |
 | `search_memory` | Semantic search across core memories, episodic memories, and `message_embeddings` | ✅ |
 | `get_weather_gps` / `get_weather` | Weather retrieval with GPS, explicit locations, and indirect-location resolution | ✅ |
+| `important_dates` | Taught dates + calendar birthday integration via Calendar Provider | ✅ — PR #797 |
+| `world_clock` | Timezone lookup and world clock display | ✅ — PR #743 |
 
 > **save_memory trigger:** Works reliably when the user explicitly says "remember", "save",
 > "don't forget", "can you remember", or "make a note of". Does not activate proactively from
@@ -646,7 +667,10 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 - **Navigation:** Bottom nav bar — Chats tab (conversations list) + Actions tab (quick commands)
 - **Chat:** Streaming token display, thinking mode indicator, markdown rendering, multi-conversation
 - **Actions tab:** History list, FAB (⚡) for new commands, bottom sheet input, Room-persisted history
-- **Voice:** Quick Actions push-to-talk with offline STT, spoken QIR responses, and streaming spoken chat replies; chat TTS currently uses a small curated pronunciation/preprocessing layer for known Kiwi/Māori greetings while wake word remains future work
+- **Voice:** Quick Actions push-to-talk with offline STT (Sherpa-ONNX / Android native), spoken QIR responses, and streaming spoken chat replies via Sherpa TTS with multi-speaker support (VCTK + Semaine: Prudence/Spike/Obadiah/Poppy); chat voice supports one-shot and back-and-forth modes; verbal stop command during TTS playback
+- **Chat voice:** Conversational push-to-talk with turn-taking controls and mode switch (one-shot vs back-and-forth); auto-speak decoupled from Quick Actions toggle via cached `autoSpeakEnabled` in `ChatViewModel`
+- **Conversation search:** Search bar on conversations list with title filtering, NULL guard, and LIKE wildcard escaping (`#151`, PR #156)
+- **Bulk delete:** Multi-select + delete in the core memories list in Memory UI (`#110`)
 - **Skill results:** Inline rich cards in the conversation stream, with expandable list previews and link surfacing for fallback/plain-text results
 - **Persona:** Friendly, concise, dry-humoured Kiwi — see §7 for full identity details
 
@@ -655,6 +679,11 @@ chat stream. Tapping expands to show the full request JSON and result string. An
 copies `[Tool: name]\nRequest: <json>\nResult: <result>` to the clipboard via
 `LocalClipboardManager` (Compose API — no system service boilerplate). Added in PR #325
 closing #229 and #260.
+
+**Smart chat titles (`#15`, PR #80/#83):** Conversations are auto-titled using the
+`generateOnce()` API with a directive system prompt that instructs the model to produce
+a concise, descriptive title from the conversation content. The title is captured via
+`.lines().first()` cleanup with a mutex leak fix. Titles are editable by the user.
 
 ### 6.1 Button Layout Standards (Material 3)
 
@@ -675,6 +704,106 @@ Toolbar `IconButton`s in `TopAppBar` follow M3's 48dp minimum touch target guide
 
 **Spacing tokens (ad-hoc, from codebase):** Vertical padding between chat bubbles: 6dp.
 Input bar top padding: 8dp. Spacers between inline UI elements: 4dp.
+
+### 6.2 Voice Interface
+
+The voice system covers two distinct interaction modes: **Quick Actions** (push-to-talk for
+device commands) and **Chat Voice** (conversational push-to-talk for dialog). Both use
+Sherpa-ONNX for speech-to-text (STT) and text-to-speech (TTS).
+
+#### 6.2.1 Speech-to-Text (STT)
+
+**Current stack:** Sherpa-ONNX CTC models for offline STT. The app also supports the Android
+native on-device recognizer as a fallback path (`#717`, PR #718), which was hardened for
+reliability on Samsung Galaxy S23 Ultra.
+
+**STT fallback-path issues** (e.g. appointment QIR bug `#773`) are tracked separately from
+the Sherpa primary path.
+
+**Remaining STT research:** Sherpa-ONNX / Sherpa-ncnn STT + VAD evaluation (`#821`),
+Parakeet CTC (`#700`), Whisper.cpp vs Vosk (`#703`).
+
+#### 6.2.2 Text-to-Speech (TTS)
+
+**Engine:** Sherpa-TTS with VITS-based voices, replacing the Android native TTS engine
+(`#729`, PR #804). This provides significantly improved conversational voice quality.
+
+**Multi-speaker support:**
+- **VCTK** (`#782`, PR #805): Multiple English speakers for Quick Actions responses
+- **Semaine** (`#817`, PR #818): 4 speakers — Prudence, Spike, Obadiah, Poppy — selected
+  via Settings → Voice. Note: Semaine exposes different *speakers*, not emotional variants;
+  the emotion detection approach was abandoned (`#781` closed).
+
+**Streaming TTS pipeline (`#755`, PR #780):** Two-coroutine producer/consumer pattern
+(`runStreamingPlayback()`) enables incremental, low-latency spoken responses during LLM
+generation. The TTS begins playback as soon as the first sentence is available, rather
+than waiting for the full response.
+
+**TTS quality fixes (PR #780):**
+- URL colon preservation in `cleanTextForSpeech()` — prevents URLs like
+  `https://example.com:8080` from being read as "eight zero eight zero"
+- Speech rate clamping — prevents unnaturally fast or slow playback
+- Abbreviation-aware sentence splitting — handles "Dr.", "Mr.", "U.S." correctly
+- Sherpa voice quality evaluation performed on Samsung Galaxy S23 Ultra (`#770`)
+
+**TTS settings (PR #789):** Expanded settings include pitch control, auto-speak toggle,
+and max spoken sentences limit. `autoSpeakEnabled` is a cached field in `ChatViewModel`,
+fully decoupled from the Quick Actions `spokenResponsesEnabled` toggle.
+
+**Per-message speaker button (PR #789):** Each chat message has a speaker icon to replay
+its TTS playback with the selected speaker.
+
+**Verbal stop command (PR #789):** Users can say "stop" or "quiet" to halt TTS playback
+mid-sentence.
+
+**TTS pronoun normalisation (`#828`):** Pending — will convert first-person pronouns
+(my/I → your/you) in TTS output so the assistant speaks in third person when reading
+LLM responses that reference the user.
+
+#### 6.2.3 Quick Actions Voice
+
+**Push-to-talk:** Offline STT captures voice input; QIR (QuickIntentRouter) matches the
+transcript to device actions; responses are spoken via TTS.
+
+**Slot-fill retry on no-speech (PR #825, `#790`):** When the STT detects no speech,
+the system retries the slot-fill prompt instead of failing. Cancel phrases (e.g. "cancel",
+"never mind") are recognised and abort the slot-fill flow.
+
+**Start-listening audio cue (PR #825, `#791`):** A brief audio beep signals that voice
+capture has started, giving the user confidence the mic is active.
+
+#### 6.2.4 Chat Voice
+
+**Conversational push-to-talk (`#727`, PR #731; `#728`, PR #735):** Chat voice supports
+turn-taking controls — the user speaks, the assistant responds with streaming TTS, then
+the user can speak again.
+
+**Mode switch (`#741`, PR #744):** Users can choose between one-shot mode (single question
+and answer) and back-and-forth mode (continuous conversation) from the chat voice controls.
+
+**Voice-friendly spoken response rendering (`#763`, PR #771):** LLM responses are
+preprocessed for natural speech: markdown is stripped, lists are verbalised, and
+punctuation is normalised for TTS.
+
+#### 6.2.5 Remaining Voice Research
+
+- **Kokoro-82M / VoxSherpa + expressiveness (`#783`):** Research into alternative TTS
+  engines with emotional expressiveness and tone control
+- **Kiwi language corpus tuning (`#784`):** Tuning TTS pronunciation for Māori words
+  and Kiwi slang used by Jandal
+- **VITS noise_scale expressiveness (`#788`):** Fine-tuning the noise scale parameter
+  for more natural-sounding VITS voices
+- **Custom Piper voice training (`#756`):** Research into training a custom Piper voice
+  model with Jandal's Kiwi character
+- **Voice memo skill (`#823`):** Native skill for voice note-taking
+- **VoiceSession architecture (`#588`):** Unified voice session management for slot-fill
+  and follow-on assistant mode
+- **QA gate (`#824`):** Real-device voice validation for the current stack on Samsung
+  Galaxy S23 Ultra
+- **Homescreen widget (`#617`):** Quick actions / voice widget for the homescreen
+- **Translator skill (`#659`):** Multilingual translation with TTS output
+- **Wake word (`#65`):** "Hey Jandal" via Picovoice Porcupine (future)
+- **Live mode (`#64`):** Real-time streaming interaction (future)
 
 ---
 
@@ -876,7 +1005,7 @@ for the larger planned coverage matrix.
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM chat + GPU/NPU + GPU alignment fixes + OOM protection | ✅ Complete |
 | 2 | sqlite-vec RAG + EmbeddingGemma + episodic distillation + memory UI | ✅ Complete |
-| 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, voice foundations, weather/list/date/media skills, and broader multi-turn support | 🔄 In Progress |
+| 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, voice (Sherpa STT/TTS, streaming, multi-speaker, chat voice), weather/list/date/media skills, important dates, world clock, multi-day forecast, colloquial weather routing, multi-turn slot-fill, memory search quality, and broader multi-turn support | 🔄 In Progress |
 | 4 | Dreaming Engine (overnight distillation) + Semantic Cache + Self-Healing Identity | ⬜ Planned |
 | 5 | Chicory Wasm Runtime + GitHub Skill Store | ⬜ Planned |
 | 6 | 8GB device optimisation (dynamic weight loading, E2B auto-select) | ⬜ Planned |
