@@ -200,7 +200,7 @@ class QuickIntentRouter(
     private val feetAndInchesInputPattern = "(-?\\d+(?:\\.\\d+)?)\\s*(?:ft|foot|feet)\\s+(-?\\d+(?:\\.\\d+)?)\\s*(?:in|inch|inches)"
     private fun extractUnitConversionParams(value: String, fromUnit: String, toUnit: String): Map<String, String> = mapOf(
         "value" to value.trim(),
-        "from_unit" to fromUnit.trim(),
+        "from_unit" to normalizeUnitConversionPhrase(fromUnit),
         "to_unit" to normalizeUnitConversionTarget(toUnit),
     )
 
@@ -220,10 +220,22 @@ class QuickIntentRouter(
         )
     }
 
-    private fun normalizeUnitConversionTarget(raw: String): String = when (raw.trim().lowercase()) {
-        "feet and inches", "foot and inches" -> "inches"
-        else -> raw.trim()
-    }
+    private fun normalizeUnitConversionTarget(raw: String): String = normalizeUnitConversionPhrase(
+        when (raw.trim().lowercase()) {
+            "feet and inches", "foot and inches" -> "inches"
+            else -> raw.trim()
+        },
+    )
+
+    private fun normalizeUnitConversionPhrase(raw: String): String = raw.trim()
+        .replace(Regex("""\bkm\s+an\s+hour\b""", RegexOption.IGNORE_CASE), "kilometers per hour")
+        .replace(Regex("""\bkm\s+a\s+hour\b""", RegexOption.IGNORE_CASE), "kilometers per hour")
+        .replace(Regex("""\bkilometers?\s+an\s+hour\b""", RegexOption.IGNORE_CASE), "kilometers per hour")
+        .replace(Regex("""\bkilometres?\s+an\s+hour\b""", RegexOption.IGNORE_CASE), "kilometres per hour")
+        .replace(Regex("""\bmeters?\s+a\s+second\b""", RegexOption.IGNORE_CASE), "meters per second")
+        .replace(Regex("""\bmeters?\s+an\s+second\b""", RegexOption.IGNORE_CASE), "meters per second")
+        .replace(Regex("""\bmetres?\s+a\s+second\b""", RegexOption.IGNORE_CASE), "metres per second")
+        .replace(Regex("""\bmetres?\s+an\s+second\b""", RegexOption.IGNORE_CASE), "metres per second")
 
     private fun extractImportantDateParams(label: String, date: String): Map<String, String> {
         val params = mutableMapOf<String, String>()
@@ -2397,7 +2409,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "convert_units",
             regex = Regex(
-                """^how\s+many\s+($unitConversionUnitPattern)\s+(?:is|are)(?:\s+in)?\s+($unitConversionValuePattern)\s*($unitConversionUnitPattern)$""",
+                """^how\s+many\s+($unitConversionUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($unitConversionValuePattern)\s*($unitConversionUnitPattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->

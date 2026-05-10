@@ -1188,6 +1188,35 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `convert_units supports spoken speed aliases normalized from voice`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "100", "from_unit" to "kilometers per hour", "to_unit" to "metres per second"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "100 kilometers per hour is approximately 27.77777778 meters per second.",
+                spokenSummary = "100 kilometers per hour is approximately 27.78 meters per second.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units keeps exact gallon to liter wording`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "1", "from_unit" to "gallon", "to_unit" to "litres"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply("1 gallon is 3.785411784 liters."),
+            result,
+        )
+    }
+
+    @Test
     fun `convert_units reports unsupported units cleanly`() {
         val result = handler.handle(
             "convert_units",
