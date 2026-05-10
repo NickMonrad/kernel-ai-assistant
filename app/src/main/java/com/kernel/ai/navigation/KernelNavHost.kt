@@ -79,6 +79,7 @@ private const val ARG_LIST_NAME = "listName"
 private const val ARG_CONVERSATION_ID = "conversationId"
 private const val ARG_INITIAL_QUERY = "initialQuery"
 private const val ARG_MINIMAL_CONTEXT = "minimalContext"
+private const val ARG_SPEAK_RESPONSE = "speakResponse"
 private const val ARG_START_VOICE = "startVoice"
 private const val STATE_OPEN_SHEET_CONSUMED = "openSheetConsumed"
 private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
@@ -304,10 +305,10 @@ fun KernelNavHost(
                                 backStackEntry.savedStateHandle[STATE_START_VOICE_CONSUMED] = true
                                 backStackEntry.arguments?.putBoolean(ARG_START_VOICE, false)
                             },
-                            onNavigateToChat = { query ->
+                            onNavigateToChat = { query, speakResponse ->
                                 val encoded = Uri.encode(query)
                                 navController.navigate(
-                                    "$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded&$ARG_MINIMAL_CONTEXT=true"
+                                    "$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded&$ARG_MINIMAL_CONTEXT=true&$ARG_SPEAK_RESPONSE=$speakResponse"
                                 )
                             },
                             onNewConversation = {
@@ -321,7 +322,7 @@ fun KernelNavHost(
                 }
 
                 composable(
-                    route = "$ROUTE_CHAT?$ARG_INITIAL_QUERY={$ARG_INITIAL_QUERY}&$ARG_MINIMAL_CONTEXT={$ARG_MINIMAL_CONTEXT}",
+                    route = "$ROUTE_CHAT?$ARG_INITIAL_QUERY={$ARG_INITIAL_QUERY}&$ARG_MINIMAL_CONTEXT={$ARG_MINIMAL_CONTEXT}&$ARG_SPEAK_RESPONSE={$ARG_SPEAK_RESPONSE}",
                     arguments = listOf(
                         navArgument(ARG_INITIAL_QUERY) {
                             type = NavType.StringType
@@ -332,13 +333,19 @@ fun KernelNavHost(
                             type = NavType.BoolType
                             defaultValue = false
                         },
+                        navArgument(ARG_SPEAK_RESPONSE) {
+                            type = NavType.BoolType
+                            defaultValue = false
+                        },
                     ),
                 ) { backStackEntry ->
                     val initialQuery = backStackEntry.arguments?.getString(ARG_INITIAL_QUERY)
                         ?.takeIf { it.isNotBlank() }
+                    val speakResponse = backStackEntry.arguments?.getBoolean(ARG_SPEAK_RESPONSE) ?: false
                     ChatScreen(
                         conversationId = null,
                         initialQuery = initialQuery,
+                        speakInitialResponse = speakResponse,
                         onBack = { navController.popBackStack() },
                         onNewConversation = {
                             navController.navigate(ROUTE_CHAT) {
