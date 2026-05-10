@@ -1550,6 +1550,24 @@ class ChatViewModel @Inject constructor(
                             }
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
 
+                            // Guard: LiteRT occasionally produces 0 tokens (TTFT=-1ms) when
+                            // the GPU KV-cache enters a corrupted state. LiteRT self-heals by
+                            // resetting the session, but without this guard the UI shows a blank
+                            // assistant bubble and an empty string gets indexed into RAG (#841).
+                            if (fullContent.isBlank()) {
+                                Log.w("KernelAI", "blank_response_guard: LiteRT produced 0 tokens — showing fallback")
+                                val fallback = "I lost my train of thought there — could you say that again?"
+                                _messages.update { msgs ->
+                                    msgs.map {
+                                        if (it.id == assistantMsgId) it.copy(content = fallback, isStreaming = false) else it
+                                    }
+                                }
+                                conversationRepository.addMessage(convId, "assistant", fallback, thinking)
+                                finalizeVoicePlaybackForResponse(fallback)
+                                // Skip RAG indexing — fallback text is noise
+                                return@collect
+                            }
+
                             // With native SDK tool calling, tool execution happens
                             // transparently during generate() — the SDK calls our @Tool
                             // methods and feeds results back to the model. Check if any
