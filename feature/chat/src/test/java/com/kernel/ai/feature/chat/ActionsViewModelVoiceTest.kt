@@ -11,6 +11,7 @@ import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.slot.SlotSpec
+import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
@@ -60,6 +61,7 @@ class ActionsViewModelVoiceTest {
     private val voiceInputController: VoiceInputController = mockk()
     private val voiceOutputController: VoiceOutputController = mockk()
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
+    private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
     private val spokenResponsesEnabled = MutableStateFlow(true)
@@ -90,6 +92,7 @@ class ActionsViewModelVoiceTest {
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
         )
     }
 
@@ -180,6 +183,7 @@ class ActionsViewModelVoiceTest {
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
         )
 
         voiceViewModel.executeAction("at bridge to my last", InputMode.Voice)
@@ -213,6 +217,7 @@ class ActionsViewModelVoiceTest {
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
         )
 
         voiceViewModel.executeAction("and bred to my last", InputMode.Voice)
@@ -239,6 +244,7 @@ class ActionsViewModelVoiceTest {
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
         )
 
         voiceViewModel.executeAction("and ice cream to my last", InputMode.Voice)
@@ -265,6 +271,7 @@ class ActionsViewModelVoiceTest {
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
         )
 
         voiceViewModel.executeAction("create a new lust", InputMode.Voice)
@@ -291,6 +298,7 @@ class ActionsViewModelVoiceTest {
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
         )
 
         voiceViewModel.executeAction("add a bridge to my list", InputMode.Voice)
@@ -341,6 +349,7 @@ class ActionsViewModelVoiceTest {
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -389,6 +398,7 @@ class ActionsViewModelVoiceTest {
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -417,6 +427,7 @@ class ActionsViewModelVoiceTest {
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -446,6 +457,7 @@ class ActionsViewModelVoiceTest {
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -515,6 +527,7 @@ class ActionsViewModelVoiceTest {
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -1267,5 +1280,409 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         verify { quickIntentRouter.route("set an alarm for 7:30 am") }
+    }
+
+    // ── #791: Start-listening audio cue ──────────────────────────────────────
+
+    @Test
+    fun `ListeningStarted event triggers start-listening cue player`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.startVoiceCommand()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+
+        verify(exactly = 1) { startListeningCuePlayer.playCue() }
+    }
+
+    @Test
+    fun `ListeningStarted for unowned mode does not trigger cue player`() = runTest(dispatcher) {
+        // ActionsViewModel is Idle — it owns nothing. An event from an AlertCommand
+        // session started elsewhere should be silently ignored.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand))
+        advanceUntilIdle()
+
+        verify(exactly = 0) { startListeningCuePlayer.playCue() }
+    }
+
+    @Test
+    fun `ListeningStarted for slot reply triggers cue player`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("send a text to Alice") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_sms",
+                    params = mapOf("contact" to "Alice"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "message",
+                    promptTemplate = "What would you like to say to {contact}?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.executeAction("send a text to Alice", InputMode.Voice)
+        advanceUntilIdle()
+
+        // Manually trigger voice slot reply (as the user would press mic)
+        viewModel.startVoiceSlotReply()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+
+        verify(atLeast = 1) { startListeningCuePlayer.playCue() }
+    }
+
+    // ── #790: Slot-fill retry on no-speech + cancel phrase abort ─────────────
+
+    @Test
+    fun `slot-fill voice error retries with reprompt up to 2 times then waits for manual input`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("send a message to Bob") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_sms",
+                    params = mapOf("contact" to "Bob"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "message",
+                    promptTemplate = "What would you like to say to {contact}?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.executeAction("send a message to Bob", InputMode.Voice)
+        advanceUntilIdle()
+
+        // Put ViewModel into SlotReply capture state so it owns the mode.
+        viewModel.startVoiceSlotReply()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+
+        // First error → retry 1: should speak reprompt and keep slot active.
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "I didn't catch that."),
+        )
+        advanceUntilIdle()
+
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        assertNotNull(viewModel.pendingSlot.value)
+        coVerify(atLeast = 1) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> {
+                    it.text.startsWith("Sorry, I didn't catch that.")
+                },
+            )
+        }
+
+        // Simulate TTS finishing for retry 1 → mic restarts automatically.
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Bob?"),
+        )
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351L)
+        runCurrent()
+
+        // Second error → retry 2: should speak reprompt again and keep slot active.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "I didn't catch that."),
+        )
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.pendingSlot.value)
+        coVerify(atLeast = 2) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> {
+                    it.text.startsWith("Sorry, I didn't catch that.")
+                },
+            )
+        }
+
+        // Simulate TTS finishing for retry 2 → mic restarts.
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Bob?"),
+        )
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351L)
+        runCurrent()
+
+        // Third error → budget exhausted: slot should remain visible but no further TTS retry.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "I didn't catch that."),
+        )
+        advanceUntilIdle()
+
+        // Slot is still present (wait for manual input), voice state is idle.
+        assertNotNull(viewModel.pendingSlot.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        // No further retry speaks should have occurred beyond the 2 retries above.
+        coVerify(exactly = 2) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> {
+                    it.text.startsWith("Sorry, I didn't catch that.")
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `cancel escape phrase during slot-fill aborts slot-fill cleanly`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("send a text to Carol") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_sms",
+                    params = mapOf("contact" to "Carol"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "message",
+                    promptTemplate = "What would you like to say to {contact}?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.executeAction("send a text to Carol", InputMode.Voice)
+        advanceUntilIdle()
+        assertNotNull(viewModel.pendingSlot.value)
+
+        viewModel.startVoiceSlotReply()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+
+        // Emit "cancel" as the transcript — should abort the slot-fill.
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.SlotReply, "cancel"))
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.pendingSlot.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `stop phrase during slot-fill aborts slot-fill cleanly`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("send an email to Dave") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_email",
+                    params = mapOf("contact" to "Dave"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "to",
+                    promptTemplate = "Who would you like to email?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.executeAction("send an email to Dave", InputMode.Voice)
+        advanceUntilIdle()
+
+        viewModel.startVoiceSlotReply()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.SlotReply, "stop"))
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.pendingSlot.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `stop that phrase during slot-fill aborts slot-fill cleanly`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("send an email to Eve") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_email",
+                    params = mapOf("contact" to "Eve"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "to",
+                    promptTemplate = "Who would you like to email?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.executeAction("send an email to Eve", InputMode.Voice)
+        advanceUntilIdle()
+
+        viewModel.startVoiceSlotReply()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.SlotReply, "stop that"))
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.pendingSlot.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `idle command voice error retries once then surfaces error`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.startVoiceCommand()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+
+        // First error → should auto-retry (1 retry allowed for Command mode).
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything."),
+        )
+        advanceUntilIdle()
+
+        // After retry, the view model is Preparing/Listening again (not showing error).
+        assertEquals(null, viewModel.error.value)
+        // startListening should have been called twice total (original + retry).
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+
+        // Second error → budget exhausted, surface the error.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything."),
+        )
+        advanceUntilIdle()
+
+        assertEquals("Didn't hear anything.", viewModel.error.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        // No third startListening call.
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+
+    @Test
+    fun `idle command retry budget resets on fresh startVoiceCommand call`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started
+
+        // First session: exhaust retry budget.
+        viewModel.startVoiceCommand()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Error 1"))
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Error 2"))
+        advanceUntilIdle()
+
+        assertEquals("Error 2", viewModel.error.value)
+
+        // Fresh user-initiated press — retry budget must reset.
+        viewModel.startVoiceCommand()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Error 3"))
+        advanceUntilIdle()
+
+        // Retry should have kicked in (no error shown yet after the fresh press).
+        assertEquals(null, viewModel.error.value)
+    }
+
+    @Test
+    fun `slot-fill retry budget resets when user manually re-taps mic after exhaustion`() = runTest(dispatcher) {
+        // #825: startVoiceSlotReply() must reset slotReplyVoiceRetryCount so that a user who
+        // manually re-taps the mic after the budget is exhausted gets a fresh set of retries.
+        every { quickIntentRouter.route("send a text to Dave") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_sms",
+                    params = mapOf("contact" to "Dave"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "message",
+                    promptTemplate = "What would you like to say to {contact}?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started
+
+        viewModel.executeAction("send a text to Dave", InputMode.Voice)
+        advanceUntilIdle()
+
+        // ── Exhaust the retry budget (SLOT_REPLY_MAX_VOICE_RETRIES = 2 retries) ──
+
+        // Initial mic session.
+        viewModel.startVoiceSlotReply()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+
+        // Error 1 → retry 1: reprompt spoken, auto-rearm armed.
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech"))
+        advanceUntilIdle()
+
+        // Simulate TTS completing → auto-rearm restarts mic.
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Dave?"),
+        )
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351L)
+        runCurrent()
+
+        // Error 2 → retry 2: reprompt spoken again, auto-rearm armed.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech"))
+        advanceUntilIdle()
+
+        // Simulate TTS completing → auto-rearm restarts mic.
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Dave?"),
+        )
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351L)
+        runCurrent()
+
+        // Error 3 → budget exhausted: slot visible, voice idle, no further TTS retry.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech"))
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.pendingSlot.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        // Only 2 reprompt speaks during the two auto-retries above.
+        coVerify(exactly = 2) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> { it.text.startsWith("Sorry, I didn't catch that.") },
+            )
+        }
+
+        // ── User manually re-taps the mic — budget must reset ──
+
+        viewModel.startVoiceSlotReply()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+
+        // First error of the new session → reprompt should fire (retry budget is fresh).
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech"))
+        advanceUntilIdle()
+
+        // A 3rd reprompt speak confirms the retry path fired (not the exhaustion path).
+        coVerify(atLeast = 3) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> { it.text.startsWith("Sorry, I didn't catch that.") },
+            )
+        }
+        assertNotNull(viewModel.pendingSlot.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
 }

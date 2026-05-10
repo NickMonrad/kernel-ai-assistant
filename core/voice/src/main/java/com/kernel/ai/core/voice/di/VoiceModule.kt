@@ -2,6 +2,8 @@ package com.kernel.ai.core.voice.di
 
 import com.kernel.ai.core.voice.FallbackVoiceOutputController
 import com.kernel.ai.core.voice.SelectableVoiceInputController
+import com.kernel.ai.core.voice.StartListeningCuePlayer
+import com.kernel.ai.core.voice.ToneStartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
 import dagger.Binds
@@ -19,6 +21,12 @@ abstract class VoiceModule {
     abstract fun bindVoiceInputController(
         impl: SelectableVoiceInputController,
     ): VoiceInputController
+
+    @Binds
+    @Singleton
+    abstract fun bindStartListeningCuePlayer(
+        impl: ToneStartListeningCuePlayer,
+    ): StartListeningCuePlayer
 
     /**
      * Binds [FallbackVoiceOutputController] as the active [VoiceOutputController].
