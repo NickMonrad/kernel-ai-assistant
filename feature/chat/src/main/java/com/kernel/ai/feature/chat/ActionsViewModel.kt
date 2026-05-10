@@ -99,7 +99,7 @@ class ActionsViewModel @Inject constructor(
     /** One-shot navigation/UI events consumed by the screen. */
     sealed interface UiEvent {
         /** Query couldn't be handled by quick actions — navigate to chat for LLM processing. */
-        data class NavigateToChat(val query: String) : UiEvent
+        data class NavigateToChat(val query: String, val speakResponse: Boolean) : UiEvent
         object RequestPhonePermission : UiEvent
     }
 
@@ -240,7 +240,8 @@ class ActionsViewModel @Inject constructor(
                                     val retryPrompt = "Sorry, I didn't catch that. $prompt"
                                     // Re-arm so the existing SpeakingStopped handler restarts the mic.
                                     setSlotReplyAutoRearmArmed(true, "slotReplyVoiceRetry")
-                                    expectedSlotPromptSpeech = retryPrompt
+                                    // Must match the text speakForVoice() will pass to TTS.
+                                    expectedSlotPromptSpeech = normalisePronounsForTts(toSpokenSummary(retryPrompt))
                                     _slotPromptPlaybackStarted.value = false
                                     speakForVoice(InputMode.Voice, retryPrompt)
                                 } else {
@@ -493,7 +494,7 @@ class ActionsViewModel @Inject constructor(
                         )
                         quickActionDao.insert(entity)
                         speakForVoice(inputMode, entity.resultText)
-                        _events.emit(UiEvent.NavigateToChat(normalizedQuery))
+                        _events.emit(UiEvent.NavigateToChat(normalizedQuery, speakResponse = inputMode == InputMode.Voice))
                     }
                     is QuickIntentRouter.RouteResult.NeedsSlot -> {
                         // Pause execution — show slot prompt in a ModalBottomSheet.
@@ -663,7 +664,8 @@ class ActionsViewModel @Inject constructor(
             "primePendingSlot",
         )
         expectedSlotPromptSpeech = if (inputMode == InputMode.Voice && spokenResponsesEnabled) {
-            _pendingSlot.value?.request?.promptMessage.orEmpty()
+            // Must match the exact text speakForVoice() will pass to TTS (toSpokenSummary + pronoun normalisation).
+            normalisePronounsForTts(toSpokenSummary(_pendingSlot.value?.request?.promptMessage.orEmpty()))
         } else {
             null
         }
