@@ -200,7 +200,7 @@ class ActionsViewModelVoiceTest {
         coVerify {
             voiceOutputController.speak(
                 match<VoiceSpeakRequest> {
-                    it.text == "Which list should I add it to?"
+                    it.text == "Which list should you add it to?"
                 }
             )
         }
@@ -495,8 +495,9 @@ class ActionsViewModelVoiceTest {
 
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
         advanceUntilIdle()
+        // TTS speaks the pronoun-normalised text ("your wife"), so SpeakingStarted carries that text.
         voiceOutputEvents.emit(
-            VoiceOutputEvent.SpeakingStarted("What would you like to say to my wife?"),
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
         )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
@@ -581,7 +582,7 @@ class ActionsViewModelVoiceTest {
 
         viewModel.pauseTransientVoiceUi()
         voiceOutputEvents.emit(
-            VoiceOutputEvent.SpeakingStarted("What would you like to say to my wife?"),
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
         )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
@@ -652,12 +653,12 @@ class ActionsViewModelVoiceTest {
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
         advanceUntilIdle()
         voiceOutputEvents.emit(
-            VoiceOutputEvent.SpeakingStarted("What would you like to say to my wife?"),
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
         )
         advanceUntilIdle()
 
         assertEquals(
-            ActionsViewModel.VoicePlaybackState.Speaking("What would you like to say to my wife?"),
+            ActionsViewModel.VoicePlaybackState.Speaking("What would you like to say to your wife?"),
             viewModel.voicePlaybackState.value,
         )
 
@@ -971,7 +972,7 @@ class ActionsViewModelVoiceTest {
         spokenResponsesEnabled.value = false
         runCurrent()
         voiceOutputEvents.emit(
-            VoiceOutputEvent.SpeakingStarted("What would you like to say to my wife?"),
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
         )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
@@ -1373,14 +1374,14 @@ class ActionsViewModelVoiceTest {
         coVerify(atLeast = 1) {
             voiceOutputController.speak(
                 match<VoiceSpeakRequest> {
-                    it.text.startsWith("Sorry, I didn't catch that.")
+                    it.text.startsWith("Sorry, you didn't catch that.")
                 },
             )
         }
 
         // Simulate TTS finishing for retry 1 → mic restarts automatically.
         voiceOutputEvents.emit(
-            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Bob?"),
+            VoiceOutputEvent.SpeakingStarted("Sorry, you didn't catch that. What would you like to say to Bob?"),
         )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
@@ -1399,14 +1400,14 @@ class ActionsViewModelVoiceTest {
         coVerify(atLeast = 2) {
             voiceOutputController.speak(
                 match<VoiceSpeakRequest> {
-                    it.text.startsWith("Sorry, I didn't catch that.")
+                    it.text.startsWith("Sorry, you didn't catch that.")
                 },
             )
         }
 
         // Simulate TTS finishing for retry 2 → mic restarts.
         voiceOutputEvents.emit(
-            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Bob?"),
+            VoiceOutputEvent.SpeakingStarted("Sorry, you didn't catch that. What would you like to say to Bob?"),
         )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
@@ -1428,7 +1429,7 @@ class ActionsViewModelVoiceTest {
         coVerify(exactly = 2) {
             voiceOutputController.speak(
                 match<VoiceSpeakRequest> {
-                    it.text.startsWith("Sorry, I didn't catch that.")
+                    it.text.startsWith("Sorry, you didn't catch that.")
                 },
             )
         }
@@ -1629,7 +1630,7 @@ class ActionsViewModelVoiceTest {
 
         // Simulate TTS completing → auto-rearm restarts mic.
         voiceOutputEvents.emit(
-            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Dave?"),
+            VoiceOutputEvent.SpeakingStarted("Sorry, you didn't catch that. What would you like to say to Dave?"),
         )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
@@ -1644,7 +1645,7 @@ class ActionsViewModelVoiceTest {
 
         // Simulate TTS completing → auto-rearm restarts mic.
         voiceOutputEvents.emit(
-            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Dave?"),
+            VoiceOutputEvent.SpeakingStarted("Sorry, you didn't catch that. What would you like to say to Dave?"),
         )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
@@ -1662,7 +1663,7 @@ class ActionsViewModelVoiceTest {
         // Only 2 reprompt speaks during the two auto-retries above.
         coVerify(exactly = 2) {
             voiceOutputController.speak(
-                match<VoiceSpeakRequest> { it.text.startsWith("Sorry, I didn't catch that.") },
+                match<VoiceSpeakRequest> { it.text.startsWith("Sorry, you didn't catch that.") },
             )
         }
 
@@ -1679,10 +1680,89 @@ class ActionsViewModelVoiceTest {
         // A 3rd reprompt speak confirms the retry path fired (not the exhaustion path).
         coVerify(atLeast = 3) {
             voiceOutputController.speak(
-                match<VoiceSpeakRequest> { it.text.startsWith("Sorry, I didn't catch that.") },
+                match<VoiceSpeakRequest> { it.text.startsWith("Sorry, you didn't catch that.") },
             )
         }
         assertNotNull(viewModel.pendingSlot.value)
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `slot prompt with first-person pronouns sets slotPromptPlaybackStarted via normalised TTS text`() =
+        runTest(dispatcher) {
+            // Regression test: PR #830 introduced normalisePronounsForTts() in speakForVoice(), so Sherpa
+            // speaks "your wife" — but expectedSlotPromptSpeech was stored as "my wife" causing a mismatch
+            // and a 10-second delay before listening started. Fix: normalise at storage time.
+            every { quickIntentRouter.route("send a text message to my wife") } returns
+                QuickIntentRouter.RouteResult.NeedsSlot(
+                    intent = QuickIntentRouter.MatchedIntent(
+                        intentName = "send_sms",
+                        params = mapOf("contact" to "my wife"),
+                    ),
+                    missingSlot = SlotSpec(
+                        name = "message",
+                        promptTemplate = "What would you like to say to {contact}?",
+                    ),
+                )
+            coEvery {
+                voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+            } returns VoiceInputStartResult.Started
+
+            viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+            advanceUntilIdle()
+
+            // Sherpa emits SpeakingStarted with the normalised text (pronouns replaced).
+            voiceOutputEvents.emit(
+                VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
+            )
+            runCurrent()
+
+            // slotPromptPlaybackStarted must be true — confirming the normalised text matched.
+            assertEquals(true, viewModel.slotPromptPlaybackStarted.value)
+
+            voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+            advanceTimeBy(351)
+            runCurrent()
+
+            // Mic must open — the full slot-fill flow completes without the 10s timeout.
+            coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // #832 — voice fallthrough NavigateToChat speakResponse handoff
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `voice fallthrough emits NavigateToChat with speakResponse true`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("convert 100 aud to nzd") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "convert 100 aud to nzd")
+
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val job = launch { viewModel.events.collect { events.add(it) } }
+
+        viewModel.executeAction("convert 100 aud to nzd", InputMode.Voice)
+        advanceUntilIdle()
+        job.cancel()
+
+        val nav = events.filterIsInstance<ActionsViewModel.UiEvent.NavigateToChat>().first()
+        assertEquals("convert 100 aud to nzd", nav.query)
+        assertEquals(true, nav.speakResponse)
+    }
+
+    @Test
+    fun `text fallthrough emits NavigateToChat with speakResponse false`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("convert 100 aud to nzd") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "convert 100 aud to nzd")
+
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val job = launch { viewModel.events.collect { events.add(it) } }
+
+        viewModel.executeAction("convert 100 aud to nzd", InputMode.Text)
+        advanceUntilIdle()
+        job.cancel()
+
+        val nav = events.filterIsInstance<ActionsViewModel.UiEvent.NavigateToChat>().first()
+        assertEquals("convert 100 aud to nzd", nav.query)
+        assertEquals(false, nav.speakResponse)
     }
 }
