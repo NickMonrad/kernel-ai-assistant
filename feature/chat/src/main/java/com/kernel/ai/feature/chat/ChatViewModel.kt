@@ -38,6 +38,7 @@ import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
+import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.SlotFillResult
 import com.kernel.ai.core.skills.slot.SlotFillerManager
@@ -774,7 +775,12 @@ class ChatViewModel @Inject constructor(
      * [shouldIndex] — set false for device action responses, slot-fill prompts, and error
      * messages that should not surface in future RAG retrievals.
      */
-    private suspend fun appendAssistantMessage(convId: String, content: String, shouldIndex: Boolean = true) {
+    private suspend fun appendAssistantMessage(
+        convId: String,
+        content: String,
+        shouldIndex: Boolean = true,
+        spokenSummary: String? = null,
+    ) {
         val msgId = UUID.randomUUID().toString()
         val msg = ChatMessage(
             id = msgId,
@@ -784,7 +790,7 @@ class ChatViewModel @Inject constructor(
         _messages.update { it + msg }
         val savedId = conversationRepository.addMessage(convId, "assistant", content)
         if (shouldIndex) ragRepository.indexMessage(savedId, convId, content)
-        speakAssistantReplyIfNeeded(content)
+        speakAssistantReplyIfNeeded(content, spokenSummary)
     }
 
     /** Like [appendAssistantMessage] but also attaches a [ToolCallInfo] chip so the UI shows
@@ -797,6 +803,7 @@ class ChatViewModel @Inject constructor(
         requestJson: String,
         isSuccess: Boolean,
         presentation: ToolPresentation? = null,
+        spokenSummary: String? = null,
     ) {
         val msgId = UUID.randomUUID().toString()
         val toolCall = ToolCallInfo(
@@ -805,6 +812,7 @@ class ChatViewModel @Inject constructor(
             resultText = content,
             isSuccess = isSuccess,
             presentation = presentation,
+            spokenSummary = spokenSummary,
         )
         val msg = ChatMessage(
             id = msgId,
@@ -818,7 +826,7 @@ class ChatViewModel @Inject constructor(
             toolCallJson = toolCall.toJsonString(),
         )
         if (shouldIndexToolCallResult(skillName)) ragRepository.indexMessage(savedId, convId, content)
-        speakAssistantReplyIfNeeded(content)
+        speakAssistantReplyIfNeeded(content, spokenSummary)
     }
 
     fun retryDownload(model: KernelModel) {
@@ -1136,9 +1144,15 @@ class ChatViewModel @Inject constructor(
                                         requestJson = callParams.toString(),
                                         isSuccess = true,
                                         presentation = skillResult.presentation,
+                                        spokenSummary = spokenSummaryFrom(skillResult),
                                     )
                                 }
-                                is SkillResult.Success -> appendAssistantMessage(convId, skillResult.content, shouldIndex = false)
+                                is SkillResult.Success -> appendAssistantMessage(
+                                    convId,
+                                    skillResult.content,
+                                    shouldIndex = false,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
                                 is SkillResult.Failure -> appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
                                 else -> appendAssistantMessage(convId, "Something went wrong.", shouldIndex = false)
                             }
@@ -1180,13 +1194,19 @@ class ChatViewModel @Inject constructor(
                                 requestJson = callParams.toString(),
                                 isSuccess = true,
                                 presentation = skillResult.presentation,
+                                spokenSummary = spokenSummaryFrom(skillResult),
                             )
                             return@launch
                         }
                         is SkillResult.Success -> {
                             systemContext = "[System: ${pendingConfirmation.intentName} — ${skillResult.content}]"
                             if (!inferenceEngine.isReady.value) {
-                                appendAssistantMessage(convId, skillResult.content, shouldIndex = false)
+                                appendAssistantMessage(
+                                    convId,
+                                    skillResult.content,
+                                    shouldIndex = false,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
                                 return@launch
                             }
                         }
@@ -1290,6 +1310,7 @@ class ChatViewModel @Inject constructor(
                                 requestJson = callParams.toString(),
                                 isSuccess = true,
                                 presentation = skillResult.presentation,
+                                spokenSummary = spokenSummaryFrom(skillResult),
                             )
                             return@launch
                         }
@@ -1302,13 +1323,19 @@ class ChatViewModel @Inject constructor(
                                     requestJson = callParams.toString(),
                                     isSuccess = true,
                                     presentation = skillResult.presentation,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
                                 )
                                 return@launch
                             }
                             systemContext = "[System: ${matchedIntent.intentName} — ${skillResult.content}]"
                             // E4B not loaded yet: show action result directly and skip the wrapper.
                             if (!inferenceEngine.isReady.value) {
-                                appendAssistantMessage(convId, skillResult.content, shouldIndex = false)
+                                appendAssistantMessage(
+                                    convId,
+                                    skillResult.content,
+                                    shouldIndex = false,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
                                 return@launch
                             }
                         }
@@ -1537,6 +1564,8 @@ class ChatViewModel @Inject constructor(
                                     resultText = result,
                                     isSuccess = !result.startsWith("error"),
                                     presentation = kernelAIToolSet.lastToolPresentation(),
+                                    spokenSummary = kernelAIToolSet.lastToolSpokenSummary()
+                                        ?: kernelAIToolSet.lastToolPresentation()?.toSpokenSummary(),
                                 )
                             } else null
 
@@ -1929,10 +1958,11 @@ class ChatViewModel @Inject constructor(
                     resultText = result.content,
                     isSuccess = true,
                     presentation = result.presentation,
+                    spokenSummary = spokenSummaryFrom(result),
                 )
                 Pair(toolCall, result.content)
             }
-        is SkillResult.DirectReply -> {
+            is SkillResult.DirectReply -> {
                 val skillName = try {
                     org.json.JSONObject(extracted).optString("name", "unknown")
                 } catch (e: Exception) { "unknown" }
@@ -1942,6 +1972,7 @@ class ChatViewModel @Inject constructor(
                     resultText = result.content,
                     isSuccess = true,
                     presentation = result.presentation,
+                    spokenSummary = spokenSummaryFrom(result),
                 )
                 Pair(toolCall, result.content)
             }
@@ -2099,7 +2130,7 @@ class ChatViewModel @Inject constructor(
         transcript.trim().lowercase() in STOP_PHRASES
 
     /** Speaks the assistant reply if this was a voice-originated turn. */
-    private suspend fun speakAssistantReplyIfNeeded(content: String) {
+    private suspend fun speakAssistantReplyIfNeeded(content: String, spokenOverride: String? = null) {
         val shouldSpeak = pendingVoiceReply
         pendingVoiceReply = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
@@ -2109,7 +2140,8 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        val spokenText = stripMarkdownForClipboard(content).trim()
+        val spokenText = spokenOverride?.trim()?.takeIf { it.isNotBlank() }
+            ?: stripMarkdownForClipboard(content).trim()
         if (spokenText.isBlank()) {
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
@@ -2125,6 +2157,12 @@ class ChatViewModel @Inject constructor(
                 _error.value = withVoiceSettingsHint(result.message)
             }
         }
+    }
+
+    private fun spokenSummaryFrom(result: SkillResult): String? = when (result) {
+        is SkillResult.DirectReply -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
+        is SkillResult.Success -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
+        else -> null
     }
 
     private fun withVoiceSettingsHint(message: String): String {

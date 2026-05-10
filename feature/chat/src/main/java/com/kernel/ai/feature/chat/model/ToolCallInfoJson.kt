@@ -9,6 +9,7 @@ fun ToolCallInfo.toJsonString(): String = JSONObject().apply {
     put("resultText", resultText)
     put("isSuccess", isSuccess)
     presentation?.let { put("presentation", ToolPresentationJson.toJsonObject(it)) }
+    spokenSummary?.let { put("spokenSummary", it) }
 }.toString()
 
 fun toolCallInfoFromJson(json: String?): ToolCallInfo? {
@@ -21,6 +22,7 @@ fun toolCallInfoFromJson(json: String?): ToolCallInfo? {
             resultText = obj.getString("resultText"),
             isSuccess = obj.getBoolean("isSuccess"),
             presentation = obj.optJSONObject("presentation")?.let(ToolPresentationJson::fromJsonObject),
+            spokenSummary = obj.optString("spokenSummary").takeIf { it.isNotBlank() },
         )
     }.getOrNull()
 }

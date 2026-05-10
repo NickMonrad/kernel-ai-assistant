@@ -253,6 +253,50 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `voice direct reply speaks spoken summary instead of display text`() = runTest(dispatcher) {
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Run intent"
+            override val schema = SkillSchema(required = listOf("intent_name", "value", "from_unit", "to_unit"))
+
+            override suspend fun execute(call: com.kernel.ai.core.skills.SkillCall): SkillResult =
+                SkillResult.DirectReply(
+                    content = "1 gallon is 3.785411784 liters.",
+                    spokenSummary = "1 gallon is 3.79 liters.",
+                )
+        }
+        every {
+            quickIntentRouter.route("Convert 1 gallon to litres")
+        } returns QuickIntentRouter.RouteResult.RegexMatch(
+            QuickIntentRouter.MatchedIntent(
+                intentName = "convert_units",
+                params = mapOf(
+                    "value" to "1",
+                    "from_unit" to "gallon",
+                    "to_unit" to "litres",
+                ),
+            ),
+        )
+        every { skillRegistry.get("convert_units") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Convert 1 gallon to litres"))
+        advanceUntilIdle()
+
+        assertEquals(
+            "You: Convert 1 gallon to litres\nJandal: 1 gallon is 3.785411784 liters.",
+            viewModel.getConversationAsText(),
+        )
+        coVerify {
+            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "1 gallon is 3.79 liters." })
+        }
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+    @Test
     fun `save memory router match bypasses llm wrapper`() = runTest(dispatcher) {
         val saveMemorySkill = object : Skill {
             override val name = "save_memory"
