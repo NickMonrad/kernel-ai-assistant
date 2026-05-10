@@ -1110,7 +1110,13 @@ class NativeIntentHandlerTest {
             mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "km"),
         )
 
-        assertEquals(SkillResult.DirectReply("5 miles is 8.04672 kilometers."), result)
+        assertEquals(
+            SkillResult.DirectReply(
+                "5 miles is 8.04672 kilometers.",
+                spokenSummary = "5 miles is 8.05 kilometers.",
+            ),
+            result,
+        )
     }
 
     @Test
@@ -1182,7 +1188,10 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            SkillResult.DirectReply("74 inches is 187.96 centimeters."),
+            SkillResult.DirectReply(
+                "74 inches is 187.96 centimeters.",
+                spokenSummary = null,
+            ),
             result,
         )
     }
@@ -1204,14 +1213,17 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `convert_units keeps exact gallon to liter wording`() {
+    fun `convert_units rounds spoken exact gallon to liter reply`() {
         val result = handler.handle(
             "convert_units",
             mapOf("value" to "1", "from_unit" to "gallon", "to_unit" to "litres"),
         )
 
         assertEquals(
-            SkillResult.DirectReply("1 gallon is 3.785411784 liters."),
+            SkillResult.DirectReply(
+                "1 gallon is 3.785411784 liters.",
+                spokenSummary = "1 gallon is 3.79 liters.",
+            ),
             result,
         )
     }

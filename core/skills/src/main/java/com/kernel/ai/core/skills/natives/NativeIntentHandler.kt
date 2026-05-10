@@ -2016,11 +2016,15 @@ class NativeIntentHandler @Inject constructor(
                 val primaryDisplay = mixedBreakdown.primaryUnit.displayName(mixedBreakdown.primaryValue)
                 val secondaryDisplay = mixedBreakdown.secondaryUnit.displayName(roundedInches)
                 "${result.inputValue.toPlainString()} $sourceDisplay is approximately ${mixedBreakdown.primaryValue.toPlainString()} $primaryDisplay and ${roundedInches.toPlainString()} $secondaryDisplay."
-            } else if (result.isApproximate) {
-                val rounded = result.outputValue.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros()
-                "${result.inputValue.toPlainString()} $sourceDisplay is approximately ${rounded.toPlainString()} $targetDisplay."
             } else {
-                null
+                val rounded = result.outputValue.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros()
+                if (result.isApproximate) {
+                    "${result.inputValue.toPlainString()} $sourceDisplay is approximately ${rounded.toPlainString()} $targetDisplay."
+                } else if (rounded.compareTo(result.outputValue) != 0) {
+                    "${result.inputValue.toPlainString()} $sourceDisplay is ${rounded.toPlainString()} $targetDisplay."
+                } else {
+                    null
+                }
             }
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: IllegalArgumentException) {
