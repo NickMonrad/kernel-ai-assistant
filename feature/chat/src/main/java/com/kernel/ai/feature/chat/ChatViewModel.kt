@@ -2043,7 +2043,10 @@ class ChatViewModel @Inject constructor(
             stopVoicePlayback()
             return
         }
-        val session = activeVoiceStreamingSession ?: return
+        val session = activeVoiceStreamingSession ?: run {
+            activeVoiceGroundingContext = null
+            return
+        }
         val finalChunk = if (isVoiceStreamingEnabledForTurn) {
             val bufferedChunks = mutableListOf<String>()
             while (true) {

@@ -211,6 +211,18 @@ class ChatTextUtilsTest {
                 ),
             )
         }
+
+        @Test
+        fun `streaming correction leaves chunk unchanged when grounding context is absent`() {
+            assertEquals(
+                "Battery is at 9%.",
+                maybeCorrectStreamingSpeechChunk(
+                    chunk = "Battery is at 9%.",
+                    groundingContext = null,
+                    correctionEnabled = true,
+                ),
+            )
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
