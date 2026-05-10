@@ -108,6 +108,38 @@ private data class SpeechPronunciationRule(
     val replacement: String,
 )
 
+// Contractions first — must precede bare \bI\b to avoid partial substitution.
+private val PRONOUN_LITERAL_RULES: List<Pair<Regex, String>> = listOf(
+    Regex("""\bI'm\b""") to "you're",
+    Regex("""\bI've\b""") to "you've",
+    Regex("""\bI'll\b""") to "you'll",
+    Regex("""\bI'd\b""") to "you'd",
+    Regex("""\bI\b""") to "you",
+    Regex("""\bme\b""") to "you",
+)
+
+// Case-preserving rules: "My" → "Your", "MY" → "YOUR", "my" → "your".
+private val PRONOUN_CASE_PRESERVING_RULES: List<Pair<Regex, String>> = listOf(
+    Regex("""\bmy\b""", RegexOption.IGNORE_CASE) to "your",
+    Regex("""\bmine\b""", RegexOption.IGNORE_CASE) to "yours",
+    Regex("""\bmyself\b""", RegexOption.IGNORE_CASE) to "yourself",
+)
+
+/**
+ * Converts first-person pronouns to second-person so echoed user phrases sound natural
+ * when spoken back by TTS (e.g. "my wife" → "your wife", "I" → "you").
+ *
+ * Apply only to the TTS path — never to displayed text.
+ */
+internal fun normalisePronounsForTts(text: String): String {
+    val afterLiteral = PRONOUN_LITERAL_RULES.fold(text) { current, (pattern, replacement) ->
+        pattern.replace(current, replacement)
+    }
+    return PRONOUN_CASE_PRESERVING_RULES.fold(afterLiteral) { current, (pattern, replacement) ->
+        pattern.replace(current) { match -> matchCase(match.value, replacement) }
+    }
+}
+
 private val speechPronunciationRules = listOf(
     SpeechPronunciationRule(
         pattern = Regex("""\bkia\s+ora\b""", RegexOption.IGNORE_CASE),
