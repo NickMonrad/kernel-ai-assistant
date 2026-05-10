@@ -1560,6 +1560,9 @@ class ChatViewModel @Inject constructor(
                                 if (!blankResponseRetryAttempted) {
                                     blankResponseRetryAttempted = true
                                     Log.w("KernelAI", "blank_response_guard: 0 tokens — retrying without RAG context")
+                                    // Null out grounding context so correctGroundedFacts does not
+                                    // mutate the retry response using stale RAG-injected data.
+                                    groundingContext = null
                                     currentPrompt = buildString {
                                         if (systemContext != null) append("$systemContext\n\n")
                                         append("[System: ${jandalPersona.buildGreetingInstruction(false, jandalPersona.currentPersonaMode)}]\n\n")
@@ -1582,8 +1585,16 @@ class ChatViewModel @Inject constructor(
                                         }
                                     }
                                     conversationRepository.addMessage(convId, "assistant", fallback, thinking)
+                                    // Index the user message so this exchange isn't silently orphaned
+                                    // from semantic search — only the fallback assistant text is skipped.
+                                    if (savedUserMsgId.isNotBlank()) {
+                                        ragRepository.indexMessage(savedUserMsgId, convId, text)
+                                    }
                                     finalizeVoicePlaybackForResponse(fallback)
-                                    // Skip RAG indexing — fallback text is noise
+                                    // Clear streaming tracking — mirrors the normal Complete path.
+                                    activeStreamingMsgId = null
+                                    activeStreamingContent = StringBuilder()
+                                    activeStreamingThinking = StringBuilder()
                                 }
                                 return@collect
                             }
