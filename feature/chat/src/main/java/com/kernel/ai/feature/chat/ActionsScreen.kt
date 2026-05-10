@@ -116,6 +116,7 @@ fun ActionsScreen(
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val slotReplyAutoRearmArmed by viewModel.slotReplyAutoRearmArmed.collectAsStateWithLifecycle()
+    val slotPromptPlaybackStarted by viewModel.slotPromptPlaybackStarted.collectAsStateWithLifecycle()
     val currentVoiceCaptureState = voiceCaptureState
     val isCommandVoiceActive = when (currentVoiceCaptureState) {
         is ActionsViewModel.VoiceCaptureState.Preparing -> currentVoiceCaptureState.mode == VoiceCaptureMode.Command
@@ -507,6 +508,7 @@ fun ActionsScreen(
             uiState = uiState,
             voiceCaptureState = voiceCaptureState,
             autoVoiceReplyArmed = slotReplyAutoRearmArmed,
+            slotPromptPlaybackStarted = slotPromptPlaybackStarted,
             onDismiss = { viewModel.cancelSlotFill() },
             onSubmit = { reply -> viewModel.onSlotReply(reply) },
             onVoiceReply = { requestVoiceCapture(VoiceCaptureMode.SlotReply) },
@@ -542,6 +544,7 @@ internal fun PendingSlotBottomSheet(
     uiState: ActionsViewModel.UiState,
     voiceCaptureState: ActionsViewModel.VoiceCaptureState,
     autoVoiceReplyArmed: Boolean,
+    slotPromptPlaybackStarted: Boolean,
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
@@ -560,6 +563,7 @@ internal fun PendingSlotBottomSheet(
             uiState = uiState,
             voiceCaptureState = voiceCaptureState,
             autoVoiceReplyArmed = autoVoiceReplyArmed,
+            slotPromptPlaybackStarted = slotPromptPlaybackStarted,
             onDismiss = onDismiss,
             onSubmit = onSubmit,
             onVoiceReply = onVoiceReply,
@@ -576,6 +580,7 @@ private fun SlotFillBottomSheet(
     uiState: ActionsViewModel.UiState,
     voiceCaptureState: ActionsViewModel.VoiceCaptureState,
     autoVoiceReplyArmed: Boolean,
+    slotPromptPlaybackStarted: Boolean,
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
@@ -613,18 +618,36 @@ private fun SlotFillBottomSheet(
         )
     }
 
-    LaunchedEffect(promptMessage, inputMode, autoVoiceReplyArmed, isVoiceReplyActive) {
+    LaunchedEffect(promptMessage, inputMode, autoVoiceReplyArmed, isVoiceReplyActive, slotPromptPlaybackStarted) {
         if (inputMode != InputMode.Voice || !autoVoiceReplyArmed || isVoiceReplyActive) return@LaunchedEffect
-        val delayMs = estimatedSlotPromptDurationMs(promptMessage)
+        if (!slotPromptPlaybackStarted) {
+            // TTS synthesis guard: audio hasn't started yet. Wait up to 10s for SpeakingStarted.
+            // This coroutine is cancelled and restarted when slotPromptPlaybackStarted → true.
+            Log.d(
+                ACTIONS_SCREEN_TAG,
+                "ActionsScreen: waiting for slot TTS to start prompt=\"$promptMessage\"",
+            )
+            delay(10_000L)
+            if (!isVoiceReplyActive && autoVoiceReplyArmed) {
+                Log.w(
+                    ACTIONS_SCREEN_TAG,
+                    "ActionsScreen: TTS never started — forcing slot voice fallback prompt=\"$promptMessage\"",
+                )
+                onVoiceReply()
+            }
+            return@LaunchedEffect
+        }
+        // Playback safety net: TTS is playing. Primary rearm is SpeakingStopped → 350ms → startVoiceCapture.
+        // This fires only if SpeakingStopped never arrives (TTS failure). Voice-speed-agnostic.
         Log.d(
             ACTIONS_SCREEN_TAG,
-            "ActionsScreen: scheduling slot voice fallback delayMs=$delayMs prompt=\"$promptMessage\"",
+            "ActionsScreen: slot TTS playing — safety net armed prompt=\"$promptMessage\"",
         )
-        delay(delayMs)
+        delay(15_000L)
         if (!isVoiceReplyActive && autoVoiceReplyArmed) {
             Log.w(
                 ACTIONS_SCREEN_TAG,
-                "ActionsScreen: slot voice fallback firing prompt=\"$promptMessage\"",
+                "ActionsScreen: slot voice fallback firing (playback safety net) prompt=\"$promptMessage\"",
             )
             onVoiceReply()
         }
@@ -741,13 +764,6 @@ private fun SlotFillBottomSheet(
             }
         }
     }
-}
-
-private fun estimatedSlotPromptDurationMs(promptMessage: String): Long {
-    val normalizedPrompt = promptMessage.trim()
-    if (normalizedPrompt.isBlank()) return 3_500L
-    val estimatedSpeechMs = normalizedPrompt.length * 50L
-    return (estimatedSpeechMs + 1_500L).coerceIn(3_000L, 6_000L)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
