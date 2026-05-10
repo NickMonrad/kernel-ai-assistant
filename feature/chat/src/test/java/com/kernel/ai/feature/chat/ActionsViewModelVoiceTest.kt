@@ -1685,4 +1685,42 @@ class ActionsViewModelVoiceTest {
         assertNotNull(viewModel.pendingSlot.value)
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // #832 — voice fallthrough NavigateToChat speakResponse handoff
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `voice fallthrough emits NavigateToChat with speakResponse true`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("convert 100 aud to nzd") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "convert 100 aud to nzd")
+
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val job = launch { viewModel.events.collect { events.add(it) } }
+
+        viewModel.executeAction("convert 100 aud to nzd", InputMode.Voice)
+        advanceUntilIdle()
+        job.cancel()
+
+        val nav = events.filterIsInstance<ActionsViewModel.UiEvent.NavigateToChat>().first()
+        assertEquals("convert 100 aud to nzd", nav.query)
+        assertEquals(true, nav.speakResponse)
+    }
+
+    @Test
+    fun `text fallthrough emits NavigateToChat with speakResponse false`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("convert 100 aud to nzd") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "convert 100 aud to nzd")
+
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val job = launch { viewModel.events.collect { events.add(it) } }
+
+        viewModel.executeAction("convert 100 aud to nzd", InputMode.Text)
+        advanceUntilIdle()
+        job.cancel()
+
+        val nav = events.filterIsInstance<ActionsViewModel.UiEvent.NavigateToChat>().first()
+        assertEquals("convert 100 aud to nzd", nav.query)
+        assertEquals(false, nav.speakResponse)
+    }
 }
