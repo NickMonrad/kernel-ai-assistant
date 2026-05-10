@@ -1075,6 +1075,22 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `calculate_arithmetic rounds spoken summary for approximate replies`() {
+        val result = handler.handle(
+            "calculate_arithmetic",
+            mapOf("expression" to "1 / 3"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "The result is approximately 0.3333333333333333.",
+                spokenSummary = "The result is approximately 0.33.",
+            ),
+            result,
+        )
+    }
+
+    @Test
     fun `calculate_arithmetic reports malformed expressions cleanly`() {
         val result = handler.handle(
             "calculate_arithmetic",
@@ -1083,6 +1099,144 @@ class NativeIntentHandlerTest {
 
         assertEquals(
             SkillResult.Failure("calculate_arithmetic", "Unexpected token ')'"),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units returns deterministic direct reply`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "km"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "5 miles is 8.04672 kilometers.",
+                spokenSummary = "5 miles is 8.05 kilometers.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units rounds spoken summary for approximate replies`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "100", "from_unit" to "m", "to_unit" to "yards"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "100 meters is approximately 109.36132983 yards.",
+                spokenSummary = "100 meters is approximately 109.36 yards.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units supports kitchen volume replies`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "2", "from_unit" to "liters", "to_unit" to "cups"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "2 liters is approximately 8.45350568 cups.",
+                spokenSummary = "2 liters is approximately 8.45 cups.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units supports temperature replies`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "32", "from_unit" to "fahrenheit", "to_unit" to "celsius"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply("32 degrees Fahrenheit is 0 degrees Celsius."),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units formats mixed feet and inches replies`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "189", "from_unit" to "cm", "to_unit" to "inches"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "189 centimeters is approximately 6 feet and 2.40944882 inches (74.40944882 inches).",
+                spokenSummary = "189 centimeters is approximately 6 feet and 2.4 inches.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units supports normalized mixed feet and inches input`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "74", "from_unit" to "inches", "to_unit" to "cm"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "74 inches is 187.96 centimeters.",
+                spokenSummary = null,
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units supports spoken speed aliases normalized from voice`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "100", "from_unit" to "kilometers per hour", "to_unit" to "metres per second"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "100 kilometers per hour is approximately 27.77777778 meters per second.",
+                spokenSummary = "100 kilometers per hour is approximately 27.78 meters per second.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units rounds spoken exact gallon to liter reply`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "1", "from_unit" to "gallon", "to_unit" to "litres"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "1 gallon is 3.785411784 liters.",
+                spokenSummary = "1 gallon is 3.79 liters.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units reports unsupported units cleanly`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "parsecs"),
+        )
+
+        assertEquals(
+            SkillResult.Failure("convert_units", "Unsupported unit 'parsecs'"),
             result,
         )
     }

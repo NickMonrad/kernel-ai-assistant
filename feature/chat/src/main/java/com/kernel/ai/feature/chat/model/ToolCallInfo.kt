@@ -8,4 +8,5 @@ data class ToolCallInfo(
     val resultText: String,    // the skill result (success message or error)
     val isSuccess: Boolean,
     val presentation: ToolPresentation? = null,
+    val spokenSummary: String? = null,
 )

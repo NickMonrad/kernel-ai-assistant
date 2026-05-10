@@ -29,6 +29,7 @@ class ToolCallInfoJsonTest {
                 airQualityText = null,
                 sunText = "Sunrise 07:10 • Sunset 17:31",
             ),
+            spokenSummary = "In Wellington, it's 13 degrees Celsius, rain.",
         )
 
         val parsed = toolCallInfoFromJson(original.toJsonString())
