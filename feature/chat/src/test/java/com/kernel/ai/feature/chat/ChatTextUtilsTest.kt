@@ -553,4 +553,92 @@ class ChatTextUtilsTest {
             assertEquals("Dr. Smith explained the plan.", result.trimEnd())
         }
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // NORMALISE PRONOUNS FOR TTS
+    // ═════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("normalisePronounsForTts")
+    inner class NormalisePronounsForTtsTests {
+
+        @Test
+        fun `my is replaced with your`() {
+            assertEquals("Sending a message to your wife", normalisePronounsForTts("Sending a message to my wife"))
+        }
+
+        @Test
+        fun `My is replaced with Your preserving case`() {
+            assertEquals("Your wife", normalisePronounsForTts("My wife"))
+        }
+
+        @Test
+        fun `MY is replaced with YOUR preserving caps`() {
+            assertEquals("YOUR WIFE", normalisePronounsForTts("MY WIFE"))
+        }
+
+        @Test
+        fun `mine is replaced with yours`() {
+            assertEquals("That is yours", normalisePronounsForTts("That is mine"))
+        }
+
+        @Test
+        fun `myself is replaced with yourself`() {
+            assertEquals("Did you hurt yourself", normalisePronounsForTts("Did I hurt myself"))
+        }
+
+        @Test
+        fun `bare I is replaced with you`() {
+            assertEquals("What would you like to say", normalisePronounsForTts("What would I like to say"))
+        }
+
+        @Test
+        fun `I'm is replaced with you're`() {
+            assertEquals("you're going to love this", normalisePronounsForTts("I'm going to love this"))
+        }
+
+        @Test
+        fun `I've is replaced with you've`() {
+            assertEquals("you've done well", normalisePronounsForTts("I've done well"))
+        }
+
+        @Test
+        fun `I'll is replaced with you'll`() {
+            assertEquals("you'll get a confirmation", normalisePronounsForTts("I'll get a confirmation"))
+        }
+
+        @Test
+        fun `I'd is replaced with you'd`() {
+            assertEquals("you'd prefer that", normalisePronounsForTts("I'd prefer that"))
+        }
+
+        @Test
+        fun `me as object is replaced with you`() {
+            assertEquals("What would you like to say to you", normalisePronounsForTts("What would you like to say to me"))
+        }
+
+        @Test
+        fun `word boundaries prevent partial word replacement`() {
+            // "my" inside "Myra" must not be touched
+            assertEquals("Emailing Myra", normalisePronounsForTts("Emailing Myra"))
+            // "me" inside "email" must not be touched
+            assertEquals("sending email", normalisePronounsForTts("sending email"))
+            // "mine" inside "minefield" must not be touched
+            assertEquals("a minefield of options", normalisePronounsForTts("a minefield of options"))
+        }
+
+        @Test
+        fun `multiple pronouns in one string are all replaced`() {
+            assertEquals(
+                "What would you like to say to your mum",
+                normalisePronounsForTts("What would I like to say to my mum"),
+            )
+        }
+
+        @Test
+        fun `text with no pronouns is unchanged`() {
+            val text = "Sending a message to Sarah"
+            assertEquals(text, normalisePronounsForTts(text))
+        }
+    }
 }
