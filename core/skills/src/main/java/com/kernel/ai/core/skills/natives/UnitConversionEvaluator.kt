@@ -20,6 +20,7 @@ internal object UnitConversionEvaluator {
         val fromUnit: SupportedUnit,
         val toUnit: SupportedUnit,
         val isApproximate: Boolean,
+        val mixedUnitBreakdown: MixedUnitBreakdown? = null,
     )
 
     enum class UnitCategory {
@@ -29,6 +30,13 @@ internal object UnitConversionEvaluator {
         SPEED,
         TEMPERATURE,
     }
+
+    data class MixedUnitBreakdown(
+        val primaryUnit: SupportedUnit,
+        val primaryValue: BigDecimal,
+        val secondaryUnit: SupportedUnit,
+        val secondaryValue: BigDecimal,
+    )
 
     enum class SupportedUnit(
         val category: UnitCategory,
@@ -289,6 +297,8 @@ internal object UnitConversionEvaluator {
 
     fun supportedRouterRegexPattern(): String = SupportedUnit.routerRegexPattern()
 
+    fun supportedMixedUnitRouterRegexPattern(): String = "(?:feet?\\s+and\\s+inches?|foot\\s+and\\s+inches?)"
+
     fun convert(rawValue: String, rawFromUnit: String, rawToUnit: String): Result {
         val value = parseValue(rawValue)
         val fromUnit = SupportedUnit.from(rawFromUnit)
@@ -305,6 +315,7 @@ internal object UnitConversionEvaluator {
             UnitCategory.TEMPERATURE -> convertTemperature(value, fromUnit, toUnit)
             else -> convertLinear(value, fromUnit, toUnit)
         }
+        val mixedUnitBreakdown = buildMixedUnitBreakdown(converted.first, toUnit)
 
         return Result(
             inputValue = value.normalizeForOutput(),
@@ -312,6 +323,7 @@ internal object UnitConversionEvaluator {
             fromUnit = fromUnit,
             toUnit = toUnit,
             isApproximate = converted.second,
+            mixedUnitBreakdown = mixedUnitBreakdown,
         )
     }
 
@@ -374,6 +386,25 @@ internal object UnitConversionEvaluator {
         }
 
         return outputValue to (toCelsiusApproximate || fromCelsiusApproximate)
+    }
+
+    private fun buildMixedUnitBreakdown(
+        outputValue: BigDecimal,
+        toUnit: SupportedUnit,
+    ): MixedUnitBreakdown? {
+        if (toUnit != SupportedUnit.INCH) return null
+
+        val totalInches = outputValue.max(BigDecimal.ZERO)
+        val feetValue = totalInches.divideToIntegralValue(BigDecimal("12"))
+        val remainingInches = totalInches.remainder(BigDecimal("12")).normalizeForOutput()
+        if (feetValue == BigDecimal.ZERO) return null
+
+        return MixedUnitBreakdown(
+            primaryUnit = SupportedUnit.FOOT,
+            primaryValue = feetValue.normalizeForOutput(),
+            secondaryUnit = SupportedUnit.INCH,
+            secondaryValue = remainingInches,
+        )
     }
 
     private fun divideWithApproximation(left: BigDecimal, right: BigDecimal): Pair<BigDecimal, Boolean> =

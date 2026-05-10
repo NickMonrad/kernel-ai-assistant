@@ -1159,6 +1159,35 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `convert_units formats mixed feet and inches replies`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "189", "from_unit" to "cm", "to_unit" to "inches"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "189 centimeters is approximately 6 feet and 2.40944882 inches (74.40944882 inches).",
+                spokenSummary = "189 centimeters is approximately 6 feet and 2.4 inches.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units supports normalized mixed feet and inches input`() {
+        val result = handler.handle(
+            "convert_units",
+            mapOf("value" to "74", "from_unit" to "inches", "to_unit" to "cm"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply("74 inches is 187.96 centimeters."),
+            result,
+        )
+    }
+
+    @Test
     fun `convert_units reports unsupported units cleanly`() {
         val result = handler.handle(
             "convert_units",

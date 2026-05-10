@@ -196,11 +196,34 @@ class QuickIntentRouter(
     private val unitConversionValuePattern = "-?\\d+(?:\\.\\d+)?"
     private val unitConversionUnitPattern = UnitConversionEvaluator.supportedRouterRegexPattern()
 
+    private val mixedUnitConversionTargetPattern = UnitConversionEvaluator.supportedMixedUnitRouterRegexPattern()
+    private val feetAndInchesInputPattern = "(-?\\d+(?:\\.\\d+)?)\\s*(?:ft|foot|feet)\\s+(-?\\d+(?:\\.\\d+)?)\\s*(?:in|inch|inches)"
     private fun extractUnitConversionParams(value: String, fromUnit: String, toUnit: String): Map<String, String> = mapOf(
         "value" to value.trim(),
         "from_unit" to fromUnit.trim(),
-        "to_unit" to toUnit.trim(),
+        "to_unit" to normalizeUnitConversionTarget(toUnit),
     )
+
+    private fun extractFeetAndInchesConversionParams(feet: String, inches: String, toUnit: String): Map<String, String> {
+        val totalInches = try {
+            java.math.BigDecimal(feet.trim()).multiply(java.math.BigDecimal("12"))
+                .add(java.math.BigDecimal(inches.trim()))
+                .stripTrailingZeros()
+                .toPlainString()
+        } catch (_: NumberFormatException) {
+            feet.trim()
+        }
+        return mapOf(
+            "value" to totalInches,
+            "from_unit" to "inches",
+            "to_unit" to normalizeUnitConversionTarget(toUnit),
+        )
+    }
+
+    private fun normalizeUnitConversionTarget(raw: String): String = when (raw.trim().lowercase()) {
+        "feet and inches", "foot and inches" -> "inches"
+        else -> raw.trim()
+    }
 
     private fun extractImportantDateParams(label: String, date: String): Map<String, String> {
         val params = mutableMapOf<String, String>()
@@ -2382,6 +2405,34 @@ class QuickIntentRouter(
                     value = match.groupValues[2],
                     fromUnit = match.groupValues[3],
                     toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is))\s+)?($unitConversionValuePattern)\s*($unitConversionUnitPattern)\s+(?:to|in|into)\s+($mixedUnitConversionTargetPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    toUnit = match.groupValues[3],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is))\s+)?$feetAndInchesInputPattern\s+(?:to|in|into)\s+($unitConversionUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractFeetAndInchesConversionParams(
+                    feet = match.groupValues[1],
+                    inches = match.groupValues[2],
+                    toUnit = match.groupValues[3],
                 )
             },
         ),

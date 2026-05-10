@@ -35,6 +35,27 @@ class UnitConversionEvaluatorTest {
     }
 
     @Test
+    fun `convert length exposes mixed feet and inches breakdown for inch target`() {
+        val result = UnitConversionEvaluator.convert("189", "cm", "inches")
+
+        assertEquals("74.40944882", result.outputValue.toPlainString())
+        assertTrue(result.isApproximate)
+        requireNotNull(result.mixedUnitBreakdown)
+        assertEquals(UnitConversionEvaluator.SupportedUnit.FOOT, result.mixedUnitBreakdown.primaryUnit)
+        assertEquals("6", result.mixedUnitBreakdown.primaryValue.toPlainString())
+        assertEquals(UnitConversionEvaluator.SupportedUnit.INCH, result.mixedUnitBreakdown.secondaryUnit)
+        assertEquals("2.40944882", result.mixedUnitBreakdown.secondaryValue.toPlainString())
+    }
+
+    @Test
+    fun `convert length from total inches to centimeters stays exact enough for mixed input normalization`() {
+        val result = UnitConversionEvaluator.convert("74", "inches", "cm")
+
+        assertEquals("187.96", result.outputValue.toPlainString())
+        assertFalse(result.isApproximate)
+    }
+
+    @Test
     fun `convert volume supports kitchen measures`() {
         val result = UnitConversionEvaluator.convert("1", "gallon", "liters")
 

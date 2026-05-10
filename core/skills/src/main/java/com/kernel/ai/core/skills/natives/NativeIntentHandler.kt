@@ -2000,13 +2000,23 @@ class NativeIntentHandler @Inject constructor(
         return try {
             val result = UnitConversionEvaluator.convert(value, fromUnit, toUnit)
             val sourceDisplay = result.fromUnit.displayName(result.inputValue)
+            val mixedBreakdown = result.mixedUnitBreakdown
             val targetDisplay = result.toUnit.displayName(result.outputValue)
-            val content = if (result.isApproximate) {
+            val content = if (mixedBreakdown != null) {
+                val primaryDisplay = mixedBreakdown.primaryUnit.displayName(mixedBreakdown.primaryValue)
+                val secondaryDisplay = mixedBreakdown.secondaryUnit.displayName(mixedBreakdown.secondaryValue)
+                "${result.inputValue.toPlainString()} $sourceDisplay is approximately ${mixedBreakdown.primaryValue.toPlainString()} $primaryDisplay and ${mixedBreakdown.secondaryValue.toPlainString()} $secondaryDisplay (${result.outputValue.toPlainString()} $targetDisplay)."
+            } else if (result.isApproximate) {
                 "${result.inputValue.toPlainString()} $sourceDisplay is approximately ${result.outputValue.toPlainString()} $targetDisplay."
             } else {
                 "${result.inputValue.toPlainString()} $sourceDisplay is ${result.outputValue.toPlainString()} $targetDisplay."
             }
-            val spokenSummary = if (result.isApproximate) {
+            val spokenSummary = if (mixedBreakdown != null) {
+                val roundedInches = mixedBreakdown.secondaryValue.setScale(1, RoundingMode.HALF_UP).stripTrailingZeros()
+                val primaryDisplay = mixedBreakdown.primaryUnit.displayName(mixedBreakdown.primaryValue)
+                val secondaryDisplay = mixedBreakdown.secondaryUnit.displayName(roundedInches)
+                "${result.inputValue.toPlainString()} $sourceDisplay is approximately ${mixedBreakdown.primaryValue.toPlainString()} $primaryDisplay and ${roundedInches.toPlainString()} $secondaryDisplay."
+            } else if (result.isApproximate) {
                 val rounded = result.outputValue.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros()
                 "${result.inputValue.toPlainString()} $sourceDisplay is approximately ${rounded.toPlainString()} $targetDisplay."
             } else {
