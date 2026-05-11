@@ -52,9 +52,9 @@ import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-
 private const val TAG = "KernelAI"
 private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
 
@@ -113,6 +113,7 @@ interface ClockAlertController {
  *   get_date_diff           — Native date arithmetic: days/weeks until or since a date (params: target_date, from_date?) — returns DirectReply
  *   calculate_arithmetic    — Deterministic arithmetic/calculator evaluator (params: expression) — returns DirectReply
  *   convert_units           — Deterministic unit conversion (params: value, from_unit, to_unit) — returns DirectReply
+ *   convert_currency        — Latest ECB-backed currency conversion (params: amount, from_currency, to_currency) — returns DirectReply
  *   save_important_date     — Stores a taught recurring personal date (params: label, date) — returns DirectReply
  *   list_important_dates    — Lists taught recurring personal dates — returns DirectReply
  *   remove_important_date   — Deletes a taught recurring personal date (params: label) — returns DirectReply
@@ -131,9 +132,10 @@ class NativeIntentHandler @Inject constructor(
     private val calendarBirthdayLookup: CalendarBirthdayLookup,
     private val memoryRepository: MemoryRepository,
     private val embeddingEngine: EmbeddingEngine,
+    private val currencyConversionService: CurrencyConversionService,
 ) {
 
-    fun handle(intentName: String, params: Map<String, String>): SkillResult {
+    suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
         val normalizedName = normalizeIntentName(intentName)
         if (normalizedName != intentName) {
             Log.w(TAG, "NativeIntentHandler: normalized intent '$intentName' -> '$normalizedName'")
@@ -198,6 +200,7 @@ class NativeIntentHandler @Inject constructor(
                 "get_date_diff" -> getDateDiff(params)
                 "calculate_arithmetic" -> calculateArithmetic(params)
                 "convert_units" -> convertUnits(params)
+                "convert_currency" -> convertCurrency(params)
                 "get_system_info" -> getSystemInfo()
                 "save_important_date" -> saveImportantDate(params)
                 "list_important_dates" -> listImportantDates()
@@ -206,6 +209,8 @@ class NativeIntentHandler @Inject constructor(
                 "set_brightness" -> setBrightness(params)
                 else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "NativeIntentHandler.handle($normalizedName) failed", e)
             SkillResult.Failure("run_intent", e.message ?: "Unknown error")
@@ -255,9 +260,9 @@ class NativeIntentHandler @Inject constructor(
             "open_app", "navigate_to", "find_nearby",
             "add_to_list", "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list",
             "smart_home_on", "smart_home_off",
-            "get_weather", "get_date_diff", "get_system_info", "calculate_arithmetic", "convert_units",
+            "get_weather", "get_date_diff", "get_system_info", "calculate_arithmetic", "convert_units", "convert_currency",
             "save_important_date", "list_important_dates", "remove_important_date",
-            "save_memory", 
+            "save_memory",
         )
 
         private val GENERIC_MEDIA_QUERY_KEYS = setOf(
@@ -2029,6 +2034,43 @@ class NativeIntentHandler @Inject constructor(
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: IllegalArgumentException) {
             SkillResult.Failure("convert_units", e.message ?: "Could not convert units")
+        }
+    }
+
+    private suspend fun convertCurrency(params: Map<String, String>): SkillResult {
+        val amount = params["amount"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("convert_currency", "No currency amount provided")
+        val fromCurrency = params["from_currency"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("convert_currency", "No source currency provided")
+        val toCurrency = params["to_currency"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("convert_currency", "No target currency provided")
+
+        return try {
+            val result = currencyConversionService.convert(
+                amountRaw = amount,
+                fromCurrencyRaw = fromCurrency,
+                toCurrencyRaw = toCurrency,
+            )
+            if (result.fromCurrency.code == result.toCurrency.code) {
+                return SkillResult.DirectReply(
+                    "${result.inputAmount.toPlainString()} ${result.fromCurrency.code} is ${result.outputAmount.toPlainString()} ${result.toCurrency.code}.",
+                )
+            }
+
+            val roundedAmount = result.outputAmount.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros()
+            val roundedRate = result.rate.setScale(4, RoundingMode.HALF_UP).stripTrailingZeros()
+            val spokenDate = result.rateDate.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH))
+            val content = "${result.inputAmount.toPlainString()} ${result.fromCurrency.code} converts to approximately ${roundedAmount.toPlainString()} ${result.toCurrency.code}. 1 ${result.fromCurrency.code} = ${roundedRate.toPlainString()} ${result.toCurrency.code}. This uses the latest ${result.sourceLabel} from ${result.rateDate}. Exchange rates are not real-time and may have moved since then."
+            val spokenSummary = "${result.inputAmount.toPlainString()} ${result.fromCurrency.code} converts to approximately ${roundedAmount.toPlainString()} ${result.toCurrency.code} at the $spokenDate ${result.sourceLabel}."
+            SkillResult.DirectReply(content, spokenSummary = spokenSummary)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val errorMessage = when (e) {
+                is IllegalArgumentException -> e.message
+                else -> "Currency rates are unavailable right now. I can't do a truthful conversion offline."
+            }
+            SkillResult.Failure("convert_currency", errorMessage ?: "Could not convert currency")
         }
     }
     private fun buildListPreview(
