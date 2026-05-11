@@ -104,6 +104,7 @@ fun ActionsScreen(
     adbSlotReply: String? = null,
     onAutoOpenSheetConsumed: () -> Unit = {},
     onAutoStartVoiceConsumed: () -> Unit = {},
+    onInitialQueryConsumed: () -> Unit = {},
     onNavigateToChat: (query: String, speakResponse: Boolean) -> Unit = { _, _ -> },
     onNewConversation: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
@@ -209,9 +210,14 @@ fun ActionsScreen(
         }
     }
 
-    // ADB harness: auto-execute query when quick_action_input extra is provided.
+    // Widget/ADB: auto-execute query when widgetQuery nav arg or quick_action_input extra is delivered.
+    // onInitialQueryConsumed is called after executeAction so savedStateHandle prevents re-execution
+    // if the composable is recomposed (e.g. after process-death restore).
     LaunchedEffect(initialQuery) {
-        if (!initialQuery.isNullOrBlank()) viewModel.executeAction(initialQuery)
+        if (!initialQuery.isNullOrBlank()) {
+            viewModel.executeAction(initialQuery)
+            onInitialQueryConsumed()
+        }
     }
 
     // ADB harness: deliver slot reply when slot_reply_input extra is provided.
