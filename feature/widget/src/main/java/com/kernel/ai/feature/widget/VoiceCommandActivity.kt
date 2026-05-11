@@ -126,6 +126,7 @@ class VoiceCommandActivity : ComponentActivity() {
                             Text(
                                 text = partialText.ifEmpty { "Listening…" },
                                 style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f),
                             )
                             IconButton(onClick = { finish() }) {
