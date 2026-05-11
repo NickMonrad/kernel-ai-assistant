@@ -52,9 +52,9 @@ import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-
 private const val TAG = "KernelAI"
 private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
 
@@ -2060,6 +2060,8 @@ class NativeIntentHandler @Inject constructor(
             val content = "At the latest ${result.sourceLabel} from ${result.rateDate}, ${result.inputAmount.toPlainString()} ${result.fromCurrency.code} converts to approximately ${roundedAmount.toPlainString()} ${result.toCurrency.code}. 1 ${result.fromCurrency.code} = ${roundedRate.toPlainString()} ${result.toCurrency.code}. Exchange rates are not real-time and may have moved since then."
             val spokenSummary = "At the ${result.rateDate} ${result.sourceLabel}, ${result.inputAmount.toPlainString()} ${result.fromCurrency.code} converts to approximately ${roundedAmount.toPlainString()} ${result.toCurrency.code}."
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             val errorMessage = when (e) {
                 is IllegalArgumentException -> e.message

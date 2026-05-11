@@ -9,6 +9,7 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class CurrencyConversionServiceTest {
@@ -48,7 +49,7 @@ class CurrencyConversionServiceTest {
     }
 
     @Test
-    fun `convert rejects stale latest rates`() = runTest {
+    fun `convert rejects stale latest rates`() {
         val service = CurrencyConversionService(
             fakeHttpClient(
                 latestJson = """
@@ -62,14 +63,14 @@ class CurrencyConversionServiceTest {
             ),
         )
 
-        val error = runCatching {
+        val error = assertIllegalArgument {
             service.convert(
                 amountRaw = "10",
                 fromCurrencyRaw = "AUD",
                 toCurrencyRaw = "NZD",
                 today = LocalDate.of(2026, 5, 10),
             )
-        }.exceptionOrNull() as IllegalArgumentException
+        }
 
         assertEquals(
             "Latest available AUD to NZD rate is from 2026-05-01, which is too stale to use.",
@@ -78,17 +79,17 @@ class CurrencyConversionServiceTest {
     }
 
     @Test
-    fun `convert reports unsupported currencies cleanly`() = runTest {
+    fun `convert reports unsupported currencies cleanly`() {
         val service = CurrencyConversionService(fakeHttpClient())
 
-        val error = runCatching {
+        val error = assertIllegalArgument {
             service.convert(
                 amountRaw = "10",
                 fromCurrencyRaw = "galactic credits",
                 toCurrencyRaw = "NZD",
                 today = LocalDate.of(2026, 5, 10),
             )
-        }.exceptionOrNull() as IllegalArgumentException
+        }
 
         assertEquals(
             "Unsupported or ambiguous source currency 'galactic credits'. Use an ISO code like USD or a full name like Australian dollars.",
@@ -97,17 +98,17 @@ class CurrencyConversionServiceTest {
     }
 
     @Test
-    fun `convert fails closed when currencies catalog is unavailable`() = runTest {
+    fun `convert fails closed when currencies catalog is unavailable`() {
         val service = CurrencyConversionService(fakeHttpClient(currenciesCode = 503))
 
-        val error = runCatching {
+        val error = assertIllegalArgument {
             service.convert(
                 amountRaw = "10",
                 fromCurrencyRaw = "AUD",
                 toCurrencyRaw = "NZD",
                 today = LocalDate.of(2026, 5, 10),
             )
-        }.exceptionOrNull() as IllegalArgumentException
+        }
 
         assertEquals(
             "Currency rates are unavailable right now. I can't do a truthful conversion offline.",
@@ -116,17 +117,17 @@ class CurrencyConversionServiceTest {
     }
 
     @Test
-    fun `convert fails closed when latest rate lookup is unavailable`() = runTest {
+    fun `convert fails closed when latest rate lookup is unavailable`() {
         val service = CurrencyConversionService(fakeHttpClient(latestCode = 503))
 
-        val error = runCatching {
+        val error = assertIllegalArgument {
             service.convert(
                 amountRaw = "10",
                 fromCurrencyRaw = "AUD",
                 toCurrencyRaw = "NZD",
                 today = LocalDate.of(2026, 5, 10),
             )
-        }.exceptionOrNull() as IllegalArgumentException
+        }
 
         assertEquals(
             "Currency conversion failed: upstream unavailable",
@@ -135,7 +136,7 @@ class CurrencyConversionServiceTest {
     }
 
     @Test
-    fun `convert accepts latest rates up to five days old and rejects six day old rates`() = runTest {
+    fun `convert accepts latest rates up to five days old`() = runTest {
         val successService = CurrencyConversionService(
             fakeHttpClient(
                 latestJson = """
@@ -155,7 +156,10 @@ class CurrencyConversionServiceTest {
             today = LocalDate.of(2026, 5, 10),
         )
         assertEquals("12", success.outputAmount.toPlainString())
+    }
 
+    @Test
+    fun `convert rejects latest rates older than five days`() {
         val staleService = CurrencyConversionService(
             fakeHttpClient(
                 latestJson = """
@@ -168,14 +172,14 @@ class CurrencyConversionServiceTest {
                 """.trimIndent(),
             ),
         )
-        val stale = runCatching {
+        val stale = assertIllegalArgument {
             staleService.convert(
                 amountRaw = "10",
                 fromCurrencyRaw = "AUD",
                 toCurrencyRaw = "NZD",
                 today = LocalDate.of(2026, 5, 10),
             )
-        }.exceptionOrNull() as IllegalArgumentException
+        }
         assertEquals(
             "Latest available AUD to NZD rate is from 2026-05-04, which is too stale to use.",
             stale.message,
@@ -204,7 +208,7 @@ class CurrencyConversionServiceTest {
     }
 
     @Test
-    fun `convert rejects non positive exchange rates`() = runTest {
+    fun `convert rejects non positive exchange rates`() {
         val service = CurrencyConversionService(
             fakeHttpClient(
                 latestJson = """
@@ -218,14 +222,14 @@ class CurrencyConversionServiceTest {
             ),
         )
 
-        val error = runCatching {
+        val error = assertIllegalArgument {
             service.convert(
                 amountRaw = "10",
                 fromCurrencyRaw = "AUD",
                 toCurrencyRaw = "NZD",
                 today = LocalDate.of(2026, 5, 10),
             )
-        }.exceptionOrNull() as IllegalArgumentException
+        }
 
         assertEquals(
             "Could not find a AUD to NZD exchange rate.",
@@ -234,17 +238,17 @@ class CurrencyConversionServiceTest {
     }
 
     @Test
-    fun `convert rejects unknown same pair ISO codes`() = runTest {
+    fun `convert rejects unknown same pair ISO codes`() {
         val service = CurrencyConversionService(fakeHttpClient())
 
-        val error = runCatching {
+        val error = assertIllegalArgument {
             service.convert(
                 amountRaw = "100",
                 fromCurrencyRaw = "XXX",
                 toCurrencyRaw = "XXX",
                 today = LocalDate.of(2026, 5, 10),
             )
-        }.exceptionOrNull() as IllegalArgumentException
+        }
 
         assertEquals(
             "Unsupported or ambiguous source currency 'XXX'. Use an ISO code like USD or a full name like Australian dollars.",
@@ -297,4 +301,9 @@ class CurrencyConversionServiceTest {
             },
         )
         .build()
+
+    private fun assertIllegalArgument(block: suspend () -> Unit): IllegalArgumentException =
+        assertThrows(IllegalArgumentException::class.java) {
+            runTest { block() }
+        }
 }
