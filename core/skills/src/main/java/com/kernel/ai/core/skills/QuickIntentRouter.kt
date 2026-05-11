@@ -237,6 +237,21 @@ class QuickIntentRouter(
         .replace(Regex("""\bmetres?\s+a\s+second\b""", RegexOption.IGNORE_CASE), "metres per second")
         .replace(Regex("""\bmetres?\s+an\s+second\b""", RegexOption.IGNORE_CASE), "metres per second")
 
+    private val currencyConversionValuePattern = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?"
+    private val currencyConversionNounPattern = "(?:dollars?|euros?|pounds?|yen|yuan|francs?|rupees?|pesos?|rand(?:s)?|won|dirhams?|riyals?|ringgit|krona|krone|lira|shekels?|baht|forint|zloty|koruna|leu|lei|real|reais|taka)"
+    private val currencyConversionTermPattern = "(?:[A-Za-z]{3}|$currencyConversionNounPattern|[A-Za-z][A-Za-z.'’-]*(?:\\s+[A-Za-z][A-Za-z.'’-]*){0,4}\\s+$currencyConversionNounPattern)"
+
+    private fun extractCurrencyConversionParams(amount: String, fromCurrency: String, toCurrency: String): Map<String, String> = mapOf(
+        "amount" to amount.trim().replace(",", ""),
+        "from_currency" to normalizeCurrencyPhrase(fromCurrency),
+        "to_currency" to normalizeCurrencyPhrase(toCurrency),
+    )
+
+    private fun normalizeCurrencyPhrase(raw: String): String = raw.trim()
+        .trim(',', '.', '?', '!')
+        .replace(Regex("""\s+"""), " ")
+
+
     private fun extractImportantDateParams(label: String, date: String): Map<String, String> {
         val params = mutableMapOf<String, String>()
         normalizeImportantDateLabelOrNull(label)?.let { params["label"] = it }
@@ -2445,6 +2460,36 @@ class QuickIntentRouter(
                     feet = match.groupValues[1],
                     inches = match.groupValues[2],
                     toUnit = match.groupValues[3],
+                )
+            },
+        ),
+        // Currency conversion phrases: "convert 100 Australian dollars to New Zealand dollars", "100 aud in nzd"
+        IntentPattern(
+            intentName = "convert_currency",
+            regex = Regex(
+                """^(?:(?:convert|exchange|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($currencyConversionValuePattern)\s+($currencyConversionTermPattern)\s+(?:to|in|into|for)\s+($currencyConversionTermPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCurrencyConversionParams(
+                    amount = match.groupValues[1],
+                    fromCurrency = match.groupValues[2],
+                    toCurrency = match.groupValues[3],
+                )
+            },
+        ),
+        // Reversed currency phrasing: "how many euros are in 100 usd"
+        IntentPattern(
+            intentName = "convert_currency",
+            regex = Regex(
+                """^how\s+many\s+($currencyConversionTermPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($currencyConversionValuePattern)\s+($currencyConversionTermPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCurrencyConversionParams(
+                    amount = match.groupValues[2],
+                    fromCurrency = match.groupValues[3],
+                    toCurrency = match.groupValues[1],
                 )
             },
         ),

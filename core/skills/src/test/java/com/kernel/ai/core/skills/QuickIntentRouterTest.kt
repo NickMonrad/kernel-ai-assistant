@@ -793,6 +793,27 @@ class QuickIntentRouterTest {
         }
     }
 
+    @Nested
+    @DisplayName("Currency conversion")
+    inner class CurrencyConversion {
+        @ParameterizedTest(name = "Regex: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#currencyConversionRegexPhrases")
+        fun `should match currency conversion phrases with extracted params`(
+            input: String,
+            expectedAmount: String,
+            expectedFromCurrency: String,
+            expectedToCurrency: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "convert_currency", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedAmount, intent.params["amount"])
+            assertEquals(expectedFromCurrency, intent.params["from_currency"])
+            assertEquals(expectedToCurrency, intent.params["to_currency"])
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // E4B FALLTHROUGH — these should NEVER match Tier 2
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1777,6 +1798,7 @@ class QuickIntentRouterTest {
         addCases(dateDiffRegexPhrases(), "get_date_diff", "Date Diff (regex)")
         addCases(calculatorRegexPhrases(), "calculate_arithmetic", "Calculator (regex)")
         addCases(unitConversionCoveragePhrases(), "convert_units", "Unit conversion (regex)")
+        addCases(currencyConversionCoveragePhrases(), "convert_currency", "Currency conversion (regex)")
         addCases(timeRegexPhrases(), "get_time", "Time (regex)")
         addCases(timeClassifierPhrases(), "get_time", "Time (classifier)")
         addCases(volumeRegexPhrases(), "set_volume", "Volume (regex)")
@@ -2943,6 +2965,22 @@ class QuickIntentRouterTest {
             Arguments.of("convert 189 cm to feet and inches"),
             Arguments.of("convert 6 feet 2 inches to cm"),
             Arguments.of("convert 100 km an hour to metres a second"),
+        )
+
+        @JvmStatic
+        fun currencyConversionRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("convert 100 Australian dollars to New Zealand dollars", "100", "Australian dollars", "New Zealand dollars"),
+            Arguments.of("100 aud in nzd", "100", "aud", "nzd"),
+            Arguments.of("how much is 100 usd in eur", "100", "usd", "eur"),
+            Arguments.of("how many euros are in 100 usd", "100", "usd", "euros"),
+        )
+
+        @JvmStatic
+        fun currencyConversionCoveragePhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("convert 100 Australian dollars to New Zealand dollars"),
+            Arguments.of("100 aud in nzd"),
+            Arguments.of("how much is 100 usd in eur"),
+            Arguments.of("how many euros are in 100 usd"),
         )
         @JvmStatic
         fun listImportantDatesRegexPhrases(): Stream<Arguments> = Stream.of(
