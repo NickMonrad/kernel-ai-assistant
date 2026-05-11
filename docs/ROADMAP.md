@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-05-09 (PR #818 merged: Semaine speaker selection #817 + streaming per-message TTS fixes; #727/#728 chat voice marked done — PRs #731/#735; #781 closed — superseded by #817; Sherpa-ONNX STT/VAD research issue added)
+> **Last updated:** 2026-05-11 (PR #845 merged: aye pronunciation fix #843; native unit conversion #676 marked done; deterministic currency conversion #831 in progress)
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -214,6 +214,7 @@ Active follow-on model/runtime investigations now live under
 | [#676](https://github.com/NickMonrad/kernel-ai-assistant/issues/676) | Native unit conversion tool | ✅ Done — PR #816 | 🟡 Medium |
 | [#677](https://github.com/NickMonrad/kernel-ai-assistant/issues/677) | World clock and timezone lookup | ✅ Done — PR #743 | 🟢 Low |
 | [#697](https://github.com/NickMonrad/kernel-ai-assistant/issues/697) | Multi-day weather forecast card in chat | ✅ Done — PR #710 | 🟡 Medium |
+| [#831](https://github.com/NickMonrad/kernel-ai-assistant/issues/831) | Deterministic currency conversion skill | 🔄 In progress — PR #848 | 🟡 Medium |
 
 **Already completed skills:**
 - ✅ set_alarm (PR #257/#262, time param fix PR #339)
