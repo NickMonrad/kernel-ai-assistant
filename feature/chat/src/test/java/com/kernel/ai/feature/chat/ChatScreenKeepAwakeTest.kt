@@ -51,11 +51,27 @@ class ChatScreenKeepAwakeTest {
     }
 
     @Test
-    fun `keeps screen awake during one shot voice capture and back and forth mode`() {
+    fun `keeps screen awake during one shot voice capture states and back and forth mode`() {
         assertTrue(
             shouldKeepChatScreenAwake(
                 uiState = readyState(),
                 voiceCaptureState = ChatViewModel.VoiceCaptureState.Listening("hello"),
+                voicePlaybackState = ChatViewModel.VoicePlaybackState.Idle,
+                voiceMode = ChatViewModel.VoiceMode.OneShot,
+            ),
+        )
+        assertTrue(
+            shouldKeepChatScreenAwake(
+                uiState = readyState(),
+                voiceCaptureState = ChatViewModel.VoiceCaptureState.Preparing,
+                voicePlaybackState = ChatViewModel.VoicePlaybackState.Idle,
+                voiceMode = ChatViewModel.VoiceMode.OneShot,
+            ),
+        )
+        assertTrue(
+            shouldKeepChatScreenAwake(
+                uiState = readyState(),
+                voiceCaptureState = ChatViewModel.VoiceCaptureState.Processing("hello"),
                 voicePlaybackState = ChatViewModel.VoicePlaybackState.Idle,
                 voiceMode = ChatViewModel.VoiceMode.OneShot,
             ),
