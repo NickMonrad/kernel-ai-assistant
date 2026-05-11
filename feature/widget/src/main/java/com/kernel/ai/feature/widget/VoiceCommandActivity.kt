@@ -46,12 +46,9 @@ import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
-import com.kernel.ai.core.skills.QuickIntentRouter
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
@@ -60,7 +57,6 @@ private const val TAG = "KernelAI"
 class VoiceCommandActivity : ComponentActivity() {
 
     @Inject lateinit var voiceInputController: VoiceInputController
-    @Inject lateinit var quickIntentRouter: QuickIntentRouter
     @Inject lateinit var navigator: WidgetNavigator
 
     private var toneGenerator: ToneGenerator? = null
@@ -154,25 +150,10 @@ class VoiceCommandActivity : ComponentActivity() {
                         val transcript = event.text
                         Log.d(TAG, "VoiceCommandActivity: final transcript=\"$transcript\"")
                         if (transcript.isNotBlank()) {
-                            val result = withContext(Dispatchers.Default) { quickIntentRouter.route(transcript) }
-                            when (result) {
-                                is QuickIntentRouter.RouteResult.RegexMatch,
-                                is QuickIntentRouter.RouteResult.ClassifierMatch -> {
-                                    startService(
-                                        Intent(
-                                            this@VoiceCommandActivity,
-                                            VoiceCommandService::class.java,
-                                        ).apply {
-                                            putExtra(VoiceCommandService.EXTRA_TRANSCRIPT, transcript)
-                                            putExtra(VoiceCommandService.EXTRA_INPUT_MODE, "voice")
-                                        }
-                                    )
-                                }
-                                is QuickIntentRouter.RouteResult.NeedsSlot ->
-                                    navigator.navigateToActions(this@VoiceCommandActivity, transcript)
-                                is QuickIntentRouter.RouteResult.FallThrough ->
-                                    navigator.navigateToActions(this@VoiceCommandActivity, transcript)
-                            }
+                            // Always open Actions so the result card is visible.
+                            // ActionsViewModel handles all route types (RegexMatch,
+                            // ClassifierMatch, NeedsSlot, FallThrough) correctly.
+                            navigator.navigateToActions(this@VoiceCommandActivity, transcript)
                         }
                         finish()
                     }

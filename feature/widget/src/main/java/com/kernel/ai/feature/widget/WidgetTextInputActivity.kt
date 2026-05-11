@@ -1,13 +1,11 @@
 package com.kernel.ai.feature.widget
 
-import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
-import com.kernel.ai.core.skills.QuickIntentRouter
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -46,15 +44,12 @@ import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 
 private const val TAG = "KernelAI"
 
 @AndroidEntryPoint
 class WidgetTextInputActivity : ComponentActivity() {
 
-    @Inject lateinit var quickIntentRouter: QuickIntentRouter
     @Inject lateinit var navigator: WidgetNavigator
 
     private var submitJob: Job? = null
@@ -80,22 +75,8 @@ class WidgetTextInputActivity : ComponentActivity() {
                     if (submitJob?.isActive == true) return
                     Log.d(TAG, "WidgetTextInputActivity: submitting text=\"$trimmed\"")
                     submitJob = this@WidgetTextInputActivity.lifecycleScope.launch {
-                        val result = withContext(Dispatchers.Default) { quickIntentRouter.route(trimmed) }
-                        when (result) {
-                            is QuickIntentRouter.RouteResult.RegexMatch,
-                            is QuickIntentRouter.RouteResult.ClassifierMatch -> {
-                                startService(
-                                    Intent(this@WidgetTextInputActivity, VoiceCommandService::class.java).apply {
-                                        putExtra(VoiceCommandService.EXTRA_TRANSCRIPT, trimmed)
-                                        putExtra(VoiceCommandService.EXTRA_INPUT_MODE, "text")
-                                    }
-                                )
-                            }
-                            is QuickIntentRouter.RouteResult.NeedsSlot ->
-                                navigator.navigateToActions(this@WidgetTextInputActivity, trimmed)
-                            is QuickIntentRouter.RouteResult.FallThrough ->
-                                navigator.navigateToActions(this@WidgetTextInputActivity, trimmed)
-                        }
+                        // Always open Actions — ActionsViewModel handles routing + shows result card.
+                        navigator.navigateToActions(this@WidgetTextInputActivity, trimmed)
                         finish()
                     }
                 }
