@@ -413,4 +413,110 @@ class ChatViewModelInitTest {
             systemPrompts.joinToString(separator = "\n---\n"),
         )
     }
+
+    @Test
+    fun `blank response retries without RAG context on first zero-token generation`() = runTest(dispatcher) {
+        val prompts = mutableListOf<String>()
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        // First call: 0 tokens (blank). Second call (retry): normal response.
+        every { inferenceEngine.generate(capture(prompts)) } returnsMany listOf(
+            flowOf(GenerationResult.Complete(durationMs = 1L)),
+            flowOf(GenerationResult.Token("Got it."), GenerationResult.Complete(durationMs = 1L)),
+        )
+        coEvery { ragRepository.getRelevantContext(any(), any(), any()) } returns "RAG memory context"
+        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
+            listOf("user-msg-id", "assistant-msg-id")
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(input = "hello")
+
+        val viewModel = ChatViewModel(
+            savedStateHandle = SavedStateHandle(),
+            inferenceEngine = inferenceEngine,
+            downloadManager = downloadManager,
+            conversationRepository = conversationRepository,
+            ragRepository = ragRepository,
+            userProfileRepository = userProfileRepository,
+            memoryRepository = memoryRepository,
+            episodicDistillationUseCase = episodicDistillationUseCase,
+            modelSettingsRepository = modelSettingsRepository,
+            skillRegistry = skillRegistry,
+            skillExecutor = skillExecutor,
+            quickIntentRouter = quickIntentRouter,
+            slotFillerManager = slotFillerManager,
+            kernelAIToolSet = kernelAIToolSet,
+            toolProvider = toolProvider,
+            embeddingEngine = embeddingEngine,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+            jandalPersona = jandalPersona,
+            nzTruthSeedingService = nzTruthSeedingService,
+            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        )
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("hello")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        // First prompt included RAG context; retry prompt must not.
+        assertTrue(prompts.size == 2, "Expected 2 generate() calls, got ${prompts.size}")
+        assertTrue(prompts[0].contains("RAG memory context"), "First prompt should contain RAG context")
+        assertTrue(!prompts[1].contains("RAG memory context"), "Retry prompt must not contain RAG context")
+
+        // Final assistant message saved to DB must be the retry response (not a blank or fallback).
+        coVerify(atLeast = 1) { conversationRepository.addMessage(any(), eq("assistant"), eq("Got it."), any(), any()) }
+    }
+
+    @Test
+    fun `blank response shows fallback when retry also produces zero tokens`() = runTest(dispatcher) {
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        // Both calls produce 0 tokens.
+        every { inferenceEngine.generate(any()) } returns
+            flowOf(GenerationResult.Complete(durationMs = 1L))
+        coEvery { ragRepository.getRelevantContext(any(), any(), any()) } returns "RAG memory context"
+        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
+            listOf("user-msg-id", "assistant-fallback-id")
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(input = "hello")
+
+        val viewModel = ChatViewModel(
+            savedStateHandle = SavedStateHandle(),
+            inferenceEngine = inferenceEngine,
+            downloadManager = downloadManager,
+            conversationRepository = conversationRepository,
+            ragRepository = ragRepository,
+            userProfileRepository = userProfileRepository,
+            memoryRepository = memoryRepository,
+            episodicDistillationUseCase = episodicDistillationUseCase,
+            modelSettingsRepository = modelSettingsRepository,
+            skillRegistry = skillRegistry,
+            skillExecutor = skillExecutor,
+            quickIntentRouter = quickIntentRouter,
+            slotFillerManager = slotFillerManager,
+            kernelAIToolSet = kernelAIToolSet,
+            toolProvider = toolProvider,
+            embeddingEngine = embeddingEngine,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+            jandalPersona = jandalPersona,
+            nzTruthSeedingService = nzTruthSeedingService,
+            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        )
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("hello")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        // Fallback message must be persisted to DB.
+        coVerify(atLeast = 1) {
+            conversationRepository.addMessage(
+                any(), eq("assistant"), match { it.contains("lost my train of thought") }, any(), any(),
+            )
+        }
+        // User message must be indexed into RAG even when fallback fires.
+        coVerify(atLeast = 1) { ragRepository.indexMessage("user-msg-id", any(), "hello") }
+        // Fallback text must not be indexed.
+        coVerify(exactly = 0) { ragRepository.indexMessage("assistant-fallback-id", any(), any()) }
+    }
 }

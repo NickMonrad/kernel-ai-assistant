@@ -1510,6 +1510,7 @@ class ChatViewModel @Inject constructor(
                 kernelAIToolSet.resetTurnState()
                 hallucinationRetryAttempted = false
                 var rawToolCallRetryAttempted = false
+                var blankResponseRetryAttempted = false
                 var currentPrompt = prompt
                 var needsHallucinationRetry: Boolean
 
@@ -1549,6 +1550,54 @@ class ChatViewModel @Inject constructor(
                                 rawContent
                             }
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
+
+                            // Guard: LiteRT occasionally produces 0 tokens (TTFT=-1ms) when the model
+                            // generates an immediate EOS — often triggered by an unusual RAG injection
+                            // creating a token pattern where EOS is most likely. LiteRT then
+                            // self-heals by resetting the session (#841).
+                            // Retry once without RAG context (stripped prompt) before showing fallback.
+                            if (fullContent.isBlank()) {
+                                if (!blankResponseRetryAttempted) {
+                                    blankResponseRetryAttempted = true
+                                    Log.w("KernelAI", "blank_response_guard: 0 tokens — retrying without RAG context")
+                                    // Null out grounding context so correctGroundedFacts does not
+                                    // mutate the retry response using stale RAG-injected data.
+                                    groundingContext = null
+                                    currentPrompt = buildString {
+                                        if (systemContext != null) append("$systemContext\n\n")
+                                        append("[System: ${jandalPersona.buildGreetingInstruction(false, jandalPersona.currentPersonaMode)}]\n\n")
+                                        append(text)
+                                    }
+                                    accumulatedContent = StringBuilder()
+                                    accumulatedThinking = StringBuilder()
+                                    activeStreamingContent = accumulatedContent
+                                    activeStreamingThinking = accumulatedThinking
+                                    _messages.update { msgs ->
+                                        msgs.map { if (it.id == assistantMsgId) it.copy(content = "", isStreaming = true) else it }
+                                    }
+                                    needsHallucinationRetry = true
+                                } else {
+                                    Log.w("KernelAI", "blank_response_guard: retry also produced 0 tokens — showing fallback")
+                                    val fallback = "I lost my train of thought there — could you say that again?"
+                                    _messages.update { msgs ->
+                                        msgs.map {
+                                            if (it.id == assistantMsgId) it.copy(content = fallback, isStreaming = false) else it
+                                        }
+                                    }
+                                    conversationRepository.addMessage(convId, "assistant", fallback, thinking)
+                                    // Index the user message so this exchange isn't silently orphaned
+                                    // from semantic search — only the fallback assistant text is skipped.
+                                    if (savedUserMsgId.isNotBlank()) {
+                                        ragRepository.indexMessage(savedUserMsgId, convId, text)
+                                    }
+                                    finalizeVoicePlaybackForResponse(fallback)
+                                    // Clear streaming tracking — mirrors the normal Complete path.
+                                    activeStreamingMsgId = null
+                                    activeStreamingContent = StringBuilder()
+                                    activeStreamingThinking = StringBuilder()
+                                }
+                                return@collect
+                            }
 
                             // With native SDK tool calling, tool execution happens
                             // transparently during generate() — the SDK calls our @Tool
