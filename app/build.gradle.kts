@@ -91,6 +91,7 @@ dependencies {
     implementation(project(":core:skills"))
     implementation(project(":feature:chat"))
     implementation(project(":feature:settings"))
+    implementation(project(":feature:widget"))
 
     // ── Sherpa-ONNX spike — runtime AAR for SherpaOnnxVoiceOutputController ──────────
     // SherpaOnnxVoiceOutputController (core:voice) uses Class.forName() reflection; no
