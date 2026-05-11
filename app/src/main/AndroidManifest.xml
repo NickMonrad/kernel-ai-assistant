@@ -211,7 +211,8 @@
             android:exported="false"
             android:theme="@style/Theme.Kernel.Translucent"
             android:noHistory="true"
-            android:taskAffinity="" />
+            android:taskAffinity=""
+            android:excludeFromRecents="true" />
     </application>
 
 </manifest>
