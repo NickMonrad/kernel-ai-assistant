@@ -12,6 +12,9 @@ import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
@@ -68,6 +71,10 @@ class AndroidNativeRecognitionSupport @Inject constructor(
 ) {
     @Volatile
     private var localeSupportCache: LocaleSupportCache? = null
+
+    // Independent scope so RecognitionSupportCallback closures don't capture
+    // the calling Activity's coroutine continuation chain.
+    private val localeCheckScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
 
 
     suspend fun getAvailability(): AndroidNativeRecognitionAvailability {
@@ -140,71 +147,83 @@ class AndroidNativeRecognitionSupport @Inject constructor(
     fun createPlatformSpeechRecognizer(): SpeechRecognizer =
         SpeechRecognizer.createSpeechRecognizer(context)
 
-    private suspend fun checkLocaleSupport(languageTag: String): AndroidNativeRecognitionLocaleStatus =
-        withContext(Dispatchers.Main.immediate) {
-            withTimeoutOrNull(5_000) {
-                suspendCancellableCoroutine { continuation ->
-                    val recognizer = createOnDeviceSpeechRecognizer()
-                    val supportIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
-                    }
+    private suspend fun checkLocaleSupport(languageTag: String): AndroidNativeRecognitionLocaleStatus {
+        // Run in an independent scope so the RecognitionSupportCallback closure
+        // does NOT capture the caller's continuation chain (which would hold the
+        // calling Activity alive via InternalSupportCallback in native code).
+        val deferred = localeCheckScope.async {
+            withContext(Dispatchers.Main.immediate) {
+                withTimeoutOrNull(5_000) {
+                    suspendCancellableCoroutine { continuation ->
+                        val recognizer = createOnDeviceSpeechRecognizer()
+                        val supportIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
+                        }
 
-                    fun cleanupRecognizer() {
-                        runCatching { recognizer.cancel() }
-                        runCatching { recognizer.destroy() }
-                    }
+                        fun cleanupRecognizer() {
+                            runCatching { recognizer.cancel() }
+                            runCatching { recognizer.destroy() }
+                        }
 
-                    fun complete(status: AndroidNativeRecognitionLocaleStatus) {
-                        if (continuation.isActive) {
-                            cleanupRecognizer()
-                            continuation.resume(status)
-                        } else {
+                        fun complete(status: AndroidNativeRecognitionLocaleStatus) {
+                            if (continuation.isActive) {
+                                cleanupRecognizer()
+                                continuation.resume(status)
+                            } else {
+                                cleanupRecognizer()
+                            }
+                        }
+
+                        continuation.invokeOnCancellation {
                             cleanupRecognizer()
                         }
+
+                        recognizer.checkRecognitionSupport(
+                            supportIntent,
+                            context.mainExecutor,
+                            object : RecognitionSupportCallback {
+                                override fun onSupportResult(recognitionSupport: RecognitionSupport) {
+                                    Log.i(
+                                        TAG,
+                                        "Recognition support result for $languageTag: " +
+                                            "installed=${recognitionSupport.getInstalledOnDeviceLanguages()} " +
+                                            "supported=${recognitionSupport.getSupportedOnDeviceLanguages()} " +
+                                            "pending=${recognitionSupport.getPendingOnDeviceLanguages()} " +
+                                            "online=${recognitionSupport.getOnlineLanguages()}",
+                                    )
+                                    complete(resolveLocaleStatus(languageTag, recognitionSupport))
+                                }
+
+                                override fun onError(error: Int) {
+                                    Log.w(TAG, "Recognition support check failed for $languageTag with error=$error")
+                                    complete(
+                                        when (error) {
+                                            SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ->
+                                                AndroidNativeRecognitionLocaleStatus.NotSupported
+                                            SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
+                                                AndroidNativeRecognitionLocaleStatus.Unavailable
+                                            else -> AndroidNativeRecognitionLocaleStatus.Unknown
+                                        },
+                                    )
+                                }
+                            },
+                        )
                     }
-
-                    continuation.invokeOnCancellation {
-                        cleanupRecognizer()
-                    }
-
-                    recognizer.checkRecognitionSupport(
-                        supportIntent,
-                        context.mainExecutor,
-                        object : RecognitionSupportCallback {
-                            override fun onSupportResult(recognitionSupport: RecognitionSupport) {
-                                Log.i(
-                                    TAG,
-                                    "Recognition support result for $languageTag: " +
-                                        "installed=${recognitionSupport.getInstalledOnDeviceLanguages()} " +
-                                        "supported=${recognitionSupport.getSupportedOnDeviceLanguages()} " +
-                                        "pending=${recognitionSupport.getPendingOnDeviceLanguages()} " +
-                                        "online=${recognitionSupport.getOnlineLanguages()}",
-                                )
-                                complete(resolveLocaleStatus(languageTag, recognitionSupport))
-                            }
-
-                            override fun onError(error: Int) {
-                                Log.w(TAG, "Recognition support check failed for $languageTag with error=$error")
-                                complete(
-                                    when (error) {
-                                        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ->
-                                            AndroidNativeRecognitionLocaleStatus.NotSupported
-                                        SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
-                                            AndroidNativeRecognitionLocaleStatus.Unavailable
-                                        else -> AndroidNativeRecognitionLocaleStatus.Unknown
-                                    },
-                                )
-                            }
-                        },
-                    )
+                } ?: run {
+                    Log.w(TAG, "Recognition support check timed out for $languageTag")
+                    AndroidNativeRecognitionLocaleStatus.Unknown
                 }
-            } ?: run {
-                Log.w(TAG, "Recognition support check timed out for $languageTag")
-                AndroidNativeRecognitionLocaleStatus.Unknown
             }
         }
+        return try {
+            deferred.await()
+        } catch (e: Exception) {
+            Log.w(TAG, "checkLocaleSupport cancelled for $languageTag")
+            AndroidNativeRecognitionLocaleStatus.Unknown
+        }
+    }
 }
 
 internal fun createRecognitionAvailability(
