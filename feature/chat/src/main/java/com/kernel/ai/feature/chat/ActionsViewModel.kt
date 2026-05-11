@@ -122,7 +122,6 @@ class ActionsViewModel @Inject constructor(
     data class PendingSlotState(
         val request: PendingSlotRequest,
         val originalQuery: String,
-        // TODO(#350/#588): use inputMode to adapt SlotFillBottomSheet for voice (mic button, no keyboard)
         val inputMode: InputMode,
     )
 
