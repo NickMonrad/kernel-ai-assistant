@@ -175,6 +175,31 @@
                     android:pathPrefix="/callback" />
             </intent-filter>
         </activity>
+
+        <!-- Homescreen widget -->
+        <receiver
+            android:name="com.kernel.ai.feature.widget.KernelWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/kernel_widget_info" />
+        </receiver>
+
+        <!-- VoiceCommandService — foundational execution seam for widget + future wake word -->
+        <service
+            android:name="com.kernel.ai.feature.widget.VoiceCommandService"
+            android:exported="false" />
+
+        <!-- VoiceCommandActivity — translucent overlay for widget mic button -->
+        <activity
+            android:name="com.kernel.ai.feature.widget.VoiceCommandActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Kernel.Translucent"
+            android:noHistory="true"
+            android:excludeFromRecents="true" />
     </application>
 
 </manifest>
