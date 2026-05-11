@@ -71,7 +71,7 @@ class VoiceCommandActivity : ComponentActivity() {
 
         // Brief boop to indicate listening started
         try {
-            toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100).also {
+            toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 80).also {
                 it.startTone(ToneGenerator.TONE_PROP_BEEP, 200)
             }
         } catch (e: Exception) {
@@ -170,7 +170,7 @@ class VoiceCommandActivity : ComponentActivity() {
                                 is QuickIntentRouter.RouteResult.NeedsSlot ->
                                     navigator.navigateToActions(this@VoiceCommandActivity, transcript)
                                 is QuickIntentRouter.RouteResult.FallThrough ->
-                                    navigator.navigateToChat(this@VoiceCommandActivity, transcript)
+                                    navigator.navigateToActions(this@VoiceCommandActivity, transcript)
                             }
                         }
                         finish()

@@ -94,7 +94,7 @@ class WidgetTextInputActivity : ComponentActivity() {
                             is QuickIntentRouter.RouteResult.NeedsSlot ->
                                 navigator.navigateToActions(this@WidgetTextInputActivity, trimmed)
                             is QuickIntentRouter.RouteResult.FallThrough ->
-                                navigator.navigateToChat(this@WidgetTextInputActivity, trimmed)
+                                navigator.navigateToActions(this@WidgetTextInputActivity, trimmed)
                         }
                         finish()
                     }
