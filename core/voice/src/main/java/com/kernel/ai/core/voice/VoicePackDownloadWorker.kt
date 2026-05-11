@@ -73,10 +73,22 @@ class VoicePackDownloadWorker(
             ?: return@withContext Result.failure(errorData("Missing download URL"))
         val totalBytes = inputData.getLong(KEY_VOICE_TOTAL_BYTES, 0L)
 
-        val voice = SherpaPiperVoice.entries.firstOrNull { it.name == voiceName }
-            ?: return@withContext Result.failure(errorData("Unknown voice: $voiceName"))
+        val piperVoice = SherpaPiperVoice.entries.firstOrNull { it.name == voiceName }
+        val kokoroVoice = if (piperVoice == null) SherpaKokoroVoice.entries.firstOrNull { it.name == voiceName } else null
 
-        val destDir = voice.voiceDir(applicationContext)
+        if (piperVoice == null && kokoroVoice == null) {
+            return@withContext Result.failure(errorData("Unknown voice: $voiceName"))
+        }
+
+        val destDir: File
+        val validationFn: (File) -> Boolean
+        if (kokoroVoice != null) {
+            destDir = kokoroVoice.voiceDir(applicationContext)
+            validationFn = ::hasRequiredKokoroVoicePackFiles
+        } else {
+            destDir = piperVoice!!.voiceDir(applicationContext)
+            validationFn = ::hasRequiredSherpaVoicePackFiles
+        }
         val cacheDir = File(applicationContext.cacheDir, "sherpa-pack").also { it.mkdirs() }
         val tmpFile = File(cacheDir, "$voiceName.tar.bz2$TMP_SUFFIX")
 
@@ -101,7 +113,7 @@ class VoicePackDownloadWorker(
             extractTarBz2(tmpFile, destDir)
             tmpFile.delete()
 
-            if (!hasRequiredSherpaVoicePackFiles(destDir)) {
+            if (!validationFn(destDir)) {
                 Log.e(TAG, "Extraction appeared to succeed but required files are missing for $voiceName")
                 return@withContext Result.failure(errorData("Extraction incomplete — required files missing"))
             }
