@@ -92,6 +92,7 @@ fun KernelNavHost(
     initialChatQuery: String? = null,
     initialQuickActionQuery: String? = null,
     initialSlotReply: String? = null,
+    onInitialQuickActionQueryConsumed: () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -111,12 +112,15 @@ fun KernelNavHost(
         }
     }
 
-    // ADB test harness: navigate to Actions tab when quick_action_input extra is delivered
+    // Widget/ADB: navigate to Actions tab when quick_action_input extra is delivered.
+    // Consumed immediately after navigation to prevent duplicate executeAction calls if
+    // ActionsScreen is destroyed and recreated (e.g. after FallThrough → Chat → back).
     LaunchedEffect(initialQuickActionQuery) {
         if (!initialQuickActionQuery.isNullOrBlank()) {
             navController.navigate(ROUTE_ACTIONS) {
                 popUpTo(ROUTE_LIST)
             }
+            onInitialQuickActionQueryConsumed()
         }
     }
 

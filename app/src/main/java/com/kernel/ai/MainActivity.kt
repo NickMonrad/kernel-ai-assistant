@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
                     initialChatQuery = adbChatInput.value,
                     initialQuickActionQuery = adbQuickActionInput.value,
                     initialSlotReply = adbSlotReplyInput.value,
+                    onInitialQuickActionQueryConsumed = { adbQuickActionInput.value = null },
                 )
             }
         }
