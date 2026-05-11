@@ -218,11 +218,11 @@ class VoiceOutputPreferences @Inject constructor(
                 throw e
             }
         }
-        .map { prefs -> (prefs[kokoroActiveSpeakerIdKey] ?: 0).coerceIn(0, 102) }
+        .map { prefs -> (prefs[kokoroActiveSpeakerIdKey] ?: 0).coerceIn(0, 52) }
 
     suspend fun setKokoroActiveSpeakerId(sid: Int) {
         context.voiceOutputPrefsDataStore.edit { prefs ->
-            prefs[kokoroActiveSpeakerIdKey] = sid.coerceIn(0, 102)
+            prefs[kokoroActiveSpeakerIdKey] = sid.coerceIn(0, 52)
         }
     }
 
