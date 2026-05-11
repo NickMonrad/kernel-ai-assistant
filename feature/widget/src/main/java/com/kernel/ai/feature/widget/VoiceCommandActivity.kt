@@ -42,6 +42,7 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -52,13 +53,16 @@ class VoiceCommandActivity : ComponentActivity() {
 
     @Inject lateinit var voiceInputController: VoiceInputController
 
+    private var toneGenerator: ToneGenerator? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // Brief boop to indicate listening started
         try {
-            ToneGenerator(AudioManager.STREAM_SYSTEM, 80)
-                .startTone(ToneGenerator.TONE_PROP_BEEP, 200)
+            toneGenerator = ToneGenerator(AudioManager.STREAM_SYSTEM, 80).also {
+                it.startTone(ToneGenerator.TONE_PROP_BEEP, 200)
+            }
         } catch (e: Exception) {
             Log.w(TAG, "VoiceCommandActivity: could not play boop", e)
         }
@@ -111,8 +115,9 @@ class VoiceCommandActivity : ComponentActivity() {
         }
 
         lifecycleScope.launch {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
-            voiceInputController.events.collect { event ->
+            voiceInputController.events
+                .onStart { voiceInputController.startListening(VoiceCaptureMode.Command) }
+                .collect { event ->
                 when (event) {
                     is VoiceInputEvent.PartialTranscript -> {
                         partialText = event.text
@@ -140,5 +145,11 @@ class VoiceCommandActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        toneGenerator?.release()
+        toneGenerator = null
     }
 }

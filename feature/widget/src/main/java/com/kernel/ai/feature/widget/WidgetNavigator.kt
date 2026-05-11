@@ -15,23 +15,20 @@ interface WidgetNavigator {
 }
 
 class DefaultWidgetNavigator @Inject constructor() : WidgetNavigator {
-    private val mainActivityComponent = ComponentName("com.kernel.ai", "com.kernel.ai.MainActivity")
 
     override fun navigateToChat(context: Context, input: String) {
-        val intent = Intent().apply {
-            component = mainActivityComponent
+        context.startActivity(Intent().apply {
+            component = ComponentName(context.packageName, "com.kernel.ai.MainActivity")
             putExtra("chat_input", input)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
+        })
     }
 
     override fun navigateToActions(context: Context, input: String) {
-        val intent = Intent().apply {
-            component = mainActivityComponent
+        context.startActivity(Intent().apply {
+            component = ComponentName(context.packageName, "com.kernel.ai.MainActivity")
             putExtra("quick_action_input", input)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
+        })
     }
 }
