@@ -67,6 +67,14 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - ⚙️ **Expanded TTS settings** — pitch slider (Sherpa only, 0.5–2.0×), auto-speak chat replies toggle (decoupled from Quick Actions via `autoSpeakEnabled` field), max spoken sentences dropdown (0 = unlimited, 2, 3, 5); all grouped in a **"Chat voice behaviour"** section in Settings
 - 🛑 **Verbal stop command** — saying "stop", "stop speaking", "cancel", "be quiet", "shut up", or "silence" during TTS playback cancels speech and stops mic re-arm
 - 🗣️ **VCTK multi-speaker selection** — choose from 109 VCTK voices (gender filter, speaker ID, accent label) in Settings → Voice; sid mapping sourced directly from the Piper model config
+- 🗣️ **Semaine multi-speaker selection** — 4 Scottish English speakers (Prudence/Spike/Obadiah/Poppy) selectable in Settings → Voice; sid clamped to `[0, speakerCount-1]` to prevent bleed-through
+- 🗣️ **Voice→Chat fallthrough speak preservation** — Quick Action fallthrough to Chat in voice mode preserves speak expectation so LLM reply is spoken automatically
+- 🗣️ **Slot-fill retry on no-speech** — up to 2 spoken reprompts with cancel/stop escape phrases; ~100ms audio cue confirms mic is active
+- 🗣️ **Pronoun normalisation for TTS** — `normalisePronounsForTts()` converts first-person pronouns to second-person in TTS output ("my wife" → "your wife"); applied to slot prompts, QIR spoken replies, and `expectedSlotPromptSpeech`
+- 🗣️ **ExpectedSlotPromptSpeech normalisation** — TTS output for slot-fill prompts is normalised to match expected TTS event matching, preventing speech recognition mismatches
+- 🔢 **Deterministic unit conversion** — `convert_units` intent matches direct, reversed, mixed-target, and spoken-STT phrasing; normalises aliases (L/mL, km/h, km an hour); enforces same-category only; spoken output uses `spokenSummary` rounded for readability
+- 📆 **Important dates** — taught dates + calendar birthday integration via Calendar Provider query
+- 🔢 **Deterministic arithmetic** — calculator intent for arithmetic operations via `QuickIntentRouter`
 
 ### Coming Soon
 - 💬 **Expanded multi-turn dialog** — broader confirmation, digression, and slot-filling coverage across more intents *(Phase 3G, #708 and follow-ups)*
