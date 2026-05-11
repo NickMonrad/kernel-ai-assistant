@@ -209,6 +209,8 @@ class NativeIntentHandler @Inject constructor(
                 "set_brightness" -> setBrightness(params)
                 else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "NativeIntentHandler.handle($normalizedName) failed", e)
             SkillResult.Failure("run_intent", e.message ?: "Unknown error")

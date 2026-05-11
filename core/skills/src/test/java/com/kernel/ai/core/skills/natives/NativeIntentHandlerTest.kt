@@ -37,11 +37,13 @@ import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.LocalDate
 import java.time.LocalTime
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import java.time.format.DateTimeFormatter
@@ -1242,6 +1244,22 @@ class NativeIntentHandlerTest {
             ),
             result,
         )
+    }
+
+    @Test
+    fun `convert_currency propagates CancellationException`() {
+        coEvery {
+            currencyConversionService.convert("100", "AUD", "NZD", any())
+        } throws CancellationException("job cancelled")
+
+        assertThrows(CancellationException::class.java) {
+            runBlocking {
+                handler.handle(
+                    "convert_currency",
+                    mapOf("amount" to "100", "from_currency" to "AUD", "to_currency" to "NZD"),
+                )
+            }
+        }
     }
 
     @Test
