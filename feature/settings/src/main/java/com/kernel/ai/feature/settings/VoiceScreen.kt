@@ -947,19 +947,19 @@ private fun KokoroSpeakerSelector(
     }
 
     val initialTabIndex = groupToTabIndex(voice.speakerGroupForSid(effectiveId))
-    var selectedTabIndex by rememberSaveable { mutableIntStateOf(initialTabIndex) }
+    var selectedTabIndex by rememberSaveable(effectiveId) { mutableIntStateOf(initialTabIndex) }
 
     // Chinese-Female slider local state (within-group index 0–54 → sids 3–57)
     val chineseFemaleRange = KokoroSpeakerGroup.ChineseFemale.sidRange
     val initialCfIndex = if (effectiveId in chineseFemaleRange)
         effectiveId - chineseFemaleRange.first else 0
-    var cfSliderValue by remember { mutableIntStateOf(initialCfIndex) }
+    var cfSliderValue by remember(effectiveId) { mutableIntStateOf(initialCfIndex) }
 
     // Chinese-Male slider local state (within-group index 0–44 → sids 58–102)
     val chineseMaleRange = KokoroSpeakerGroup.ChineseMale.sidRange
     val initialCmIndex = if (effectiveId in chineseMaleRange)
         effectiveId - chineseMaleRange.first else 0
-    var cmSliderValue by remember { mutableIntStateOf(initialCmIndex) }
+    var cmSliderValue by remember(effectiveId) { mutableIntStateOf(initialCmIndex) }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Text(

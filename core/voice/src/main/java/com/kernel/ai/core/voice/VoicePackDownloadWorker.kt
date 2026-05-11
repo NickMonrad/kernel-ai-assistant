@@ -110,7 +110,7 @@ class VoicePackDownloadWorker(
 
             // Phase 2: Extract (90–100%)
             trySetForeground(buildForegroundInfo(displayName, 90))
-            extractTarBz2(tmpFile, destDir)
+            extractTarBz2(tmpFile, destDir, normalizePiperPack = kokoroVoice == null)
             tmpFile.delete()
 
             if (!validationFn(destDir)) {
@@ -213,7 +213,7 @@ class VoicePackDownloadWorker(
      * We strip this single top-level component so the contents land directly in [destDir]:
      *   `vits-piper-en_GB-jenny_dioco-medium/model.onnx` → `destDir/model.onnx`
      */
-    private fun extractTarBz2(tarBz2: File, destDir: File) {
+    private fun extractTarBz2(tarBz2: File, destDir: File, normalizePiperPack: Boolean = true) {
         if (destDir.exists()) {
             destDir.deleteRecursively()
         }
@@ -250,7 +250,7 @@ class VoicePackDownloadWorker(
                 }
             }
         }
-        normalizeExtractedSherpaVoicePack(destDir)
+        if (normalizePiperPack) normalizeExtractedSherpaVoicePack(destDir)
     }
 
     // ── Foreground / notification ─────────────────────────────────────────────

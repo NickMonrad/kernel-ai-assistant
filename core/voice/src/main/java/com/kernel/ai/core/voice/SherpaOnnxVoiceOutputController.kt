@@ -769,7 +769,12 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 )
                 .newInstance(null, config)
             ttsInstance = instance
-            generateMethod = ttsClass.getMethod("generate", String::class.java, Int::class.java, Float::class.java)
+            generateMethod = ttsClass.getDeclaredMethod(
+                "generate",
+                String::class.java,
+                Int::class.javaPrimitiveType,
+                Float::class.javaPrimitiveType,
+            )
             initState = InitState.AVAILABLE
             Log.i(TAG, "Kokoro TTS initialised: ${voice.displayName}")
             VoiceOutputResult.Spoken
@@ -805,11 +810,16 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
 
         // Build OfflineTtsModelConfig and inject Kokoro config
         val modelConfig = modelConfigClass.getDeclaredConstructor().newInstance()
+        // setProperty() swallows its own exceptions (Log.w only), so use explicit reflection here
+        // to ensure a real failure propagates up and returns UNAVAILABLE rather than corrupt state.
         try {
-            setProperty(modelConfig, "kokoro", kokoroConfig)
-        } catch (_: Exception) {
-            // Some builds use setKokoro() method instead of a field
-            modelConfigClass.getMethod("setKokoro", kokoroConfigClass).invoke(modelConfig, kokoroConfig)
+            val setter = modelConfigClass.getDeclaredMethod("setKokoro", kokoroConfigClass)
+            setter.isAccessible = true
+            setter.invoke(modelConfig, kokoroConfig)
+        } catch (_: NoSuchMethodException) {
+            val field = modelConfigClass.getDeclaredField("kokoro")
+            field.isAccessible = true
+            field.set(modelConfig, kokoroConfig)
         }
         setProperty(modelConfig, "numThreads", 4)
         setProperty(modelConfig, "debug", false)
