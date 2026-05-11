@@ -88,6 +88,14 @@ class ChatTextUtilsTest {
                 "Maybe ay means yes",
                 normalizeChatTextForSpeech("Maybe aye means yes"),
             )
+            assertEquals(
+                "AY, AY AY CAPTAIN",
+                normalizeChatTextForSpeech("AYE, AYE AYE CAPTAIN"),
+            )
+            assertEquals(
+                "ayes stay unchanged",
+                normalizeChatTextForSpeech("ayes stay unchanged"),
+            )
         }
 
         @Test
