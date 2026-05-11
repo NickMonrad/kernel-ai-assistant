@@ -175,6 +175,44 @@
                     android:pathPrefix="/callback" />
             </intent-filter>
         </activity>
+
+        <!-- Homescreen widget -->
+        <receiver
+            android:name="com.kernel.ai.feature.widget.KernelWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/kernel_widget_info" />
+        </receiver>
+
+        <!-- VoiceCommandService — foundational execution seam for widget + future wake word -->
+        <service
+            android:name="com.kernel.ai.feature.widget.VoiceCommandService"
+            android:exported="false" />
+
+        <!-- VoiceCommandActivity — translucent overlay for widget mic button.
+             taskAffinity="" puts it in its own task so launching it does NOT
+             bring MainActivity (and whatever screen it was on) to the foreground. -->
+        <activity
+            android:name="com.kernel.ai.feature.widget.VoiceCommandActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Kernel.Translucent"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:excludeFromRecents="true" />
+
+        <!-- WidgetTextInputActivity — translucent overlay for widget text input.
+             taskAffinity="" for the same reason as VoiceCommandActivity above. -->
+        <activity
+            android:name=".feature.widget.WidgetTextInputActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Kernel.Translucent"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:excludeFromRecents="true" />
     </application>
 
 </manifest>

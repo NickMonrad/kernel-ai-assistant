@@ -81,8 +81,11 @@ private const val ARG_INITIAL_QUERY = "initialQuery"
 private const val ARG_MINIMAL_CONTEXT = "minimalContext"
 private const val ARG_SPEAK_RESPONSE = "speakResponse"
 private const val ARG_START_VOICE = "startVoice"
+private const val ARG_WIDGET_QUERY = "widgetQuery"
+private const val ARG_WIDGET_VOICE = "widgetVoice"
 private const val STATE_OPEN_SHEET_CONSUMED = "openSheetConsumed"
 private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
+private const val STATE_WIDGET_QUERY_CONSUMED = "widgetQueryConsumed"
 
 /** Routes that show the bottom navigation bar. */
 private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
@@ -91,6 +94,7 @@ private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
 fun KernelNavHost(
     initialChatQuery: String? = null,
     initialQuickActionQuery: String? = null,
+    initialQuickActionIsVoice: Boolean = false,
     initialSlotReply: String? = null,
 ) {
     val navController = rememberNavController()
@@ -111,10 +115,15 @@ fun KernelNavHost(
         }
     }
 
-    // ADB test harness: navigate to Actions tab when quick_action_input extra is delivered
-    LaunchedEffect(initialQuickActionQuery) {
+    // Widget/ADB: navigate to Actions tab with the query baked into the route URL so it
+    // lands stably in backStackEntry.arguments (not a mutableStateOf that can null-out
+    // before ActionsScreen's LaunchedEffect fires).
+    LaunchedEffect(initialQuickActionQuery, initialQuickActionIsVoice) {
         if (!initialQuickActionQuery.isNullOrBlank()) {
-            navController.navigate(ROUTE_ACTIONS) {
+            val encoded = Uri.encode(initialQuickActionQuery)
+            navController.navigate(
+                "$ROUTE_ACTIONS?$ARG_WIDGET_QUERY=$encoded&$ARG_WIDGET_VOICE=$initialQuickActionIsVoice"
+            ) {
                 popUpTo(ROUTE_LIST)
             }
         }
@@ -275,7 +284,7 @@ fun KernelNavHost(
                 }
 
                 composable(
-                    route = "$ROUTE_ACTIONS?openSheet={openSheet}&$ARG_START_VOICE={$ARG_START_VOICE}",
+                    route = "$ROUTE_ACTIONS?openSheet={openSheet}&$ARG_START_VOICE={$ARG_START_VOICE}&$ARG_WIDGET_QUERY={$ARG_WIDGET_QUERY}&$ARG_WIDGET_VOICE={$ARG_WIDGET_VOICE}",
                     arguments = listOf(
                         navArgument("openSheet") {
                             type = NavType.BoolType
@@ -285,17 +294,35 @@ fun KernelNavHost(
                             type = NavType.BoolType
                             defaultValue = false
                         },
+                        navArgument(ARG_WIDGET_QUERY) {
+                            type = NavType.StringType
+                            defaultValue = ""
+                            nullable = false
+                        },
+                        navArgument(ARG_WIDGET_VOICE) {
+                            type = NavType.BoolType
+                            defaultValue = false
+                        },
                     ),
                 ) { backStackEntry ->
                     val openSheet = (backStackEntry.arguments?.getBoolean("openSheet") ?: false) &&
                         (backStackEntry.savedStateHandle.get<Boolean>(STATE_OPEN_SHEET_CONSUMED) != true)
                     val startVoice = (backStackEntry.arguments?.getBoolean(ARG_START_VOICE) ?: false) &&
                         (backStackEntry.savedStateHandle.get<Boolean>(STATE_START_VOICE_CONSUMED) != true)
+                    // widgetQuery: baked into the route URL so it's stable in backStackEntry.arguments.
+                    // savedStateHandle guards against re-execution if the composable is recomposed.
+                    val widgetQuery = backStackEntry.arguments?.getString(ARG_WIDGET_QUERY)
+                        ?.takeIf { it.isNotBlank() }
+                        ?.takeIf { backStackEntry.savedStateHandle.get<Boolean>(STATE_WIDGET_QUERY_CONSUMED) != true }
+                    val widgetVoice = if (widgetQuery != null) {
+                        backStackEntry.arguments?.getBoolean(ARG_WIDGET_VOICE) ?: false
+                    } else false
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ActionsScreen(
                             autoOpenSheet = openSheet,
                             autoStartVoiceCommand = startVoice,
-                            initialQuery = initialQuickActionQuery,
+                            initialQuery = widgetQuery,
+                            initialQueryIsVoice = widgetVoice,
                             adbSlotReply = initialSlotReply,
                             onAutoOpenSheetConsumed = {
                                 backStackEntry.savedStateHandle[STATE_OPEN_SHEET_CONSUMED] = true
@@ -304,6 +331,10 @@ fun KernelNavHost(
                             onAutoStartVoiceConsumed = {
                                 backStackEntry.savedStateHandle[STATE_START_VOICE_CONSUMED] = true
                                 backStackEntry.arguments?.putBoolean(ARG_START_VOICE, false)
+                            },
+                            onInitialQueryConsumed = {
+                                backStackEntry.savedStateHandle[STATE_WIDGET_QUERY_CONSUMED] = true
+                                backStackEntry.arguments?.putString(ARG_WIDGET_QUERY, "")
                             },
                             onNavigateToChat = { query, speakResponse ->
                                 val encoded = Uri.encode(query)
