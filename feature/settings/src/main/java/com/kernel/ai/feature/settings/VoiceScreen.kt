@@ -35,6 +35,8 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -57,6 +59,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.voice.KokoroSpeakerGroup
 import com.kernel.ai.core.voice.SemaineSpeakerMetadata
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -64,6 +67,7 @@ import com.kernel.ai.core.voice.VctkSpeakerMetadata
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.voice.speakerGroupForSid
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -925,28 +929,141 @@ private fun KokoroSpeakerSelector(
     modifier: Modifier = Modifier,
 ) {
     val effectiveId = activeSpeakerId.coerceIn(0, voice.speakerCount - 1)
-    var sliderValue by remember(effectiveId) { mutableIntStateOf(effectiveId) }
-    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+
+    // Tabs: English (3 speakers), Chinese Female (55 speakers), Chinese Male (45 speakers)
+    data class TabSpec(val group: KokoroSpeakerGroup, val label: String)
+    val tabs = listOf(
+        TabSpec(KokoroSpeakerGroup.AmericanFemale, "English (3)"),
+        TabSpec(KokoroSpeakerGroup.ChineseFemale, "Chinese F (55)"),
+        TabSpec(KokoroSpeakerGroup.ChineseMale, "Chinese M (45)"),
+    )
+
+    // Determine the initial tab from the active speaker's group.
+    // BritishFemale (sid 2) maps to the English tab since it is included in the English tab range.
+    fun groupToTabIndex(group: KokoroSpeakerGroup): Int = when (group) {
+        KokoroSpeakerGroup.AmericanFemale, KokoroSpeakerGroup.BritishFemale -> 0
+        KokoroSpeakerGroup.ChineseFemale -> 1
+        KokoroSpeakerGroup.ChineseMale -> 2
+    }
+
+    val initialTabIndex = groupToTabIndex(voice.speakerGroupForSid(effectiveId))
+    var selectedTabIndex by rememberSaveable { mutableIntStateOf(initialTabIndex) }
+
+    // Chinese-Female slider local state (within-group index 0–54 → sids 3–57)
+    val chineseFemaleRange = KokoroSpeakerGroup.ChineseFemale.sidRange
+    val initialCfIndex = if (effectiveId in chineseFemaleRange)
+        effectiveId - chineseFemaleRange.first else 0
+    var cfSliderValue by remember { mutableIntStateOf(initialCfIndex) }
+
+    // Chinese-Male slider local state (within-group index 0–44 → sids 58–102)
+    val chineseMaleRange = KokoroSpeakerGroup.ChineseMale.sidRange
+    val initialCmIndex = if (effectiveId in chineseMaleRange)
+        effectiveId - chineseMaleRange.first else 0
+    var cmSliderValue by remember { mutableIntStateOf(initialCmIndex) }
+
+    Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = "Kokoro speaker",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
         Text(
-            text = "Speaker $effectiveId of ${voice.speakerCount - 1}. Slide to preview different voices.",
+            text = "Selected: ${voice.speakerNameForSid(effectiveId)}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 4.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
         )
-        Slider(
-            value = sliderValue.toFloat(),
-            onValueChange = { sliderValue = it.toInt() },
-            onValueChangeFinished = { onSpeakerSelected(sliderValue) },
-            valueRange = 0f..(voice.speakerCount - 1).toFloat(),
-            steps = voice.speakerCount - 2,
-            modifier = Modifier.fillMaxWidth(),
-        )
+
+        TabRow(selectedTabIndex = selectedTabIndex) {
+            tabs.forEachIndexed { index, tab ->
+                Tab(
+                    selected = selectedTabIndex == index,
+                    onClick = { selectedTabIndex = index },
+                    text = { Text(tab.label) },
+                )
+            }
+        }
+
+        when (selectedTabIndex) {
+            // English tab: named radio buttons for sids 0 (af_maple), 1 (af_sol), 2 (bf_vale)
+            0 -> {
+                data class EnglishSpeaker(val sid: Int, val subtitle: String)
+                val englishSpeakers = listOf(
+                    EnglishSpeaker(0, "American female"),
+                    EnglishSpeaker(1, "American female"),
+                    EnglishSpeaker(2, "British female"),
+                )
+                englishSpeakers.forEach { speaker ->
+                    ListItem(
+                        modifier = Modifier.fillMaxWidth(),
+                        headlineContent = { Text(voice.speakerNameForSid(speaker.sid)) },
+                        supportingContent = { Text(speaker.subtitle) },
+                        trailingContent = {
+                            RadioButton(
+                                selected = effectiveId == speaker.sid,
+                                onClick = { onSpeakerSelected(speaker.sid) },
+                            )
+                        },
+                    )
+                    HorizontalDivider()
+                }
+            }
+
+            // Chinese Female tab: slider over sids 3–57
+            1 -> {
+                val steps = chineseFemaleRange.last - chineseFemaleRange.first  // 54 steps → 55 values
+                val currentSid = chineseFemaleRange.first + cfSliderValue
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        text = voice.speakerNameForSid(currentSid),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                    Slider(
+                        value = cfSliderValue.toFloat(),
+                        onValueChange = { cfSliderValue = it.roundToInt() },
+                        onValueChangeFinished = {
+                            onSpeakerSelected(chineseFemaleRange.first + cfSliderValue)
+                        },
+                        valueRange = 0f..steps.toFloat(),
+                        steps = steps - 1,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+
+            // Chinese Male tab: slider over sids 58–102
+            else -> {
+                val steps = chineseMaleRange.last - chineseMaleRange.first  // 44 steps → 45 values
+                val currentSid = chineseMaleRange.first + cmSliderValue
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        text = voice.speakerNameForSid(currentSid),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                    Slider(
+                        value = cmSliderValue.toFloat(),
+                        onValueChange = { cmSliderValue = it.roundToInt() },
+                        onValueChangeFinished = {
+                            onSpeakerSelected(chineseMaleRange.first + cmSliderValue)
+                        },
+                        valueRange = 0f..steps.toFloat(),
+                        steps = steps - 1,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
     }
 }
 
