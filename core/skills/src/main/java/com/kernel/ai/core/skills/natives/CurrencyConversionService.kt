@@ -10,6 +10,7 @@ import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -124,7 +125,9 @@ class CurrencyConversionService @Inject constructor(
                 .header("User-Agent", "KernelAI/1.0 (Android)")
                 .build()
             val catalog = withContext(Dispatchers.IO) {
-                httpClient.newCall(request).execute().use { response ->
+                runInterruptible {
+                    httpClient.newCall(request).execute()
+                }.use { response ->
                     if (!response.isSuccessful) {
                         throw IllegalArgumentException(
                             "Currency rates are unavailable right now. I can't do a truthful conversion offline.",
@@ -203,7 +206,9 @@ class CurrencyConversionService @Inject constructor(
             .url(url)
             .header("User-Agent", "KernelAI/1.0 (Android)")
             .build()
-        httpClient.newCall(request).execute().use { response ->
+        runInterruptible {
+            httpClient.newCall(request).execute()
+        }.use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw IllegalArgumentException(parseApiError(body))

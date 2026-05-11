@@ -2059,8 +2059,9 @@ class NativeIntentHandler @Inject constructor(
 
             val roundedAmount = result.outputAmount.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros()
             val roundedRate = result.rate.setScale(4, RoundingMode.HALF_UP).stripTrailingZeros()
+            val spokenDate = result.rateDate.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH))
             val content = "At the latest ${result.sourceLabel} from ${result.rateDate}, ${result.inputAmount.toPlainString()} ${result.fromCurrency.code} converts to approximately ${roundedAmount.toPlainString()} ${result.toCurrency.code}. 1 ${result.fromCurrency.code} = ${roundedRate.toPlainString()} ${result.toCurrency.code}. Exchange rates are not real-time and may have moved since then."
-            val spokenSummary = "At the ${result.rateDate} ${result.sourceLabel}, ${result.inputAmount.toPlainString()} ${result.fromCurrency.code} converts to approximately ${roundedAmount.toPlainString()} ${result.toCurrency.code}."
+            val spokenSummary = "At the $spokenDate ${result.sourceLabel}, ${result.inputAmount.toPlainString()} ${result.fromCurrency.code} converts to approximately ${roundedAmount.toPlainString()} ${result.toCurrency.code}."
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: CancellationException) {
             throw e

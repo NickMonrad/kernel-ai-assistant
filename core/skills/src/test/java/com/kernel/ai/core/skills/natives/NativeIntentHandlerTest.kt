@@ -1203,7 +1203,7 @@ class NativeIntentHandlerTest {
         assertEquals(
             SkillResult.DirectReply(
                 "At the latest ECB reference rate via Frankfurter from 2026-05-08, 100 AUD converts to approximately 121.38 NZD. 1 AUD = 1.2138 NZD. Exchange rates are not real-time and may have moved since then.",
-                spokenSummary = "At the 2026-05-08 ECB reference rate via Frankfurter, 100 AUD converts to approximately 121.38 NZD.",
+                spokenSummary = "At the 8 May 2026 ECB reference rate via Frankfurter, 100 AUD converts to approximately 121.38 NZD.",
             ),
             result,
         )
