@@ -44,7 +44,10 @@ import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 private const val TAG = "KernelAI"
 
@@ -53,6 +56,8 @@ class WidgetTextInputActivity : ComponentActivity() {
 
     @Inject lateinit var quickIntentRouter: QuickIntentRouter
     @Inject lateinit var navigator: WidgetNavigator
+
+    private var submitJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,9 +77,11 @@ class WidgetTextInputActivity : ComponentActivity() {
                 fun submit() {
                     val trimmed = text.trim()
                     if (trimmed.isBlank()) { finish(); return }
+                    if (submitJob?.isActive == true) return
                     Log.d(TAG, "WidgetTextInputActivity: submitting text=\"$trimmed\"")
-                    this@WidgetTextInputActivity.lifecycleScope.launch {
-                        when (quickIntentRouter.route(trimmed)) {
+                    submitJob = this@WidgetTextInputActivity.lifecycleScope.launch {
+                        val result = withContext(Dispatchers.Default) { quickIntentRouter.route(trimmed) }
+                        when (result) {
                             is QuickIntentRouter.RouteResult.RegexMatch,
                             is QuickIntentRouter.RouteResult.ClassifierMatch -> {
                                 startService(

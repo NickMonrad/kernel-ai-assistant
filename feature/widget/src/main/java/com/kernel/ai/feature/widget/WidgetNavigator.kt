@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.widget
 
+import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -20,7 +21,7 @@ class DefaultWidgetNavigator @Inject constructor() : WidgetNavigator {
         context.startActivity(Intent().apply {
             component = ComponentName(context.packageName, "com.kernel.ai.MainActivity")
             putExtra("chat_input", input)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         })
     }
 
@@ -28,7 +29,7 @@ class DefaultWidgetNavigator @Inject constructor() : WidgetNavigator {
         context.startActivity(Intent().apply {
             component = ComponentName(context.packageName, "com.kernel.ai.MainActivity")
             putExtra("quick_action_input", input)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         })
     }
 }

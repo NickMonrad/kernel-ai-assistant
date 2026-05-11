@@ -48,8 +48,10 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.skills.QuickIntentRouter
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
@@ -151,7 +153,8 @@ class VoiceCommandActivity : ComponentActivity() {
                         val transcript = event.text
                         Log.d(TAG, "VoiceCommandActivity: final transcript=\"$transcript\"")
                         if (transcript.isNotBlank()) {
-                            when (quickIntentRouter.route(transcript)) {
+                            val result = withContext(Dispatchers.Default) { quickIntentRouter.route(transcript) }
+                            when (result) {
                                 is QuickIntentRouter.RouteResult.RegexMatch,
                                 is QuickIntentRouter.RouteResult.ClassifierMatch -> {
                                     startService(
