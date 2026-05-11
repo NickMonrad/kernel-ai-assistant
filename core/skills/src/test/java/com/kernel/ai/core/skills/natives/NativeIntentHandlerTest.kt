@@ -56,6 +56,7 @@ class NativeIntentHandlerTest {
     private val clockAlertController = mockk<ClockAlertController>(relaxed = true)
     private val listItemDao = mockk<ListItemDao>(relaxed = true)
     private val listNameDao = mockk<ListNameDao>(relaxed = true)
+    private val currencyConversionService = mockk<CurrencyConversionService>(relaxed = true)
     private val handler = NativeIntentHandler(
         context = context,
         clockRepository = clockRepository,
@@ -67,6 +68,7 @@ class NativeIntentHandlerTest {
         calendarBirthdayLookup = calendarBirthdayLookup,
         memoryRepository = mockk<MemoryRepository>(relaxed = true),
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
+        currencyConversionService = currencyConversionService,
     )
 
     @BeforeEach
@@ -1241,6 +1243,54 @@ class NativeIntentHandlerTest {
         )
     }
 
+
+    @Test
+    fun `convert_currency returns truthful direct reply with provenance`() {
+        coEvery {
+            currencyConversionService.convert("100", "AUD", "NZD", any())
+        } returns CurrencyConversionService.Result(
+            inputAmount = java.math.BigDecimal("100"),
+            fromCurrency = CurrencyConversionService.ResolvedCurrency("AUD", "Australian Dollar"),
+            toCurrency = CurrencyConversionService.ResolvedCurrency("NZD", "New Zealand Dollar"),
+            outputAmount = java.math.BigDecimal("121.38"),
+            rate = java.math.BigDecimal("1.2138"),
+            rateDate = LocalDate.of(2026, 5, 8),
+            sourceLabel = "ECB reference rate via Frankfurter",
+        )
+
+        val result = handler.handle(
+            "convert_currency",
+            mapOf("amount" to "100", "from_currency" to "AUD", "to_currency" to "NZD"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "At the latest ECB reference rate via Frankfurter from 2026-05-08, 100 AUD converts to approximately 121.38 NZD. 1 AUD = 1.2138 NZD. Exchange rates are not real-time and may have moved since then.",
+                spokenSummary = "At the 2026-05-08 ECB reference rate via Frankfurter, 100 AUD converts to approximately 121.38 NZD.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_currency reports stale or unavailable rates cleanly`() {
+        coEvery {
+            currencyConversionService.convert("100", "AUD", "NZD", any())
+        } throws IllegalArgumentException("Latest available AUD to NZD rate is from 2026-05-01, which is too stale to use.")
+
+        val result = handler.handle(
+            "convert_currency",
+            mapOf("amount" to "100", "from_currency" to "AUD", "to_currency" to "NZD"),
+        )
+
+        assertEquals(
+            SkillResult.Failure(
+                "convert_currency",
+                "Latest available AUD to NZD rate is from 2026-05-01, which is too stale to use.",
+            ),
+            result,
+        )
+    }
 
     private data class PhoneRow(
         val contactId: String,

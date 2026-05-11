@@ -483,6 +483,7 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 | `get_battery` / `get_time` / `get_date` | Deterministic device info | Android APIs / `LocalDateTime` | ✅ |
 | `get_date_diff` | Deterministic date arithmetic | `LocalDate` calculation | ✅ |
 | `convert_units` | Deterministic unit conversion (length, mass, volume, temperature, speed) | `UnitConversionEvaluator` via `NativeIntentHandler` | ✅ |
+| `convert_currency` | Deterministic currency conversion using latest ECB-backed rates | `CurrencyConversionService` via `NativeIntentHandler` | ✅ |
 | `add_to_list` / `bulk_add_to_list` / `create_list` / `get_list_items` / `remove_from_list` | Room-backed list management | `NativeIntentHandler` + Room DAOs | ✅ |
 
 
@@ -535,8 +536,40 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 **Explicit non-goals in this implementation**
 
 - No ingredient-aware cooking density conversions
-- No currency conversion or exchange-rate lookup
 - No cross-category interpretation such as inferring mass from volume without material context
+- No historical FX charting, offline exchange-rate cache, or real-time market feed
+
+
+> **`convert_currency` deterministic routing and reply contract:** `QuickIntentRouter` matches direct phrasing (`convert 100 Australian dollars to New Zealand dollars`, `100 aud in nzd`, `how much is 100 usd in eur`) and reversed phrasing (`how many euros are in 100 usd`) and routes them to the dedicated native `convert_currency` path rather than `convert_units`. The native path resolves ISO codes plus supported currency names, fetches the latest ECB-backed rate from Frankfurter `/v1/latest`, and always returns a direct reply that includes the effective rate date, the quoted pair rate, and an explicit note that exchange rates are not real-time.
+
+#### `convert_currency` supported capabilities
+
+**Accepted phrasing patterns**
+
+- Direct phrasing: `convert 100 Australian dollars to New Zealand dollars`, `100 aud in nzd`, `how much is 100 usd in eur`
+- Reversed phrasing: `how many euros are in 100 usd`
+- Connectors: `to`, `in`, `into`, `for`
+
+**Data source and freshness model**
+
+- Source: Frankfurter `/v1` latest-rates API backed by ECB reference rates
+- Freshness: the reply includes the returned trading date and treats the result as approximate, not real-time
+- Staleness guard: if the latest available date is older than 5 days, the conversion fails instead of returning a misleading amount
+- Offline / unavailable state: conversions fail closed with an explicit error instead of guessing or hallucinating an exchange rate
+
+**Supported currency set in this implementation**
+
+- Limited to the ECB/Frankfurter `/v1/currencies` catalog returned by the upstream service
+- Common ISO-code inputs such as `AUD`, `NZD`, `USD`, `EUR`, `GBP`, `JPY`, `CAD`, `CHF`, `CNY`, `INR`, `SGD`, `MXN`, `ZAR` are supported when present in that catalog
+- Common full-name phrasing such as `Australian dollars`, `New Zealand dollars`, `United States dollars`, and `euros` is normalized before lookup
+
+**Behavior and guardrails**
+
+- Currency conversion is intentionally separate from `convert_units`; physical units and exchange rates do not share a parser or evaluator
+- Replies always use approximate wording and include provenance/date so the user can judge market drift
+- Unknown, unsupported, or ambiguous currencies fail clearly instead of being guessed
+- Same-currency requests short-circuit locally (`100 USD` → `100 USD`) without a network lookup
+- No historical-range, cached offline, or truly real-time market data claims are made
 
 > **Alarm/timer ownership:** Core alarm and timer behavior now stays inside the app-owned
 > clock backend. If exact alarms are unavailable, the action fails truthfully instead of
