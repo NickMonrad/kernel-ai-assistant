@@ -96,6 +96,10 @@ class ChatTextUtilsTest {
                 "ayes stay unchanged",
                 normalizeChatTextForSpeech("ayes stay unchanged"),
             )
+            assertEquals(
+                "aye-aye unchanged",
+                normalizeChatTextForSpeech("aye-aye unchanged"),
+            )
         }
 
         @Test

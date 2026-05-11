@@ -150,7 +150,7 @@ private val speechPronunciationRules = listOf(
         replacement = "moh-reh-nah",
     ),
     SpeechPronunciationRule(
-        pattern = Regex("""\baye\b""", RegexOption.IGNORE_CASE),
+        pattern = Regex("""(?<![a-zA-Z-])aye(?![a-zA-Z-])""", RegexOption.IGNORE_CASE),
         replacement = "A",
     ),
 )
