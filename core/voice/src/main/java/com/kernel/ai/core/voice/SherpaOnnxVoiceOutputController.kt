@@ -782,39 +782,39 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         val modelConfigClass = Class.forName(SHERPA_MODEL_CONFIG_CLASS)
         val ttsConfigClass = Class.forName(SHERPA_OFFLINE_TTS_CONFIG_CLASS)
 
-        // Build OfflineTtsKokoroModelConfig
+        // Build OfflineTtsKokoroModelConfig — use setProperty() which calls getDeclaredField() +
+        // setAccessible(true), since all fields in the Sherpa AAR are private Kotlin backing fields.
         val kokoroConfig = kokoroConfigClass.getDeclaredConstructor().newInstance()
-        kokoroConfigClass.getField("model").set(kokoroConfig, File(modelDir, "model.onnx").absolutePath)
-        kokoroConfigClass.getField("voices").set(kokoroConfig, File(modelDir, SHERPA_KOKORO_VOICES_FILE).absolutePath)
-        kokoroConfigClass.getField("tokens").set(kokoroConfig, File(modelDir, "tokens.txt").absolutePath)
-        kokoroConfigClass.getField("dataDir").set(kokoroConfig, File(modelDir, "espeak-ng-data").absolutePath)
-        // lang hint — Kokoro accepts "en-us" style; default empty string is also fine for the
-        // multi-lingual model, but an explicit hint improves G2P quality.
-        try { kokoroConfigClass.getField("lang").set(kokoroConfig, "") } catch (_: NoSuchFieldException) { /* optional */ }
-        // lexicon: join any present lexicon files with a comma
+        setProperty(kokoroConfig, "model", File(modelDir, "model.onnx").absolutePath)
+        setProperty(kokoroConfig, "voices", File(modelDir, SHERPA_KOKORO_VOICES_FILE).absolutePath)
+        setProperty(kokoroConfig, "tokens", File(modelDir, "tokens.txt").absolutePath)
+        setProperty(kokoroConfig, "dataDir", File(modelDir, "espeak-ng-data").absolutePath)
+        // lang hint — empty string is fine for the multi-lingual model (optional field)
+        setProperty(kokoroConfig, "lang", "")
+        // lexicon: join any present lexicon files with a comma (optional field)
         val lexiconFiles = listOf("lexicon-us-en.txt", "lexicon-gb-en.txt")
             .map { File(modelDir, it) }
             .filter { it.exists() }
             .joinToString(",") { it.absolutePath }
         if (lexiconFiles.isNotEmpty()) {
-            try { kokoroConfigClass.getField("lexicon").set(kokoroConfig, lexiconFiles) } catch (_: NoSuchFieldException) { /* optional */ }
+            setProperty(kokoroConfig, "lexicon", lexiconFiles)
         }
 
         // Build OfflineTtsModelConfig and inject Kokoro config
         val modelConfig = modelConfigClass.getDeclaredConstructor().newInstance()
         try {
-            modelConfigClass.getField("kokoro").set(modelConfig, kokoroConfig)
-        } catch (_: NoSuchFieldException) {
-            // Some builds use setKokoro()
+            setProperty(modelConfig, "kokoro", kokoroConfig)
+        } catch (_: Exception) {
+            // Some builds use setKokoro() method instead of a field
             modelConfigClass.getMethod("setKokoro", kokoroConfigClass).invoke(modelConfig, kokoroConfig)
         }
-        modelConfigClass.getField("numThreads").set(modelConfig, 4)
-        modelConfigClass.getField("debug").set(modelConfig, false)
+        setProperty(modelConfig, "numThreads", 4)
+        setProperty(modelConfig, "debug", false)
 
         // Build OfflineTtsConfig
         val ttsConfig = ttsConfigClass.getDeclaredConstructor().newInstance()
-        ttsConfigClass.getField("model").set(ttsConfig, modelConfig)
-        ttsConfigClass.getField("maxNumSentences").set(ttsConfig, 1)
+        setProperty(ttsConfig, "model", modelConfig)
+        setProperty(ttsConfig, "maxNumSentences", 1)
         return ttsConfig
     }
 
