@@ -763,8 +763,11 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             val config = buildOfflineTtsKokoroConfig(modelDir, voice)
             val ttsClass = Class.forName(SHERPA_OFFLINE_TTS_CLASS)
             val instance = ttsClass
-                .getConstructor(Class.forName(SHERPA_OFFLINE_TTS_CONFIG_CLASS))
-                .newInstance(config)
+                .getConstructor(
+                    android.content.res.AssetManager::class.java,
+                    Class.forName(SHERPA_OFFLINE_TTS_CONFIG_CLASS),
+                )
+                .newInstance(null, config)
             ttsInstance = instance
             generateMethod = ttsClass.getMethod("generate", String::class.java, Int::class.java, Float::class.java)
             initState = InitState.AVAILABLE
