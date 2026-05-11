@@ -133,6 +133,22 @@ import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
 import com.kernel.ai.feature.chat.model.ToolCallInfo
 
+internal fun shouldKeepChatScreenAwake(
+    uiState: ChatUiState,
+    voiceCaptureState: ChatViewModel.VoiceCaptureState,
+    voicePlaybackState: ChatViewModel.VoicePlaybackState,
+    voiceMode: ChatViewModel.VoiceMode?,
+): Boolean = when (uiState) {
+    ChatUiState.Loading -> true
+    is ChatUiState.ModelsNotReady -> false
+    is ChatUiState.Ready ->
+        uiState.isLoadingModel ||
+            uiState.isGenerating ||
+            voiceMode == ChatViewModel.VoiceMode.BackAndForth ||
+            voiceCaptureState != ChatViewModel.VoiceCaptureState.Idle ||
+            voicePlaybackState != ChatViewModel.VoicePlaybackState.Idle
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -152,6 +168,21 @@ fun ChatScreen(
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val view = androidx.compose.ui.platform.LocalView.current
+    val keepScreenAwake = shouldKeepChatScreenAwake(
+        uiState = uiState,
+        voiceCaptureState = voiceCaptureState,
+        voicePlaybackState = voicePlaybackState,
+        voiceMode = voiceMode,
+    )
+
+    DisposableEffect(view, keepScreenAwake) {
+        val previousKeepScreenOn = view.keepScreenOn
+        view.keepScreenOn = keepScreenAwake || previousKeepScreenOn
+        onDispose {
+            view.keepScreenOn = previousKeepScreenOn
+        }
+    }
 
     // Auto-send the initial query from Actions tab (runs once per navigation).
     // We only wait for conversation initialisation, NOT for the LLM to be ready.
@@ -295,8 +326,6 @@ private fun ChatContent(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
-    val view = androidx.compose.ui.platform.LocalView.current
-    val keepScreenAwake = voiceMode == ChatViewModel.VoiceMode.BackAndForth
     val loopListeningCueState = when (voiceCaptureState) {
         ChatViewModel.VoiceCaptureState.Idle -> LoopListeningCueState.Idle
         is ChatViewModel.VoiceCaptureState.Preparing -> LoopListeningCueState.Preparing
@@ -308,14 +337,6 @@ private fun ChatContent(
         loopActive = voiceMode == ChatViewModel.VoiceMode.BackAndForth,
         captureState = loopListeningCueState,
     )
-
-    DisposableEffect(view, keepScreenAwake) {
-        val previousKeepScreenOn = view.keepScreenOn
-        view.keepScreenOn = keepScreenAwake || previousKeepScreenOn
-        onDispose {
-            view.keepScreenOn = previousKeepScreenOn
-        }
-    }
 
     // Auto-scroll when a new message is appended, but only if the user is already
     // near the bottom (within 2 items). If they've scrolled up to read history,
@@ -408,7 +429,7 @@ private fun ChatContent(
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        text = "Loading model…",
+                                        text = "Loading model… keeping this screen awake.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -1066,6 +1087,13 @@ private fun LoadingContent() {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),
+            )
+            Text(
+                text = "Still loading the on-device model. This can take a while after sleep or switching apps, so keep this screen open.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 16.dp),
             )
         }
         }
