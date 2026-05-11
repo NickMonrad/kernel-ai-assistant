@@ -33,13 +33,13 @@ import androidx.glance.text.TextStyle
 class KernelWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
-            KernelWidgetContent()
+            KernelWidgetContent(context.packageName)
         }
     }
 }
 
 @Composable
-private fun KernelWidgetContent() {
+private fun KernelWidgetContent(packageName: String) {
     GlanceTheme {
         Row(
             modifier = GlanceModifier
@@ -66,7 +66,7 @@ private fun KernelWidgetContent() {
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .clickable(
                         actionStartActivity(
-                            ComponentName("com.kernel.ai", "com.kernel.ai.MainActivity")
+                            ComponentName(packageName, "com.kernel.ai.MainActivity")
                         )
                     ),
                 contentAlignment = Alignment.CenterStart,
