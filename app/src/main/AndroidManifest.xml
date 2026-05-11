@@ -200,6 +200,13 @@
             android:theme="@style/Theme.Kernel.Translucent"
             android:noHistory="true"
             android:excludeFromRecents="true" />
+
+        <!-- WidgetTextInputActivity — translucent overlay for widget text input -->
+        <activity
+            android:name=".feature.widget.WidgetTextInputActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Kernel.Translucent"
+            android:noHistory="true" />
     </application>
 
 </manifest>

@@ -1,6 +1,5 @@
 package com.kernel.ai.feature.widget
 
-import android.content.ComponentName
 import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -64,11 +63,7 @@ private fun KernelWidgetContent(packageName: String) {
                         )
                     )
                     .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .clickable(
-                        actionStartActivity(
-                            ComponentName(packageName, "com.kernel.ai.MainActivity")
-                        )
-                    ),
+                    .clickable(actionStartActivity(WidgetTextInputActivity::class.java)),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 Text(
