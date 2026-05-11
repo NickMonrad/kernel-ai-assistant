@@ -81,15 +81,15 @@ class ChatTextUtilsTest {
                 normalizeChatTextForSpeech("morena everyone"),
             )
             assertEquals(
-                "Ay, sounds good",
+                "A, sounds good",
                 normalizeChatTextForSpeech("Aye, sounds good"),
             )
             assertEquals(
-                "Maybe ay means yes",
+                "Maybe A means yes",
                 normalizeChatTextForSpeech("Maybe aye means yes"),
             )
             assertEquals(
-                "AY, AY AY CAPTAIN",
+                "A, A A CAPTAIN",
                 normalizeChatTextForSpeech("AYE, AYE AYE CAPTAIN"),
             )
             assertEquals(
