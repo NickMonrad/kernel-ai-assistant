@@ -80,6 +80,10 @@ class ChatTextUtilsTest {
                 "moh-reh-nah everyone",
                 normalizeChatTextForSpeech("morena everyone"),
             )
+        }
+
+        @Test
+        fun `normalises standalone aye to the spoken letter A`() {
             assertEquals(
                 "A, sounds good",
                 normalizeChatTextForSpeech("Aye, sounds good"),
