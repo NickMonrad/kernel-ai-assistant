@@ -11,7 +11,7 @@ import javax.inject.Inject
  */
 interface WidgetNavigator {
     fun navigateToChat(context: Context, input: String)
-    fun navigateToActions(context: Context, input: String)
+    fun navigateToActions(context: Context, input: String, isVoice: Boolean = false)
 }
 
 class DefaultWidgetNavigator @Inject constructor() : WidgetNavigator {
@@ -24,10 +24,11 @@ class DefaultWidgetNavigator @Inject constructor() : WidgetNavigator {
         })
     }
 
-    override fun navigateToActions(context: Context, input: String) {
+    override fun navigateToActions(context: Context, input: String, isVoice: Boolean) {
         context.startActivity(Intent().apply {
             component = ComponentName(context.packageName, "com.kernel.ai.MainActivity")
             putExtra("quick_action_input", input)
+            putExtra("quick_action_is_voice", isVoice)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         })
     }

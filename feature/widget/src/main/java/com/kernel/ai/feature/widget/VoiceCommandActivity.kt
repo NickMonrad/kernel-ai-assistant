@@ -153,7 +153,7 @@ class VoiceCommandActivity : ComponentActivity() {
                             // Always open Actions so the result card is visible.
                             // ActionsViewModel handles all route types (RegexMatch,
                             // ClassifierMatch, NeedsSlot, FallThrough) correctly.
-                            navigator.navigateToActions(this@VoiceCommandActivity, transcript)
+                            navigator.navigateToActions(this@VoiceCommandActivity, transcript, isVoice = true)
                         }
                         finish()
                     }
