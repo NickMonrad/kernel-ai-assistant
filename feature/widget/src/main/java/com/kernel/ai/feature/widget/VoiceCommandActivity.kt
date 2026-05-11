@@ -7,24 +7,29 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,6 +46,7 @@ import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.skills.QuickIntentRouter
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
@@ -52,15 +58,18 @@ private const val TAG = "KernelAI"
 class VoiceCommandActivity : ComponentActivity() {
 
     @Inject lateinit var voiceInputController: VoiceInputController
+    @Inject lateinit var quickIntentRouter: QuickIntentRouter
+    @Inject lateinit var navigator: WidgetNavigator
 
     private var toneGenerator: ToneGenerator? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         // Brief boop to indicate listening started
         try {
-            toneGenerator = ToneGenerator(AudioManager.STREAM_SYSTEM, 80).also {
+            toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100).also {
                 it.startTone(ToneGenerator.TONE_PROP_BEEP, 200)
             }
         } catch (e: Exception) {
@@ -71,19 +80,27 @@ class VoiceCommandActivity : ComponentActivity() {
 
         setContent {
             KernelAITheme {
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .navigationBarsPadding(),
+                ) {
+                    // Transparent backdrop — tap anywhere outside the card to cancel
+                    Box(modifier = Modifier.fillMaxSize().clickable { finish() })
+
                     Surface(
+                        onClick = {},  // consume taps so backdrop doesn't fire
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
                         shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                         tonalElevation = 8.dp,
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(16.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                         ) {
                             val infiniteTransition = rememberInfiniteTransition(label = "mic_pulse")
                             val pulse by infiniteTransition.animateFloat(
@@ -107,7 +124,15 @@ class VoiceCommandActivity : ComponentActivity() {
                             Text(
                                 text = partialText.ifEmpty { "Listening…" },
                                 style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
                             )
+                            IconButton(onClick = { finish() }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Cancel",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -126,14 +151,24 @@ class VoiceCommandActivity : ComponentActivity() {
                         val transcript = event.text
                         Log.d(TAG, "VoiceCommandActivity: final transcript=\"$transcript\"")
                         if (transcript.isNotBlank()) {
-                            val serviceIntent = Intent(
-                                this@VoiceCommandActivity,
-                                VoiceCommandService::class.java,
-                            ).apply {
-                                putExtra(VoiceCommandService.EXTRA_TRANSCRIPT, transcript)
-                                putExtra(VoiceCommandService.EXTRA_INPUT_MODE, "voice")
+                            when (quickIntentRouter.route(transcript)) {
+                                is QuickIntentRouter.RouteResult.RegexMatch,
+                                is QuickIntentRouter.RouteResult.ClassifierMatch -> {
+                                    startService(
+                                        Intent(
+                                            this@VoiceCommandActivity,
+                                            VoiceCommandService::class.java,
+                                        ).apply {
+                                            putExtra(VoiceCommandService.EXTRA_TRANSCRIPT, transcript)
+                                            putExtra(VoiceCommandService.EXTRA_INPUT_MODE, "voice")
+                                        }
+                                    )
+                                }
+                                is QuickIntentRouter.RouteResult.NeedsSlot ->
+                                    navigator.navigateToActions(this@VoiceCommandActivity, transcript)
+                                is QuickIntentRouter.RouteResult.FallThrough ->
+                                    navigator.navigateToChat(this@VoiceCommandActivity, transcript)
                             }
-                            startService(serviceIntent)
                         }
                         finish()
                     }
@@ -149,6 +184,7 @@ class VoiceCommandActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        voiceInputController.stopListening()
         toneGenerator?.release()
         toneGenerator = null
     }

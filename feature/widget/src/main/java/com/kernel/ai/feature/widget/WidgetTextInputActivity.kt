@@ -5,6 +5,9 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
+import com.kernel.ai.core.skills.QuickIntentRouter
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -40,14 +43,20 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+import kotlinx.coroutines.launch
 
 private const val TAG = "KernelAI"
 
 @AndroidEntryPoint
 class WidgetTextInputActivity : ComponentActivity() {
 
+    @Inject lateinit var quickIntentRouter: QuickIntentRouter
+    @Inject lateinit var navigator: WidgetNavigator
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
             KernelAITheme {
@@ -62,16 +71,26 @@ class WidgetTextInputActivity : ComponentActivity() {
 
                 fun submit() {
                     val trimmed = text.trim()
-                    if (trimmed.isNotBlank()) {
-                        Log.d(TAG, "WidgetTextInputActivity: submitting text=\"$trimmed\"")
-                        startService(
-                            Intent(this@WidgetTextInputActivity, VoiceCommandService::class.java).apply {
-                                putExtra(VoiceCommandService.EXTRA_TRANSCRIPT, trimmed)
-                                putExtra(VoiceCommandService.EXTRA_INPUT_MODE, "text")
+                    if (trimmed.isBlank()) { finish(); return }
+                    Log.d(TAG, "WidgetTextInputActivity: submitting text=\"$trimmed\"")
+                    this@WidgetTextInputActivity.lifecycleScope.launch {
+                        when (quickIntentRouter.route(trimmed)) {
+                            is QuickIntentRouter.RouteResult.RegexMatch,
+                            is QuickIntentRouter.RouteResult.ClassifierMatch -> {
+                                startService(
+                                    Intent(this@WidgetTextInputActivity, VoiceCommandService::class.java).apply {
+                                        putExtra(VoiceCommandService.EXTRA_TRANSCRIPT, trimmed)
+                                        putExtra(VoiceCommandService.EXTRA_INPUT_MODE, "text")
+                                    }
+                                )
                             }
-                        )
+                            is QuickIntentRouter.RouteResult.NeedsSlot ->
+                                navigator.navigateToActions(this@WidgetTextInputActivity, trimmed)
+                            is QuickIntentRouter.RouteResult.FallThrough ->
+                                navigator.navigateToChat(this@WidgetTextInputActivity, trimmed)
+                        }
+                        finish()
                     }
-                    finish()
                 }
 
                 Box(
