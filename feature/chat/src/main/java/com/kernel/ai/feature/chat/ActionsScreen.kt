@@ -87,6 +87,7 @@ import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.voice.VoiceCaptureMode
+import com.kernel.ai.feature.chat.InputMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -101,9 +102,11 @@ fun ActionsScreen(
     autoOpenSheet: Boolean = false,
     autoStartVoiceCommand: Boolean = false,
     initialQuery: String? = null,
+    initialQueryIsVoice: Boolean = false,
     adbSlotReply: String? = null,
     onAutoOpenSheetConsumed: () -> Unit = {},
     onAutoStartVoiceConsumed: () -> Unit = {},
+    onInitialQueryConsumed: () -> Unit = {},
     onNavigateToChat: (query: String, speakResponse: Boolean) -> Unit = { _, _ -> },
     onNewConversation: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
@@ -209,9 +212,15 @@ fun ActionsScreen(
         }
     }
 
-    // ADB harness: auto-execute query when quick_action_input extra is provided.
-    LaunchedEffect(initialQuery) {
-        if (!initialQuery.isNullOrBlank()) viewModel.executeAction(initialQuery)
+    // Widget/ADB: auto-execute query when widgetQuery nav arg or quick_action_input extra is delivered.
+    // onInitialQueryConsumed is called after executeAction so savedStateHandle prevents re-execution
+    // if the composable is recomposed (e.g. after process-death restore).
+    LaunchedEffect(initialQuery, initialQueryIsVoice) {
+        if (!initialQuery.isNullOrBlank()) {
+            val inputMode = if (initialQueryIsVoice) InputMode.Voice else InputMode.Text
+            viewModel.executeAction(initialQuery, inputMode)
+            onInitialQueryConsumed()
+        }
     }
 
     // ADB harness: deliver slot reply when slot_reply_input extra is provided.

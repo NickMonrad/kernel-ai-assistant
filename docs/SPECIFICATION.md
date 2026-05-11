@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-05-06 (chat voice streaming and TTS quality tuning refresh)
+> **Last updated:** 2026-05-12 (homescreen Glance widget: issue #617, PR #847)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -60,6 +60,7 @@ The assistant is built on a **Brain–Memory–Action** triad, orchestrated cent
 :core:wasm            Chicory Wasm host runtime, bridge functions, resource limiting
 :core:ui              Shared Compose components, Material 3 theme
 :feature:chat         ChatScreen, ChatViewModel, ActionsScreen, ActionsViewModel
+:feature:widget       Glance homescreen widget, VoiceCommandActivity, WidgetTextInputActivity, WidgetNavigator
 :feature:settings     Memory management, model settings, persona config
 :feature:onboarding   First-launch model download flow
 ```
@@ -646,7 +647,21 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 - **Navigation:** Bottom nav bar — Chats tab (conversations list) + Actions tab (quick commands)
 - **Chat:** Streaming token display, thinking mode indicator, markdown rendering, multi-conversation
 - **Actions tab:** History list, FAB (⚡) for new commands, bottom sheet input, Room-persisted history
-- **Voice:** Quick Actions push-to-talk with offline STT, spoken QIR responses, and streaming spoken chat replies; chat TTS currently uses a small curated pronunciation/preprocessing layer for known Kiwi/Māori greetings while wake word remains future work
+- **Voice:** Quick Actions push-to-talk with offline STT, spoken QIR responses, and streaming spoken chat replies; wake word remains future work
+
+**Chat TTS speech normalisation (`ChatTextUtils.normalizeChatTextForSpeech`):** Before TTS
+input, the text passes through a chain of `SpeechPronunciationRule` entries that rewrite
+non-standard spellings into phonetic forms the TTS engine can pronounce correctly:
+
+| Pattern | Replacement | Purpose |
+|---------|-------------|---------|
+| `\bKia ora\b` → `Keeorah` | Māori greeting pronunciation |
+| `\bm(?:ō|o)rena\b` → `moh-reh-nah` | Māori greeting pronunciation |
+| `(?<![a-zA-Z-])aye(?![a-zA-Z-])` → `A` | Standalone "aye" → letter A (#843, PR #845) |
+
+The aye rule uses negative lookbehind/lookahead to avoid rewriting "aye" when it's part of
+a hyphenated compound ("aye-aye") or a plural ("ayes"). Only standalone occurrences are
+normalised to the spoken letter "A".
 - **Skill results:** Inline rich cards in the conversation stream, with expandable list previews and link surfacing for fallback/plain-text results
 - **Persona:** Friendly, concise, dry-humoured Kiwi — see §7 for full identity details
 
@@ -675,6 +690,122 @@ Toolbar `IconButton`s in `TopAppBar` follow M3's 48dp minimum touch target guide
 
 **Spacing tokens (ad-hoc, from codebase):** Vertical padding between chat bubbles: 6dp.
 Input bar top padding: 8dp. Spacers between inline UI elements: 4dp.
+
+### 6.2 Homescreen Glance Widget (issue #617, PR #847)
+
+A Glance-based (`androidx.glance`) homescreen widget that surfaces voice and text Quick Actions
+directly from the Android homescreen, without requiring the user to open the app.
+
+**Module:** `:feature:widget`
+
+#### Widget UI (`KernelWidget` / `KernelWidgetReceiver`)
+
+The widget is a `GlanceAppWidget` that renders a single-row card via `provideContent()`:
+
+| Element | Behaviour |
+|---------|-----------|
+| Text pill ("Ask Jandal…") | Fills available width. Tapping opens `WidgetTextInputActivity`. Background uses `DayNightColorProvider` for automatic light/dark theming. |
+| Mic button (48dp circle, M3 primary colour) | Tapping opens `VoiceCommandActivity`. Uses `DayNightColorProvider` (purple day / light-purple night). |
+
+`KernelWidgetReceiver` registers the widget with the metadata declared in
+`@xml/kernel_widget_info`.
+
+#### Voice flow
+
+```
+Mic button tap
+  → VoiceCommandActivity (translucent overlay, taskAffinity="", excludeFromRecents, noHistory)
+        Plays a brief 200ms boop (ToneGenerator) to signal listening started
+        Displays pulsing mic icon + live partial transcript via VoiceInputController
+        Tap outside card or ✕ → cancel and finish()
+        On VoiceInputEvent.Transcript (final STT result):
+  → WidgetNavigator.navigateToActions(context, transcript, isVoice=true)
+        Fires explicit Intent to MainActivity:
+          extra "quick_action_input"    = <transcript>
+          extra "quick_action_is_voice" = true
+  → MainActivity.onNewIntent → KernelNavHost LaunchedEffect(initialQuickActionQuery)
+        navController.navigate("actions?widgetQuery=<encoded>&widgetVoice=true")
+  → ActionsScreen(initialQuery=<transcript>, initialQueryIsVoice=true)
+        viewModel.executeAction(transcript, InputMode.Voice)
+        Shows result card + speaks TTS reply
+```
+
+#### Text flow
+
+```
+Text pill tap
+  → WidgetTextInputActivity (translucent overlay, taskAffinity="", excludeFromRecents, noHistory)
+        Keyboard appears immediately (FocusRequester + KeyboardController.show())
+        User types; IME Send or keyboard action triggers submit()
+  → WidgetNavigator.navigateToActions(context, text, isVoice=false)
+        Fires explicit Intent to MainActivity:
+          extra "quick_action_input"    = <text>
+          extra "quick_action_is_voice" = false
+  → same nav arg path as voice, with widgetVoice=false
+  → ActionsScreen(initialQuery=<text>, initialQueryIsVoice=false)
+        viewModel.executeAction(text, InputMode.Text)
+        Shows result card only (no TTS)
+```
+
+#### Routing
+
+All widget queries target the **Actions screen** (`ROUTE_ACTIONS`), never Chat.
+`QuickIntentRouter` is **not** called from widget activities — `ActionsViewModel.executeAction()`
+handles all routing internally (Tier 2 regex → Tier 3 Gemma-4 E4B), producing a result card
+with an optional TTS reply.
+
+#### Consume-once guard
+
+`widgetQuery` is baked into the route URL as a nav argument. A `savedStateHandle` boolean
+(`widgetQueryConsumed`, constant `STATE_WIDGET_QUERY_CONSUMED`) prevents re-execution on
+recompose or after process-death restore:
+
+```kotlin
+val widgetQuery = backStackEntry.arguments?.getString(ARG_WIDGET_QUERY)
+    ?.takeIf { it.isNotBlank() }
+    ?.takeIf { backStackEntry.savedStateHandle.get<Boolean>(STATE_WIDGET_QUERY_CONSUMED) != true }
+```
+
+`ActionsScreen.onInitialQueryConsumed` sets this flag in `savedStateHandle` immediately after
+`executeAction()` is called.
+
+#### Task isolation
+
+Both widget activities declare `android:taskAffinity=""` and `android:excludeFromRecents="true"`.
+This places them in their own task, isolated from `MainActivity`'s task. Tapping a widget button
+always opens the Actions screen — it never resurfaces whatever screen `MainActivity` was last
+showing. `android:noHistory="true"` ensures the overlay activities are not retained in the
+back stack.
+
+#### Manifest entries
+
+```xml
+<!-- Widget receiver -->
+<receiver android:name="com.kernel.ai.feature.widget.KernelWidgetReceiver"
+          android:exported="true">
+    <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+    </intent-filter>
+    <meta-data android:name="android.appwidget.provider"
+               android:resource="@xml/kernel_widget_info"/>
+</receiver>
+
+<!-- VoiceCommandService — foundational seam for widget + future wake word -->
+<service android:name="com.kernel.ai.feature.widget.VoiceCommandService"
+         android:exported="false"/>
+
+<!-- Widget overlay activities (taskAffinity="" for task isolation) -->
+<activity android:name="com.kernel.ai.feature.widget.VoiceCommandActivity"
+          android:theme="@style/Theme.Kernel.Translucent"
+          android:noHistory="true"
+          android:taskAffinity=""
+          android:excludeFromRecents="true"/>
+<activity android:name=".feature.widget.WidgetTextInputActivity"
+          android:theme="@style/Theme.Kernel.Translucent"
+          android:noHistory="true"
+          android:taskAffinity=""
+          android:excludeFromRecents="true"/>
+```
 
 ---
 

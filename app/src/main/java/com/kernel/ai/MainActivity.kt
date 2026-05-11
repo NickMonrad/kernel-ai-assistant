@@ -40,6 +40,9 @@ class MainActivity : ComponentActivity() {
     /** Bridges ADB `--es quick_action_input` extras into ActionsViewModel.executeAction(). */
     private val adbQuickActionInput = mutableStateOf<String?>(null)
 
+    /** True when quick_action_input was delivered from the widget voice mic (needs voice TTS reply). */
+    private val adbQuickActionIsVoice = mutableStateOf(false)
+
     /** Bridges ADB `--es slot_reply_input` extras into ActionsViewModel.onSlotReply(). */
     private val adbSlotReplyInput = mutableStateOf<String?>(null)
 
@@ -50,7 +53,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         adbChatInput.value = intent.getStringExtra("chat_input")
-        adbQuickActionInput.value = intent.getStringExtra("quick_action_input")
+        // Only seed widget extras on a genuine cold start. On process-death restore,
+        // savedInstanceState is non-null and NavController restores its back stack;
+        // re-seeding here would cause LaunchedEffect to navigate again with a fresh
+        // (unconsumed) entry and re-execute the query unexpectedly.
+        if (savedInstanceState == null) {
+            adbQuickActionInput.value = intent.getStringExtra("quick_action_input")
+            adbQuickActionIsVoice.value = intent.getBooleanExtra("quick_action_is_voice", false)
+        }
         adbSlotReplyInput.value = intent.getStringExtra("slot_reply_input")
         handleAdbProfileText(intent)
         requestStartupPermissionsIfNeeded()
@@ -59,6 +69,7 @@ class MainActivity : ComponentActivity() {
                 KernelNavHost(
                     initialChatQuery = adbChatInput.value,
                     initialQuickActionQuery = adbQuickActionInput.value,
+                    initialQuickActionIsVoice = adbQuickActionIsVoice.value,
                     initialSlotReply = adbSlotReplyInput.value,
                 )
             }
@@ -77,7 +88,10 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         intent.getStringExtra("chat_input")?.let { adbChatInput.value = it }
-        intent.getStringExtra("quick_action_input")?.let { adbQuickActionInput.value = it }
+        intent.getStringExtra("quick_action_input")?.let {
+            adbQuickActionInput.value = it
+            adbQuickActionIsVoice.value = intent.getBooleanExtra("quick_action_is_voice", false)
+        }
         intent.getStringExtra("slot_reply_input")?.let { adbSlotReplyInput.value = it }
         handleAdbProfileText(intent)
         if (AuthorizationResponse.fromIntent(intent) != null ||

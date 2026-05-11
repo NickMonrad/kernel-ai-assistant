@@ -25,6 +25,7 @@ An Android-native, **local-first AI assistant** with zero cloud dependencies. Al
 :core:ui              Shared Compose components, Material 3 theme
 :core:skills          Skill interface, SkillRegistry, JSON schema generation
 :feature:chat         Chat screen, conversation list, ChatViewModel
+:feature:widget       Glance homescreen widget, VoiceCommandActivity, WidgetTextInputActivity
 :feature:settings     Memory management, skill store, model info, persona config
 :feature:onboarding   First-launch model download flow
 ```
@@ -120,6 +121,7 @@ User input
 - **Chat-centric:** conversations list as home, chat screen as primary interaction
 - **Multiple conversations** with Room-persisted history (create/delete/rename)
 - **Voice:** Push-to-talk and streaming modes with auto-stop on silence. Per-message speaker button (`VolumeUp` icon) on every assistant bubble — plays/stops TTS for that message independently of voice mode. Verbal stop commands ("stop", "cancel", "be quiet", "shut up", "silence") cancel TTS mid-stream and stop mic re-arm. Settings include a pitch slider (Sherpa, 0.5–2.0×), an `autoSpeakEnabled` toggle for chat auto-speak (decoupled from the Quick Actions `spokenResponsesEnabled` toggle), and a max spoken sentences cap — all grouped in a "Chat voice behaviour" section. `truncateForSpeech()` uses `KNOWN_ABBREV` + `INITIALS_REGEX` for abbreviation-aware sentence splitting. Future: wake word detection.
+- **Homescreen widget (issue #617, PR #847):** `androidx.glance` widget in `:feature:widget`. Two interactive elements: a text pill ("Ask Jandal…") that opens `WidgetTextInputActivity` (translucent overlay, `taskAffinity=""`, `excludeFromRecents`), and a mic button that opens `VoiceCommandActivity` (same flags). Both activities call `WidgetNavigator.navigateToActions(isVoice=true/false)`, which fires an explicit intent to `MainActivity` with `quick_action_input` + `quick_action_is_voice` extras. `KernelNavHost` encodes these into `actions?widgetQuery=<text>&widgetVoice=<bool>` nav args. `ActionsScreen` auto-executes with `InputMode.Voice` (TTS reply) or `InputMode.Text` (result card only). A `savedStateHandle` boolean (`widgetQueryConsumed`) prevents re-execution on recompose or process-death restore. `QuickIntentRouter` is not called from widget activities — `ActionsViewModel` owns all routing.
 - **Skill results:** inline rich cards in the conversation stream
 - **Persona:** friendly, concise, slightly playful default (future: configurable)
 
@@ -275,6 +277,7 @@ The script verifies SHA256 hashes after download. Models directory: `models/` (g
 3. 🔄 Resident Agent Architecture: QuickIntentRouter (Tier 2) + E4B native tool calling (Tier 3) + Voice I/O
    - ✅ Phase 1A: QuickIntentRouter skeleton + 20 regex intents (merged #354)
    - ✅ Phase 1B: NativeIntentHandler + 23 handlers, 130+ tests (merged #357)
+   - ✅ Homescreen Glance widget (voice + text → Actions screen; issue #617, PR #847)
    - 🔄 Phase 2: MiniLM zero-shot classifier (PR #362 in CI)
    - ⬜ Phase 3: Replace FunctionGemma wiring + dead code cleanup (#358)
    - ⬜ Phase 4: Chat hybrid mode — Tier 2 intercept in conversations (#360)
