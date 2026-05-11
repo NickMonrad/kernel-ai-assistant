@@ -149,6 +149,10 @@ private val speechPronunciationRules = listOf(
         pattern = Regex("""\bm(?:ō|o)rena\b""", RegexOption.IGNORE_CASE),
         replacement = "moh-reh-nah",
     ),
+    SpeechPronunciationRule(
+        pattern = Regex("""\baye\b""", RegexOption.IGNORE_CASE),
+        replacement = "ay",
+    ),
 )
 
 private fun findSpeechChunkBoundary(

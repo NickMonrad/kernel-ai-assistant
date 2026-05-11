@@ -71,7 +71,7 @@ class ChatTextUtilsTest {
     inner class ChatSpeechNormalizationTests {
 
         @Test
-        fun `applies scoped maori pronunciation overrides for chat speech`() {
+        fun `applies scoped pronunciation overrides for chat speech`() {
             assertEquals(
                 "Keeorah and moh-reh-nah",
                 normalizeChatTextForSpeech("Kia ora and mōrena"),
@@ -79,6 +79,14 @@ class ChatTextUtilsTest {
             assertEquals(
                 "moh-reh-nah everyone",
                 normalizeChatTextForSpeech("morena everyone"),
+            )
+            assertEquals(
+                "Ay, sounds good",
+                normalizeChatTextForSpeech("Aye, sounds good"),
+            )
+            assertEquals(
+                "Maybe ay means yes",
+                normalizeChatTextForSpeech("Maybe aye means yes"),
             )
         }
 
