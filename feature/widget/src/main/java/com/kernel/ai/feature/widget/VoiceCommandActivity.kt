@@ -149,7 +149,7 @@ class VoiceCommandActivity : ComponentActivity() {
                     is VoiceInputEvent.Transcript -> {
                         val transcript = event.text
                         Log.d(TAG, "VoiceCommandActivity: final transcript=\"$transcript\"")
-                        if (transcript.isNotBlank()) {
+                        if (transcript.isNotBlank() && !isFinishing) {
                             // Always open Actions so the result card is visible.
                             // ActionsViewModel handles all route types (RegexMatch,
                             // ClassifierMatch, NeedsSlot, FallThrough) correctly.

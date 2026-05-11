@@ -215,7 +215,7 @@ fun ActionsScreen(
     // Widget/ADB: auto-execute query when widgetQuery nav arg or quick_action_input extra is delivered.
     // onInitialQueryConsumed is called after executeAction so savedStateHandle prevents re-execution
     // if the composable is recomposed (e.g. after process-death restore).
-    LaunchedEffect(initialQuery) {
+    LaunchedEffect(initialQuery, initialQueryIsVoice) {
         if (!initialQuery.isNullOrBlank()) {
             val inputMode = if (initialQueryIsVoice) InputMode.Voice else InputMode.Text
             viewModel.executeAction(initialQuery, inputMode)

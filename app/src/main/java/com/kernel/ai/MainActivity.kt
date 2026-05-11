@@ -53,8 +53,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         adbChatInput.value = intent.getStringExtra("chat_input")
-        adbQuickActionInput.value = intent.getStringExtra("quick_action_input")
-        adbQuickActionIsVoice.value = intent.getBooleanExtra("quick_action_is_voice", false)
+        // Only seed widget extras on a genuine cold start. On process-death restore,
+        // savedInstanceState is non-null and NavController restores its back stack;
+        // re-seeding here would cause LaunchedEffect to navigate again with a fresh
+        // (unconsumed) entry and re-execute the query unexpectedly.
+        if (savedInstanceState == null) {
+            adbQuickActionInput.value = intent.getStringExtra("quick_action_input")
+            adbQuickActionIsVoice.value = intent.getBooleanExtra("quick_action_is_voice", false)
+        }
         adbSlotReplyInput.value = intent.getStringExtra("slot_reply_input")
         handleAdbProfileText(intent)
         requestStartupPermissionsIfNeeded()

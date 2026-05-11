@@ -118,7 +118,7 @@ fun KernelNavHost(
     // Widget/ADB: navigate to Actions tab with the query baked into the route URL so it
     // lands stably in backStackEntry.arguments (not a mutableStateOf that can null-out
     // before ActionsScreen's LaunchedEffect fires).
-    LaunchedEffect(initialQuickActionQuery) {
+    LaunchedEffect(initialQuickActionQuery, initialQuickActionIsVoice) {
         if (!initialQuickActionQuery.isNullOrBlank()) {
             val encoded = Uri.encode(initialQuickActionQuery)
             navController.navigate(
@@ -314,7 +314,9 @@ fun KernelNavHost(
                     val widgetQuery = backStackEntry.arguments?.getString(ARG_WIDGET_QUERY)
                         ?.takeIf { it.isNotBlank() }
                         ?.takeIf { backStackEntry.savedStateHandle.get<Boolean>(STATE_WIDGET_QUERY_CONSUMED) != true }
-                    val widgetVoice = backStackEntry.arguments?.getBoolean(ARG_WIDGET_VOICE) ?: false
+                    val widgetVoice = if (widgetQuery != null) {
+                        backStackEntry.arguments?.getBoolean(ARG_WIDGET_VOICE) ?: false
+                    } else false
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ActionsScreen(
                             autoOpenSheet = openSheet,
@@ -332,6 +334,7 @@ fun KernelNavHost(
                             },
                             onInitialQueryConsumed = {
                                 backStackEntry.savedStateHandle[STATE_WIDGET_QUERY_CONSUMED] = true
+                                backStackEntry.arguments?.putString(ARG_WIDGET_QUERY, "")
                             },
                             onNavigateToChat = { query, speakResponse ->
                                 val encoded = Uri.encode(query)
