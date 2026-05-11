@@ -568,7 +568,7 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 - Currency conversion is intentionally separate from `convert_units`; physical units and exchange rates do not share a parser or evaluator
 - Replies always use approximate wording and include provenance/date so the user can judge market drift
 - Unknown, unsupported, or ambiguous currencies fail clearly instead of being guessed
-- Same-currency requests short-circuit locally (`100 USD` → `100 USD`) without a network lookup
+- Same-currency requests short-circuit after successful currency resolution (`100 USD` → `100 USD`)
 - No historical-range, cached offline, or truly real-time market data claims are made
 
 > **Alarm/timer ownership:** Core alarm and timer behavior now stays inside the app-owned

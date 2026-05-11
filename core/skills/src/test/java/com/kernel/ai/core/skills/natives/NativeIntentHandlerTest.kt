@@ -43,6 +43,7 @@ import org.junit.jupiter.api.Test
 import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -70,6 +71,9 @@ class NativeIntentHandlerTest {
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
         currencyConversionService = currencyConversionService,
     )
+
+    private fun handleIntent(intentName: String, params: Map<String, String>): SkillResult =
+        runBlocking { handler.handle(intentName, params) }
 
     @BeforeEach
     fun setUp() {
@@ -217,7 +221,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `get_time resolves world clock city queries`() {
-        val result = handler.handle("get_time", mapOf("query_type" to "time", "location" to "London"))
+        val result = handleIntent("get_time", mapOf("query_type" to "time", "location" to "London"))
 
         assertTrue(result is SkillResult.DirectReply)
         assertTrue((result as SkillResult.DirectReply).content.contains("In London"))
@@ -225,7 +229,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `get_time reports unknown world clock locations truthfully`() {
-        val result = handler.handle("get_time", mapOf("query_type" to "time", "location" to "Middle Earth"))
+        val result = handleIntent("get_time", mapOf("query_type" to "time", "location" to "Middle Earth"))
 
         assertTrue(result is SkillResult.Failure)
         assertTrue((result as SkillResult.Failure).error.contains("couldn't find a timezone", ignoreCase = true))
@@ -356,13 +360,10 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `send email fails fast when contact is missing`() {
-        val result = handler.handle(
-            "send_email",
-            mapOf(
-                "subject" to "Hello",
-                "body" to "World",
-            ),
-        )
+        val result = handleIntent("send_email", mapOf(
+            "subject" to "Hello",
+            "body" to "World",
+        ))
 
         assertEquals(
             SkillResult.Failure("send_email", "No contact specified"),
@@ -491,10 +492,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `add to list fails fast when list name is missing`() {
-        val result = handler.handle(
-            "add_to_list",
-            mapOf("item" to "milk"),
-        )
+        val result = handleIntent("add_to_list", mapOf("item" to "milk"))
 
         assertEquals(
             SkillResult.Failure("add_to_list", "No list name specified"),
@@ -512,17 +510,11 @@ class NativeIntentHandlerTest {
                 listOf(ListItemEntity(listName = "shopping list", item = "milk")),
             )
 
-        val addResult = handler.handle(
-            "add_to_list",
-            mapOf(
-                "item" to "milk",
-                "list_name" to "shopping list",
-            ),
-        )
-        val readResult = handler.handle(
-            "get_list_items",
-            mapOf("list_name" to "shopping"),
-        )
+        val addResult = handleIntent("add_to_list", mapOf(
+            "item" to "milk",
+            "list_name" to "shopping list",
+        ))
+        val readResult = handleIntent("get_list_items", mapOf("list_name" to "shopping"))
 
         assertEquals(
             SkillResult.DirectReply(
@@ -549,21 +541,12 @@ class NativeIntentHandlerTest {
                 listOf(ListItemEntity(listName = "shopping list", item = "milk")),
             )
 
-        val createResult = handler.handle(
-            "create_list",
-            mapOf("list_name" to "shopping"),
-        )
-        handler.handle(
-            "add_to_list",
-            mapOf(
-                "item" to "milk",
-                "list_name" to "shopping list",
-            ),
-        )
-        val readResult = handler.handle(
-            "get_list_items",
-            mapOf("list_name" to "shopping"),
-        )
+        val createResult = handleIntent("create_list", mapOf("list_name" to "shopping"))
+        handleIntent("add_to_list", mapOf(
+            "item" to "milk",
+            "list_name" to "shopping list",
+        ))
+        val readResult = handleIntent("get_list_items", mapOf("list_name" to "shopping"))
 
         assertEquals(
             SkillResult.DirectReply(
@@ -620,7 +603,7 @@ class NativeIntentHandlerTest {
             triggerAtMillis = 1_700_000_000_000L,
         )
 
-        val result = handler.handle("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
+        val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
 
         assertTrue(result is SkillResult.Success)
         assertTrue((result as SkillResult.Success).content.contains("Alarm set for"))
@@ -637,7 +620,7 @@ class NativeIntentHandlerTest {
             canUseFullScreenIntent = false,
         )
 
-        val result = handler.handle("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
+        val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
 
         assertEquals(SkillResult.Failure("run_intent", "Exact alarms are unavailable right now."), result)
         verify(exactly = 0) { context.startActivity(any()) }
@@ -652,7 +635,7 @@ class NativeIntentHandlerTest {
             canUseFullScreenIntent = false,
         )
 
-        val result = handler.handle("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
+        val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
 
         assertEquals(SkillResult.Failure("run_intent", "Could not schedule the alarm."), result)
         verify(exactly = 0) { context.startActivity(any()) }
@@ -669,7 +652,7 @@ class NativeIntentHandlerTest {
             updatedAtMillis = 20_000L,
         )
 
-        val result = handler.handle("start_stopwatch", emptyMap())
+        val result = handleIntent("start_stopwatch", emptyMap())
 
         assertEquals(SkillResult.Success("Started the stopwatch."), result)
         coVerify(exactly = 1) { clockRepository.startStopwatch(any(), any()) }
@@ -695,7 +678,7 @@ class NativeIntentHandlerTest {
             createdAtMillis = 27_500L,
         )
 
-        val result = handler.handle("lap_stopwatch", emptyMap())
+        val result = handleIntent("lap_stopwatch", emptyMap())
 
         assertEquals(SkillResult.Success("Recorded lap 1 at 00:07. Split 00:07."), result)
         coVerify(exactly = 1) { clockRepository.recordStopwatchLap(any(), any()) }
@@ -712,7 +695,7 @@ class NativeIntentHandlerTest {
             ),
         )
 
-        val result = handler.handle("lap_stopwatch", emptyMap())
+        val result = handleIntent("lap_stopwatch", emptyMap())
 
         assertEquals(SkillResult.Failure("lap_stopwatch", "No running stopwatch to record a lap."), result)
         coVerify(exactly = 0) { clockRepository.recordStopwatchLap(any(), any()) }
@@ -732,7 +715,7 @@ class NativeIntentHandlerTest {
             ),
         )
 
-        val result = handler.handle("get_stopwatch_status", emptyMap())
+        val result = handleIntent("get_stopwatch_status", emptyMap())
 
         assertEquals(SkillResult.DirectReply("Stopwatch paused at 00:12 with 1 lap recorded."), result)
     }
@@ -747,7 +730,7 @@ class NativeIntentHandlerTest {
             canUseFullScreenIntent = false,
         )
 
-        val result = handler.handle("set_timer", mapOf("duration_seconds" to "60"))
+        val result = handleIntent("set_timer", mapOf("duration_seconds" to "60"))
 
         assertEquals(SkillResult.Failure("run_intent", "Could not schedule the timer."), result)
         verify(exactly = 0) { context.startActivity(any()) }
@@ -758,7 +741,7 @@ class NativeIntentHandlerTest {
         coEvery { clockRepository.cancelAllTimers() } returns 0
         every { clockAlertController.dismissActiveTimerAlerts() } returns true
 
-        val result = handler.handle("cancel_timer", emptyMap())
+        val result = handleIntent("cancel_timer", emptyMap())
 
         assertEquals(SkillResult.Success("Dismissed the active timer alert."), result)
         coVerify(exactly = 1) { clockRepository.cancelAllTimers() }
@@ -770,7 +753,7 @@ class NativeIntentHandlerTest {
         coEvery { clockRepository.cancelAllTimers() } returns 1
         every { clockAlertController.dismissActiveTimerAlerts() } returns true
 
-        val result = handler.handle("cancel_timer", emptyMap())
+        val result = handleIntent("cancel_timer", emptyMap())
 
         assertEquals(
             SkillResult.Success("Cancelled 1 timer and dismissed the active timer alert."),
@@ -784,14 +767,14 @@ class NativeIntentHandlerTest {
     @Test
     fun `cancel_timer_named matches unlabeled timer by hyphenated duration`() {
         coEvery { clockRepository.cancelTimersMatching("10-minute", 600_000L) } returns 1
-        val result = handler.handle("cancel_timer_named", mapOf("name" to "10-minute"))
+        val result = handleIntent("cancel_timer_named", mapOf("name" to "10-minute"))
         assertEquals(SkillResult.Success("Cancelled the 10-minute timer"), result)
         coVerify(exactly = 1) { clockRepository.cancelTimersMatching("10-minute", 600_000L) }
     }
 
     @Test
     fun `set_alarm with unparseable explicit day fails instead of shifting dates`() {
-        val result = handler.handle("set_alarm", mapOf("time" to "07:00", "day" to "blursday"))
+        val result = handleIntent("set_alarm", mapOf("time" to "07:00", "day" to "blursday"))
 
         assertEquals(SkillResult.Failure("run_intent", "Couldn't parse day: blursday"), result)
         coVerify(exactly = 0) { clockRepository.createAlarm(any()) }
@@ -801,7 +784,7 @@ class NativeIntentHandlerTest {
     @Test
     fun `cancel_timer_named uses truthful failure when no duration match exists`() {
         coEvery { clockRepository.cancelTimersMatching("10-minute", 600_000L) } returns 0
-        val result = handler.handle("cancel_timer_named", mapOf("name" to "10-minute"))
+        val result = handleIntent("cancel_timer_named", mapOf("name" to "10-minute"))
         assertEquals(SkillResult.Failure("cancel_timer_named", "No timer matching '10-minute' found"), result)
         coVerify(exactly = 1) { clockRepository.cancelTimersMatching("10-minute", 600_000L) }
     }
@@ -820,7 +803,7 @@ class NativeIntentHandlerTest {
             triggerAtMillis = 1_700_000_000_000L,
         )
 
-        val result = handler.handle("cancel_alarm", emptyMap())
+        val result = handleIntent("cancel_alarm", emptyMap())
 
         assertEquals(
             SkillResult.Success("Cancelled next app alarm: Wake."),
@@ -834,7 +817,7 @@ class NativeIntentHandlerTest {
     fun `cancel_alarm with label cancels internal alarm only`() {
         coEvery { clockRepository.cancelAlarmsByLabel("Wake") } returns 1
 
-        val result = handler.handle("cancel_alarm", mapOf("label" to "Wake"))
+        val result = handleIntent("cancel_alarm", mapOf("label" to "Wake"))
 
         assertEquals(
             SkillResult.Success("Cancelled app alarm: Wake."),
@@ -848,7 +831,7 @@ class NativeIntentHandlerTest {
     fun `cancel_alarm with label reports missing internal alarm`() {
         coEvery { clockRepository.cancelAlarmsByLabel("Wake") } returns 0
 
-        val result = handler.handle("cancel_alarm", mapOf("label" to "Wake"))
+        val result = handleIntent("cancel_alarm", mapOf("label" to "Wake"))
 
         assertEquals(
             SkillResult.Failure("cancel_alarm", "No app alarm named Wake found"),
@@ -879,10 +862,7 @@ class NativeIntentHandlerTest {
         every { Log.d(any<String>(), any<String>()) } returns 0
         coEvery { importantDateRepository.save("mum's birthday", 3, 15, null) } just Runs
 
-        val result = handler.handle(
-            "save_important_date",
-            mapOf("label" to "mum's birthday", "date" to "15 March"),
-        )
+        val result = handleIntent("save_important_date", mapOf("label" to "mum's birthday", "date" to "15 March"))
 
         assertTrue(result is SkillResult.DirectReply)
         assertEquals(
@@ -897,10 +877,7 @@ class NativeIntentHandlerTest {
         every { Log.d(any<String>(), any<String>()) } returns 0
         coEvery { importantDateRepository.save("Emily's birthday", 11, 19, null) } just Runs
 
-        val result = handler.handle(
-            "save_important_date",
-            mapOf("label" to "Emily's birthday", "date" to "19th of November"),
-        )
+        val result = handleIntent("save_important_date", mapOf("label" to "Emily's birthday", "date" to "19th of November"))
 
         assertTrue(result is SkillResult.DirectReply)
         assertEquals(
@@ -917,7 +894,7 @@ class NativeIntentHandlerTest {
             ImportantDateEntity(label = "our anniversary", normalizedLabel = "our anniversary", month = 6, day = 22, year = 2018),
         )
 
-        val result = handler.handle("list_important_dates", emptyMap())
+        val result = handleIntent("list_important_dates", emptyMap())
 
         assertTrue(result is SkillResult.DirectReply)
         val reply = (result as SkillResult.DirectReply).content
@@ -930,7 +907,7 @@ class NativeIntentHandlerTest {
     fun `remove important date deletes by label`() {
         coEvery { importantDateRepository.deleteByLabel("mum's birthday") } returns 1
 
-        val result = handler.handle("remove_important_date", mapOf("label" to "mum's birthday"))
+        val result = handleIntent("remove_important_date", mapOf("label" to "mum's birthday"))
 
         assertTrue(result is SkillResult.DirectReply)
         assertEquals("Removed important date mum's birthday.", (result as SkillResult.DirectReply).content)
@@ -1055,10 +1032,7 @@ class NativeIntentHandlerTest {
             year = 2018,
         )
 
-        val result = handler.handle(
-            "get_date_diff",
-            mapOf("target_date" to "my wedding anniversary", "direction" to "since"),
-        )
+        val result = handleIntent("get_date_diff", mapOf("target_date" to "my wedding anniversary", "direction" to "since"))
 
         assertTrue(result is SkillResult.DirectReply)
         val content = (result as SkillResult.DirectReply).content
@@ -1068,20 +1042,14 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `calculate_arithmetic returns deterministic direct reply`() {
-        val result = handler.handle(
-            "calculate_arithmetic",
-            mapOf("expression" to "18.5% of 240"),
-        )
+        val result = handleIntent("calculate_arithmetic", mapOf("expression" to "18.5% of 240"))
 
         assertEquals(SkillResult.DirectReply("The result is 44.4."), result)
     }
 
     @Test
     fun `calculate_arithmetic rounds spoken summary for approximate replies`() {
-        val result = handler.handle(
-            "calculate_arithmetic",
-            mapOf("expression" to "1 / 3"),
-        )
+        val result = handleIntent("calculate_arithmetic", mapOf("expression" to "1 / 3"))
 
         assertEquals(
             SkillResult.DirectReply(
@@ -1094,10 +1062,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `calculate_arithmetic reports malformed expressions cleanly`() {
-        val result = handler.handle(
-            "calculate_arithmetic",
-            mapOf("expression" to "2 + )"),
-        )
+        val result = handleIntent("calculate_arithmetic", mapOf("expression" to "2 + )"))
 
         assertEquals(
             SkillResult.Failure("calculate_arithmetic", "Unexpected token ')'"),
@@ -1107,10 +1072,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `convert_units returns deterministic direct reply`() {
-        val result = handler.handle(
-            "convert_units",
-            mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "km"),
-        )
+        val result = handleIntent("convert_units", mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "km"))
 
         assertEquals(
             SkillResult.DirectReply(
@@ -1123,10 +1085,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `convert_units rounds spoken summary for approximate replies`() {
-        val result = handler.handle(
-            "convert_units",
-            mapOf("value" to "100", "from_unit" to "m", "to_unit" to "yards"),
-        )
+        val result = handleIntent("convert_units", mapOf("value" to "100", "from_unit" to "m", "to_unit" to "yards"))
 
         assertEquals(
             SkillResult.DirectReply(
@@ -1139,10 +1098,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `convert_units supports kitchen volume replies`() {
-        val result = handler.handle(
-            "convert_units",
-            mapOf("value" to "2", "from_unit" to "liters", "to_unit" to "cups"),
-        )
+        val result = handleIntent("convert_units", mapOf("value" to "2", "from_unit" to "liters", "to_unit" to "cups"))
 
         assertEquals(
             SkillResult.DirectReply(
@@ -1155,10 +1111,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `convert_units supports temperature replies`() {
-        val result = handler.handle(
-            "convert_units",
-            mapOf("value" to "32", "from_unit" to "fahrenheit", "to_unit" to "celsius"),
-        )
+        val result = handleIntent("convert_units", mapOf("value" to "32", "from_unit" to "fahrenheit", "to_unit" to "celsius"))
 
         assertEquals(
             SkillResult.DirectReply("32 degrees Fahrenheit is 0 degrees Celsius."),
@@ -1168,10 +1121,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `convert_units formats mixed feet and inches replies`() {
-        val result = handler.handle(
-            "convert_units",
-            mapOf("value" to "189", "from_unit" to "cm", "to_unit" to "inches"),
-        )
+        val result = handleIntent("convert_units", mapOf("value" to "189", "from_unit" to "cm", "to_unit" to "inches"))
 
         assertEquals(
             SkillResult.DirectReply(
@@ -1184,10 +1134,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `convert_units supports normalized mixed feet and inches input`() {
-        val result = handler.handle(
-            "convert_units",
-            mapOf("value" to "74", "from_unit" to "inches", "to_unit" to "cm"),
-        )
+        val result = handleIntent("convert_units", mapOf("value" to "74", "from_unit" to "inches", "to_unit" to "cm"))
 
         assertEquals(
             SkillResult.DirectReply(
@@ -1200,10 +1147,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `convert_units supports spoken speed aliases normalized from voice`() {
-        val result = handler.handle(
-            "convert_units",
-            mapOf("value" to "100", "from_unit" to "kilometers per hour", "to_unit" to "metres per second"),
-        )
+        val result = handleIntent("convert_units", mapOf("value" to "100", "from_unit" to "kilometers per hour", "to_unit" to "metres per second"))
 
         assertEquals(
             SkillResult.DirectReply(
@@ -1216,10 +1160,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `convert_units rounds spoken exact gallon to liter reply`() {
-        val result = handler.handle(
-            "convert_units",
-            mapOf("value" to "1", "from_unit" to "gallon", "to_unit" to "litres"),
-        )
+        val result = handleIntent("convert_units", mapOf("value" to "1", "from_unit" to "gallon", "to_unit" to "litres"))
 
         assertEquals(
             SkillResult.DirectReply(
@@ -1232,10 +1173,7 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `convert_units reports unsupported units cleanly`() {
-        val result = handler.handle(
-            "convert_units",
-            mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "parsecs"),
-        )
+        val result = handleIntent("convert_units", mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "parsecs"))
 
         assertEquals(
             SkillResult.Failure("convert_units", "Unsupported unit 'parsecs'"),
@@ -1258,10 +1196,7 @@ class NativeIntentHandlerTest {
             sourceLabel = "ECB reference rate via Frankfurter",
         )
 
-        val result = handler.handle(
-            "convert_currency",
-            mapOf("amount" to "100", "from_currency" to "AUD", "to_currency" to "NZD"),
-        )
+        val result = handleIntent("convert_currency", mapOf("amount" to "100", "from_currency" to "AUD", "to_currency" to "NZD"))
 
         assertEquals(
             SkillResult.DirectReply(
@@ -1278,7 +1213,24 @@ class NativeIntentHandlerTest {
             currencyConversionService.convert("100", "AUD", "NZD", any())
         } throws IllegalArgumentException("Latest available AUD to NZD rate is from 2026-05-01, which is too stale to use.")
 
-        val result = handler.handle(
+        val result = handleIntent("convert_currency", mapOf("amount" to "100", "from_currency" to "AUD", "to_currency" to "NZD"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "convert_currency",
+                "Latest available AUD to NZD rate is from 2026-05-01, which is too stale to use.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_currency maps unexpected exceptions to unavailable message`() {
+        coEvery {
+            currencyConversionService.convert("100", "AUD", "NZD", any())
+        } throws RuntimeException("socket timeout")
+
+        val result = handleIntent(
             "convert_currency",
             mapOf("amount" to "100", "from_currency" to "AUD", "to_currency" to "NZD"),
         )
@@ -1286,8 +1238,49 @@ class NativeIntentHandlerTest {
         assertEquals(
             SkillResult.Failure(
                 "convert_currency",
-                "Latest available AUD to NZD rate is from 2026-05-01, which is too stale to use.",
+                "Currency rates are unavailable right now. I can't do a truthful conversion offline.",
             ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_currency validates required params`() {
+        assertEquals(
+            SkillResult.Failure("convert_currency", "No currency amount provided"),
+            handleIntent("convert_currency", emptyMap()),
+        )
+        assertEquals(
+            SkillResult.Failure("convert_currency", "No source currency provided"),
+            handleIntent("convert_currency", mapOf("amount" to "100", "to_currency" to "NZD")),
+        )
+        assertEquals(
+            SkillResult.Failure("convert_currency", "No target currency provided"),
+            handleIntent("convert_currency", mapOf("amount" to "100", "from_currency" to "AUD")),
+        )
+    }
+
+    @Test
+    fun `convert_currency short circuits same currency replies`() {
+        coEvery {
+            currencyConversionService.convert("100", "USD", "USD", any())
+        } returns CurrencyConversionService.Result(
+            inputAmount = java.math.BigDecimal("100"),
+            fromCurrency = CurrencyConversionService.ResolvedCurrency("USD", "United States Dollar"),
+            toCurrency = CurrencyConversionService.ResolvedCurrency("USD", "United States Dollar"),
+            outputAmount = java.math.BigDecimal("100"),
+            rate = java.math.BigDecimal.ONE,
+            rateDate = LocalDate.of(2026, 5, 11),
+            sourceLabel = "identity conversion",
+        )
+
+        val result = handleIntent(
+            "convert_currency",
+            mapOf("amount" to "100", "from_currency" to "USD", "to_currency" to "USD"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply("100 USD is 100 USD."),
             result,
         )
     }

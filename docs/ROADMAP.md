@@ -213,7 +213,7 @@ Active follow-on model/runtime investigations now live under
 | [#676](https://github.com/NickMonrad/kernel-ai-assistant/issues/676) | Native unit conversion tool | ✅ Done — PR #816 | 🟡 Medium |
 | [#677](https://github.com/NickMonrad/kernel-ai-assistant/issues/677) | World clock and timezone lookup | ✅ Done — PR #743 | 🟢 Low |
 | [#697](https://github.com/NickMonrad/kernel-ai-assistant/issues/697) | Multi-day weather forecast card in chat | ✅ Done — PR #710 | 🟡 Medium |
-| [#831](https://github.com/NickMonrad/kernel-ai-assistant/issues/831) | Deterministic currency conversion skill | 🔄 In progress | 🟡 Medium |
+| [#831](https://github.com/NickMonrad/kernel-ai-assistant/issues/831) | Deterministic currency conversion skill | 🔄 In progress — PR #848 | 🟡 Medium |
 
 **Already completed skills:**
 - ✅ set_alarm (PR #257/#262, time param fix PR #339)

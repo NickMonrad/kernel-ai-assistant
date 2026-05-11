@@ -69,20 +69,6 @@ class CurrencyConversionService @Inject constructor(
         today: LocalDate = LocalDate.now(ZoneOffset.UTC),
     ): Result {
         val amount = parseAmount(amountRaw)
-        val normalizedFromCode = fromCurrencyRaw.trim().uppercase(Locale.US)
-        val normalizedToCode = toCurrencyRaw.trim().uppercase(Locale.US)
-        if (normalizedFromCode.matches(Regex("""[A-Z]{3}""")) && normalizedFromCode == normalizedToCode) {
-            return Result(
-                inputAmount = amount,
-                fromCurrency = ResolvedCurrency(normalizedFromCode, normalizedFromCode),
-                toCurrency = ResolvedCurrency(normalizedToCode, normalizedToCode),
-                outputAmount = amount,
-                rate = BigDecimal.ONE,
-                rateDate = today,
-                sourceLabel = "identity conversion",
-            )
-        }
-
         val catalog = loadSupportedCurrencies()
         val fromCurrency = resolveCurrency(fromCurrencyRaw, catalog)
             ?: throw IllegalArgumentException(
@@ -235,7 +221,7 @@ class CurrencyConversionService @Inject constructor(
                 )
             }
             val rateValue = json.optJSONObject("rates")?.optDouble(toCurrency.code)
-            if (rateValue == null || rateValue.isNaN()) {
+            if (rateValue == null || rateValue.isNaN() || rateValue <= 0.0) {
                 throw IllegalArgumentException(
                     "Could not find a ${fromCurrency.code} to ${toCurrency.code} exchange rate.",
                 )

@@ -135,7 +135,7 @@ class NativeIntentHandler @Inject constructor(
     private val currencyConversionService: CurrencyConversionService,
 ) {
 
-    fun handle(intentName: String, params: Map<String, String>): SkillResult {
+    suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
         val normalizedName = normalizeIntentName(intentName)
         if (normalizedName != intentName) {
             Log.w(TAG, "NativeIntentHandler: normalized intent '$intentName' -> '$normalizedName'")
@@ -2035,7 +2035,7 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
-    private fun convertCurrency(params: Map<String, String>): SkillResult {
+    private suspend fun convertCurrency(params: Map<String, String>): SkillResult {
         val amount = params["amount"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("convert_currency", "No currency amount provided")
         val fromCurrency = params["from_currency"]?.trim()?.takeIf { it.isNotBlank() }
@@ -2044,13 +2044,11 @@ class NativeIntentHandler @Inject constructor(
             ?: return SkillResult.Failure("convert_currency", "No target currency provided")
 
         return try {
-            val result = runBlocking {
-                currencyConversionService.convert(
-                    amountRaw = amount,
-                    fromCurrencyRaw = fromCurrency,
-                    toCurrencyRaw = toCurrency,
-                )
-            }
+            val result = currencyConversionService.convert(
+                amountRaw = amount,
+                fromCurrencyRaw = fromCurrency,
+                toCurrencyRaw = toCurrency,
+            )
             if (result.fromCurrency.code == result.toCurrency.code) {
                 return SkillResult.DirectReply(
                     "${result.inputAmount.toPlainString()} ${result.fromCurrency.code} is ${result.outputAmount.toPlainString()} ${result.toCurrency.code}.",
@@ -2062,8 +2060,12 @@ class NativeIntentHandler @Inject constructor(
             val content = "At the latest ${result.sourceLabel} from ${result.rateDate}, ${result.inputAmount.toPlainString()} ${result.fromCurrency.code} converts to approximately ${roundedAmount.toPlainString()} ${result.toCurrency.code}. 1 ${result.fromCurrency.code} = ${roundedRate.toPlainString()} ${result.toCurrency.code}. Exchange rates are not real-time and may have moved since then."
             val spokenSummary = "At the ${result.rateDate} ${result.sourceLabel}, ${result.inputAmount.toPlainString()} ${result.fromCurrency.code} converts to approximately ${roundedAmount.toPlainString()} ${result.toCurrency.code}."
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
-        } catch (e: IllegalArgumentException) {
-            SkillResult.Failure("convert_currency", e.message ?: "Could not convert currency")
+        } catch (e: Exception) {
+            val errorMessage = when (e) {
+                is IllegalArgumentException -> e.message
+                else -> "Currency rates are unavailable right now. I can't do a truthful conversion offline."
+            }
+            SkillResult.Failure("convert_currency", errorMessage ?: "Could not convert currency")
         }
     }
     private fun buildListPreview(
