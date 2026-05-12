@@ -3,6 +3,7 @@ package com.kernel.ai.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
+import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -20,6 +21,11 @@ import javax.inject.Inject
 
 data class SherpaVoiceRowUiState(
     val voice: SherpaPiperVoice,
+    val downloadState: VoicePackDownloadState = VoicePackDownloadState.NotDownloaded,
+)
+
+data class KokoroVoiceRowUiState(
+    val voice: SherpaKokoroVoice,
     val downloadState: VoicePackDownloadState = VoicePackDownloadState.NotDownloaded,
 )
 
@@ -43,6 +49,13 @@ data class VoiceUiState(
     val isSelectedSherpaVoiceDownloaded: Boolean = false,
     /** Active speaker ID for multi-speaker voices (VCTK). Stored as sid 0–108. */
     val activeSpeakerId: Int = 0,
+    // ── Kokoro ────────────────────────────────────────────────────────────────
+    val kokoroVoices: List<KokoroVoiceRowUiState> = SherpaKokoroVoice.entries.map { voice ->
+        KokoroVoiceRowUiState(voice = voice)
+    },
+    val selectedKokoroVoice: SherpaKokoroVoice = SherpaKokoroVoice.KokoroMultiLangInt8,
+    val kokoroActiveSpeakerId: Int = 0,
+    val isSelectedKokoroVoiceDownloaded: Boolean = false,
 )
 
 @HiltViewModel
@@ -134,6 +147,40 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             voiceOutputPreferences.activeSpeakerId.collect { sid ->
                 _uiState.update { it.copy(activeSpeakerId = sid) }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.selectedKokoroVoice.collect { voice ->
+                _uiState.update { state ->
+                    state.copy(
+                        selectedKokoroVoice = voice,
+                        isSelectedKokoroVoiceDownloaded =
+                            state.kokoroVoices.firstOrNull { it.voice == voice }
+                                ?.downloadState is VoicePackDownloadState.Downloaded,
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.kokoroActiveSpeakerId.collect { sid ->
+                _uiState.update { it.copy(kokoroActiveSpeakerId = sid) }
+            }
+        }
+        viewModelScope.launch {
+            sherpaVoicePackDownloadManager.kokoroDownloadStates.collect { states ->
+                _uiState.update { state ->
+                    val rows = SherpaKokoroVoice.entries.map { voice ->
+                        KokoroVoiceRowUiState(
+                            voice = voice,
+                            downloadState = states[voice] ?: VoicePackDownloadState.NotDownloaded,
+                        )
+                    }
+                    state.copy(
+                        kokoroVoices = rows,
+                        isSelectedKokoroVoiceDownloaded =
+                            states[state.selectedKokoroVoice] is VoicePackDownloadState.Downloaded,
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -233,6 +280,36 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(autoStartAlertVoiceCommandsEnabled = enabled) }
         viewModelScope.launch {
             voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(enabled)
+        }
+    }
+
+    // ── Kokoro actions ────────────────────────────────────────────────────────
+
+    fun setKokoroVoice(voice: SherpaKokoroVoice) {
+        val row = _uiState.value.kokoroVoices.firstOrNull { it.voice == voice }
+        if (row?.downloadState !is VoicePackDownloadState.Downloaded) return
+        _uiState.update { it.copy(selectedKokoroVoice = voice) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setSelectedKokoroVoice(voice)
+        }
+    }
+
+    fun downloadKokoroVoice(voice: SherpaKokoroVoice) {
+        sherpaVoicePackDownloadManager.startKokoroDownload(voice)
+    }
+
+    fun cancelKokoroVoiceDownload(voice: SherpaKokoroVoice) {
+        sherpaVoicePackDownloadManager.cancelKokoroDownload(voice)
+    }
+
+    fun deleteKokoroVoice(voice: SherpaKokoroVoice) {
+        sherpaVoicePackDownloadManager.deleteKokoroVoice(voice)
+    }
+
+    fun setKokoroActiveSpeakerId(sid: Int) {
+        _uiState.update { it.copy(kokoroActiveSpeakerId = sid) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setKokoroActiveSpeakerId(sid)
         }
     }
 }
