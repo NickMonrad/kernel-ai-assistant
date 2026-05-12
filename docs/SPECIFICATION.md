@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-05-12 (homescreen Glance widget: issue #617, PR #847)
+> **Last updated:** 2026-05-12 (PR #848: deterministic currency conversion #831; PR #847: homescreen Glance widget #617; PR #845: aye pronunciation fix #843)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -724,7 +724,107 @@ Toolbar `IconButton`s in `TopAppBar` follow M3's 48dp minimum touch target guide
 **Spacing tokens (ad-hoc, from codebase):** Vertical padding between chat bubbles: 6dp.
 Input bar top padding: 8dp. Spacers between inline UI elements: 4dp.
 
-### 6.2 Homescreen Glance Widget (issue #617, PR #847)
+
+### 6.2 Voice Interface
+
+The voice system covers two distinct interaction modes: **Quick Actions** (push-to-talk for
+device commands) and **Chat Voice** (conversational push-to-talk for dialog). Both use
+Sherpa-ONNX for speech-to-text (STT) and text-to-speech (TTS).
+
+#### 6.2.1 Speech-to-Text (STT)
+
+**Current stack:** Sherpa-ONNX CTC models for offline STT. The app also supports the Android
+native on-device recognizer as a fallback path (`#717`, PR #718), which was hardened for
+reliability on Samsung Galaxy S23 Ultra.
+
+**STT fallback-path issues** (e.g. appointment QIR bug `#773`) are tracked separately from
+the Sherpa primary path.
+
+**Remaining STT research:** Sherpa-ONNX / Sherpa-ncnn STT + VAD evaluation (`#821`),
+Parakeet CTC (`#700`), Whisper.cpp vs Vosk (`#703`).
+
+#### 6.2.2 Text-to-Speech (TTS)
+
+**Engine:** Sherpa-TTS with VITS-based voices, replacing the Android native TTS engine
+(`#729`, PR #804). This provides significantly improved conversational voice quality.
+
+**Multi-speaker support:**
+- **VCTK** (`#782`, PR #805): Multiple English speakers for Quick Actions responses
+- **Semaine** (`#817`, PR #818): 4 speakers — Prudence, Spike, Obadiah, Poppy — selected
+  via Settings → Voice. Note: Semaine exposes different *speakers*, not emotional variants;
+  the emotion detection approach was abandoned (`#781` closed).
+
+**Streaming TTS pipeline (`#755`, PR #780):** Two-coroutine producer/consumer pattern
+(`runStreamingPlayback()`) enables incremental, low-latency spoken responses during LLM
+generation. The TTS begins playback as soon as the first sentence is available, rather
+than waiting for the full response.
+
+**TTS quality fixes (PR #780):**
+- URL colon preservation in `cleanTextForSpeech()` — prevents URLs like
+  `https://example.com:8080` from being read as "eight zero eight zero"
+- Speech rate clamping — prevents unnaturally fast or slow playback
+- Abbreviation-aware sentence splitting — handles "Dr.", "Mr.", "U.S." correctly
+- Sherpa voice quality evaluation performed on Samsung Galaxy S23 Ultra (`#770`)
+
+**TTS settings (PR #789):** Expanded settings include pitch control, auto-speak toggle,
+and max spoken sentences limit. `autoSpeakEnabled` is a cached field in `ChatViewModel`,
+fully decoupled from the Quick Actions `spokenResponsesEnabled` toggle.
+
+**Per-message speaker button (PR #789):** Each chat message has a speaker icon to replay
+its TTS playback with the selected speaker.
+
+**Verbal stop command (PR #789):** Users can say "stop" or "quiet" to halt TTS playback
+mid-sentence.
+
+**TTS pronoun normalisation (`#828`, PR #830):** Converts first-person pronouns
+(my/I → your/you) in TTS output so the assistant speaks in third person when reading
+LLM responses that reference the user.
+
+#### 6.2.3 Quick Actions Voice
+
+**Push-to-talk:** Offline STT captures voice input; QIR (QuickIntentRouter) matches the
+transcript to device actions; responses are spoken via TTS.
+
+**Slot-fill retry on no-speech (PR #825, `#790`):** When the STT detects no speech,
+the system retries the slot-fill prompt instead of failing. Cancel phrases (e.g. "cancel",
+"never mind") are recognised and abort the slot-fill flow.
+
+**Start-listening audio cue (PR #825, `#791`):** A brief audio beep signals that voice
+capture has started, giving the user confidence the mic is active.
+
+#### 6.2.4 Chat Voice
+
+**Conversational push-to-talk (`#727`, PR #731; `#728`, PR #735):** Chat voice supports
+turn-taking controls — the user speaks, the assistant responds with streaming TTS, then
+the user can speak again.
+
+**Mode switch (`#741`, PR #744):** Users can choose between one-shot mode (single question
+and answer) and back-and-forth mode (continuous conversation) from the chat voice controls.
+
+**Voice-friendly spoken response rendering (`#763`, PR #771):** LLM responses are
+preprocessed for natural speech: markdown is stripped, lists are verbalised, and
+punctuation is normalised for TTS.
+
+#### 6.2.5 Remaining Voice Research
+
+- **Kokoro-82M / VoxSherpa + expressiveness (`#783`):** Research into alternative TTS
+  engines with emotional expressiveness and tone control
+- **Kiwi language corpus tuning (`#784`):** Tuning TTS pronunciation for Māori words
+  and Kiwi slang used by Jandal
+- **VITS noise_scale expressiveness (`#788`):** Fine-tuning the noise scale parameter
+  for more natural-sounding VITS voices
+- **Custom Piper voice training (`#756`):** Research into training a custom Piper voice
+  model with Jandal's Kiwi character
+- **Voice memo skill (`#823`):** Native skill for voice note-taking
+- **VoiceSession architecture (`#588`):** Unified voice session management for slot-fill
+  and follow-on assistant mode
+- **QA gate (`#824`):** Real-device voice validation for the current stack on Samsung
+  Galaxy S23 Ultra
+- **Homescreen widget (`#617`):** Quick actions / voice widget for the homescreen
+- **Translator skill (`#659`):** Multilingual translation with TTS output
+- **Wake word (`#65`):** "Hey Jandal" via Picovoice Porcupine (future)
+- **Live mode (`#64`):** Real-time streaming interaction (future)
+### 6.3 Homescreen Glance Widget (issue #617, PR #847)
 
 A Glance-based (`androidx.glance`) homescreen widget that surfaces voice and text Quick Actions
 directly from the Android homescreen, without requiring the user to open the app.
