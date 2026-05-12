@@ -2162,7 +2162,7 @@ class NativeIntentHandler @Inject constructor(
                 }
                 // Fuzzy Room DB match: handles spelling variations (e.g. "Freya" query → "Freyja" stored label)
                 runBlocking { importantDateRepository.getAll() }
-                    .firstOrNull { CalendarBirthdayLookup.labelsPotentiallyMatch(it.label, namePart) }
+                    .singleOrNull { CalendarBirthdayLookup.labelsPotentiallyMatch(it.label, namePart) }
                     ?.let { stored ->
                         return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
                     }

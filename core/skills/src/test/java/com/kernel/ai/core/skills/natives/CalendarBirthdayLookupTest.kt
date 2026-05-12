@@ -178,6 +178,14 @@ class CalendarBirthdayLookupTest {
     }
 
     @Test
+    fun `labelsPotentiallyMatch returns false for same-initial 3-letter name variants`() {
+        // 3-letter names share Soundex codes by initial alone — must not produce false positives
+        assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Tim", "Tom"))
+        assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Dan", "Don"))
+        assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Ben", "Ban"))
+    }
+
+    @Test
     fun `findBirthday matches phonetically similar calendar name Freyja when query is Freya`() {
         val context = mockk<Context>(relaxed = true)
         val contentResolver = mockk<ContentResolver>(relaxed = true)

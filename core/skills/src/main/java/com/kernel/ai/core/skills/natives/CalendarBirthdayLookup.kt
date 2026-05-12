@@ -135,11 +135,13 @@ class CalendarBirthdayLookup @Inject constructor(
         private fun tokensEquivalent(left: String, right: String): Boolean {
             if (left == right) return true
             if (tokenVariants(left).intersect(tokenVariants(right)).isNotEmpty()) return true
+            val maxLen = maxOf(left.length, right.length)
+            // Guard applies to both Soundex and edit distance — prevents 3-letter false positives
+            // (e.g. Tim/Tom, Dan/Don share the same Soundex code)
+            if (maxLen < 4) return false
             // Phonetic match — catches Emily/Emilie, common spelling variants
             if (soundex(left) == soundex(right)) return true
             // Edit-distance fallback — catches Freya/Freyja, short insertion/deletion diffs
-            val maxLen = maxOf(left.length, right.length)
-            if (maxLen < 4) return false
             return editDistance(left, right) <= maxLen / 3
         }
 
