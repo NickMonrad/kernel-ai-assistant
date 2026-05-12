@@ -59,7 +59,9 @@ internal fun normalizeChatTextForSpeech(text: String): String =
         .replace(Regex("""\s*(?:\r?\n){2,}\s*"""), ". ")
         .replace(Regex("""\s*\r?\n\s*"""), ". ")
         .replace(Regex("""\s+"""), " ")
+        .replace(Regex("""\.\s+\."""), ".")   // collapse ". ." artifacts from compound transforms
         .let(::applySpeechPronunciationOverrides)
+        .trimStart('.')   // strip leading period artifacts (read by espeak as "dot")
         .trim()
 
 internal fun finalizeChatTextForSpeech(text: String): String =

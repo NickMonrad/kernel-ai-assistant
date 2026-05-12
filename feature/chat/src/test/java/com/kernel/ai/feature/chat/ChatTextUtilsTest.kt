@@ -154,6 +154,25 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `colons followed by numbered list do not produce double dot artifact`() {
+            // "big cats:\n1. Tigers" → colon→". " and \n1.→". " both fire; must dedup to single "."
+            assertEquals(
+                "big cats. Tigers",
+                normalizeChatTextForSpeech("big cats:\n1. Tigers"),
+            )
+        }
+
+        @Test
+        fun `leading period at start of normalised text is stripped`() {
+            // Chunk starting with ". Tigers" (period injected by compound transforms) must not
+            // be read by espeak-ng as "dot Tigers".
+            assertEquals(
+                "Tigers",
+                normalizeChatTextForSpeech(". Tigers"),
+            )
+        }
+
+        @Test
         fun `converts non-numeric colons into sentence-break pauses`() {
             assertEquals(
                 "Bedtime Routine. Predictability is key",
