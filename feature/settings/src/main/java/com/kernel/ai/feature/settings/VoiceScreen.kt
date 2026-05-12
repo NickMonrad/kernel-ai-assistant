@@ -520,6 +520,54 @@ private fun VoiceScreenContent(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
 
+                // Speech rate slider — shared with Piper; 0.5–1.5 in steps of 0.05
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    SliderRow(
+                        label = "Speech rate",
+                        valueLabel = "%.2fx".format(uiState.sherpaSpeed),
+                        value = uiState.sherpaSpeed,
+                        valueRange = 0.5f..1.5f,
+                        steps = 19,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaSpeedChanged(
+                                (newVal * 20).roundToInt() / 20f
+                            )
+                        },
+                    )
+                }
+
+                // Pitch slider — shared with Piper; 0.5–2.0 in steps of 0.05
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    SliderRow(
+                        label = "Pitch",
+                        valueLabel = "%.2fx".format(uiState.sherpaPitch),
+                        value = uiState.sherpaPitch,
+                        valueRange = 0.5f..2.0f,
+                        steps = 29,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaPitchChanged(
+                                (newVal * 20).roundToInt() / 20f
+                            )
+                        },
+                    )
+                }
+
+                // Volume boost slider — shared with Piper; 0.5–3.0 in steps of 0.25
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    SliderRow(
+                        label = "Volume boost",
+                        valueLabel = "%.2fx".format(uiState.sherpaGain),
+                        value = uiState.sherpaGain,
+                        valueRange = 0.5f..3.0f,
+                        steps = 9,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaGainChanged(
+                                (newVal * 4).roundToInt() / 4f
+                            )
+                        },
+                    )
+                }
+
                 uiState.kokoroVoices.forEach { voiceRow ->
                     val isSelected = uiState.selectedKokoroVoice == voiceRow.voice
                     val isDownloaded = voiceRow.downloadState is VoicePackDownloadState.Downloaded
