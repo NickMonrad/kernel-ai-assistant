@@ -67,12 +67,20 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - ⚙️ **Expanded TTS settings** — pitch slider (Sherpa only, 0.5–2.0×), auto-speak chat replies toggle (decoupled from Quick Actions via `autoSpeakEnabled` field), max spoken sentences dropdown (0 = unlimited, 2, 3, 5); all grouped in a **"Chat voice behaviour"** section in Settings
 - 🛑 **Verbal stop command** — saying "stop", "stop speaking", "cancel", "be quiet", "shut up", or "silence" during TTS playback cancels speech and stops mic re-arm
 - 🗣️ **VCTK multi-speaker selection** — choose from 109 VCTK voices (gender filter, speaker ID, accent label) in Settings → Voice; sid mapping sourced directly from the Piper model config
+|- 🗣️ **Semaine multi-speaker selection** — 4 distinct voices (Prudence, Spike, Obadiah, Poppy) selectable in Settings → Voice (#818, PR #818)
+|- 📐 **Deterministic unit conversion** — length, mass, volume, temperature, speed with alias normalisation and spoken-STT variants (#676, PR #816)
+|- 💱 **Deterministic currency conversion** — ISO code resolution via Frankfurter/ECB rates with same-currency short-circuit and clear error for unsupported currencies (#831, PR #848)
+|- 🗣️ **TTS pronoun normalisation** — converts first-person pronouns (my/I → your/you) in spoken summaries so the assistant speaks in third person (#828, PR #830)
+|- 🔊 **Voice fallthrough preservation** — Actions→Chat fallthrough preserves the user's voice-speak expectation so replies are spoken even after cross-screen navigation (#832, PR #833)
+|- ⏱️ **Slot-fill retry on no-speech** — system retries the slot-fill prompt instead of failing; cancel phrases abort the flow; start-listening audio cue confirms mic activity (#790/#791, PR #825)
+|- 🔒 **Blank response guard** — retries without RAG before showing fallback when LiteRT produces 0 tokens; keeps chat awake during load and generation (#839/#841, PRs #840/#842)
+|- 🎙️ **Homescreen Glance widget** — quick actions and voice from the launcher via GlanceAppWidget; VoiceCommandActivity and WidgetTextInputActivity with task isolation (#617, PR #847)
+|- 🔧 **Audio quality fixes** — AudioTrack tail cutoff prevention via hardware-latency silence padding; expectedSlotPromptSpeech normalisation to match TTS output; SID=0 clamp for single-speaker voices; aye pronunciation correction (#837/#828/#810, PRs #838/#836/#811)
 
 ### Coming Soon
 - 💬 **Expanded multi-turn dialog** — broader confirmation, digression, and slot-filling coverage across more intents *(Phase 3G, #708 and follow-ups)*
 - 🗒️ **Lists — management upgrades** — rename, pin, sort, edit items, favorites, and due dates *(#662)*
 - ⏰ **Alarms CRUD UI** — create, edit, and toggle alarms directly from the Alarms screen *(Phase 3, #479)*
-- 📱 **Homescreen widget** — quick actions and voice from the launcher *(Phase 3F, #617)*
 - 🌙 **Dreaming Engine** — overnight WorkManager consolidation (Light Sleep → REM → Deep Sleep) *(Phase 4)*
 - ⚡ **Semantic cache** — instant responses for repeated knowledge queries *(Phase 4)*
 - 🪪 **Self-healing identity** — structured user profile, LLM-managed via Dreaming cycle *(Phase 4)*
