@@ -73,12 +73,31 @@ class VoicePackDownloadWorker(
             ?: return@withContext Result.failure(errorData("Missing download URL"))
         val totalBytes = inputData.getLong(KEY_VOICE_TOTAL_BYTES, 0L)
 
-        val voice = SherpaPiperVoice.entries.firstOrNull { it.name == voiceName }
-            ?: return@withContext Result.failure(errorData("Unknown voice: $voiceName"))
+        val piperVoice = SherpaPiperVoice.entries.firstOrNull { it.name == voiceName }
+        val kokoroVoice = if (piperVoice == null) SherpaKokoroVoice.entries.firstOrNull { it.name == voiceName } else null
 
-        val destDir = voice.voiceDir(applicationContext)
+        if (piperVoice == null && kokoroVoice == null) {
+            return@withContext Result.failure(errorData("Unknown voice: $voiceName"))
+        }
+
+        val destDir: File
+        val validationFn: (File) -> Boolean
+        if (kokoroVoice != null) {
+            destDir = kokoroVoice.voiceDir(applicationContext)
+            validationFn = ::hasRequiredKokoroVoicePackFiles
+        } else {
+            destDir = piperVoice!!.voiceDir(applicationContext)
+            validationFn = ::hasRequiredSherpaVoicePackFiles
+        }
         val cacheDir = File(applicationContext.cacheDir, "sherpa-pack").also { it.mkdirs() }
-        val tmpFile = File(cacheDir, "$voiceName.tar.bz2$TMP_SUFFIX")
+        // Use destDir.name (pack version-specific) so a different pack version never resumes
+        // from a stale partial file left by a previous version (e.g. v1.1 → v1.0 migration).
+        val tmpFile = File(cacheDir, "${destDir.name}.tar.bz2$TMP_SUFFIX")
+        // One-time migration: remove any stale temp file that used the old enum-name key.
+        File(cacheDir, "$voiceName.tar.bz2$TMP_SUFFIX").takeIf { it.exists() }?.let {
+            Log.i(TAG, "Removing stale temp file with old naming: ${it.name}")
+            it.delete()
+        }
 
         trySetForeground(buildForegroundInfo(displayName, 0))
 
@@ -98,11 +117,16 @@ class VoicePackDownloadWorker(
 
             // Phase 2: Extract (90–100%)
             trySetForeground(buildForegroundInfo(displayName, 90))
-            extractTarBz2(tmpFile, destDir)
+            // normalizeVoicePack renames variant model files (e.g. model.int8.onnx → model.onnx)
+            // and is safe for all packs; always enable it.
+            extractTarBz2(tmpFile, destDir, normalizePiperPack = true)
             tmpFile.delete()
 
-            if (!hasRequiredSherpaVoicePackFiles(destDir)) {
-                Log.e(TAG, "Extraction appeared to succeed but required files are missing for $voiceName")
+            if (!validationFn(destDir)) {
+                val contents = destDir.listFiles()
+                    ?.joinToString { f -> "${f.name}(${if (f.isDirectory) "dir" else "${f.length()}b"})" }
+                    ?: "(empty or missing)"
+                Log.e(TAG, "Extraction appeared to succeed but required files are missing for $voiceName. Extracted: $contents")
                 return@withContext Result.failure(errorData("Extraction incomplete — required files missing"))
             }
 
@@ -201,7 +225,7 @@ class VoicePackDownloadWorker(
      * We strip this single top-level component so the contents land directly in [destDir]:
      *   `vits-piper-en_GB-jenny_dioco-medium/model.onnx` → `destDir/model.onnx`
      */
-    private fun extractTarBz2(tarBz2: File, destDir: File) {
+    private fun extractTarBz2(tarBz2: File, destDir: File, normalizePiperPack: Boolean = true) {
         if (destDir.exists()) {
             destDir.deleteRecursively()
         }
@@ -227,6 +251,13 @@ class VoicePackDownloadWorker(
                         val relativePath = strippedParts.joinToString(File.separator)
 
                         val outFile = File(destDir, relativePath)
+                        // Guard against path-traversal sequences (e.g. "../../etc/passwd")
+                        val destCanonical = destDir.canonicalPath + File.separator
+                        if (!outFile.canonicalPath.startsWith(destCanonical)) {
+                            Log.w(TAG, "Skipping unsafe tar entry: ${entry.name}")
+                            entry = tar.nextEntry
+                            continue
+                        }
                         if (entry.isDirectory) {
                             outFile.mkdirs()
                         } else {
@@ -238,7 +269,7 @@ class VoicePackDownloadWorker(
                 }
             }
         }
-        normalizeExtractedSherpaVoicePack(destDir)
+        if (normalizePiperPack) normalizeExtractedSherpaVoicePack(destDir)
     }
 
     // ── Foreground / notification ─────────────────────────────────────────────

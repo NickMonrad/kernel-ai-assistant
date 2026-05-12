@@ -33,7 +33,8 @@ class FallbackVoiceOutputController @Inject constructor(
 
     override suspend fun warmUp(): VoiceOutputResult = when (voiceOutputPreferences.selectedEngine.first()) {
         VoiceOutputEngine.AndroidTts -> warmUpAndroidTts()
-        VoiceOutputEngine.SherpaExperimental -> warmUpSherpaOrFallback()
+        VoiceOutputEngine.SherpaExperimental,
+        VoiceOutputEngine.KokoroExperimental -> warmUpSherpaOrFallback()
     }
 
     override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult =
@@ -43,7 +44,8 @@ class FallbackVoiceOutputController @Inject constructor(
                 androidTts.speak(request)
             }
 
-            VoiceOutputEngine.SherpaExperimental -> speakWithSherpaFallback(request)
+            VoiceOutputEngine.SherpaExperimental,
+            VoiceOutputEngine.KokoroExperimental -> speakWithSherpaFallback(request)
         }
 
     override suspend fun openStreamingSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession =
@@ -53,7 +55,8 @@ class FallbackVoiceOutputController @Inject constructor(
                 androidTts.openStreamingSession(request)
             }
 
-            VoiceOutputEngine.SherpaExperimental -> openSherpaStreamingSessionOrFallback(request)
+            VoiceOutputEngine.SherpaExperimental,
+            VoiceOutputEngine.KokoroExperimental -> openSherpaStreamingSessionOrFallback(request)
         }
 
     override fun stop() {

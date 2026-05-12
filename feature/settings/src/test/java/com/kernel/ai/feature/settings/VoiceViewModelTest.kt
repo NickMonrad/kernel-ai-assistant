@@ -3,6 +3,7 @@ package com.kernel.ai.feature.settings
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
 import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
+import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -48,9 +49,17 @@ class VoiceViewModelTest {
     private val autoSpeak = MutableStateFlow(true)
     private val maxSpokenSentences = MutableStateFlow(0)
     private val activeSpeakerId = MutableStateFlow(0)
+    private val selectedKokoroVoice = MutableStateFlow(SherpaKokoroVoice.KokoroMultiLangInt8)
+    private val kokoroActiveSpeakerId = MutableStateFlow(0)
     private val sherpaDownloadStates: MutableStateFlow<Map<SherpaPiperVoice, VoicePackDownloadState>> =
         MutableStateFlow(
             SherpaPiperVoice.entries.associateWith {
+                VoicePackDownloadState.NotDownloaded
+            },
+        )
+    private val kokoroDownloadStates: MutableStateFlow<Map<SherpaKokoroVoice, VoicePackDownloadState>> =
+        MutableStateFlow(
+            SherpaKokoroVoice.entries.associateWith {
                 VoicePackDownloadState.NotDownloaded
             },
         )
@@ -81,6 +90,8 @@ class VoiceViewModelTest {
         every { voiceOutputPreferences.autoSpeak } returns autoSpeak
         every { voiceOutputPreferences.maxSpokenSentences } returns maxSpokenSentences
         every { voiceOutputPreferences.activeSpeakerId } returns activeSpeakerId
+        every { voiceOutputPreferences.selectedKokoroVoice } returns selectedKokoroVoice
+        every { voiceOutputPreferences.kokoroActiveSpeakerId } returns kokoroActiveSpeakerId
         coEvery { voiceOutputPreferences.setSpokenResponsesEnabled(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedSherpaVoice(any()) } just Runs
@@ -90,10 +101,16 @@ class VoiceViewModelTest {
         coEvery { voiceOutputPreferences.setAutoSpeak(any()) } just Runs
         coEvery { voiceOutputPreferences.setMaxSpokenSentences(any()) } just Runs
         coEvery { voiceOutputPreferences.setActiveSpeakerId(any()) } just Runs
+        coEvery { voiceOutputPreferences.setSelectedKokoroVoice(any()) } just Runs
+        coEvery { voiceOutputPreferences.setKokoroActiveSpeakerId(any()) } just Runs
         every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
+        every { sherpaVoicePackDownloadManager.kokoroDownloadStates } returns kokoroDownloadStates
         every { sherpaVoicePackDownloadManager.startDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.cancelDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.deleteVoice(any()) } just Runs
+        every { sherpaVoicePackDownloadManager.startKokoroDownload(any()) } just Runs
+        every { sherpaVoicePackDownloadManager.cancelKokoroDownload(any()) } just Runs
+        every { sherpaVoicePackDownloadManager.deleteKokoroVoice(any()) } just Runs
         viewModel = VoiceViewModel(
             androidNativeRecognitionSupport,
             voiceInputPreferences,
