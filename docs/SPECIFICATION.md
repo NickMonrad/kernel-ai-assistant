@@ -484,6 +484,7 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 | `get_battery` / `get_time` / `get_date` | Deterministic device info | Android APIs / `LocalDateTime` | ✅ |
 | `get_date_diff` | Deterministic date arithmetic | `LocalDate` calculation | ✅ |
 | `convert_units` | Deterministic unit conversion (length, mass, volume, temperature, speed) | `UnitConversionEvaluator` via `NativeIntentHandler` | ✅ |
+| `convert_cooking_measure` | Deterministic ingredient-aware cooking conversion (volume ↔ mass) | `CookingConversionService` via `NativeIntentHandler` | ✅ |
 | `convert_currency` | Deterministic currency conversion using latest ECB-backed rates | `CurrencyConversionService` via `NativeIntentHandler` | ✅ |
 | `add_to_list` / `bulk_add_to_list` / `create_list` / `get_list_items` / `remove_from_list` | Room-backed list management | `NativeIntentHandler` + Room DAOs | ✅ |
 
@@ -536,10 +537,55 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 
 **Explicit non-goals in this implementation**
 
-- No ingredient-aware cooking density conversions
+- No ingredient-aware cooking density conversions in `convert_units` — those live on the separate `convert_cooking_measure` path
 - No cross-category interpretation such as inferring mass from volume without material context
 - No historical FX charting, offline exchange-rate cache, or real-time market feed
 
+
+> **`convert_cooking_measure` deterministic routing and reply contract:** `QuickIntentRouter` matches ingredient-qualified cooking phrases such as `how much does 3 tbsp of butter weigh`, `convert 2 cups flour to grams`, `how many grams is 250 ml milk`, `convert 400 g plain flour to cups`, and `convert 3 tbsp of butter to ml`, then routes them to the dedicated native `convert_cooking_measure` path. Plain unit math with no ingredient still stays on `convert_units`. The native path uses a small built-in ingredient-density table, keeps kitchen-unit assumptions explicit, and leads replies with the converted result instead of pretending there is a universal exact answer.
+
+#### `convert_cooking_measure` supported capabilities
+
+**Accepted phrasing patterns**
+
+- Weight-style phrasing: `how much does 3 tbsp of butter weigh`
+- Direct phrasing: `convert 2 cups flour to grams`, `convert 1 Australian tablespoon honey to grams`, `convert 400 g plain flour to cups`
+- Reversed phrasing: `how many grams is 250 ml milk`, `how many cups are in 400 g plain flour`
+- Same-category kitchen-unit phrasing also stays on this path so `tbsp` / `cup` assumptions remain consistent: `convert 3 tbsp of butter to ml`
+
+**Supported units in this implementation**
+
+- Volume: `mL`, `L`, `tsp`, `tbsp`, `AU tbsp`, `cup`
+- Mass: `g`, `kg`
+
+**Kitchen-unit assumptions**
+
+- `1 tsp = 5 mL`
+- `1 tbsp = 15 mL`
+- `1 Australian tablespoon = 20 mL`
+- `1 cup = 250 mL`
+
+**Ingredient set in this implementation**
+
+- Butter
+- Plain / all-purpose flour
+- White sugar and brown sugar
+- Rice and rolled oats
+- Milk and water
+- Olive oil and honey
+- Tomato paste and crushed tomatoes
+- Grated cheddar / mozzarella
+- Lentils
+
+**Behavior and guardrails**
+
+- This path is intentionally separate from `convert_units`; it exists for ingredient-qualified cooking questions and kitchen-unit assumptions
+- Cross-category volume↔mass replies use the built-in ingredient density table
+- Same-category ingredient-qualified kitchen-unit replies still use this path so `tsp` / `tbsp` / `cup` values stay consistent with the cooking assumptions
+- Replies are always approximate and lead with the converted result rather than the assumption text
+- Unknown ingredients fail clearly instead of guessing when density data is actually required
+- Unsupported units fail clearly instead of guessing
+- Exact amounts can vary by brand, packing, moisture, and grate size, so cross-category replies state the built-in assumption rather than implying laboratory precision
 
 > **`convert_currency` deterministic routing and reply contract:** `QuickIntentRouter` matches direct phrasing (`convert 100 Australian dollars to New Zealand dollars`, `100 aud in nzd`, `how much is 100 usd in eur`) and reversed phrasing (`how many euros are in 100 usd`) and routes them to the dedicated native `convert_currency` path rather than `convert_units`. The native path resolves ISO codes plus supported currency names, fetches the latest ECB-backed rate from Frankfurter `/v1/latest`, and always returns a direct reply that includes the effective rate date, the quoted pair rate, and an explicit note that exchange rates are not real-time.
 
@@ -820,7 +866,6 @@ punctuation is normalised for TTS.
   and follow-on assistant mode
 - **QA gate (`#824`):** Real-device voice validation for the current stack on Samsung
   Galaxy S23 Ultra
-- **Homescreen widget (`#617`):** Quick actions / voice widget for the homescreen
 - **Translator skill (`#659`):** Multilingual translation with TTS output
 - **Wake word (`#65`):** "Hey Jandal" via Picovoice Porcupine (future)
 - **Live mode (`#64`):** Real-time streaming interaction (future)

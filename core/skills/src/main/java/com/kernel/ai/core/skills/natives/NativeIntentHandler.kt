@@ -113,6 +113,7 @@ interface ClockAlertController {
  *   get_date_diff           — Native date arithmetic: days/weeks until or since a date (params: target_date, from_date?) — returns DirectReply
  *   calculate_arithmetic    — Deterministic arithmetic/calculator evaluator (params: expression) — returns DirectReply
  *   convert_units           — Deterministic unit conversion (params: value, from_unit, to_unit) — returns DirectReply
+ *   convert_cooking_measure — Deterministic ingredient-aware cooking conversion (params: amount, from_unit, ingredient, to_unit?) — returns DirectReply
  *   convert_currency        — Latest ECB-backed currency conversion (params: amount, from_currency, to_currency) — returns DirectReply
  *   save_important_date     — Stores a taught recurring personal date (params: label, date) — returns DirectReply
  *   list_important_dates    — Lists taught recurring personal dates — returns DirectReply
@@ -132,6 +133,7 @@ class NativeIntentHandler @Inject constructor(
     private val calendarBirthdayLookup: CalendarBirthdayLookup,
     private val memoryRepository: MemoryRepository,
     private val embeddingEngine: EmbeddingEngine,
+    private val cookingConversionService: CookingConversionService,
     private val currencyConversionService: CurrencyConversionService,
 ) {
 
@@ -200,6 +202,7 @@ class NativeIntentHandler @Inject constructor(
                 "get_date_diff" -> getDateDiff(params)
                 "calculate_arithmetic" -> calculateArithmetic(params)
                 "convert_units" -> convertUnits(params)
+                "convert_cooking_measure" -> convertCookingMeasure(params)
                 "convert_currency" -> convertCurrency(params)
                 "get_system_info" -> getSystemInfo()
                 "save_important_date" -> saveImportantDate(params)
@@ -260,7 +263,7 @@ class NativeIntentHandler @Inject constructor(
             "open_app", "navigate_to", "find_nearby",
             "add_to_list", "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list",
             "smart_home_on", "smart_home_off",
-            "get_weather", "get_date_diff", "get_system_info", "calculate_arithmetic", "convert_units", "convert_currency",
+            "get_weather", "get_date_diff", "get_system_info", "calculate_arithmetic", "convert_units", "convert_cooking_measure", "convert_currency",
             "save_important_date", "list_important_dates", "remove_important_date",
             "save_memory",
         )
@@ -2034,6 +2037,78 @@ class NativeIntentHandler @Inject constructor(
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: IllegalArgumentException) {
             SkillResult.Failure("convert_units", e.message ?: "Could not convert units")
+        }
+    }
+
+    private fun convertCookingMeasure(params: Map<String, String>): SkillResult {
+        val amount = params["amount"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("convert_cooking_measure", "No cooking conversion amount provided")
+        val fromUnit = params["from_unit"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("convert_cooking_measure", "No cooking source unit provided")
+        val ingredient = params["ingredient"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("convert_cooking_measure", "No cooking ingredient provided")
+        val toUnit = params["to_unit"]?.trim()?.takeIf { it.isNotBlank() } ?: "g"
+
+        return try {
+            val result = cookingConversionService.convert(
+                amountRaw = amount,
+                fromUnitRaw = fromUnit,
+                ingredientRaw = ingredient,
+                toUnitRaw = toUnit,
+            )
+            val roundedOutput = result.outputAmount.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros()
+            val sourcePhrase = "${result.inputAmount.toPlainString()} ${result.fromUnit.contentName(result.inputAmount)} ${result.ingredientLabel}"
+            val targetPhrase = "${roundedOutput.toPlainString()} ${result.toUnit.contentName(roundedOutput)}"
+            val sourceSpoken = "${result.inputAmount.toPlainString()} ${result.fromUnit.spokenName(result.inputAmount)} ${result.ingredientLabel}"
+            val targetSpoken = "${roundedOutput.toPlainString()} ${result.toUnit.spokenName(roundedOutput)}"
+            val leadVerb = if (
+                result.fromUnit.category == CookingConversionService.UnitCategory.VOLUME &&
+                    result.toUnit.category == CookingConversionService.UnitCategory.MASS
+            ) {
+                "weighs"
+            } else {
+                "is"
+            }
+            val assumptionSentence = when {
+                result.usedIngredientDensity -> buildString {
+                    append("This uses the built-in ${result.ingredientLabel} cooking conversion.")
+                    if (result.assumptionTexts.isNotEmpty()) {
+                        append(' ')
+                        append(
+                            result.assumptionTexts.joinToString(" and ").replaceFirstChar { char ->
+                                if (char.isLowerCase()) char.titlecase(Locale.ENGLISH) else char.toString()
+                            },
+                        )
+                        append('.')
+                    }
+                    append(" Exact amounts can vary by brand and packing.")
+                }
+                result.assumptionTexts.isNotEmpty() -> buildString {
+                    append("This uses the explicit kitchen-unit assumptions for cooking measures. ")
+                    append(
+                        result.assumptionTexts.joinToString(" and ").replaceFirstChar { char ->
+                            if (char.isLowerCase()) char.titlecase(Locale.ENGLISH) else char.toString()
+                        },
+                    )
+                    append('.')
+                }
+                else -> ""
+            }
+            val spokenSummary = when {
+                result.usedIngredientDensity ->
+                    "$sourceSpoken $leadVerb approximately $targetSpoken using the built-in ${result.ingredientLabel} cooking conversion."
+                result.assumptionTexts.isNotEmpty() ->
+                    "$sourceSpoken $leadVerb approximately $targetSpoken using the cooking kitchen-unit assumptions."
+                else -> "$sourceSpoken $leadVerb approximately $targetSpoken."
+            }
+            val content = if (assumptionSentence.isNotBlank()) {
+                "$sourcePhrase $leadVerb approximately $targetPhrase. $assumptionSentence"
+            } else {
+                "$sourcePhrase $leadVerb approximately $targetPhrase."
+            }
+            SkillResult.DirectReply(content, spokenSummary = spokenSummary)
+        } catch (e: IllegalArgumentException) {
+            SkillResult.Failure("convert_cooking_measure", e.message ?: "Could not convert cooking measure")
         }
     }
 
