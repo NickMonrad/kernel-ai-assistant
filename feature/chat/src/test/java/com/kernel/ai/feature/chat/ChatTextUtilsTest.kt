@@ -119,6 +119,25 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `strips inline unicode bullet characters that would be vocalised as dot`() {
+            // • not at line start (e.g. single-line bullet run)
+            assertEquals(
+                "apples bread oranges",
+                normalizeChatTextForSpeech("apples • bread • oranges"),
+            )
+            // Triangular bullet
+            assertEquals(
+                "item one. item two",
+                normalizeChatTextForSpeech("item one\n‣ item two"),
+            )
+            // White bullet ◦
+            assertEquals(
+                "first. second",
+                normalizeChatTextForSpeech("first\n◦ second"),
+            )
+        }
+
+        @Test
         fun `converts numbered list items into sentence-break pauses`() {
             assertEquals(
                 "Maintain a schedule. Create a routine. Optimise your environment",

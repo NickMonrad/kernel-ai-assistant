@@ -797,8 +797,11 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         setProperty(kokoroConfig, "voices", File(modelDir, SHERPA_KOKORO_VOICES_FILE).absolutePath)
         setProperty(kokoroConfig, "tokens", File(modelDir, "tokens.txt").absolutePath)
         setProperty(kokoroConfig, "dataDir", File(modelDir, "espeak-ng-data").absolutePath)
-        // lang hint — empty string is fine for the multi-lingual model (optional field)
-        setProperty(kokoroConfig, "lang", "")
+        // Set "en-us" so espeak-ng uses English text normalisation rules: sentence-ending
+        // periods become pauses rather than being vocalised as "dot". This is safe even with
+        // multilingual speakers (sid 28-52) because synthesis language is driven by the
+        // speaker ID, not lang; lang only controls the G2P text-normalisation pipeline.
+        setProperty(kokoroConfig, "lang", "en-us")
         // lexicon: join any present lexicon files with a comma (optional field)
         val lexiconFiles = listOf("lexicon-us-en.txt", "lexicon-gb-en.txt")
             .map { File(modelDir, it) }

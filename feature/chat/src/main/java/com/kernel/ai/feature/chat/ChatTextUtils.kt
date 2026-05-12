@@ -52,7 +52,8 @@ internal fun normalizeChatTextForSpeech(text: String): String =
     stripMarkdownForClipboard(text)
         .replace(Regex("""\r?\n\s*\d+\.\s+"""), ". ")   // numbered list item boundary → sentence break
         .replace(Regex("""(?m)^\s*\d+\.\s+"""), "")      // strip leading numbered marker at start
-        .replace(Regex("""(?m)^\s*[-*•]\s+"""), "")      // strip bullet markers
+        .replace(Regex("""(?m)^\s*[-*•]\s+"""), "")      // strip bullet markers at line start
+        .replace(Regex("""[•‣◦∙⋅·]\s*"""), "")           // strip any remaining inline bullet chars
         .replace(Regex("""(?<!\d):(?!\d)(?!//)\s*"""), ". ")   // non-numeric colons → sentence break (preserves ://)
         .replace(Regex("""[—–]\s*"""), ", ")              // em/en dashes → natural comma pause
         .replace(Regex("""\s*(?:\r?\n){2,}\s*"""), ". ")
