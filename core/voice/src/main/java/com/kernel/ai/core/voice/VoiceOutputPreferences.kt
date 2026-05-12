@@ -29,12 +29,14 @@ class VoiceOutputPreferences @Inject constructor(
         booleanPreferencesKey("quick_actions_spoken_responses_enabled")
     private val selectedEngineKey = stringPreferencesKey("selected_voice_output_engine")
     private val selectedSherpaVoiceKey = stringPreferencesKey("selected_sherpa_piper_voice")
+    private val selectedKokoroVoiceKey = stringPreferencesKey("selected_sherpa_kokoro_voice")
     private val sherpaSpeedKey = floatPreferencesKey("sherpa_speed")
     private val voicePitchKey = floatPreferencesKey("voice_pitch")
     private val voiceGainKey = floatPreferencesKey("voice_gain")
     private val autoSpeakKey = booleanPreferencesKey("voice_auto_speak")
     private val maxSpokenSentencesKey = intPreferencesKey("voice_max_spoken_sentences")
     private val activeSpeakerIdKey = intPreferencesKey("voice_active_speaker_id")
+    private val kokoroActiveSpeakerIdKey = intPreferencesKey("kokoro_active_speaker_id")
 
     val spokenResponsesEnabled: Flow<Boolean> = context.voiceOutputPrefsDataStore.data
         .catch { e ->
@@ -69,6 +71,17 @@ class VoiceOutputPreferences @Inject constructor(
         }
         .map { prefs -> SherpaPiperVoice.fromStorage(prefs[selectedSherpaVoiceKey]) }
 
+    val selectedKokoroVoice: Flow<SherpaKokoroVoice> = context.voiceOutputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice output preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs -> SherpaKokoroVoice.fromStorage(prefs[selectedKokoroVoiceKey]) }
+
     val sherpaSpeed: Flow<Float> = context.voiceOutputPrefsDataStore.data
         .catch { e ->
             if (e is IOException) {
@@ -95,6 +108,12 @@ class VoiceOutputPreferences @Inject constructor(
     suspend fun setSelectedSherpaVoice(voice: SherpaPiperVoice) {
         context.voiceOutputPrefsDataStore.edit { prefs ->
             prefs[selectedSherpaVoiceKey] = voice.name
+        }
+    }
+
+    suspend fun setSelectedKokoroVoice(voice: SherpaKokoroVoice) {
+        context.voiceOutputPrefsDataStore.edit { prefs ->
+            prefs[selectedKokoroVoiceKey] = voice.name
         }
     }
 
@@ -186,6 +205,24 @@ class VoiceOutputPreferences @Inject constructor(
     suspend fun setActiveSpeakerId(sid: Int) {
         context.voiceOutputPrefsDataStore.edit { prefs ->
             prefs[activeSpeakerIdKey] = sid.coerceIn(0, 108)
+        }
+    }
+
+    /** Active Kokoro speaker ID (sid 0–52 for the current 53-speaker v1.0 multilingual pack). Default 0. */
+    val kokoroActiveSpeakerId: Flow<Int> = context.voiceOutputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice output preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs -> (prefs[kokoroActiveSpeakerIdKey] ?: 0).coerceIn(0, 52) }
+
+    suspend fun setKokoroActiveSpeakerId(sid: Int) {
+        context.voiceOutputPrefsDataStore.edit { prefs ->
+            prefs[kokoroActiveSpeakerIdKey] = sid.coerceIn(0, 52)
         }
     }
 

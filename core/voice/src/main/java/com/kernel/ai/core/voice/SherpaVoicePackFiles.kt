@@ -7,10 +7,24 @@ internal const val SHERPA_MODEL_JSON_FILE = "model.onnx.json"
 internal const val SHERPA_TOKENS_FILE = "tokens.txt"
 internal const val SHERPA_ESPEAK_DATA_DIR = "espeak-ng-data"
 
+/** voices.bin required by the Kokoro model (speaker embeddings). */
+internal const val SHERPA_KOKORO_VOICES_FILE = "voices.bin"
+
 internal fun hasRequiredSherpaVoicePackFiles(dir: File): Boolean =
     dir.isDirectory &&
         File(dir, SHERPA_MODEL_ONNX_FILE).isFile &&
         File(dir, SHERPA_TOKENS_FILE).isFile &&
+        File(dir, SHERPA_ESPEAK_DATA_DIR).isDirectory
+
+/**
+ * Validates that the extracted Kokoro voice pack directory contains all required files:
+ * `model.onnx`, `tokens.txt`, `voices.bin`, and the `espeak-ng-data` directory.
+ */
+internal fun hasRequiredKokoroVoicePackFiles(dir: File): Boolean =
+    dir.isDirectory &&
+        File(dir, SHERPA_MODEL_ONNX_FILE).isFile &&
+        File(dir, SHERPA_TOKENS_FILE).isFile &&
+        File(dir, SHERPA_KOKORO_VOICES_FILE).isFile &&
         File(dir, SHERPA_ESPEAK_DATA_DIR).isDirectory
 
 internal fun normalizeExtractedSherpaVoicePack(dir: File) {
