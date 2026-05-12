@@ -791,6 +791,13 @@ class QuickIntentRouterTest {
             assertEquals(expectedFromUnit, intent.params["from_unit"])
             assertEquals(expectedToUnit, intent.params["to_unit"])
         }
+
+        @ParameterizedTest(name = "No-ingredient kitchen-unit stays on convert_units: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#noIngredientKitchenUnitPhrases")
+        fun `should keep no-ingredient kitchen-unit queries on convert_units`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "convert_units", input)
+        }
     }
 
     @Nested
@@ -2994,6 +3001,14 @@ class QuickIntentRouterTest {
         )
 
         @JvmStatic
+        fun noIngredientKitchenUnitPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("convert 3 tbsp to ml"),
+            Arguments.of("how many cups are in 2 liters"),
+            Arguments.of("convert 500 g to kg"),
+            Arguments.of("convert 3 tbsp to cups"),
+        )
+
+        @JvmStatic
         fun unitConversionCoveragePhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("convert 5 miles to km"),
             Arguments.of("what is 500 grams in ounces"),
@@ -3018,6 +3033,7 @@ class QuickIntentRouterTest {
             Arguments.of("convert 400 g plain flour to cups", "400", "g", "plain flour", "cups"),
             Arguments.of("how many cups are in 400 g plain flour", "400", "g", "plain flour", "cups"),
             Arguments.of("convert 1 Australian tablespoon honey to grams", "1", "Australian tablespoon", "honey", "grams"),
+            Arguments.of("how many kilograms are in 500 g of butter", "500", "g", "butter", "kilograms"),
         )
 
         @JvmStatic

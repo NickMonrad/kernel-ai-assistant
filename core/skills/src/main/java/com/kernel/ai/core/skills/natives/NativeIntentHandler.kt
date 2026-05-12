@@ -2094,17 +2094,19 @@ class NativeIntentHandler @Inject constructor(
                 }
                 else -> ""
             }
+            val assumptionMade = result.usedIngredientDensity || result.assumptionTexts.isNotEmpty()
+            val approxWord = if (assumptionMade) "approximately " else ""
             val spokenSummary = when {
                 result.usedIngredientDensity ->
-                    "$sourceSpoken $leadVerb approximately $targetSpoken using the built-in ${result.ingredientLabel} cooking conversion."
+                    "$sourceSpoken $leadVerb ${approxWord}${targetSpoken} using the built-in ${result.ingredientLabel} cooking conversion."
                 result.assumptionTexts.isNotEmpty() ->
-                    "$sourceSpoken $leadVerb approximately $targetSpoken using the cooking kitchen-unit assumptions."
-                else -> "$sourceSpoken $leadVerb approximately $targetSpoken."
+                    "$sourceSpoken $leadVerb ${approxWord}${targetSpoken} using the cooking kitchen-unit assumptions."
+                else -> "$sourceSpoken $leadVerb ${approxWord}${targetSpoken}."
             }
             val content = if (assumptionSentence.isNotBlank()) {
-                "$sourcePhrase $leadVerb approximately $targetPhrase. $assumptionSentence"
+                "$sourcePhrase $leadVerb ${approxWord}${targetPhrase}. $assumptionSentence"
             } else {
-                "$sourcePhrase $leadVerb approximately $targetPhrase."
+                "$sourcePhrase $leadVerb ${approxWord}${targetPhrase}."
             }
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: IllegalArgumentException) {

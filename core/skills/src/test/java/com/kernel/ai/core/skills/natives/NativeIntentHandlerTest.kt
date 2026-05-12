@@ -1395,8 +1395,8 @@ class NativeIntentHandlerTest {
 
         assertEquals(
             SkillResult.DirectReply(
-                "500 g butter is approximately 0.5 kg.",
-                spokenSummary = "500 grams butter is approximately 0.5 kilograms.",
+                "500 g butter is 0.5 kg.",
+                spokenSummary = "500 grams butter is 0.5 kilograms.",
             ),
             result,
         )
