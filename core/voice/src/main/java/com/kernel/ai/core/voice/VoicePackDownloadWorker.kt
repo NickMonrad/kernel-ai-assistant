@@ -90,7 +90,14 @@ class VoicePackDownloadWorker(
             validationFn = ::hasRequiredSherpaVoicePackFiles
         }
         val cacheDir = File(applicationContext.cacheDir, "sherpa-pack").also { it.mkdirs() }
-        val tmpFile = File(cacheDir, "$voiceName.tar.bz2$TMP_SUFFIX")
+        // Use destDir.name (pack version-specific) so a different pack version never resumes
+        // from a stale partial file left by a previous version (e.g. v1.1 → v1.0 migration).
+        val tmpFile = File(cacheDir, "${destDir.name}.tar.bz2$TMP_SUFFIX")
+        // One-time migration: remove any stale temp file that used the old enum-name key.
+        File(cacheDir, "$voiceName.tar.bz2$TMP_SUFFIX").takeIf { it.exists() }?.let {
+            Log.i(TAG, "Removing stale temp file with old naming: ${it.name}")
+            it.delete()
+        }
 
         trySetForeground(buildForegroundInfo(displayName, 0))
 
@@ -114,7 +121,10 @@ class VoicePackDownloadWorker(
             tmpFile.delete()
 
             if (!validationFn(destDir)) {
-                Log.e(TAG, "Extraction appeared to succeed but required files are missing for $voiceName")
+                val contents = destDir.listFiles()
+                    ?.joinToString { f -> "${f.name}(${if (f.isDirectory) "dir" else "${f.length()}b"})" }
+                    ?: "(empty or missing)"
+                Log.e(TAG, "Extraction appeared to succeed but required files are missing for $voiceName. Extracted: $contents")
                 return@withContext Result.failure(errorData("Extraction incomplete — required files missing"))
             }
 
