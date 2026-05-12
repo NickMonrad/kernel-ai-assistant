@@ -234,7 +234,7 @@ class RunIntentSkill @Inject constructor(
         appendLine()
         appendLine("Cooking-conversion rule: for ingredient-aware kitchen conversion questions, ALWAYS call runIntent with intentName=convert_cooking_measure.")
         appendLine("Pass amount as a decimal string, pass kitchen units in from_unit/to_unit, and include ingredient exactly as the user said it.")
-        appendLine("Use this for cases like 3 tbsp butter → grams, 400 g flour → cups, 3 tbsp butter → mL, or 500 g butter → kg when the ingredient and kitchen-unit assumptions matter.")
+        appendLine("Use this for cases like 3 tbsp butter → grams, 400 g flour → cups, 3 tbsp butter → mL, or 500 g butter → kg whenever an ingredient is part of the cooking question.")
         appendLine("Plain no-ingredient unit math still stays on convert_units. Do NOT invent cooking densities. The native path uses a small built-in ingredient table and will fail clearly if the ingredient is unsupported.")
         appendLine()
         appendLine("Currency-conversion rule: for exchange-rate questions, ALWAYS call runIntent with intentName=convert_currency.")

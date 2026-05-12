@@ -3034,6 +3034,7 @@ class QuickIntentRouterTest {
             Arguments.of("how many cups are in 400 g plain flour", "400", "g", "plain flour", "cups"),
             Arguments.of("convert 1 Australian tablespoon honey to grams", "1", "Australian tablespoon", "honey", "grams"),
             Arguments.of("how many kilograms are in 500 g of butter", "500", "g", "butter", "kilograms"),
+            Arguments.of("how many grams are in 1 kg of butter", "1", "kg", "butter", "grams"),
         )
 
         @JvmStatic
@@ -3047,6 +3048,7 @@ class QuickIntentRouterTest {
             Arguments.of("convert 3 tbsp of butter to ml"),
             Arguments.of("how many cups are in 500 ml of milk"),
             Arguments.of("convert 500 g of butter to kg"),
+            Arguments.of("convert 1 kg of butter to grams"),
         )
 
         @JvmStatic
@@ -3054,6 +3056,7 @@ class QuickIntentRouterTest {
             Arguments.of("convert 3 tbsp of butter to ml", "3", "tbsp", "butter", "ml"),
             Arguments.of("how many cups are in 500 ml of milk", "500", "ml", "milk", "cups"),
             Arguments.of("convert 500 g of butter to kg", "500", "g", "butter", "kg"),
+            Arguments.of("convert 1 kg of butter to grams", "1", "kg", "butter", "grams"),
         )
 
         @JvmStatic
