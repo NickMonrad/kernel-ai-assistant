@@ -35,6 +35,8 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -57,7 +59,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.voice.KokoroSpeakerGroup
 import com.kernel.ai.core.voice.SemaineSpeakerMetadata
+import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VctkSpeakerMetadata
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -90,6 +94,11 @@ fun VoiceScreen(
         onCancelVoiceDownload = viewModel::cancelSherpaVoiceDownload,
         onDeleteVoice = viewModel::deleteSherpaVoice,
         onActiveSpeakerIdChanged = viewModel::setActiveSpeakerId,
+        onKokoroVoiceSelected = viewModel::setKokoroVoice,
+        onDownloadKokoroVoice = viewModel::downloadKokoroVoice,
+        onCancelKokoroVoiceDownload = viewModel::cancelKokoroVoiceDownload,
+        onDeleteKokoroVoice = viewModel::deleteKokoroVoice,
+        onKokoroActiveSpeakerIdChanged = viewModel::setKokoroActiveSpeakerId,
     )
 }
 
@@ -112,6 +121,11 @@ private fun VoiceScreenContent(
     onCancelVoiceDownload: (SherpaPiperVoice) -> Unit,
     onDeleteVoice: (SherpaPiperVoice) -> Unit,
     onActiveSpeakerIdChanged: (Int) -> Unit,
+    onKokoroVoiceSelected: (SherpaKokoroVoice) -> Unit,
+    onDownloadKokoroVoice: (SherpaKokoroVoice) -> Unit,
+    onCancelKokoroVoiceDownload: (SherpaKokoroVoice) -> Unit,
+    onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit,
+    onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -487,6 +501,97 @@ private fun VoiceScreenContent(
                 }
             }
 
+            if (uiState.selectedOutputEngine == VoiceOutputEngine.KokoroExperimental) {
+                Text(
+                    text = "Kokoro voice",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+
+                val kokoroHelpText = if (!uiState.isSelectedKokoroVoiceDownloaded) {
+                    "Download the Kokoro voice pack below before Kokoro can speak."
+                } else {
+                    "Kokoro (Experimental) is active. Android TTS is inactive while Kokoro is selected."
+                }
+                VoiceInfoCard(
+                    title = "Kokoro (Experimental) is active",
+                    message = kokoroHelpText,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+
+                // Speech rate slider — shared with Piper; 0.5–1.5 in steps of 0.05
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    SliderRow(
+                        label = "Speech rate",
+                        valueLabel = "%.2fx".format(uiState.sherpaSpeed),
+                        value = uiState.sherpaSpeed,
+                        valueRange = 0.5f..1.5f,
+                        steps = 19,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaSpeedChanged(
+                                (newVal * 20).roundToInt() / 20f
+                            )
+                        },
+                    )
+                }
+
+                // Pitch slider — shared with Piper; 0.5–2.0 in steps of 0.05
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    SliderRow(
+                        label = "Pitch",
+                        valueLabel = "%.2fx".format(uiState.sherpaPitch),
+                        value = uiState.sherpaPitch,
+                        valueRange = 0.5f..2.0f,
+                        steps = 29,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaPitchChanged(
+                                (newVal * 20).roundToInt() / 20f
+                            )
+                        },
+                    )
+                }
+
+                // Volume boost slider — shared with Piper; 0.5–3.0 in steps of 0.25
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    SliderRow(
+                        label = "Volume boost",
+                        valueLabel = "%.2fx".format(uiState.sherpaGain),
+                        value = uiState.sherpaGain,
+                        valueRange = 0.5f..3.0f,
+                        steps = 9,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaGainChanged(
+                                (newVal * 4).roundToInt() / 4f
+                            )
+                        },
+                    )
+                }
+
+                uiState.kokoroVoices.forEach { voiceRow ->
+                    val isSelected = uiState.selectedKokoroVoice == voiceRow.voice
+                    val isDownloaded = voiceRow.downloadState is VoicePackDownloadState.Downloaded
+
+                    KokoroVoiceRow(
+                        rowState = voiceRow,
+                        isSelected = isSelected,
+                        onSelect = { onKokoroVoiceSelected(voiceRow.voice) },
+                        onDownload = { onDownloadKokoroVoice(voiceRow.voice) },
+                        onCancel = { onCancelKokoroVoiceDownload(voiceRow.voice) },
+                        onDelete = { onDeleteKokoroVoice(voiceRow.voice) },
+                    )
+                    HorizontalDivider()
+
+                    if (isSelected && isDownloaded && voiceRow.voice.speakerCount > 1) {
+                        KokoroSpeakerSelector(
+                            voice = voiceRow.voice,
+                            activeSpeakerId = uiState.kokoroActiveSpeakerId,
+                            onSpeakerSelected = onKokoroActiveSpeakerIdChanged,
+                        )
+                    }
+                }
+            }
+
         }
     }
 }
@@ -734,6 +839,249 @@ private fun SherpaVoiceRow(
     )
 }
 
+/**
+ * A single Kokoro voice row with download/cancel/delete controls and progress indicator.
+ * Mirrors [SherpaVoiceRow] for visual consistency.
+ */
+@Composable
+private fun KokoroVoiceRow(
+    rowState: KokoroVoiceRowUiState,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val voice = rowState.voice
+    val state = rowState.downloadState
+    val isDownloaded = state is VoicePackDownloadState.Downloaded
+
+    ListItem(
+        modifier = modifier.fillMaxWidth(),
+        headlineContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(voice.displayName)
+                Text(
+                    text = when {
+                        isDownloaded && isSelected -> "Selected voice"
+                        isDownloaded -> "Downloaded and ready"
+                        state is VoicePackDownloadState.Downloading -> "Downloading"
+                        state is VoicePackDownloadState.Error -> "Download failed"
+                        else -> "Not downloaded"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when {
+                        isDownloaded && isSelected -> MaterialTheme.colorScheme.primary
+                        isDownloaded -> Color(0xFF2E7D32)
+                        state is VoicePackDownloadState.Error -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        },
+        supportingContent = {
+            Column {
+                Text(
+                    text = voice.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = formatBytes(voice.approxDownloadBytes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!isDownloaded) {
+                    Text(
+                        text = when (state) {
+                            is VoicePackDownloadState.Downloading -> "Selectable after download completes"
+                            is VoicePackDownloadState.Error -> "Retry download before selecting this voice"
+                            else -> "Download to make this voice selectable"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                when (state) {
+                    is VoicePackDownloadState.Downloading -> {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            progress = { state.progress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        val pct = (state.progress * 100).toInt()
+                        val mbps = state.bytesPerSecond / 1_000_000.0
+                        val etaSec = state.remainingMs / 1000
+                        Text(
+                            text = buildString {
+                                if (pct >= 90) append("Extracting…")
+                                else {
+                                    append("$pct%")
+                                    if (state.bytesPerSecond > 0) append(" · ${"%.1f".format(mbps)} MB/s")
+                                    if (etaSec > 0) append(" · ${etaSec}s remaining")
+                                }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    is VoicePackDownloadState.Error -> {
+                        Text(
+                            text = state.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    else -> Unit
+                }
+            }
+        },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                when (state) {
+                    is VoicePackDownloadState.NotDownloaded, is VoicePackDownloadState.Error -> {
+                        TextButton(onClick = onDownload) { Text("Download") }
+                    }
+                    is VoicePackDownloadState.Downloading -> {
+                        TextButton(onClick = onCancel) { Text("Cancel") }
+                    }
+                    is VoicePackDownloadState.Downloaded -> {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = "Downloaded",
+                            tint = Color(0xFF4CAF50),
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        RadioButton(selected = isSelected, onClick = onSelect)
+                        TextButton(onClick = onDelete) {
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        },
+    )
+}
+
+/**
+ * Speaker selector for Kokoro multi-speaker model (103 speakers, sid 0–102).
+ * Shows a numeric input and slider since there are no labelled speaker names in the model card.
+ */
+@Composable
+private fun KokoroSpeakerSelector(
+    voice: SherpaKokoroVoice,
+    activeSpeakerId: Int,
+    onSpeakerSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val effectiveId = activeSpeakerId.coerceIn(0, voice.speakerCount - 1)
+
+    // Three tabs: American English (sids 0–19), British English (20–27), Other (28–52)
+    val americanRange = KokoroSpeakerGroup.AmericanFemale.sidRange.first..KokoroSpeakerGroup.AmericanMale.sidRange.last
+    val britishRange  = KokoroSpeakerGroup.BritishFemale.sidRange.first..KokoroSpeakerGroup.BritishMale.sidRange.last
+    val otherRange    = KokoroSpeakerGroup.Multilingual.sidRange
+
+    fun sidToTabIndex(sid: Int): Int = when {
+        sid in americanRange -> 0
+        sid in britishRange  -> 1
+        else                 -> 2
+    }
+
+    val initialTabIndex = sidToTabIndex(effectiveId)
+    var selectedTabIndex by rememberSaveable(effectiveId) { mutableIntStateOf(initialTabIndex) }
+
+    // Slider state for the Other tab (25 speakers, 0-based index within the range)
+    val initialOtherIndex = if (effectiveId in otherRange) effectiveId - otherRange.first else 0
+    var otherSliderValue by remember(effectiveId) { mutableIntStateOf(initialOtherIndex) }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = "Kokoro speaker",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+        Text(
+            text = "Selected: ${voice.speakerNameForSid(effectiveId)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+        )
+
+        TabRow(selectedTabIndex = selectedTabIndex) {
+            Tab(selected = selectedTabIndex == 0, onClick = { selectedTabIndex = 0 }, text = { Text("🇺🇸 American") })
+            Tab(selected = selectedTabIndex == 1, onClick = { selectedTabIndex = 1 }, text = { Text("🇬🇧 British") })
+            Tab(selected = selectedTabIndex == 2, onClick = { selectedTabIndex = 2 }, text = { Text("🌍 Other") })
+        }
+
+        when (selectedTabIndex) {
+            // American tab: 20 named speakers (sids 0–19)
+            0 -> americanRange.forEach { sid ->
+                val name = voice.speakerNameForSid(sid)
+                val subtitle = if (name.startsWith("af_")) "American Female" else "American Male"
+                ListItem(
+                    modifier = Modifier.fillMaxWidth(),
+                    headlineContent = { Text(name) },
+                    supportingContent = { Text(subtitle) },
+                    trailingContent = {
+                        RadioButton(
+                            selected = effectiveId == sid,
+                            onClick = { onSpeakerSelected(sid) },
+                        )
+                    },
+                )
+                HorizontalDivider()
+            }
+
+            // British tab: 8 named speakers (sids 20–27)
+            1 -> britishRange.forEach { sid ->
+                val name = voice.speakerNameForSid(sid)
+                val subtitle = if (name.startsWith("bf_")) "British Female" else "British Male"
+                ListItem(
+                    modifier = Modifier.fillMaxWidth(),
+                    headlineContent = { Text(name) },
+                    supportingContent = { Text(subtitle) },
+                    trailingContent = {
+                        RadioButton(
+                            selected = effectiveId == sid,
+                            onClick = { onSpeakerSelected(sid) },
+                        )
+                    },
+                )
+                HorizontalDivider()
+            }
+
+            // Other tab: slider over 25 multilingual speakers (sids 28–52)
+            else -> {
+                val steps = otherRange.last - otherRange.first  // 24 steps → 25 values
+                val currentSid = otherRange.first + otherSliderValue
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        text = voice.speakerNameForSid(currentSid),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                    Slider(
+                        value = otherSliderValue.toFloat(),
+                        onValueChange = { otherSliderValue = it.roundToInt() },
+                        onValueChangeFinished = {
+                            onSpeakerSelected(otherRange.first + otherSliderValue)
+                        },
+                        valueRange = 0f..steps.toFloat(),
+                        steps = steps - 1,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun VoiceWarningCard(
     message: String,
@@ -809,6 +1157,8 @@ private fun VoiceOutputSelectionCard(
             "Android TTS is currently the only engine that will speak. Sherpa voices below stay inactive until you switch engines."
         VoiceOutputEngine.SherpaExperimental ->
             "Sherpa Piper is currently the only engine that will speak. Android TTS is inactive until you switch back."
+        VoiceOutputEngine.KokoroExperimental ->
+            "Kokoro (Experimental) is currently the only engine that will speak. Android TTS is inactive until you switch back."
     }
 
     VoiceInfoCard(
@@ -952,6 +1302,11 @@ private fun VoiceScreenPreview() {
             onCancelVoiceDownload = {},
             onDeleteVoice = {},
             onActiveSpeakerIdChanged = {},
+            onKokoroVoiceSelected = {},
+            onDownloadKokoroVoice = {},
+            onCancelKokoroVoiceDownload = {},
+            onDeleteKokoroVoice = {},
+            onKokoroActiveSpeakerIdChanged = {},
         )
     }
 }

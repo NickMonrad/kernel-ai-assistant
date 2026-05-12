@@ -119,6 +119,25 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `strips inline unicode bullet characters that would be vocalised as dot`() {
+            // • not at line start (e.g. single-line bullet run)
+            assertEquals(
+                "apples bread oranges",
+                normalizeChatTextForSpeech("apples • bread • oranges"),
+            )
+            // Triangular bullet
+            assertEquals(
+                "item one. item two",
+                normalizeChatTextForSpeech("item one\n‣ item two"),
+            )
+            // White bullet ◦
+            assertEquals(
+                "first. second",
+                normalizeChatTextForSpeech("first\n◦ second"),
+            )
+        }
+
+        @Test
         fun `converts numbered list items into sentence-break pauses`() {
             assertEquals(
                 "Maintain a schedule. Create a routine. Optimise your environment",
@@ -131,6 +150,54 @@ class ChatTextUtilsTest {
             assertEquals(
                 "Maintain a schedule. Create a routine",
                 normalizeChatTextForSpeech("1. Maintain a schedule\n2. Create a routine"),
+            )
+        }
+
+        @Test
+        fun `colons followed by numbered list do not produce double dot artifact`() {
+            // "big cats:\n1. Tigers" → colon→". " and \n1.→". " both fire; must dedup to single "."
+            assertEquals(
+                "big cats. Tigers",
+                normalizeChatTextForSpeech("big cats:\n1. Tigers"),
+            )
+        }
+
+        @Test
+        fun `standalone asterisk divider is stripped and not vocalised as dot`() {
+            // LLM outputs *** as a thematic break; stripMarkdown reduces *** → * (italic middle char);
+            // the lone * must then be silently removed rather than passed to espeak as "dot".
+            assertEquals("", normalizeChatTextForSpeech("***"))
+            assertEquals("", normalizeChatTextForSpeech("*"))
+            assertEquals("", normalizeChatTextForSpeech("---"))
+        }
+
+        @Test
+        fun `standalone asterisk divider between sections is stripped`() {
+            // Full essay pattern: paragraph, blank line, ***, blank line, next section.
+            val input = "Comparing big cats is fascinating.\n\n***\n\nThe Big Cat Family Tree"
+            val result = normalizeChatTextForSpeech(input)
+            assertFalse(result.contains("*"), "Asterisk divider must not appear in speech text, got: $result")
+            assertTrue(result.contains("Comparing big cats is fascinating"), "Preceding text must be preserved")
+            assertTrue(result.contains("The Big Cat Family Tree"), "Following text must be preserved")
+        }
+
+        @Test
+        fun `numbered section header after sentence does not produce double dot`() {
+            // "habitat.\n\n1. Tigers" — sentence ends with period, then numbered header follows;
+            // compound transform must not yield ".." which espeak reads as "dot Tigers".
+            val result = normalizeChatTextForSpeech("Their habitat.\n\n1. Tigers vs. Lions")
+            assertFalse(result.contains(".."), "Double period must be collapsed, got: $result")
+            assertFalse(result.startsWith("dot", ignoreCase = true), "Must not start with 'dot', got: $result")
+            assertTrue(result.contains("Tigers vs. Lions"), "Section content must be preserved, got: $result")
+        }
+
+        @Test
+        fun `leading period at start of normalised text is stripped`() {
+            // Chunk starting with ". Tigers" (period injected by compound transforms) must not
+            // be read by espeak-ng as "dot Tigers".
+            assertEquals(
+                "Tigers",
+                normalizeChatTextForSpeech(". Tigers"),
             )
         }
 
