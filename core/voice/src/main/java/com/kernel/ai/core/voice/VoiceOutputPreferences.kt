@@ -208,7 +208,7 @@ class VoiceOutputPreferences @Inject constructor(
         }
     }
 
-    /** Active Kokoro speaker ID (sid 0–102 matching the 103-speaker model). Default 0. */
+    /** Active Kokoro speaker ID (sid 0–52 for the current 53-speaker v1.0 multilingual pack). Default 0. */
     val kokoroActiveSpeakerId: Flow<Int> = context.voiceOutputPrefsDataStore.data
         .catch { e ->
             if (e is IOException) {

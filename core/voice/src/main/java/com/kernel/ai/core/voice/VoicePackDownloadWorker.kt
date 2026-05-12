@@ -251,6 +251,13 @@ class VoicePackDownloadWorker(
                         val relativePath = strippedParts.joinToString(File.separator)
 
                         val outFile = File(destDir, relativePath)
+                        // Guard against path-traversal sequences (e.g. "../../etc/passwd")
+                        val destCanonical = destDir.canonicalPath + File.separator
+                        if (!outFile.canonicalPath.startsWith(destCanonical)) {
+                            Log.w(TAG, "Skipping unsafe tar entry: ${entry.name}")
+                            entry = tar.nextEntry
+                            continue
+                        }
                         if (entry.isDirectory) {
                             outFile.mkdirs()
                         } else {
