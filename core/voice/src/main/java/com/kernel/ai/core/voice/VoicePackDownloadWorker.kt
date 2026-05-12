@@ -117,7 +117,9 @@ class VoicePackDownloadWorker(
 
             // Phase 2: Extract (90–100%)
             trySetForeground(buildForegroundInfo(displayName, 90))
-            extractTarBz2(tmpFile, destDir, normalizePiperPack = kokoroVoice == null)
+            // normalizeVoicePack renames variant model files (e.g. model.int8.onnx → model.onnx)
+            // and is safe for all packs; always enable it.
+            extractTarBz2(tmpFile, destDir, normalizePiperPack = true)
             tmpFile.delete()
 
             if (!validationFn(destDir)) {
