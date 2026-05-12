@@ -946,6 +946,8 @@ class NativeIntentHandlerTest {
             if (!it.isBefore(today)) it else LocalDate.of(today.year + 1, 4, 5)
         }
         coEvery { importantDateRepository.findByLabel("jane's birthday") } returns null
+        coEvery { importantDateRepository.findByLabel("jane") } returns null
+        coEvery { importantDateRepository.getAll() } returns emptyList()
         every { calendarBirthdayLookup.findBirthday("jane's birthday") } returns CalendarBirthdayLookup.BirthdayEntry(
             label = "Jane Smith",
             normalizedLabel = "jane smith",
@@ -970,6 +972,8 @@ class NativeIntentHandlerTest {
             if (!it.isBefore(today)) it else LocalDate.of(today.year + 1, 4, 5)
         }
         coEvery { importantDateRepository.findByLabel("my wife's birthday") } returns null
+        coEvery { importantDateRepository.findByLabel("wife") } returns null
+        coEvery { importantDateRepository.getAll() } returns emptyList()
         every { calendarBirthdayLookup.findBirthday("my wife's birthday") } returns null
         coEvery { contactAliasRepository.getByAlias("wife") } returns ContactAliasEntity(
             alias = "wife",
@@ -1019,6 +1023,61 @@ class NativeIntentHandlerTest {
         assertEquals(expected, resolved)
         verify(exactly = 0) { calendarBirthdayLookup.findBirthday(any()) }
     }
+
+    @Test
+    fun `parseDateString resolves taught important date when query includes birthday suffix`() {
+        // Stored as "Freya" (name-only label), query is "Freya's birthday"
+        val today = LocalDate.now()
+        val expected = LocalDate.of(today.year, 8, 22).let {
+            if (!it.isBefore(today)) it else LocalDate.of(today.year + 1, 8, 22)
+        }
+        coEvery { importantDateRepository.findByLabel("Freya's birthday") } returns null
+        coEvery { importantDateRepository.findByLabel("freya") } returns ImportantDateEntity(
+            label = "Freya",
+            normalizedLabel = "freya",
+            month = 8,
+            day = 22,
+        )
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseDateString",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "Freya's birthday") as LocalDate?
+
+        assertEquals(expected, resolved)
+        verify(exactly = 0) { calendarBirthdayLookup.findBirthday(any()) }
+    }
+
+    @Test
+    fun `parseDateString resolves taught important date via fuzzy Room DB match when spelling differs`() {
+        // Stored as "Emilie", query uses STT spelling "Emily"
+        val today = LocalDate.now()
+        val expected = LocalDate.of(today.year, 11, 19).let {
+            if (!it.isBefore(today)) it else LocalDate.of(today.year + 1, 11, 19)
+        }
+        val emilieEntity = ImportantDateEntity(
+            label = "Emilie",
+            normalizedLabel = "emilie",
+            month = 11,
+            day = 19,
+        )
+        coEvery { importantDateRepository.findByLabel("Emily's birthday") } returns null
+        coEvery { importantDateRepository.findByLabel("emily") } returns null
+        coEvery { importantDateRepository.getAll() } returns listOf(emilieEntity)
+        every { calendarBirthdayLookup.findBirthday(any()) } returns null
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseDateString",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "Emily's birthday") as LocalDate?
+
+        assertEquals(expected, resolved)
+    }
+
 
     @Test
     fun `get_date_diff since uses the most recent recurring important date`() {
