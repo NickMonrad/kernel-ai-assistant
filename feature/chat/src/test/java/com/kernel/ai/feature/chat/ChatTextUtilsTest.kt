@@ -163,6 +163,35 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `standalone asterisk divider is stripped and not vocalised as dot`() {
+            // LLM outputs *** as a thematic break; stripMarkdown reduces *** → * (italic middle char);
+            // the lone * must then be silently removed rather than passed to espeak as "dot".
+            assertEquals("", normalizeChatTextForSpeech("***"))
+            assertEquals("", normalizeChatTextForSpeech("*"))
+            assertEquals("", normalizeChatTextForSpeech("---"))
+        }
+
+        @Test
+        fun `standalone asterisk divider between sections is stripped`() {
+            // Full essay pattern: paragraph, blank line, ***, blank line, next section.
+            val input = "Comparing big cats is fascinating.\n\n***\n\nThe Big Cat Family Tree"
+            val result = normalizeChatTextForSpeech(input)
+            assertFalse(result.contains("*"), "Asterisk divider must not appear in speech text, got: $result")
+            assertTrue(result.contains("Comparing big cats is fascinating"), "Preceding text must be preserved")
+            assertTrue(result.contains("The Big Cat Family Tree"), "Following text must be preserved")
+        }
+
+        @Test
+        fun `numbered section header after sentence does not produce double dot`() {
+            // "habitat.\n\n1. Tigers" — sentence ends with period, then numbered header follows;
+            // compound transform must not yield ".." which espeak reads as "dot Tigers".
+            val result = normalizeChatTextForSpeech("Their habitat.\n\n1. Tigers vs. Lions")
+            assertFalse(result.contains(".."), "Double period must be collapsed, got: $result")
+            assertFalse(result.startsWith("dot", ignoreCase = true), "Must not start with 'dot', got: $result")
+            assertTrue(result.contains("Tigers vs. Lions"), "Section content must be preserved, got: $result")
+        }
+
+        @Test
         fun `leading period at start of normalised text is stripped`() {
             // Chunk starting with ". Tigers" (period injected by compound transforms) must not
             // be read by espeak-ng as "dot Tigers".

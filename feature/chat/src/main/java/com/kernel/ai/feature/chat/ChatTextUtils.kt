@@ -50,16 +50,18 @@ internal fun truncateForSpeech(text: String, maxSentences: Int): String {
 
 internal fun normalizeChatTextForSpeech(text: String): String =
     stripMarkdownForClipboard(text)
+        .replace(Regex("""(?m)^\s*[-*_]{1,3}\s*$"""), "")  // thematic break / standalone dividers (***, ---, *, lone *)
         .replace(Regex("""\r?\n\s*\d+\.\s+"""), ". ")   // numbered list item boundary → sentence break
         .replace(Regex("""(?m)^\s*\d+\.\s+"""), "")      // strip leading numbered marker at start
-        .replace(Regex("""(?m)^\s*[-*•]\s+"""), "")      // strip bullet markers at line start
+        .replace(Regex("""(?m)^\s*[-*•]\s*"""), "")       // strip bullet markers at line start (lone * has no trailing ws)
         .replace(Regex("""[•‣◦∙⋅·]\s*"""), "")           // strip any remaining inline bullet chars
         .replace(Regex("""(?<!\d):(?!\d)(?!//)\s*"""), ". ")   // non-numeric colons → sentence break (preserves ://)
         .replace(Regex("""[—–]\s*"""), ", ")              // em/en dashes → natural comma pause
         .replace(Regex("""\s*(?:\r?\n){2,}\s*"""), ". ")
         .replace(Regex("""\s*\r?\n\s*"""), ". ")
         .replace(Regex("""\s+"""), " ")
-        .replace(Regex("""\.\s+\."""), ".")   // collapse ". ." artifacts from compound transforms
+        .replace(Regex("""\.{2,}"""), ".")    // collapse consecutive dots (.., ...) from compound transforms
+        .replace(Regex("""\.\s+\."""), ".")   // collapse ". ." spaced artifacts from compound transforms
         .let(::applySpeechPronunciationOverrides)
         .trimStart('.')   // strip leading period artifacts (read by espeak as "dot")
         .trim()
