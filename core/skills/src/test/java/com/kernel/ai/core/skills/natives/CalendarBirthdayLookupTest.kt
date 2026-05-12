@@ -178,11 +178,13 @@ class CalendarBirthdayLookupTest {
     }
 
     @Test
-    fun `labelsPotentiallyMatch returns false for same-initial 3-letter name variants`() {
-        // 3-letter names share Soundex codes by initial alone — must not produce false positives
+    fun `labelsPotentiallyMatch returns false for same-initial 3-letter and 4-letter name variants`() {
+        // Names ≤ 4 chars share Soundex codes too easily — guard must block all of them
         assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Tim", "Tom"))
         assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Dan", "Don"))
         assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Ben", "Ban"))
+        assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("John", "Joan"))
+        assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Carl", "Karl"))
     }
 
     @Test
