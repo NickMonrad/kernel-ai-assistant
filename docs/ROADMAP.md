@@ -170,6 +170,7 @@ Active follow-on model/runtime investigations now live under
 | [#691](https://github.com/NickMonrad/kernel-ai-assistant/issues/691) | Qwen 3.5 4B LiteRT investigation | ⬜ Pending | 🟡 Medium |
 | [#692](https://github.com/NickMonrad/kernel-ai-assistant/issues/692) | Inference stalls in Boring AI Mode | ⬜ Pending | 🟡 Medium |
 | [#694](https://github.com/NickMonrad/kernel-ai-assistant/issues/694) | Thinking-mode behavior review vs Edge Gallery | ⬜ Pending | 🟡 Medium |
+| [#792](https://github.com/NickMonrad/kernel-ai-assistant/issues/792) | MTP speculative decoding for Gemma 4 | ✅ Done — PR #792 | 🔴 High |
 | [#699](https://github.com/NickMonrad/kernel-ai-assistant/issues/699) | Qwen 3.5 0.8B LiteRT evaluation | ⬜ Pending | 🟢 Low |
 | [#701](https://github.com/NickMonrad/kernel-ai-assistant/issues/701) | External local-AI Android app review umbrella | ⬜ Pending | 🟢 Low |
 | [#702](https://github.com/NickMonrad/kernel-ai-assistant/issues/702) | Box borrowings + optional `llama.cpp` backend | ⬜ Pending | 🟡 Medium |
@@ -301,7 +302,7 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | [#823](https://github.com/NickMonrad/kernel-ai-assistant/issues/823) | Voice memo / note-taking native skill | ⬜ Pending | 🟡 Medium |
 | [#675](https://github.com/NickMonrad/kernel-ai-assistant/issues/675) | Comprehensive Quick Actions + weather voice QA matrix | 🔴 Closed — superseded by #824 | 🟡 Medium |
 | [#824](https://github.com/NickMonrad/kernel-ai-assistant/issues/824) | QA gate: Phase 3F real-device voice validation (current stack) | ⬜ Pending | 🟡 Medium |
-| [#828](https://github.com/NickMonrad/kernel-ai-assistant/issues/828) | TTS pronoun normalisation (my/I → your/you) | ⬜ Pending | 🟢 Low |
+| [#828](https://github.com/NickMonrad/kernel-ai-assistant/issues/828) | TTS pronoun normalisation (my/I → your/you) | ✅ Done — PR #830 | 🟢 Low |
 | [#588](https://github.com/NickMonrad/kernel-ai-assistant/issues/588) | VoiceSession architecture for slot-fill + follow-on assistant mode | ⬜ Pending | 🟡 Medium |
 | [#617](https://github.com/NickMonrad/kernel-ai-assistant/issues/617) | Homescreen widget for quick actions / voice | ✅ Done — PR #847 | 🟡 Medium |
 | [#659](https://github.com/NickMonrad/kernel-ai-assistant/issues/659) | Translator skill with multilingual TTS | ⬜ Pending | 🟡 Medium |

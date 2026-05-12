@@ -69,8 +69,8 @@ The assistant is built on a **Brain–Memory–Action** triad, orchestrated cent
 
 | Model | Role | Size | Backend | Loading |
 |-------|------|------|---------|---------|
-| Gemma-4 E-4B | Reasoning, tool calling | ~3.4GB | GPU (OpenCL) | Eager at startup |
-| Gemma-4 E-2B | Reasoning (8GB devices) | ~1.5GB | GPU (OpenCL) | Eager at startup |
+| Gemma-4 E-4B | Reasoning, tool calling | ~3.4GB | GPU (OpenCL) | Eager at startup; stored in external shared storage to survive reinstalls (#20, PR #57) |
+| Gemma-4 E-2B | Reasoning (8GB devices) | ~1.5GB | GPU (OpenCL) | Eager at startup; stored in external shared storage to survive reinstalls |
 | EmbeddingGemma-300M | Semantic embeddings (768-dim) | <200MB | CPU | Lazy on first RAG query |
 
 > **FunctionGemma-270M deprecated (Apr 2026):** Its 289MB footprint causes lmkd to
@@ -116,11 +116,15 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 - **Proactive reset:** At ~75% capacity, `ChatViewModel` injects history-aware system prompt
   and resets the conversation, preserving selected turns
 - **Token estimation:** `ContextWindowManager.estimateTokens()` (~4 chars/token heuristic)
+- **Cancel generation:** Tapping cancel clears the stuck spinner and resets the LiteRT
+  conversation state (`#28`). Without this fix, a cancelled generation would leave the UI
+  in a perpetual loading state with stale LiteRT conversation context.
 
 ### 3.2 Prompt Assembly Order
 
 ```
 [System Prompt]          ← persona (FULL / HALF / BORING; MINIMAL for tool turns), date/time
+[Runtime Context]        ← model name, backend (GPU/NPU/CPU), device info (`#81`, `#82`)
 [User Profile]           ← structured YAML injection (name, role, environment, context, rules)
 [Core Memories]          ← permanent facts split by category:
                             user (coreTopK=10), agent_identity (identityTopK=5)
@@ -487,6 +491,8 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 | `convert_cooking_measure` | Deterministic ingredient-aware cooking conversion (volume ↔ mass) | `CookingConversionService` via `NativeIntentHandler` | ✅ |
 | `convert_currency` | Deterministic currency conversion using latest ECB-backed rates | `CurrencyConversionService` via `NativeIntentHandler` | ✅ |
 | `add_to_list` / `bulk_add_to_list` / `create_list` / `get_list_items` / `remove_from_list` | Room-backed list management | `NativeIntentHandler` + Room DAOs | ✅ |
+| `important_dates` | Taught dates + calendar birthday integration via Calendar Provider | `NativeIntentHandler` + `ContentResolver` query on `CalendarContract.Events` | ✅ — PR #797 |
+| `world_clock` | Timezone lookup and world clock display | `ZoneId` / `ZonedDateTime` with timezone database | ✅ — PR #743 |
 
 
 > **`convert_units` deterministic routing and reply contract:** `QuickIntentRouter` matches direct phrasing (`convert 5 miles to km`, `60 mph in m/s`), reversed phrasing (`how many cups in 2 L`), mixed-target phrasing (`convert 189 cm to feet and inches`), and spoken-STT variants (`convert 100 km an hour to metres a second`). The router normalises aliases before execution, including uppercase short forms like `L`/`mL`, natural spoken speed phrases (`km an hour`, `metres a second`), and mixed feet/inches input (`6 feet 2 inches` → total inches). `UnitConversionEvaluator` enforces same-category conversion only, rejects unsupported units and invalid physical values (for example below absolute zero), and marks non-terminating or mixed-unit results as approximate. Display text keeps full precision; spoken/TTS output uses `spokenSummary` rounded to 2 decimal places for verbose scalar results and 1 decimal place for the inches component of mixed feet/inches replies so speech stays concise without hiding exact on-screen values.
@@ -642,6 +648,19 @@ fallback exists for edge cases where the model emits raw JSON outside the SDK pa
 | `get-weather-city` | `assets/skills/get-weather-city/index.html` | ✅ (legacy city-weather path; unified `getWeather()` is preferred) |
 | `query-wikipedia` | `assets/skills/query-wikipedia/index.html` | ✅ |
 
+> **Colloquial + indirect weather routing (`#608`, `#663`, PR #667):** The QuickIntentRouter
+> includes dedicated patterns for colloquial weather phrases (e.g. "how's the weather",
+> "what's it like outside", "weather forecast") so these queries are routed directly to the
+> weather skill instead of falling through to the LLM. Indirect-location resolution uses
+> Nominatim geocoding to resolve city names and landmarks to coordinates when the user
+> specifies a location by name rather than GPS.
+>
+> **Multi-day weather forecast card (PR #710, `#697`):** The weather skill returns a
+> day-by-day forecast with WMO weather emoji (☀️🌤️⛅☁️🌧️❄️⛈️), min/max temps, and
+> precipitation summaries. This renders as a rich card inline in the chat stream.
+> Forecast is triggered by `forecast_days > 0` or `query_type = "forecast"` in the
+> `get-weather-city` JS skill (legacy path) and via the unified `getWeather()` skill entry.
+>
 > **`get-weather-city` forecast support (PR #269):** Pass `forecast_days` (integer 1–7) for a
 > day-by-day forecast instead of current conditions. When `forecast_days > 0` or
 > `query_type = "forecast"`, the skill calls the Open-Meteo `daily` API
@@ -666,6 +685,8 @@ and awaits the result with a 15s timeout.
 | `save_memory` | Persist a note/fact to `core_memories_vec` | ✅ (explicit trigger only — see memory rule below) |
 | `search_memory` | Semantic search across core memories, episodic memories, and `message_embeddings` | ✅ |
 | `get_weather_gps` / `get_weather` | Weather retrieval with GPS, explicit locations, and indirect-location resolution | ✅ |
+| `important_dates` | Taught dates + calendar birthday integration via Calendar Provider | ✅ — PR #797 |
+| `world_clock` | Timezone lookup and world clock display | ✅ — PR #743 |
 
 > **save_memory trigger:** Works reliably when the user explicitly says "remember", "save",
 > "don't forget", "can you remember", or "make a note of". Does not activate proactively from
@@ -750,6 +771,11 @@ copies `[Tool: name]\nRequest: <json>\nResult: <result>` to the clipboard via
 `LocalClipboardManager` (Compose API — no system service boilerplate). Added in PR #325
 closing #229 and #260.
 
+**Smart chat titles (`#15`, PR #80/#83):** Conversations are auto-titled using the
+`generateOnce()` API with a directive system prompt that instructs the model to produce
+a concise, descriptive title from the conversation content. The title is captured via
+`.lines().first()` cleanup with a mutex leak fix. Titles are editable by the user.
+
 ### 6.1 Button Layout Standards (Material 3)
 
 All buttons follow Material 3 guidelines as implemented via `androidx.compose.material3`. No
@@ -770,32 +796,6 @@ Toolbar `IconButton`s in `TopAppBar` follow M3's 48dp minimum touch target guide
 **Spacing tokens (ad-hoc, from codebase):** Vertical padding between chat bubbles: 6dp.
 Input bar top padding: 8dp. Spacers between inline UI elements: 4dp.
 
-
-### 6.2 Voice Interface
-
-The voice system covers two distinct interaction modes: **Quick Actions** (push-to-talk for
-device commands) and **Chat Voice** (conversational push-to-talk for dialog). Both use
-Sherpa-ONNX for speech-to-text (STT) and text-to-speech (TTS).
-
-#### 6.2.1 Speech-to-Text (STT)
-
-**Current stack:** Sherpa-ONNX CTC models for offline STT. The app also supports the Android
-native on-device recognizer as a fallback path (`#717`, PR #718), which was hardened for
-reliability on Samsung Galaxy S23 Ultra.
-
-**STT fallback-path issues** (e.g. appointment QIR bug `#773`) are tracked separately from
-the Sherpa primary path.
-
-**Remaining STT research:** Sherpa-ONNX / Sherpa-ncnn STT + VAD evaluation (`#821`),
-Parakeet CTC (`#700`), Whisper.cpp vs Vosk (`#703`).
-
-#### 6.2.2 Text-to-Speech (TTS)
-
-**Engine:** Sherpa-TTS with VITS-based voices, replacing the Android native TTS engine
-(`#729`, PR #804). This provides significantly improved conversational voice quality.
-
-**Multi-speaker support:**
-- **VCTK** (`#782`, PR #805): Multiple English speakers for Quick Actions responses
 - **Semaine** (`#817`, PR #818): 4 speakers — Prudence, Spike, Obadiah, Poppy — selected
   via Settings → Voice. Note: Semaine exposes different *speakers*, not emotional variants;
   the emotion detection approach was abandoned (`#781` closed).
@@ -1015,6 +1015,34 @@ Jandal's character is encoded in `DEFAULT_SYSTEM_PROMPT` in `ModelConfig.kt` (up
 
 ### 7.1 Kiwi Vocabulary Rotation
 
+## 7. Jandal Persona & Cultural Identity
+
+Jandal's character is encoded in `DEFAULT_SYSTEM_PROMPT` in `ModelConfig.kt` (updated PR #268):
+
+```
+"You are Jandal — a capable, on-device AI assistant with a genuine Kiwi character. "
+"You're direct, warm, and dry-humoured without trying too hard. You don't say "
+"\"certainly!\", \"absolutely!\", or \"great question\" — you just get on with it. "
+"You run entirely on-device, so the user's data never leaves their phone. "
+"Keep responses concise unless the user asks for detail. "
+"When you use Kiwi expressions, they should feel natural, not forced. "
+"You are culturally and spiritually Kiwi — from Aotearoa New Zealand. "
+"You are named after the NZ word for flip-flops: jandals — simple, unpretentious, practical. "
+"You were born from Kiwi culture: laid-back, direct, and no-nonsense. "
+"When asked where you are from, what your culture is, or why you are called Jandal, "
+"own your Kiwi identity with pride — never say you are \"just code\" or that you have no culture."
+```
+
+**Key identity rules:**
+- Jandal is culturally and spiritually Kiwi — from Aotearoa New Zealand
+- Named after the NZ word for flip-flops: jandals — simple, unpretentious, practical
+- Born from Kiwi culture: laid-back, direct, no-nonsense
+- When asked about origin, culture, or name → own Kiwi identity with pride; NEVER say "just code" or "I have no culture"
+- Kiwi expressions must feel natural, not forced
+- No hollow affirmations ("certainly!", "absolutely!", "great question!")
+
+### 7.1 Kiwi Vocabulary Rotation
+
 `JandalPersona` loads `jandal_vocab.json` from assets — a pool of 41 Kiwi slang phrases and te reo Māori words. Each session, `SESSION_VOCAB_COUNT = 2` phrases are picked randomly and injected into the system prompt via `getSessionVocab()`:
 
 ```
@@ -1185,7 +1213,7 @@ for the larger planned coverage matrix.
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM chat + GPU/NPU + GPU alignment fixes + OOM protection | ✅ Complete |
 | 2 | sqlite-vec RAG + EmbeddingGemma + episodic distillation + memory UI | ✅ Complete |
-| 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, voice foundations, weather/list/date/media skills, and broader multi-turn support | 🔄 In Progress |
+| 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, voice (Sherpa STT/TTS, streaming, multi-speaker, chat voice), weather/list/date/media skills, important dates, world clock, multi-day forecast, colloquial weather routing, multi-turn slot-fill, memory search quality, and broader multi-turn support | 🔄 In Progress |
 | 4 | Dreaming Engine (overnight distillation) + Semantic Cache + Self-Healing Identity | ⬜ Planned |
 | 5 | Chicory Wasm Runtime + GitHub Skill Store | ⬜ Planned |
 | 6 | 8GB device optimisation (dynamic weight loading, E2B auto-select) | ⬜ Planned |
