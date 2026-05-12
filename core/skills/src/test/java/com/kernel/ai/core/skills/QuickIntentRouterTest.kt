@@ -798,6 +798,23 @@ class QuickIntentRouterTest {
             val result = regexOnlyRouter.route(input)
             assertRegexMatch(result, "convert_units", input)
         }
+
+        @ParameterizedTest(name = "Ingredient-qualified same-category physical conversion stays on convert_units: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#ingredientQualifiedPhysicalUnitPhrases")
+        fun `should keep ingredient-qualified same-category physical conversions on convert_units`(
+            input: String,
+            expectedValue: String,
+            expectedFromUnit: String,
+            expectedToUnit: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "convert_units", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedValue, intent.params["value"])
+            assertEquals(expectedFromUnit, intent.params["from_unit"])
+            assertEquals(expectedToUnit, intent.params["to_unit"])
+        }
     }
 
     @Nested
@@ -3008,6 +3025,16 @@ class QuickIntentRouterTest {
             Arguments.of("convert 3 tbsp to cups"),
         )
 
+
+        @JvmStatic
+        fun ingredientQualifiedPhysicalUnitPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("convert 3 lb of flour to grams", "3", "lb", "grams"),
+            Arguments.of("how many grams are in 3 lb of flour", "3", "lb", "grams"),
+            Arguments.of("convert 8 oz of flour to grams", "8", "oz", "grams"),
+            Arguments.of("how many grams are in 8 oz of flour", "8", "oz", "grams"),
+            Arguments.of("convert 2 gallons of milk to liters", "2", "gallons", "liters"),
+            Arguments.of("how many liters are in 2 gallons of milk", "2", "gallons", "liters"),
+        )
         @JvmStatic
         fun unitConversionCoveragePhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("convert 5 miles to km"),
@@ -3023,6 +3050,9 @@ class QuickIntentRouterTest {
             Arguments.of("convert 189 cm to feet and inches"),
             Arguments.of("convert 6 feet 2 inches to cm"),
             Arguments.of("convert 100 km an hour to metres a second"),
+            Arguments.of("convert 3 lb of flour to grams"),
+            Arguments.of("convert 8 oz of flour to grams"),
+            Arguments.of("how many liters are in 2 gallons of milk"),
         )
 
         @JvmStatic
@@ -3054,6 +3084,7 @@ class QuickIntentRouterTest {
         @JvmStatic
         fun ingredientQualifiedUnitConversionPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("convert 3 tbsp of butter to ml", "3", "tbsp", "butter", "ml"),
+            Arguments.of("convert 3 tbsp of butter to cups", "3", "tbsp", "butter", "cups"),
             Arguments.of("how many cups are in 500 ml of milk", "500", "ml", "milk", "cups"),
             Arguments.of("convert 500 g of butter to kg", "500", "g", "butter", "kg"),
             Arguments.of("convert 1 kg of butter to grams", "1", "kg", "butter", "grams"),
