@@ -68,7 +68,7 @@ internal object UnitConversionEvaluator {
             singularDisplayName = "kilogram",
             pluralDisplayName = "kilograms",
             baseFactor = BigDecimal("1000"),
-            aliases = setOf("kg", "kgs", "kilogram", "kilograms"),
+            aliases = setOf("kg", "kgs", "kilogram", "kilograms", "kilogramme", "kilogrammes"),
         ),
         OUNCE(
             category = UnitCategory.MASS,
@@ -323,6 +323,17 @@ internal object UnitConversionEvaluator {
     fun supportedRouterRegexPattern(): String = SupportedUnit.routerRegexPattern()
 
     fun supportedMixedUnitRouterRegexPattern(): String = "(?:feet?\\s+and\\s+inches?|foot\\s+and\\s+inches?)"
+    fun supportedMassRouterRegexPattern(): String = routerRegexPatternFor(UnitCategory.MASS)
+
+    fun supportedVolumeRouterRegexPattern(): String = routerRegexPatternFor(UnitCategory.VOLUME)
+
+    private fun routerRegexPatternFor(category: UnitCategory): String = SupportedUnit.entries
+        .filter { it.category == category }
+        .flatMap { it.aliases }
+        .distinct()
+        .sortedByDescending { it.length }
+        .joinToString("|") { aliasToRegex(it) }
+        .let { pattern -> "(?:$pattern)" }
 
     fun convert(rawValue: String, rawFromUnit: String, rawToUnit: String): Result {
         val value = parseValue(rawValue)

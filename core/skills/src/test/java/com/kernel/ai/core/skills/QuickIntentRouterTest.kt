@@ -791,6 +791,72 @@ class QuickIntentRouterTest {
             assertEquals(expectedFromUnit, intent.params["from_unit"])
             assertEquals(expectedToUnit, intent.params["to_unit"])
         }
+
+        @ParameterizedTest(name = "No-ingredient kitchen-unit stays on convert_units: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#noIngredientKitchenUnitPhrases")
+        fun `should keep no-ingredient kitchen-unit queries on convert_units`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "convert_units", input)
+        }
+
+        @ParameterizedTest(name = "Ingredient-qualified same-category physical conversion stays on convert_units: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#ingredientQualifiedPhysicalUnitPhrases")
+        fun `should keep ingredient-qualified same-category physical conversions on convert_units`(
+            input: String,
+            expectedValue: String,
+            expectedFromUnit: String,
+            expectedToUnit: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "convert_units", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedValue, intent.params["value"])
+            assertEquals(expectedFromUnit, intent.params["from_unit"])
+            assertEquals(expectedToUnit, intent.params["to_unit"])
+        }
+    }
+
+    @Nested
+    @DisplayName("Cooking conversion")
+    inner class CookingConversion {
+        @ParameterizedTest(name = "Regex: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#cookingConversionRegexPhrases")
+        fun `should match cooking conversion phrases with extracted params`(
+            input: String,
+            expectedAmount: String,
+            expectedFromUnit: String,
+            expectedIngredient: String,
+            expectedToUnit: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "convert_cooking_measure", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedAmount, intent.params["amount"])
+            assertEquals(expectedFromUnit, intent.params["from_unit"])
+            assertEquals(expectedIngredient, intent.params["ingredient"])
+            assertEquals(expectedToUnit, intent.params["to_unit"])
+        }
+
+        @ParameterizedTest(name = "Same-category ingredient query: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#ingredientQualifiedUnitConversionPhrases")
+        fun `should keep same category ingredient queries on cooking conversion`(
+            input: String,
+            expectedAmount: String,
+            expectedFromUnit: String,
+            expectedIngredient: String,
+            expectedToUnit: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "convert_cooking_measure", input)
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedAmount, intent.params["amount"])
+            assertEquals(expectedFromUnit, intent.params["from_unit"])
+            assertEquals(expectedIngredient, intent.params["ingredient"])
+            assertEquals(expectedToUnit, intent.params["to_unit"])
+        }
     }
 
     @Nested
@@ -1798,6 +1864,7 @@ class QuickIntentRouterTest {
         addCases(dateDiffRegexPhrases(), "get_date_diff", "Date Diff (regex)")
         addCases(calculatorRegexPhrases(), "calculate_arithmetic", "Calculator (regex)")
         addCases(unitConversionCoveragePhrases(), "convert_units", "Unit conversion (regex)")
+        addCases(cookingConversionCoveragePhrases(), "convert_cooking_measure", "Cooking conversion (regex)")
         addCases(currencyConversionCoveragePhrases(), "convert_currency", "Currency conversion (regex)")
         addCases(timeRegexPhrases(), "get_time", "Time (regex)")
         addCases(timeClassifierPhrases(), "get_time", "Time (classifier)")
@@ -2951,6 +3018,24 @@ class QuickIntentRouterTest {
         )
 
         @JvmStatic
+        fun noIngredientKitchenUnitPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("convert 3 tbsp to ml"),
+            Arguments.of("how many cups are in 2 liters"),
+            Arguments.of("convert 500 g to kg"),
+            Arguments.of("convert 3 tbsp to cups"),
+        )
+
+
+        @JvmStatic
+        fun ingredientQualifiedPhysicalUnitPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("convert 3 lb of flour to grams", "3", "lb", "grams"),
+            Arguments.of("how many grams are in 3 lb of flour", "3", "lb", "grams"),
+            Arguments.of("convert 8 oz of flour to grams", "8", "oz", "grams"),
+            Arguments.of("how many grams are in 8 oz of flour", "8", "oz", "grams"),
+            Arguments.of("convert 2 gallons of milk to liters", "2", "gallons", "liters"),
+            Arguments.of("how many liters are in 2 gallons of milk", "2", "gallons", "liters"),
+        )
+        @JvmStatic
         fun unitConversionCoveragePhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("convert 5 miles to km"),
             Arguments.of("what is 500 grams in ounces"),
@@ -2965,6 +3050,66 @@ class QuickIntentRouterTest {
             Arguments.of("convert 189 cm to feet and inches"),
             Arguments.of("convert 6 feet 2 inches to cm"),
             Arguments.of("convert 100 km an hour to metres a second"),
+            Arguments.of("convert 3 lb of flour to grams"),
+            Arguments.of("convert 8 oz of flour to grams"),
+            Arguments.of("how many liters are in 2 gallons of milk"),
+        )
+
+        @JvmStatic
+        fun cookingConversionRegexPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("how much does 3 tbsp of butter weigh", "3", "tbsp", "butter", "g"),
+            Arguments.of("convert 2 cups flour to grams", "2", "cups", "flour", "grams"),
+            Arguments.of("how many grams is 250 ml milk", "250", "ml", "milk", "grams"),
+            Arguments.of("convert 2 gallons of milk to kilogrammes", "2", "gallons", "milk", "kilogrammes"),
+            Arguments.of("how many kilogrammes are in 2 gallons of milk", "2", "gallons", "milk", "kilogrammes"),
+            Arguments.of("convert 2 gallons of milk to pounds", "2", "gallons", "milk", "pounds"),
+            Arguments.of("how much does 2 gallons of milk weigh", "2", "gallons", "milk", "g"),
+            Arguments.of("how much does 2 gallons of milk weigh in pounds", "2", "gallons", "milk", "pounds"),
+            Arguments.of("how many pounds does 2 gallons of milk weigh", "2", "gallons", "milk", "pounds"),
+            Arguments.of("how many ounces does 3 tbsp of milk weigh", "3", "tbsp", "milk", "ounces"),
+            Arguments.of("convert 400 g of milk to gallons", "400", "g", "milk", "gallons"),
+            Arguments.of("how many gallons are in 400 g of milk", "400", "g", "milk", "gallons"),
+            Arguments.of("convert 2 pounds of milk to gallons", "2", "pounds", "milk", "gallons"),
+            Arguments.of("how many gallons are in 2 pounds of milk", "2", "pounds", "milk", "gallons"),
+            Arguments.of("convert 400 g plain flour to cups", "400", "g", "plain flour", "cups"),
+            Arguments.of("how many cups are in 400 g plain flour", "400", "g", "plain flour", "cups"),
+            Arguments.of("convert 1 Australian tablespoon honey to grams", "1", "Australian tablespoon", "honey", "grams"),
+            Arguments.of("how many kilograms are in 500 g of butter", "500", "g", "butter", "kilograms"),
+            Arguments.of("how many grams are in 1 kg of butter", "1", "kg", "butter", "grams"),
+        )
+
+        @JvmStatic
+        fun cookingConversionCoveragePhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("how much does 3 tbsp of butter weigh"),
+            Arguments.of("convert 2 cups flour to grams"),
+            Arguments.of("how many grams is 250 ml milk"),
+            Arguments.of("convert 2 gallons of milk to kilogrammes"),
+            Arguments.of("how many kilogrammes are in 2 gallons of milk"),
+            Arguments.of("convert 2 gallons of milk to pounds"),
+            Arguments.of("how much does 2 gallons of milk weigh"),
+            Arguments.of("how much does 2 gallons of milk weigh in pounds"),
+            Arguments.of("how many pounds does 2 gallons of milk weigh"),
+            Arguments.of("how many ounces does 3 tbsp of milk weigh"),
+            Arguments.of("convert 400 g of milk to gallons"),
+            Arguments.of("how many gallons are in 400 g of milk"),
+            Arguments.of("convert 2 pounds of milk to gallons"),
+            Arguments.of("how many gallons are in 2 pounds of milk"),
+            Arguments.of("convert 400 g plain flour to cups"),
+            Arguments.of("how many cups are in 400 g plain flour"),
+            Arguments.of("convert 1 Australian tablespoon honey to grams"),
+            Arguments.of("convert 3 tbsp of butter to ml"),
+            Arguments.of("how many cups are in 500 ml of milk"),
+            Arguments.of("convert 500 g of butter to kg"),
+            Arguments.of("convert 1 kg of butter to grams"),
+        )
+
+        @JvmStatic
+        fun ingredientQualifiedUnitConversionPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("convert 3 tbsp of butter to ml", "3", "tbsp", "butter", "ml"),
+            Arguments.of("convert 3 tbsp of butter to cups", "3", "tbsp", "butter", "cups"),
+            Arguments.of("how many cups are in 500 ml of milk", "500", "ml", "milk", "cups"),
+            Arguments.of("convert 500 g of butter to kg", "500", "g", "butter", "kg"),
+            Arguments.of("convert 1 kg of butter to grams", "1", "kg", "butter", "grams"),
         )
 
         @JvmStatic
