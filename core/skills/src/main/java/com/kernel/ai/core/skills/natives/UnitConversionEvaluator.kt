@@ -171,7 +171,7 @@ internal object UnitConversionEvaluator {
             canonicalName = "tsp",
             singularDisplayName = "teaspoon",
             pluralDisplayName = "teaspoons",
-            baseFactor = BigDecimal("4.92892159375"),
+            baseFactor = BigDecimal("5"),
             aliases = setOf("tsp", "teaspoon", "teaspoons"),
         ),
         TABLESPOON(
@@ -179,7 +179,7 @@ internal object UnitConversionEvaluator {
             canonicalName = "tbsp",
             singularDisplayName = "tablespoon",
             pluralDisplayName = "tablespoons",
-            baseFactor = BigDecimal("14.78676478125"),
+            baseFactor = BigDecimal("15"),
             aliases = setOf("tbsp", "tablespoon", "tablespoons"),
         ),
         FLUID_OUNCE(
@@ -195,7 +195,7 @@ internal object UnitConversionEvaluator {
             canonicalName = "cup",
             singularDisplayName = "cup",
             pluralDisplayName = "cups",
-            baseFactor = BigDecimal("236.5882365"),
+            baseFactor = BigDecimal("250"),
             aliases = setOf("cup", "cups"),
         ),
         PINT(
@@ -203,7 +203,7 @@ internal object UnitConversionEvaluator {
             canonicalName = "pt",
             singularDisplayName = "pint",
             pluralDisplayName = "pints",
-            baseFactor = BigDecimal("473.176473"),
+            baseFactor = BigDecimal("568.26125"),
             aliases = setOf("pt", "pts", "pint", "pints"),
         ),
         QUART(
