@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 33,
-    "identityHash": "f84a68132da6e6f040cf0c843e732bab",
+    "version": 34,
+    "identityHash": "8e631f666f917a9983a1ca741a3f9653",
     "entities": [
       {
         "tableName": "conversations",
@@ -1187,11 +1187,559 @@
             "id"
           ]
         }
+      },
+      {
+        "tableName": "meal_plan_sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `conversationId` TEXT NOT NULL, `status` TEXT NOT NULL, `peopleCount` INTEGER, `daysCount` INTEGER, `dietaryRestrictionsJson` TEXT NOT NULL, `proteinPreferencesJson` TEXT NOT NULL, `optionalSlotsJson` TEXT NOT NULL, `activeDayIndex` INTEGER, `pendingGenerationKind` TEXT, `pendingGenerationDayIndex` INTEGER, `pendingGenerationStartedAt` INTEGER, `planVersion` INTEGER NOT NULL, `finalSummaryWritten` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `completedAt` INTEGER, `cancelledAt` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conversationId",
+            "columnName": "conversationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "peopleCount",
+            "columnName": "peopleCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "daysCount",
+            "columnName": "daysCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "dietaryRestrictionsJson",
+            "columnName": "dietaryRestrictionsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "proteinPreferencesJson",
+            "columnName": "proteinPreferencesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "optionalSlotsJson",
+            "columnName": "optionalSlotsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activeDayIndex",
+            "columnName": "activeDayIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "pendingGenerationKind",
+            "columnName": "pendingGenerationKind",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pendingGenerationDayIndex",
+            "columnName": "pendingGenerationDayIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "pendingGenerationStartedAt",
+            "columnName": "pendingGenerationStartedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "planVersion",
+            "columnName": "planVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "finalSummaryWritten",
+            "columnName": "finalSummaryWritten",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cancelledAt",
+            "columnName": "cancelledAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_meal_plan_sessions_conversationId",
+            "unique": false,
+            "columnNames": [
+              "conversationId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_meal_plan_sessions_conversationId` ON `${TABLE_NAME}` (`conversationId`)"
+          },
+          {
+            "name": "index_meal_plan_sessions_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_meal_plan_sessions_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ]
+      },
+      {
+        "tableName": "meal_plan_days",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `mealPlanSessionId` TEXT NOT NULL, `dayIndex` INTEGER NOT NULL, `title` TEXT, `summary` TEXT, `proteinTagsJson` TEXT NOT NULL, `status` TEXT NOT NULL, `currentRecipeVersion` INTEGER, `attemptCount` INTEGER NOT NULL, `lastErrorCode` TEXT, `lastErrorMessage` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`mealPlanSessionId`) REFERENCES `meal_plan_sessions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mealPlanSessionId",
+            "columnName": "mealPlanSessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dayIndex",
+            "columnName": "dayIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "summary",
+            "columnName": "summary",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "proteinTagsJson",
+            "columnName": "proteinTagsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentRecipeVersion",
+            "columnName": "currentRecipeVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "attemptCount",
+            "columnName": "attemptCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastErrorCode",
+            "columnName": "lastErrorCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastErrorMessage",
+            "columnName": "lastErrorMessage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_meal_plan_days_mealPlanSessionId_dayIndex",
+            "unique": true,
+            "columnNames": [
+              "mealPlanSessionId",
+              "dayIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_plan_days_mealPlanSessionId_dayIndex` ON `${TABLE_NAME}` (`mealPlanSessionId`, `dayIndex`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "meal_plan_sessions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "mealPlanSessionId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "meal_plan_recipe_versions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `mealPlanSessionId` TEXT NOT NULL, `mealPlanDayId` TEXT NOT NULL, `version` INTEGER NOT NULL, `title` TEXT NOT NULL, `servings` INTEGER NOT NULL, `ingredientsJson` TEXT NOT NULL, `methodStepsJson` TEXT NOT NULL, `rawModelJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`mealPlanDayId`) REFERENCES `meal_plan_days`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mealPlanSessionId",
+            "columnName": "mealPlanSessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mealPlanDayId",
+            "columnName": "mealPlanDayId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "servings",
+            "columnName": "servings",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ingredientsJson",
+            "columnName": "ingredientsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "methodStepsJson",
+            "columnName": "methodStepsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rawModelJson",
+            "columnName": "rawModelJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_meal_plan_recipe_versions_mealPlanDayId_version",
+            "unique": true,
+            "columnNames": [
+              "mealPlanDayId",
+              "version"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_plan_recipe_versions_mealPlanDayId_version` ON `${TABLE_NAME}` (`mealPlanDayId`, `version`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "meal_plan_days",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "mealPlanDayId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "meal_plan_grocery_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `mealPlanSessionId` TEXT NOT NULL, `mealPlanDayId` TEXT NOT NULL, `recipeVersionId` TEXT NOT NULL, `ingredientIndex` INTEGER NOT NULL, `displayText` TEXT NOT NULL, `originalText` TEXT NOT NULL, `quantity` TEXT, `unit` TEXT, `ingredientName` TEXT, `note` TEXT, `normalizationStatus` TEXT NOT NULL, `mergeKey` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`recipeVersionId`) REFERENCES `meal_plan_recipe_versions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mealPlanSessionId",
+            "columnName": "mealPlanSessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mealPlanDayId",
+            "columnName": "mealPlanDayId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recipeVersionId",
+            "columnName": "recipeVersionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ingredientIndex",
+            "columnName": "ingredientIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayText",
+            "columnName": "displayText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "originalText",
+            "columnName": "originalText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "ingredientName",
+            "columnName": "ingredientName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "normalizationStatus",
+            "columnName": "normalizationStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mergeKey",
+            "columnName": "mergeKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_meal_plan_grocery_items_recipeVersionId_ingredientIndex",
+            "unique": true,
+            "columnNames": [
+              "recipeVersionId",
+              "ingredientIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_plan_grocery_items_recipeVersionId_ingredientIndex` ON `${TABLE_NAME}` (`recipeVersionId`, `ingredientIndex`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "meal_plan_recipe_versions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "recipeVersionId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "meal_plan_projection_writes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `mealPlanSessionId` TEXT NOT NULL, `targetKind` TEXT NOT NULL, `targetName` TEXT NOT NULL, `sourceKey` TEXT NOT NULL, `sourceVersion` INTEGER NOT NULL, `listItemId` INTEGER, `projectedAt` INTEGER NOT NULL, `supersededAt` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mealPlanSessionId",
+            "columnName": "mealPlanSessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetKind",
+            "columnName": "targetKind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetName",
+            "columnName": "targetName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceKey",
+            "columnName": "sourceKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceVersion",
+            "columnName": "sourceVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "listItemId",
+            "columnName": "listItemId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "projectedAt",
+            "columnName": "projectedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "supersededAt",
+            "columnName": "supersededAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_meal_plan_projection_writes_mealPlanSessionId",
+            "unique": false,
+            "columnNames": [
+              "mealPlanSessionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_meal_plan_projection_writes_mealPlanSessionId` ON `${TABLE_NAME}` (`mealPlanSessionId`)"
+          },
+          {
+            "name": "index_meal_plan_projection_writes_targetKind_targetName_sourceKey_sourceVersion",
+            "unique": true,
+            "columnNames": [
+              "targetKind",
+              "targetName",
+              "sourceKey",
+              "sourceVersion"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_plan_projection_writes_targetKind_targetName_sourceKey_sourceVersion` ON `${TABLE_NAME}` (`targetKind`, `targetName`, `sourceKey`, `sourceVersion`)"
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f84a68132da6e6f040cf0c843e732bab')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '8e631f666f917a9983a1ca741a3f9653')"
     ]
   }
 }

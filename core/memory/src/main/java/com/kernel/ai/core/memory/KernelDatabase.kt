@@ -6,6 +6,11 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.kernel.ai.core.memory.dao.ContactAliasDao
+import com.kernel.ai.core.memory.dao.ConversionHistoryDao
+import com.kernel.ai.core.memory.dao.ConversationDao
+import com.kernel.ai.core.memory.dao.CoreMemoryDao
+import com.kernel.ai.core.memory.dao.CurrencyFavouriteDao
+import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
@@ -15,30 +20,29 @@ import com.kernel.ai.core.memory.dao.MealPlanGroceryItemDao
 import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
 import com.kernel.ai.core.memory.dao.MealPlanRecipeVersionDao
 import com.kernel.ai.core.memory.dao.MealPlanSessionDao
-import com.kernel.ai.core.memory.dao.ConversationDao
-import com.kernel.ai.core.memory.dao.CoreMemoryDao
-import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.dao.ModelSettingsDao
 import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.dao.StopwatchDao
-import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
+import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.entity.ContactAliasEntity
+import com.kernel.ai.core.memory.entity.ConversationEntity
+import com.kernel.ai.core.memory.entity.ConversionHistoryEntity
+import com.kernel.ai.core.memory.entity.CoreMemoryEntity
+import com.kernel.ai.core.memory.entity.CurrencyFavouriteEntity
+import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
 import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
-import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.MealPlanDayEntity
 import com.kernel.ai.core.memory.entity.MealPlanGroceryItemEntity
 import com.kernel.ai.core.memory.entity.MealPlanProjectionWriteEntity
 import com.kernel.ai.core.memory.entity.MealPlanRecipeVersionEntity
 import com.kernel.ai.core.memory.entity.MealPlanSessionEntity
-import com.kernel.ai.core.memory.entity.CoreMemoryEntity
-import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
 import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
 import com.kernel.ai.core.memory.entity.MessageEntity
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
@@ -46,8 +50,8 @@ import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.memory.entity.ScheduledAlarmEntity
 import com.kernel.ai.core.memory.entity.StopwatchLapEntity
 import com.kernel.ai.core.memory.entity.StopwatchStateEntity
-import com.kernel.ai.core.memory.entity.WorldClockEntity
 import com.kernel.ai.core.memory.entity.UserProfileEntity
+import com.kernel.ai.core.memory.entity.WorldClockEntity
 import java.time.ZoneId
 
 @Database(
@@ -69,13 +73,15 @@ import java.time.ZoneId
         ImportantDateEntity::class,
         ListItemEntity::class,
         ListNameEntity::class,
+        ConversionHistoryEntity::class,
+        CurrencyFavouriteEntity::class,
         MealPlanSessionEntity::class,
         MealPlanDayEntity::class,
         MealPlanRecipeVersionEntity::class,
         MealPlanGroceryItemEntity::class,
         MealPlanProjectionWriteEntity::class,
     ],
-    version = 33,
+    version = 34,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -98,6 +104,8 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun listItemDao(): ListItemDao
     abstract fun listNameDao(): ListNameDao
     abstract fun kiwiMemoryDao(): KiwiMemoryDao
+    abstract fun conversionHistoryDao(): ConversionHistoryDao
+    abstract fun currencyFavouriteDao(): CurrencyFavouriteDao
     abstract fun mealPlanSessionDao(): MealPlanSessionDao
     abstract fun mealPlanDayDao(): MealPlanDayDao
     abstract fun mealPlanRecipeVersionDao(): MealPlanRecipeVersionDao
@@ -126,7 +134,7 @@ abstract class KernelDatabase : RoomDatabase() {
                         topP REAL NOT NULL,
                         updatedAt INTEGER NOT NULL
                     )
-                    """.trimIndent()
+                    """.trimIndent(),
                 )
             }
         }
@@ -151,7 +159,7 @@ abstract class KernelDatabase : RoomDatabase() {
                         isSuccess INTEGER NOT NULL,
                         timestamp INTEGER NOT NULL
                     )
-                    """.trimIndent()
+                    """.trimIndent(),
                 )
             }
         }
@@ -168,7 +176,6 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE core_memories ADD COLUMN category TEXT NOT NULL DEFAULT 'user'")
-                // Reclassify existing jandal_persona entries as agent_identity
                 db.execSQL("UPDATE core_memories SET category = 'agent_identity' WHERE source = 'jandal_persona'")
             }
         }
@@ -200,7 +207,7 @@ abstract class KernelDatabase : RoomDatabase() {
                         createdAt INTEGER NOT NULL,
                         fired INTEGER NOT NULL DEFAULT 0
                     )
-                    """.trimIndent()
+                    """.trimIndent(),
                 )
             }
         }
@@ -217,7 +224,7 @@ abstract class KernelDatabase : RoomDatabase() {
                         `addedAt` INTEGER NOT NULL,
                         `checked` INTEGER NOT NULL
                     )
-                    """.trimIndent()
+                    """.trimIndent(),
                 )
             }
         }
@@ -233,7 +240,7 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_16_17 = object : Migration(16, 17) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS `lists` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)"
+                    "CREATE TABLE IF NOT EXISTS `lists` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)",
                 )
             }
         }
@@ -251,6 +258,7 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
             }
         }
+
         /** Adds entry_type, duration_ms, started_at_ms to scheduled_alarms for timer registry (#525). */
         val MIGRATION_18_19 = object : Migration(18, 19) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -263,11 +271,11 @@ abstract class KernelDatabase : RoomDatabase() {
         /** Deduplicates list names and adds unique index to prevent future duplicates crashing LazyColumn. */
         val MIGRATION_19_20 = object : Migration(19, 20) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // Keep only the earliest row for each duplicate list name
                 db.execSQL("DELETE FROM lists WHERE id NOT IN (SELECT MIN(id) FROM lists GROUP BY name)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_lists_name ON lists(name)")
             }
         }
+
         /** Adds NZ truth structured fields to core_memories for vibe-aware RAG (#635). */
         val MIGRATION_20_21 = object : Migration(20, 21) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -300,7 +308,7 @@ abstract class KernelDatabase : RoomDatabase() {
                         `vibeLevel` INTEGER NOT NULL DEFAULT 1,
                         `metadataJson` TEXT NOT NULL DEFAULT '{}'
                     )
-                    """.trimIndent()
+                    """.trimIndent(),
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_kiwi_memories_id ON kiwi_memories (id)")
             }
@@ -318,6 +326,13 @@ abstract class KernelDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN owner_id TEXT DEFAULT NULL")
                 db.execSQL("UPDATE scheduled_alarms SET owner_id = id WHERE owner_id IS NULL")
+            }
+        }
+
+        /** Adds completed_at_ms to scheduled_alarms so fired timers can appear in recent history (#737). */
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN completed_at_ms INTEGER DEFAULT NULL")
             }
         }
 
@@ -358,7 +373,7 @@ abstract class KernelDatabase : RoomDatabase() {
                         `created_at` INTEGER NOT NULL,
                         PRIMARY KEY(`id`)
                     )
-                    """.trimIndent()
+                    """.trimIndent(),
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_world_clocks_zone_id` ON `world_clocks` (`zone_id`)")
             }
@@ -395,13 +410,6 @@ abstract class KernelDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_stopwatch_laps_stopwatch_id` ON `stopwatch_laps` (`stopwatch_id`)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_stopwatch_laps_stopwatch_id_lap_number` ON `stopwatch_laps` (`stopwatch_id`, `lap_number`)")
-            }
-        }
-
-        /** Adds completed_at_ms to scheduled_alarms so fired timers can appear in recent history (#737). */
-        val MIGRATION_24_25 = object : Migration(24, 25) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE scheduled_alarms ADD COLUMN completed_at_ms INTEGER DEFAULT NULL")
             }
         }
 
@@ -443,12 +451,42 @@ abstract class KernelDatabase : RoomDatabase() {
                     """.trimIndent(),
                 )
                 db.execSQL(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_important_dates_normalized_label` ON `important_dates` (`normalized_label`)"
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_important_dates_normalized_label` ON `important_dates` (`normalized_label`)",
                 )
             }
         }
-        /** Creates canonical meal-planner tables for deterministic workflow state (#859). */
+
+        /** Creates conversion_history and currency_favourites tables for the Converter screen (#858). */
         val MIGRATION_32_33 = object : Migration(32, 33) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `conversion_history` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `input_amount` TEXT NOT NULL,
+                        `from_label` TEXT NOT NULL,
+                        `to_label` TEXT NOT NULL,
+                        `output_amount` TEXT NOT NULL,
+                        `created_at` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `currency_favourites` (
+                        `id` TEXT PRIMARY KEY NOT NULL,
+                        `from_code` TEXT NOT NULL,
+                        `to_code` TEXT NOT NULL,
+                        `sort_order` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /** Creates canonical meal-planner tables for deterministic workflow state (#859). */
+        val MIGRATION_33_34 = object : Migration(33, 34) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     """

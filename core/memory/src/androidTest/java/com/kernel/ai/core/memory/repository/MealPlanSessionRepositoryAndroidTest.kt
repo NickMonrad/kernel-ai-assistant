@@ -181,17 +181,17 @@ class MealPlanSessionRepositoryAndroidTest {
     }
 
     @Test
-    fun migration32To33_preservesExistingListsAndCreatesMealPlannerTables() {
-        migrationHelper.createDatabase(MIGRATION_DB_NAME, 32).apply {
+    fun migration33To34_preservesExistingListsAndCreatesMealPlannerTables() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 33).apply {
             execSQL("INSERT INTO `lists` (`id`, `name`, `createdAt`) VALUES (1, 'Existing list', 1234)")
             close()
         }
 
         val migratedDb = migrationHelper.runMigrationsAndValidate(
             MIGRATION_DB_NAME,
-            33,
+            34,
             true,
-            KernelDatabase.MIGRATION_32_33,
+            KernelDatabase.MIGRATION_33_34,
         )
 
         assertTrue(tableExists(migratedDb, "meal_plan_sessions"))
