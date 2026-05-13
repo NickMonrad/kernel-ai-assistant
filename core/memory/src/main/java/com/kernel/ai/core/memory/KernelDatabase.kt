@@ -12,6 +12,11 @@ import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.dao.MealPlanDayDao
+import com.kernel.ai.core.memory.dao.MealPlanGroceryItemDao
+import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
+import com.kernel.ai.core.memory.dao.MealPlanRecipeVersionDao
+import com.kernel.ai.core.memory.dao.MealPlanSessionDao
 import com.kernel.ai.core.memory.dao.ConversationDao
 import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
@@ -31,6 +36,11 @@ import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.ConversationEntity
+import com.kernel.ai.core.memory.entity.MealPlanDayEntity
+import com.kernel.ai.core.memory.entity.MealPlanGroceryItemEntity
+import com.kernel.ai.core.memory.entity.MealPlanProjectionWriteEntity
+import com.kernel.ai.core.memory.entity.MealPlanRecipeVersionEntity
+import com.kernel.ai.core.memory.entity.MealPlanSessionEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
 import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
@@ -63,10 +73,15 @@ import java.time.ZoneId
         ImportantDateEntity::class,
         ListItemEntity::class,
         ListNameEntity::class,
+        MealPlanSessionEntity::class,
+        MealPlanDayEntity::class,
+        MealPlanRecipeVersionEntity::class,
+        MealPlanGroceryItemEntity::class,
+        MealPlanProjectionWriteEntity::class,
         ConversionHistoryEntity::class,
         CurrencyFavouriteEntity::class,
     ],
-    version = 33,
+    version = 34,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -91,6 +106,11 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun kiwiMemoryDao(): KiwiMemoryDao
     abstract fun conversionHistoryDao(): ConversionHistoryDao
     abstract fun currencyFavouriteDao(): CurrencyFavouriteDao
+    abstract fun mealPlanSessionDao(): MealPlanSessionDao
+    abstract fun mealPlanDayDao(): MealPlanDayDao
+    abstract fun mealPlanRecipeVersionDao(): MealPlanRecipeVersionDao
+    abstract fun mealPlanGroceryItemDao(): MealPlanGroceryItemDao
+    abstract fun mealPlanProjectionWriteDao(): MealPlanProjectionWriteDao
 
     companion object {
         /** Adds lastDistilledAt to conversations (#165) and lastAccessedAt to episodic_memories (#167). */
@@ -457,6 +477,126 @@ abstract class KernelDatabase : RoomDatabase() {
                         `sort_order` INTEGER NOT NULL
                     )
                 """.trimIndent())
+            }
+        }
+
+        /** Creates canonical meal-planner tables for deterministic workflow state (#859). */
+        val MIGRATION_33_34 = object : Migration(33, 34) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `meal_plan_sessions` (
+                        `id` TEXT NOT NULL,
+                        `conversationId` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `peopleCount` INTEGER,
+                        `daysCount` INTEGER,
+                        `dietaryRestrictionsJson` TEXT NOT NULL,
+                        `proteinPreferencesJson` TEXT NOT NULL,
+                        `optionalSlotsJson` TEXT NOT NULL,
+                        `activeDayIndex` INTEGER,
+                        `pendingGenerationKind` TEXT,
+                        `pendingGenerationDayIndex` INTEGER,
+                        `pendingGenerationStartedAt` INTEGER,
+                        `planVersion` INTEGER NOT NULL,
+                        `finalSummaryWritten` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        `completedAt` INTEGER,
+                        `cancelledAt` INTEGER,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_meal_plan_sessions_conversationId` ON `meal_plan_sessions` (`conversationId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_meal_plan_sessions_status` ON `meal_plan_sessions` (`status`)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `meal_plan_days` (
+                        `id` TEXT NOT NULL,
+                        `mealPlanSessionId` TEXT NOT NULL,
+                        `dayIndex` INTEGER NOT NULL,
+                        `title` TEXT,
+                        `summary` TEXT,
+                        `proteinTagsJson` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `currentRecipeVersion` INTEGER,
+                        `attemptCount` INTEGER NOT NULL,
+                        `lastErrorCode` TEXT,
+                        `lastErrorMessage` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`mealPlanSessionId`) REFERENCES `meal_plan_sessions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_plan_days_mealPlanSessionId_dayIndex` ON `meal_plan_days` (`mealPlanSessionId`, `dayIndex`)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `meal_plan_recipe_versions` (
+                        `id` TEXT NOT NULL,
+                        `mealPlanSessionId` TEXT NOT NULL,
+                        `mealPlanDayId` TEXT NOT NULL,
+                        `version` INTEGER NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `servings` INTEGER NOT NULL,
+                        `ingredientsJson` TEXT NOT NULL,
+                        `methodStepsJson` TEXT NOT NULL,
+                        `rawModelJson` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`mealPlanDayId`) REFERENCES `meal_plan_days`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_plan_recipe_versions_mealPlanDayId_version` ON `meal_plan_recipe_versions` (`mealPlanDayId`, `version`)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `meal_plan_grocery_items` (
+                        `id` TEXT NOT NULL,
+                        `mealPlanSessionId` TEXT NOT NULL,
+                        `mealPlanDayId` TEXT NOT NULL,
+                        `recipeVersionId` TEXT NOT NULL,
+                        `ingredientIndex` INTEGER NOT NULL,
+                        `displayText` TEXT NOT NULL,
+                        `originalText` TEXT NOT NULL,
+                        `quantity` TEXT,
+                        `unit` TEXT,
+                        `ingredientName` TEXT,
+                        `note` TEXT,
+                        `normalizationStatus` TEXT NOT NULL,
+                        `mergeKey` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`recipeVersionId`) REFERENCES `meal_plan_recipe_versions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_plan_grocery_items_recipeVersionId_ingredientIndex` ON `meal_plan_grocery_items` (`recipeVersionId`, `ingredientIndex`)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `meal_plan_projection_writes` (
+                        `id` TEXT NOT NULL,
+                        `mealPlanSessionId` TEXT NOT NULL,
+                        `targetKind` TEXT NOT NULL,
+                        `targetName` TEXT NOT NULL,
+                        `sourceKey` TEXT NOT NULL,
+                        `sourceVersion` INTEGER NOT NULL,
+                        `listItemId` INTEGER,
+                        `projectedAt` INTEGER NOT NULL,
+                        `supersededAt` INTEGER,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_meal_plan_projection_writes_mealPlanSessionId` ON `meal_plan_projection_writes` (`mealPlanSessionId`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_plan_projection_writes_targetKind_targetName_sourceKey_sourceVersion` ON `meal_plan_projection_writes` (`targetKind`, `targetName`, `sourceKey`, `sourceVersion`)")
             }
         }
     }

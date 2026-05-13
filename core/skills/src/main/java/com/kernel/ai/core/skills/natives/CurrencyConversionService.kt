@@ -63,10 +63,15 @@ class CurrencyConversionService @Inject constructor(
     private val catalogMutex = Mutex()
     @Volatile private var cachedCurrencies: Map<String, ResolvedCurrency>? = null
 
+    private val rateMutex = Mutex()
+    private val rateCache = mutableMapOf<String, Pair<Result, Long>>()
+    private val rateCacheTtlMs = 5 * 60 * 1_000L
+
     suspend fun getSupportedCurrencies(): Map<String, ResolvedCurrency> = loadSupportedCurrencies()
 
     fun evictRatesCache() {
         cachedCurrencies = null
+        rateCache.clear()
     }
 
     suspend fun convert(
@@ -207,6 +212,18 @@ class CurrencyConversionService @Inject constructor(
         toCurrency: ResolvedCurrency,
         today: LocalDate,
     ): Result = withContext(Dispatchers.IO) {
+        val cacheKey = "${fromCurrency.code}_${toCurrency.code}"
+        rateMutex.withLock {
+            val cached = rateCache[cacheKey]
+            if (cached != null && System.currentTimeMillis() - cached.second < rateCacheTtlMs) {
+                val cachedResult = cached.first
+                return@withContext cachedResult.copy(
+                    inputAmount = amount,
+                    outputAmount = amount.multiply(cachedResult.rate),
+                )
+            }
+        }
+
         val url = "$RATE_URL_PREFIX?base=${fromCurrency.code}&symbols=${toCurrency.code}"
         val request = Request.Builder()
             .url(url)
@@ -239,7 +256,7 @@ class CurrencyConversionService @Inject constructor(
             }
             val rate = BigDecimal.valueOf(rateValue)
             val output = amount.multiply(rate)
-            Result(
+            val result = Result(
                 inputAmount = amount,
                 fromCurrency = fromCurrency,
                 toCurrency = toCurrency,
@@ -248,6 +265,8 @@ class CurrencyConversionService @Inject constructor(
                 rateDate = date,
                 sourceLabel = "ECB reference rate via Frankfurter",
             )
+            rateMutex.withLock { rateCache[cacheKey] = result to System.currentTimeMillis() }
+            result
         }
     }
 

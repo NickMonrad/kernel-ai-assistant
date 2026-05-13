@@ -62,6 +62,7 @@ class ConvertViewModel @Inject constructor(
     private val KEY_AU_TABLESPOON = booleanPreferencesKey("au_tablespoon")
 
     private var convertJob: Job? = null
+    private var ratesFetchJob: Job? = null
 
     init {
         // Load cooking units and ingredients eagerly
@@ -183,7 +184,7 @@ class ConvertViewModel @Inject constructor(
                     val display = "$formatted ${res.toUnit.contentLabel}"
                     val rateInfo = res.assumptionTexts.joinToString("; ").takeIf { it.isNotBlank() }
                     _uiState.update { it.copy(result = ConversionResult.Success(display, rateInfo)) }
-                    saveHistory("COOKING", state.amount, state.fromUnit, state.toUnit, formatted)
+                    saveHistory("COOKING", state.amount, res.fromUnit.contentLabel, res.toUnit.contentLabel, formatted)
                 }
             }
         } catch (e: Exception) {
@@ -257,8 +258,9 @@ class ConvertViewModel @Inject constructor(
     }
 
     fun fetchFavouriteRates() {
+        ratesFetchJob?.cancel()
         val favs = _uiState.value.currencyFavourites
-        viewModelScope.launch {
+        ratesFetchJob = viewModelScope.launch {
             val rates = mutableMapOf<String, String>()
             favs.forEach { fav ->
                 try {
@@ -274,7 +276,18 @@ class ConvertViewModel @Inject constructor(
         value.setScale(2, RoundingMode.HALF_UP).toPlainString()
 
     private fun formatQuantity(value: BigDecimal): String {
-        val scale = if (value.abs() < BigDecimal.ONE) 4 else 2
-        return value.setScale(scale, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+        if (value.compareTo(BigDecimal.ZERO) == 0) return "0"
+        val abs = value.abs()
+        val scale = when {
+            abs >= BigDecimal.ONE -> 2
+            abs >= BigDecimal("0.01") -> 4
+            else -> maxOf(4, -abs.scale() + abs.precision() + 2)
+        }
+        val scaled = value.setScale(scale, RoundingMode.HALF_UP)
+        // If rounding killed all significant digits, fall back to 2 sig figs
+        if (scaled.compareTo(BigDecimal.ZERO) == 0) {
+            return value.round(java.math.MathContext(2, RoundingMode.HALF_UP)).toPlainString()
+        }
+        return scaled.stripTrailingZeros().toPlainString()
     }
 }
