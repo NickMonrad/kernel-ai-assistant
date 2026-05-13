@@ -32,6 +32,7 @@ data class ConvertUiState(
     val amount: String = "",
     val fromUnit: String = "USD",
     val toUnit: String = "NZD",
+    val toUnitOptions: List<String> = emptyList(),
     val result: ConversionResult? = null,
     val currencyHistory: List<ConversionHistoryEntity> = emptyList(),
     val unitHistory: List<ConversionHistoryEntity> = emptyList(),
@@ -68,7 +69,9 @@ class ConvertViewModel @Inject constructor(
         // Load cooking units and ingredients eagerly
         val cookingUnits = cookingService.allSupportedUnits().map { it.canonicalName }
         val cookingIngredients = cookingService.allIngredients().map { it.displayName }
-        _uiState.update { it.copy(cookingUnits = cookingUnits, cookingIngredients = cookingIngredients) }
+        _uiState.update {
+            it.copy(cookingUnits = cookingUnits, cookingIngredients = cookingIngredients).withToUnitOptions()
+        }
 
         viewModelScope.launch {
             combine(
@@ -121,7 +124,7 @@ class ConvertViewModel @Inject constructor(
             ConvertTab.UNIT -> "km" to "mi"
             ConvertTab.COOKING -> "cup" to "g"
         }
-        _uiState.update { it.copy(selectedTab = tab, fromUnit = from, toUnit = to, result = null) }
+        _uiState.update { it.copy(selectedTab = tab, fromUnit = from, toUnit = to, result = null).withToUnitOptions() }
     }
 
     fun onFromChanged(value: String) {
@@ -129,7 +132,7 @@ class ConvertViewModel @Inject constructor(
         if (state.selectedTab == ConvertTab.UNIT) {
             val compatibleUnits = UnitConverter.unitsInSameCategoryAs(value)
             val toUnit = if (state.toUnit in compatibleUnits) state.toUnit else compatibleUnits.firstOrNull() ?: state.toUnit
-            _uiState.update { it.copy(fromUnit = value, toUnit = toUnit) }
+            _uiState.update { it.copy(fromUnit = value, toUnit = toUnit).withToUnitOptions() }
         } else {
             _uiState.update { it.copy(fromUnit = value) }
         }
@@ -298,3 +301,7 @@ class ConvertViewModel @Inject constructor(
         return scaled.stripTrailingZeros().toPlainString()
     }
 }
+
+private fun ConvertUiState.withToUnitOptions(): ConvertUiState =
+    if (selectedTab == ConvertTab.UNIT) copy(toUnitOptions = UnitConverter.unitsInSameCategoryAs(fromUnit))
+    else this

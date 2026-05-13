@@ -236,7 +236,7 @@ fun ConvertScreen(
                                 onFromChanged = viewModel::onFromChanged,
                                 onToChanged = viewModel::onToChanged,
                                 pickerOptions = UnitConverter.supportedUnits(),
-                                toPickerOptions = UnitConverter.unitsInSameCategoryAs(uiState.fromUnit),
+                                toPickerOptions = uiState.toUnitOptions.ifEmpty { UnitConverter.supportedUnits() },
                             )
                         }
                         item {
