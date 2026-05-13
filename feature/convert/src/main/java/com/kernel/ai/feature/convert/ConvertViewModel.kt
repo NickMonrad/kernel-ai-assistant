@@ -142,54 +142,59 @@ class ConvertViewModel @Inject constructor(
         }
     }
 
-    private fun convert() {
+    private suspend fun convert() {
         val state = _uiState.value
         if (state.amount.isBlank()) {
             _uiState.update { it.copy(result = null) }
             return
         }
-        viewModelScope.launch {
-            _uiState.update { it.copy(result = ConversionResult.Loading) }
-            try {
-                when (state.selectedTab) {
-                    ConvertTab.CURRENCY -> {
-                        val res = currencyService.convert(state.amount, state.fromUnit, state.toUnit)
-                        val display = "${res.outputAmount.toPlainString()} ${res.toCurrency.code}"
-                        val rateInfo = "1 ${res.fromCurrency.code} = ${res.rate.toPlainString()} ${res.toCurrency.code} · ${res.rateDate}"
-                        _uiState.update { it.copy(result = ConversionResult.Success(display, rateInfo)) }
-                        saveHistory("CURRENCY", state.amount, state.fromUnit, state.toUnit, display)
-                    }
-                    ConvertTab.UNIT -> {
-                        val res = UnitConverter.convert(state.amount, state.fromUnit, state.toUnit)
-                        val display = "${res.outputValue.stripTrailingZeros().toPlainString()} ${res.toUnitName}"
-                        _uiState.update { it.copy(result = ConversionResult.Success(display)) }
-                        saveHistory("UNIT", state.amount, state.fromUnit, state.toUnit, display)
-                    }
-                    ConvertTab.COOKING -> {
-                        val res = cookingService.convert(state.amount, state.fromUnit, state.cookingIngredient, state.toUnit)
-                        val display = "${res.outputAmount.stripTrailingZeros().toPlainString()} ${res.toUnit.contentLabel}"
-                        val rateInfo = res.assumptionTexts.joinToString("; ").takeIf { it.isNotBlank() }
-                        _uiState.update { it.copy(result = ConversionResult.Success(display, rateInfo)) }
-                        saveHistory("COOKING", state.amount, state.fromUnit, state.toUnit, display)
-                    }
+        _uiState.update { it.copy(result = ConversionResult.Loading) }
+        try {
+            when (state.selectedTab) {
+                ConvertTab.CURRENCY -> {
+                    val res = currencyService.convert(state.amount, state.fromUnit, state.toUnit)
+                    val display = "${res.outputAmount.toPlainString()} ${res.toCurrency.code}"
+                    val rateInfo = "1 ${res.fromCurrency.code} = ${res.rate.toPlainString()} ${res.toCurrency.code} · ${res.rateDate}"
+                    _uiState.update { it.copy(result = ConversionResult.Success(display, rateInfo)) }
+                    saveHistory("CURRENCY", state.amount, state.fromUnit, state.toUnit, display)
                 }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(result = ConversionResult.Error(e.message ?: "Conversion failed")) }
+                ConvertTab.UNIT -> {
+                    val res = UnitConverter.convert(state.amount, state.fromUnit, state.toUnit)
+                    val display = "${res.outputValue.stripTrailingZeros().toPlainString()} ${res.toUnitName}"
+                    _uiState.update { it.copy(result = ConversionResult.Success(display)) }
+                    saveHistory("UNIT", state.amount, state.fromUnit, state.toUnit, display)
+                }
+                ConvertTab.COOKING -> {
+                    fun remapTbsp(unit: String) =
+                        if (state.isAustralianTablespoon && unit.equals("tbsp", ignoreCase = true)) "AU tbsp" else unit
+                    val res = cookingService.convert(
+                        state.amount,
+                        remapTbsp(state.fromUnit),
+                        state.cookingIngredient,
+                        remapTbsp(state.toUnit),
+                    )
+                    val display = "${res.outputAmount.stripTrailingZeros().toPlainString()} ${res.toUnit.contentLabel}"
+                    val rateInfo = res.assumptionTexts.joinToString("; ").takeIf { it.isNotBlank() }
+                    _uiState.update { it.copy(result = ConversionResult.Success(display, rateInfo)) }
+                    saveHistory("COOKING", state.amount, state.fromUnit, state.toUnit, display)
+                }
             }
+        } catch (e: Exception) {
+            _uiState.update { it.copy(result = ConversionResult.Error(e.message ?: "Conversion failed")) }
         }
     }
 
     fun addFavourite(fromCode: String, toCode: String) {
         viewModelScope.launch {
             val count = currencyFavouriteDao.count()
-            if (count >= 5) {
-                _uiState.update { it.copy(showFavouriteError = true) }
-                return@launch
-            }
             val id = "${fromCode}_${toCode}"
-            currencyFavouriteDao.insert(
-                CurrencyFavouriteEntity(id = id, fromCode = fromCode, toCode = toCode, sortOrder = count)
+            val inserted = currencyFavouriteDao.insertIfUnderLimit(
+                CurrencyFavouriteEntity(id = id, fromCode = fromCode, toCode = toCode, sortOrder = count),
+                limit = 5,
             )
+            if (!inserted) {
+                _uiState.update { it.copy(showFavouriteError = true) }
+            }
         }
     }
 
@@ -242,6 +247,7 @@ class ConvertViewModel @Inject constructor(
                 createdAt = System.currentTimeMillis(),
             )
         )
+        conversionHistoryDao.pruneToLimit(type)
     }
 
     fun fetchFavouriteRates() {

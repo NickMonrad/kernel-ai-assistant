@@ -243,7 +243,7 @@ class ConvertViewModelTest {
 
     @Test
     fun `addFavourite when count equals 5 sets showFavouriteError`() = runTest {
-        coEvery { favouriteDao.count() } returns 5
+        coEvery { favouriteDao.insertIfUnderLimit(any(), any()) } returns false
 
         viewModel.addFavourite("USD", "NZD")
         advanceUntilIdle()
@@ -253,29 +253,28 @@ class ConvertViewModelTest {
 
     @Test
     fun `addFavourite when count equals 5 does not insert into dao`() = runTest {
-        coEvery { favouriteDao.count() } returns 5
+        coEvery { favouriteDao.insertIfUnderLimit(any(), any()) } returns false
 
         viewModel.addFavourite("USD", "NZD")
         advanceUntilIdle()
 
+        coVerify(exactly = 1) { favouriteDao.insertIfUnderLimit(any(), 5) }
         coVerify(exactly = 0) { favouriteDao.insert(any()) }
     }
 
     @Test
     fun `addFavourite when count is below 5 inserts into dao`() = runTest {
-        coEvery { favouriteDao.count() } returns 2
-        coEvery { favouriteDao.insert(any()) } returns Unit
+        coEvery { favouriteDao.insertIfUnderLimit(any(), any()) } returns true
 
         viewModel.addFavourite("USD", "NZD")
         advanceUntilIdle()
 
-        coVerify { favouriteDao.insert(match { it.fromCode == "USD" && it.toCode == "NZD" }) }
+        coVerify { favouriteDao.insertIfUnderLimit(match { it.fromCode == "USD" && it.toCode == "NZD" }, 5) }
     }
 
     @Test
     fun `addFavourite when count is below 5 does not set error flag`() = runTest {
-        coEvery { favouriteDao.count() } returns 2
-        coEvery { favouriteDao.insert(any()) } returns Unit
+        coEvery { favouriteDao.insertIfUnderLimit(any(), any()) } returns true
 
         viewModel.addFavourite("USD", "NZD")
         advanceUntilIdle()
@@ -285,34 +284,33 @@ class ConvertViewModelTest {
 
     @Test
     fun `addFavourite inserts entity with correct id format`() = runTest {
-        coEvery { favouriteDao.count() } returns 1
-        coEvery { favouriteDao.insert(any()) } returns Unit
+        coEvery { favouriteDao.insertIfUnderLimit(any(), any()) } returns true
 
         viewModel.addFavourite("AUD", "JPY")
         advanceUntilIdle()
 
         coVerify {
-            favouriteDao.insert(
-                match { it.id == "AUD_JPY" && it.fromCode == "AUD" && it.toCode == "JPY" }
+            favouriteDao.insertIfUnderLimit(
+                match { it.id == "AUD_JPY" && it.fromCode == "AUD" && it.toCode == "JPY" },
+                5,
             )
         }
     }
 
     @Test
     fun `addFavourite at exactly count 4 inserts successfully`() = runTest {
-        coEvery { favouriteDao.count() } returns 4
-        coEvery { favouriteDao.insert(any()) } returns Unit
+        coEvery { favouriteDao.insertIfUnderLimit(any(), any()) } returns true
 
         viewModel.addFavourite("EUR", "CHF")
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { favouriteDao.insert(any()) }
+        coVerify(exactly = 1) { favouriteDao.insertIfUnderLimit(any(), 5) }
         assertFalse(viewModel.uiState.value.showFavouriteError)
     }
 
     @Test
     fun `dismissFavouriteError clears the error flag`() = runTest {
-        coEvery { favouriteDao.count() } returns 5
+        coEvery { favouriteDao.insertIfUnderLimit(any(), any()) } returns false
         viewModel.addFavourite("USD", "NZD")
         advanceUntilIdle()
         assertTrue(viewModel.uiState.value.showFavouriteError)

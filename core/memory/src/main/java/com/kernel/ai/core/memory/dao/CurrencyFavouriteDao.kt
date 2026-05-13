@@ -4,20 +4,29 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.kernel.ai.core.memory.entity.CurrencyFavouriteEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-interface CurrencyFavouriteDao {
+abstract class CurrencyFavouriteDao {
     @Query("SELECT * FROM currency_favourites ORDER BY sort_order ASC")
-    fun observeAll(): Flow<List<CurrencyFavouriteEntity>>
+    abstract fun observeAll(): Flow<List<CurrencyFavouriteEntity>>
 
     @Query("SELECT COUNT(*) FROM currency_favourites")
-    suspend fun count(): Int
+    abstract suspend fun count(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(entity: CurrencyFavouriteEntity)
+    abstract suspend fun insert(entity: CurrencyFavouriteEntity)
 
     @Query("DELETE FROM currency_favourites WHERE id = :id")
-    suspend fun delete(id: String): Int
+    abstract suspend fun delete(id: String): Int
+
+    /** Atomically checks the limit and inserts. Returns false if already at or over [limit]. */
+    @Transaction
+    open suspend fun insertIfUnderLimit(entity: CurrencyFavouriteEntity, limit: Int): Boolean {
+        if (count() >= limit) return false
+        insert(entity)
+        return true
+    }
 }

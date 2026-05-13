@@ -15,6 +15,20 @@ interface ConversionHistoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: ConversionHistoryEntity)
 
+    @Query(
+        """
+        DELETE FROM conversion_history
+        WHERE type = :type
+          AND id NOT IN (
+              SELECT id FROM conversion_history
+              WHERE type = :type
+              ORDER BY created_at DESC
+              LIMIT 20
+          )
+        """
+    )
+    suspend fun pruneToLimit(type: String)
+
     @Query("DELETE FROM conversion_history WHERE type = :type")
     suspend fun deleteByType(type: String)
 }
