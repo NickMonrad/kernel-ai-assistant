@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
+import java.math.RoundingMode
 import javax.inject.Inject
 import javax.inject.Named
 
@@ -155,16 +157,18 @@ class ConvertViewModel @Inject constructor(
             when (state.selectedTab) {
                 ConvertTab.CURRENCY -> {
                     val res = currencyService.convert(state.amount, state.fromUnit, state.toUnit)
-                    val display = "${res.outputAmount.toPlainString()} ${res.toCurrency.code}"
-                    val rateInfo = "1 ${res.fromCurrency.code} = ${res.rate.toPlainString()} ${res.toCurrency.code} · ${res.rateDate}"
+                    val formatted = formatCurrency(res.outputAmount)
+                    val display = "$formatted ${res.toCurrency.code}"
+                    val rateInfo = "1 ${res.fromCurrency.code} = ${formatCurrency(res.rate)} ${res.toCurrency.code} · ${res.rateDate}"
                     _uiState.update { it.copy(result = ConversionResult.Success(display, rateInfo)) }
-                    saveHistory("CURRENCY", state.amount, state.fromUnit, state.toUnit, display)
+                    saveHistory("CURRENCY", state.amount, state.fromUnit, state.toUnit, formatted)
                 }
                 ConvertTab.UNIT -> {
                     val res = UnitConverter.convert(state.amount, state.fromUnit, state.toUnit)
-                    val display = "${res.outputValue.stripTrailingZeros().toPlainString()} ${res.toUnitName}"
+                    val formatted = formatQuantity(res.outputValue)
+                    val display = "$formatted ${res.toUnitName}"
                     _uiState.update { it.copy(result = ConversionResult.Success(display)) }
-                    saveHistory("UNIT", state.amount, state.fromUnit, state.toUnit, display)
+                    saveHistory("UNIT", state.amount, state.fromUnit, state.toUnit, formatted)
                 }
                 ConvertTab.COOKING -> {
                     fun remapTbsp(unit: String) =
@@ -175,10 +179,11 @@ class ConvertViewModel @Inject constructor(
                         state.cookingIngredient,
                         remapTbsp(state.toUnit),
                     )
-                    val display = "${res.outputAmount.stripTrailingZeros().toPlainString()} ${res.toUnit.contentLabel}"
+                    val formatted = formatQuantity(res.outputAmount)
+                    val display = "$formatted ${res.toUnit.contentLabel}"
                     val rateInfo = res.assumptionTexts.joinToString("; ").takeIf { it.isNotBlank() }
                     _uiState.update { it.copy(result = ConversionResult.Success(display, rateInfo)) }
-                    saveHistory("COOKING", state.amount, state.fromUnit, state.toUnit, display)
+                    saveHistory("COOKING", state.amount, state.fromUnit, state.toUnit, formatted)
                 }
             }
         } catch (e: Exception) {
@@ -258,10 +263,18 @@ class ConvertViewModel @Inject constructor(
             favs.forEach { fav ->
                 try {
                     val res = currencyService.convert("1", fav.fromCode, fav.toCode)
-                    rates[fav.id] = res.outputAmount.stripTrailingZeros().toPlainString()
+                    rates[fav.id] = formatCurrency(res.outputAmount)
                 } catch (_: Exception) { }
             }
             _uiState.update { it.copy(favouriteRates = rates) }
         }
+    }
+
+    private fun formatCurrency(value: BigDecimal): String =
+        value.setScale(2, RoundingMode.HALF_UP).toPlainString()
+
+    private fun formatQuantity(value: BigDecimal): String {
+        val scale = if (value.abs() < BigDecimal.ONE) 4 else 2
+        return value.setScale(scale, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
     }
 }
