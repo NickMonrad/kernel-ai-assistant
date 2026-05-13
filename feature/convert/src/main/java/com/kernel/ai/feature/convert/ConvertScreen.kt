@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -66,6 +67,7 @@ import java.time.ZoneId
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConvertScreen(
+    onBack: () -> Unit = {},
     onNavigateToActions: () -> Unit = {},
     viewModel: ConvertViewModel = hiltViewModel(),
 ) {
@@ -84,6 +86,11 @@ fun ConvertScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Convert") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
                 actions = {
                     Box {
                         IconButton(onClick = { showMenu = true }) {

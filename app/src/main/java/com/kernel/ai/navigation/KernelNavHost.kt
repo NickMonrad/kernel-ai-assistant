@@ -553,6 +553,7 @@ fun KernelNavHost(
 
                 composable(ROUTE_CONVERT) {
                     ConvertScreen(
+                        onBack = { navController.popBackStack() },
                         onNavigateToActions = { navController.navigate(ROUTE_ACTIONS) },
                     )
                 }
