@@ -186,10 +186,9 @@ class ConvertViewModel @Inject constructor(
 
     fun addFavourite(fromCode: String, toCode: String) {
         viewModelScope.launch {
-            val count = currencyFavouriteDao.count()
             val id = "${fromCode}_${toCode}"
             val inserted = currencyFavouriteDao.insertIfUnderLimit(
-                CurrencyFavouriteEntity(id = id, fromCode = fromCode, toCode = toCode, sortOrder = count),
+                CurrencyFavouriteEntity(id = id, fromCode = fromCode, toCode = toCode, sortOrder = 0),
                 limit = 5,
             )
             if (!inserted) {

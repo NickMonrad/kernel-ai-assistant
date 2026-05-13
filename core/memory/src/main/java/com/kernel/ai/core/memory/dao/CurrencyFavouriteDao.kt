@@ -16,6 +16,9 @@ abstract class CurrencyFavouriteDao {
     @Query("SELECT COUNT(*) FROM currency_favourites")
     abstract suspend fun count(): Int
 
+    @Query("SELECT COALESCE(MAX(sort_order) + 1, 0) FROM currency_favourites")
+    abstract suspend fun nextSortOrder(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun insert(entity: CurrencyFavouriteEntity)
 
@@ -26,7 +29,7 @@ abstract class CurrencyFavouriteDao {
     @Transaction
     open suspend fun insertIfUnderLimit(entity: CurrencyFavouriteEntity, limit: Int): Boolean {
         if (count() >= limit) return false
-        insert(entity)
+        insert(entity.copy(sortOrder = nextSortOrder()))
         return true
     }
 }

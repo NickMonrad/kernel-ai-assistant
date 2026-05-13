@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Card
@@ -27,6 +28,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -79,6 +81,12 @@ fun ConvertScreen(
         if (uiState.showFavouriteError) {
             snackbarHostState.showSnackbar("Maximum 5 favourites allowed")
             viewModel.dismissFavouriteError()
+        }
+    }
+
+    LaunchedEffect(uiState.currencyFavourites) {
+        if (uiState.currencyFavourites.isNotEmpty()) {
+            viewModel.fetchFavouriteRates()
         }
     }
 
@@ -140,6 +148,15 @@ fun ConvertScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = onNavigateToActions,
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ) {
+                Icon(Icons.Default.Mic, contentDescription = "Voice input")
+            }
+        },
     ) { padding ->
         Column(modifier = Modifier
             .padding(padding)
@@ -368,7 +385,9 @@ private fun UnitPickerBottomSheet(
                 singleLine = true,
             )
             Spacer(Modifier.height(8.dp))
-            filtered.forEach { option ->
+        }
+        LazyColumn {
+            items(filtered) { option ->
                 ListItem(
                     headlineContent = { Text(option) },
                     modifier = Modifier
@@ -376,7 +395,7 @@ private fun UnitPickerBottomSheet(
                         .clickable { onSelect(option) },
                 )
             }
-            Spacer(Modifier.height(16.dp))
+            item { Spacer(Modifier.height(16.dp)) }
         }
     }
 }
