@@ -6,6 +6,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 
+import com.kernel.ai.core.skills.natives.CookingConversionService
 import com.kernel.ai.core.skills.natives.UnitConversionEvaluator
 /**
  * Tier 2: Fast Intent Layer — pure Kotlin regex + future BERT-tiny zero-shot classifier.
@@ -195,6 +196,8 @@ class QuickIntentRouter(
 
     private val unitConversionValuePattern = "-?\\d+(?:\\.\\d+)?"
     private val unitConversionUnitPattern = UnitConversionEvaluator.supportedRouterRegexPattern()
+    private val ingredientQualifiedMassUnitPattern = UnitConversionEvaluator.supportedMassRouterRegexPattern()
+    private val ingredientQualifiedVolumeUnitPattern = UnitConversionEvaluator.supportedVolumeRouterRegexPattern()
 
     private val mixedUnitConversionTargetPattern = UnitConversionEvaluator.supportedMixedUnitRouterRegexPattern()
     private val feetAndInchesInputPattern = "(-?\\d+(?:\\.\\d+)?)\\s*(?:ft|foot|feet)\\s+(-?\\d+(?:\\.\\d+)?)\\s*(?:in|inch|inches)"
@@ -237,6 +240,29 @@ class QuickIntentRouter(
         .replace(Regex("""\bmetres?\s+a\s+second\b""", RegexOption.IGNORE_CASE), "metres per second")
         .replace(Regex("""\bmetres?\s+an\s+second\b""", RegexOption.IGNORE_CASE), "metres per second")
 
+    private val cookingConversionValuePattern = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?"
+    private val cookingVolumeUnitPattern = CookingConversionService.supportedVolumeRouterRegexPattern()
+    private val cookingMassUnitPattern = CookingConversionService.supportedMassRouterRegexPattern()
+    private val cookingIngredientMassUnitPattern = CookingConversionService.supportedIngredientMassRouterRegexPattern()
+    private val cookingIngredientVolumeUnitPattern = CookingConversionService.supportedIngredientVolumeRouterRegexPattern()
+    private val cookingIngredientPattern = "[A-Za-z][A-Za-z'’\\-]*(?:\\s+[A-Za-z][A-Za-z'’\\-]*){0,5}"
+
+    private fun extractCookingConversionParams(
+        amount: String,
+        fromUnit: String,
+        ingredient: String,
+        toUnit: String,
+    ): Map<String, String> = mapOf(
+        "amount" to amount.trim().replace(",", ""),
+        "from_unit" to normalizeCookingPhrase(fromUnit),
+        "ingredient" to normalizeCookingPhrase(ingredient),
+        "to_unit" to normalizeCookingPhrase(toUnit),
+    )
+
+    private fun normalizeCookingPhrase(raw: String): String = raw.trim()
+        .trim(',', '.', '?', '!')
+        .replace(Regex("""\s+"""), " ")
+
     private val currencyConversionValuePattern = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?"
     private val currencyConversionNounPattern = "(?:dollars?|euros?|pounds?|yen|yuan|francs?|rupees?|pesos?|rand(?:s)?|won|dirhams?|riyals?|ringgit|krona|krone|lira|shekels?|baht|forint|zloty|koruna|leu|lei|real|reais|taka)"
     private val currencyConversionTermPattern = "(?:[A-Za-z]{3}|$currencyConversionNounPattern|[A-Za-z][A-Za-z.'’-]*(?:\\s+[A-Za-z][A-Za-z.'’-]*){0,4}\\s+$currencyConversionNounPattern)"
@@ -250,7 +276,6 @@ class QuickIntentRouter(
     private fun normalizeCurrencyPhrase(raw: String): String = raw.trim()
         .trim(',', '.', '?', '!')
         .replace(Regex("""\s+"""), " ")
-
 
     private fun extractImportantDateParams(label: String, date: String): Map<String, String> {
         val params = mutableMapOf<String, String>()
@@ -2460,6 +2485,215 @@ class QuickIntentRouter(
                     feet = match.groupValues[1],
                     inches = match.groupValues[2],
                     toUnit = match.groupValues[3],
+                )
+            },
+        ),
+        // Ingredient-aware cooking conversion phrases: "convert 3 tbsp of butter to grams"
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($cookingIngredientMassUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    ingredient = match.groupValues[3],
+                    toUnit = match.groupValues[4],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+many\s+($cookingIngredientMassUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    ingredient = match.groupValues[4],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+many\s+($cookingIngredientMassUnitPattern)\s+does\s+($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+weigh$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    ingredient = match.groupValues[4],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+much\s+does\s+($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+weigh(?:\s+in\s+($cookingIngredientMassUnitPattern))?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    ingredient = match.groupValues[3],
+                    toUnit = match.groupValues[4].ifBlank { "g" },
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($cookingConversionValuePattern)\s+($cookingIngredientMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($cookingIngredientVolumeUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    ingredient = match.groupValues[3],
+                    toUnit = match.groupValues[4],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+many\s+($cookingIngredientVolumeUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($cookingConversionValuePattern)\s+($cookingIngredientMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    ingredient = match.groupValues[4],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        // Ingredient-qualified same-category kitchen-unit conversions use the cooking path so the kitchen assumptions stay consistent.
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($cookingConversionValuePattern)\s+($cookingVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($cookingVolumeUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    ingredient = match.groupValues[3],
+                    toUnit = match.groupValues[4],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+many\s+($cookingVolumeUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($cookingConversionValuePattern)\s+($cookingVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    ingredient = match.groupValues[4],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($cookingConversionValuePattern)\s+($cookingMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($cookingMassUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    ingredient = match.groupValues[3],
+                    toUnit = match.groupValues[4],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+many\s+($cookingMassUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($cookingConversionValuePattern)\s+($cookingMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    ingredient = match.groupValues[4],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        // Ingredient-qualified same-category non-cooking conversions still use deterministic unit math.
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($unitConversionValuePattern)\s*($ingredientQualifiedMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($ingredientQualifiedMassUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    toUnit = match.groupValues[4],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^how\s+many\s+($ingredientQualifiedMassUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($unitConversionValuePattern)\s*($ingredientQualifiedMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($unitConversionValuePattern)\s*($ingredientQualifiedVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($ingredientQualifiedVolumeUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    toUnit = match.groupValues[4],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^how\s+many\s+($ingredientQualifiedVolumeUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($unitConversionValuePattern)\s*($ingredientQualifiedVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    toUnit = match.groupValues[1],
                 )
             },
         ),
