@@ -1137,6 +1137,7 @@ class ChatViewModel @Inject constructor(
                         return@launch
                     }
                 }
+                needsHistoryReplay = true
                 val plannerReply = if (explicitMealPlannerStart) {
                     mealPlannerCoordinator.startOrResume(convId)
                 } else {

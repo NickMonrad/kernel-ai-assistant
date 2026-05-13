@@ -228,32 +228,8 @@ class LiteRtInferenceEngine @Inject constructor(
 
     override suspend fun updateSystemPrompt(systemPrompt: String) {
         withContext(LlmDispatcher) {
-            val eng = engine ?: return@withContext
             val config = currentConfig ?: return@withContext
-            val backend = _activeBackend.value ?: BackendType.CPU
-
-            currentConfig = config.copy(systemPrompt = systemPrompt)
-
-            // Signal any active generation to stop so it releases generationMutex promptly.
-            if (_isGenerating.value) {
-                Log.d(TAG, "updateSystemPrompt: signalling cancellation to active generation")
-                conversation?.cancelProcess()
-            }
-
-            // Wait for generationMutex so we don't close the conversation while
-            // generate() or generateOnce() is suspended mid-flight using it.
-            // withLock suspends the coroutine (not the dispatcher thread), so the
-            // LlmDispatcher remains available to run the active generation's awaitClose.
-            generationMutex.withLock {
-                safeClose(conversation, "conversation")
-                try {
-                    conversation = eng.createConversation(buildConversationConfig(backend, currentConfig!!))
-                } finally {
-                    resetExperimentalFlags()
-                }
-                _isGenerating.value = false
-                Log.i(TAG, "System prompt updated and conversation reset")
-            }
+            resetConversationForConfig(config.copy(systemPrompt = systemPrompt))
         }
     }
 
@@ -401,56 +377,97 @@ class LiteRtInferenceEngine @Inject constructor(
      * is currently generating, this suspends until the active generation completes.
      */
     override suspend fun generateOnce(prompt: String, systemPrompt: String?): String = withContext(LlmDispatcher) {
-        // LiteRT only supports one session at a time — reuse the existing conversation
-        // rather than calling createConversation() (which throws FAILED_PRECONDITION if
-        // a session already exists). The title prompt is self-contained so it works
-        // correctly within the existing session context.
-        val conv = conversation ?: return@withContext ""
-
-        // Use tryLock + retry loop to avoid potential deadlock with the single-threaded
-        // dispatcher. The generate() flow's awaitClose needs to run on this same
-        // dispatcher to unlock the mutex.
-        // NOTE: Must use a for loop with break, not repeat{} — return@repeat is a continue,
-        // not a break, so repeat{} would keep iterating even after the lock is acquired.
-        var acquired = false
-        for (attempt in 0 until 20) {
-            if (generationMutex.tryLock()) {
-                acquired = true
-                break
-            }
-            Log.d(TAG, "generateOnce: mutex busy, retry ${attempt + 1}/20")
-            kotlinx.coroutines.delay(250L)
-        }
-        if (!acquired) {
-            Log.w(TAG, "generateOnce: failed to acquire mutex after 5s — engine busy")
-            return@withContext ""
-        }
+        val config = currentConfig ?: return@withContext ""
+        val requestedSystemPrompt = systemPrompt?.takeIf { it.isNotBlank() }
+        val shouldSwapSystemPrompt = requestedSystemPrompt != null && requestedSystemPrompt != config.systemPrompt
+        val timeoutMs = if (requestedSystemPrompt != null) 60_000L else 30_000L
 
         try {
-            val sb = StringBuilder()
-            val latch = CompletableDeferred<Unit>()
-            conv.sendMessageAsync(
-                Contents.of(Content.Text(prompt)),
-                object : MessageCallback {
-                    override fun onMessage(message: Message) {
-                        val text = message.toString()
-                        if (text.isNotEmpty() && !text.startsWith("<ctrl")) sb.append(text)
-                    }
-                    override fun onDone() { latch.complete(Unit) }
-                    override fun onError(throwable: Throwable) {
-                        latch.completeExceptionally(throwable)
-                    }
-                },
-            )
+            if (shouldSwapSystemPrompt) {
+                resetConversationForConfig(config.copy(systemPrompt = requestedSystemPrompt))
+            }
+
+            val conv = conversation ?: return@withContext ""
+
+            var acquired = false
+            for (attempt in 0 until 20) {
+                if (generationMutex.tryLock()) {
+                    acquired = true
+                    break
+                }
+                Log.d(TAG, "generateOnce: mutex busy, retry ${attempt + 1}/20")
+                delay(250L)
+            }
+            if (!acquired) {
+                Log.w(TAG, "generateOnce: failed to acquire mutex after 5s — engine busy")
+                return@withContext ""
+            }
+
+            _isGenerating.value = true
+            InferenceGenerationService.start(context)
             try {
-                withTimeout(30_000) { latch.await() }
-                sb.toString()
-            } catch (e: TimeoutCancellationException) {
-                Log.w(TAG, "generateOnce: timed out after 30s waiting for generation — returning empty")
-                ""
+                val sb = StringBuilder()
+                val latch = CompletableDeferred<Unit>()
+                conv.sendMessageAsync(
+                    Contents.of(Content.Text(prompt)),
+                    object : MessageCallback {
+                        override fun onMessage(message: Message) {
+                            val text = message.toString()
+                            if (text.isNotEmpty() && !text.startsWith("<ctrl")) sb.append(text)
+                        }
+
+                        override fun onDone() {
+                            latch.complete(Unit)
+                        }
+
+                        override fun onError(throwable: Throwable) {
+                            latch.completeExceptionally(throwable)
+                        }
+                    },
+                )
+                try {
+                    withTimeout(timeoutMs) { latch.await() }
+                    sb.toString()
+                } catch (e: TimeoutCancellationException) {
+                    try {
+                        conv.cancelProcess()
+                    } catch (cancelError: Exception) {
+                        Log.w(TAG, "generateOnce: cancelProcess failed after timeout — ignoring", cancelError)
+                    }
+                    Log.w(TAG, "generateOnce: timed out after ${timeoutMs / 1000}s waiting for generation — returning empty")
+                    ""
+                }
+            } finally {
+                _isGenerating.value = false
+                InferenceGenerationService.stop(context)
+                generationMutex.unlock()
             }
         } finally {
-            generationMutex.unlock()
+            if (shouldSwapSystemPrompt) {
+                resetConversationForConfig(config)
+            }
+        }
+    }
+
+    private suspend fun resetConversationForConfig(config: ModelConfig) {
+        val eng = engine ?: return
+        val backend = _activeBackend.value ?: BackendType.CPU
+        currentConfig = config
+
+        if (_isGenerating.value) {
+            Log.d(TAG, "resetConversationForConfig: signalling cancellation to active generation")
+            conversation?.cancelProcess()
+        }
+
+        generationMutex.withLock {
+            safeClose(conversation, "conversation")
+            try {
+                conversation = eng.createConversation(buildConversationConfig(backend, config))
+            } finally {
+                resetExperimentalFlags()
+            }
+            _isGenerating.value = false
+            Log.i(TAG, "System prompt updated and conversation reset")
         }
     }
 
