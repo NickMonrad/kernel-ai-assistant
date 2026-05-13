@@ -63,6 +63,12 @@ class CurrencyConversionService @Inject constructor(
     private val catalogMutex = Mutex()
     @Volatile private var cachedCurrencies: Map<String, ResolvedCurrency>? = null
 
+    suspend fun getSupportedCurrencies(): Map<String, ResolvedCurrency> = loadSupportedCurrencies()
+
+    fun evictRatesCache() {
+        cachedCurrencies = null
+    }
+
     suspend fun convert(
         amountRaw: String,
         fromCurrencyRaw: String,

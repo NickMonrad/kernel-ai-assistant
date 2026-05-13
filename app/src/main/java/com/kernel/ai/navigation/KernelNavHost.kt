@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Checklist
@@ -41,6 +42,7 @@ import androidx.navigation.navArgument
 import com.kernel.ai.feature.chat.ActionsScreen
 import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
+import com.kernel.ai.feature.convert.ConvertScreen
 import com.kernel.ai.feature.settings.AboutScreen
 import com.kernel.ai.feature.settings.ContactAliasesScreen
 import com.kernel.ai.feature.settings.ImportantDatesScreen
@@ -75,6 +77,7 @@ private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
 private const val ROUTE_SIDE_PANEL = "settings/side_panel"
 private const val ROUTE_LISTS = "lists"
 private const val ROUTE_LIST_ITEMS = "lists/{listName}"
+private const val ROUTE_CONVERT = "convert"
 private const val ARG_LIST_NAME = "listName"
 private const val ARG_CONVERSATION_ID = "conversationId"
 private const val ARG_INITIAL_QUERY = "initialQuery"
@@ -163,6 +166,20 @@ fun KernelNavHost(
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
                         navController.navigate(ROUTE_SIDE_PANEL) {
+                            popUpTo(ROUTE_LIST) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                )
+                NavigationDrawerItem(
+                    label = { Text("Convert") },
+                    icon = { Icon(Icons.Default.Calculate, contentDescription = null) },
+                    selected = currentBaseRoute == ROUTE_CONVERT,
+                    onClick = {
+                        coroutineScope.launch { drawerState.close() }
+                        navController.navigate(ROUTE_CONVERT) {
                             popUpTo(ROUTE_LIST) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
@@ -531,6 +548,12 @@ fun KernelNavHost(
                     ListItemsScreen(
                         listName = listName,
                         onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(ROUTE_CONVERT) {
+                    ConvertScreen(
+                        onNavigateToActions = { navController.navigate(ROUTE_ACTIONS) },
                     )
                 }
             }
