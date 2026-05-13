@@ -2228,15 +2228,29 @@ class NativeIntentHandler @Inject constructor(
             return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
         }
         if (s.contains("birthday", ignoreCase = true)) {
+            // Strip "birthday" / "'s birthday" suffix and try Room DB by name only.
+            // Handles "Freya's birthday" when the stored label is "Freya".
+            val namePart = ImportantDateRepository.normalizeLabel(
+                s.replace(Regex("""\bbirthday\b""", RegexOption.IGNORE_CASE), "").trim(),
+            )
+            if (namePart.isNotBlank()) {
+                runBlocking { importantDateRepository.findByLabel(namePart) }?.let { stored ->
+                    return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
+                }
+                // Fuzzy Room DB match: handles spelling variations (e.g. "Freya" query → "Freyja" stored label)
+                runBlocking { importantDateRepository.getAll() }
+                    .singleOrNull { CalendarBirthdayLookup.labelsPotentiallyMatch(it.label, namePart) }
+                    ?.let { stored ->
+                        return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
+                    }
+            }
+
             calendarBirthdayLookup.findBirthday(s)?.let { birthday ->
                 return resolveRecurringDate(birthday.month, birthday.day, today, preferPast = preferPast)
             }
 
-            val aliasBirthdayLabel = ImportantDateRepository.normalizeLabel(
-                s.replace(Regex("""\bbirthday\b""", RegexOption.IGNORE_CASE), "").trim(),
-            )
-            if (aliasBirthdayLabel.isNotBlank()) {
-                runBlocking { contactAliasRepository.getByAlias(aliasBirthdayLabel) }?.let { alias ->
+            if (namePart.isNotBlank()) {
+                runBlocking { contactAliasRepository.getByAlias(namePart) }?.let { alias ->
                     calendarBirthdayLookup.findBirthday(alias.displayName)?.let { birthday ->
                         return resolveRecurringDate(birthday.month, birthday.day, today, preferPast = preferPast)
                     }

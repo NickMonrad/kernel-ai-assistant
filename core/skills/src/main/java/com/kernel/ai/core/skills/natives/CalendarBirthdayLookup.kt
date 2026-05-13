@@ -134,7 +134,15 @@ class CalendarBirthdayLookup @Inject constructor(
 
         private fun tokensEquivalent(left: String, right: String): Boolean {
             if (left == right) return true
-            return tokenVariants(left).intersect(tokenVariants(right)).isNotEmpty()
+            if (tokenVariants(left).intersect(tokenVariants(right)).isNotEmpty()) return true
+            val maxLen = maxOf(left.length, right.length)
+            // Guard applies to both Soundex and edit distance — prevents short-name false positives.
+            // Names ≤ 4 chars share Soundex codes too easily (Tim/Tom, John/Joan).
+            if (maxLen <= 4) return false
+            // Phonetic match — catches Emily/Emilie, common spelling variants
+            if (soundex(left) == soundex(right)) return true
+            // Edit-distance fallback — catches Freya/Freyja, short insertion/deletion diffs
+            return editDistance(left, right) <= maxLen / 3
         }
 
         private fun tokenVariants(token: String): Set<String> {
@@ -146,6 +154,46 @@ class CalendarBirthdayLookup @Inject constructor(
                 variants += trimmed.dropLast(1)
             }
             return variants
+        }
+
+        internal fun soundex(s: String): String {
+            val upper = s.uppercase(Locale.ENGLISH).filter { it.isLetter() }
+            if (upper.isEmpty()) return "0000"
+            fun code(c: Char): Char = when (c) {
+                'B', 'F', 'P', 'V' -> '1'
+                'C', 'G', 'J', 'K', 'Q', 'S', 'X', 'Z' -> '2'
+                'D', 'T' -> '3'
+                'L' -> '4'
+                'M', 'N' -> '5'
+                'R' -> '6'
+                else -> '0'
+            }
+            val result = StringBuilder().append(upper[0])
+            var prev = code(upper[0])
+            for (ch in upper.drop(1)) {
+                val c = code(ch)
+                if (c != '0' && c != prev) result.append(c)
+                prev = c
+                if (result.length == 4) break
+            }
+            return result.toString().padEnd(4, '0')
+        }
+
+        internal fun editDistance(a: String, b: String): Int {
+            if (a == b) return 0
+            val dp = Array(a.length + 1) { IntArray(b.length + 1) }
+            for (i in 0..a.length) dp[i][0] = i
+            for (j in 0..b.length) dp[0][j] = j
+            for (i in 1..a.length) {
+                for (j in 1..b.length) {
+                    dp[i][j] = if (a[i - 1] == b[j - 1]) {
+                        dp[i - 1][j - 1]
+                    } else {
+                        1 + minOf(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+                    }
+                }
+            }
+            return dp[a.length][b.length]
         }
 
         private fun matchTokens(raw: String): List<String> =

@@ -12,8 +12,10 @@ import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.LocalDate
 import java.time.ZoneId
@@ -138,6 +140,105 @@ class CalendarBirthdayLookupTest {
 
         assertNull(lookup.findBirthday("Jane's birthday"))
         verify(exactly = 0) { context.contentResolver }
+    }
+
+    // ── Phonetic / fuzzy matching ─────────────────────────────────────────────
+
+    @Test
+    fun `soundex produces same code for Emily and Emilie`() {
+        assertEquals(CalendarBirthdayLookup.soundex("emily"), CalendarBirthdayLookup.soundex("emilie"))
+    }
+
+    @Test
+    fun `editDistance is 1 for Freya vs Freyja`() {
+        assertEquals(1, CalendarBirthdayLookup.editDistance("freya", "freyja"))
+    }
+
+    @Test
+    fun `editDistance is 2 for Emily vs Emilie`() {
+        assertEquals(2, CalendarBirthdayLookup.editDistance("emily", "emilie"))
+    }
+
+    @Test
+    fun `labelsPotentiallyMatch returns true for Freya vs Freyja via edit distance`() {
+        assertTrue(CalendarBirthdayLookup.labelsPotentiallyMatch("Freya", "Freyja"))
+        assertTrue(CalendarBirthdayLookup.labelsPotentiallyMatch("Freyja", "Freya"))
+    }
+
+    @Test
+    fun `labelsPotentiallyMatch returns true for Emily vs Emilie via Soundex`() {
+        assertTrue(CalendarBirthdayLookup.labelsPotentiallyMatch("Emily", "Emilie"))
+        assertTrue(CalendarBirthdayLookup.labelsPotentiallyMatch("Emilie", "Emily"))
+    }
+
+    @Test
+    fun `labelsPotentiallyMatch returns false for very different names`() {
+        assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Nick", "Nicholas"))
+        assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Kate", "Katherine"))
+    }
+
+    @Test
+    fun `labelsPotentiallyMatch returns false for same-initial 3-letter and 4-letter name variants`() {
+        // Names ≤ 4 chars share Soundex codes too easily — guard must block all of them
+        assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Tim", "Tom"))
+        assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Dan", "Don"))
+        assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Ben", "Ban"))
+        assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("John", "Joan"))
+        assertFalse(CalendarBirthdayLookup.labelsPotentiallyMatch("Carl", "Karl"))
+    }
+
+    @Test
+    fun `findBirthday matches phonetically similar calendar name Freyja when query is Freya`() {
+        val context = mockk<Context>(relaxed = true)
+        val contentResolver = mockk<ContentResolver>(relaxed = true)
+        val cursor = birthdayCursor(
+            title = "Freyja's Birthday",
+            dtStart = LocalDate.of(2020, 8, 22).atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli(),
+            isAllDay = true,
+            calendarDisplayName = "Birthdays",
+            accountType = "com.google",
+        )
+        every { context.checkSelfPermission(Manifest.permission.READ_CALENDAR) } returns PackageManager.PERMISSION_GRANTED
+        every { context.contentResolver } returns contentResolver
+        every {
+            contentResolver.query(CalendarContract.Events.CONTENT_URI, any(), any(), any(), any())
+        } returns cursor
+
+        val lookup = CalendarBirthdayLookup(context)
+
+        val birthday = lookup.findBirthday("Freya's birthday")
+
+        assertNotNull(birthday)
+        assertEquals("Freyja", birthday?.label)
+        assertEquals(8, birthday?.month)
+        assertEquals(22, birthday?.day)
+    }
+
+    @Test
+    fun `findBirthday matches phonetically similar calendar name Emilie when query is Emily`() {
+        val context = mockk<Context>(relaxed = true)
+        val contentResolver = mockk<ContentResolver>(relaxed = true)
+        val cursor = birthdayCursor(
+            title = "Emilie's Birthday",
+            dtStart = LocalDate.of(2020, 3, 10).atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli(),
+            isAllDay = true,
+            calendarDisplayName = "Birthdays",
+            accountType = "com.google",
+        )
+        every { context.checkSelfPermission(Manifest.permission.READ_CALENDAR) } returns PackageManager.PERMISSION_GRANTED
+        every { context.contentResolver } returns contentResolver
+        every {
+            contentResolver.query(CalendarContract.Events.CONTENT_URI, any(), any(), any(), any())
+        } returns cursor
+
+        val lookup = CalendarBirthdayLookup(context)
+
+        val birthday = lookup.findBirthday("Emily's birthday")
+
+        assertNotNull(birthday)
+        assertEquals("Emilie", birthday?.label)
+        assertEquals(3, birthday?.month)
+        assertEquals(10, birthday?.day)
     }
 
     private fun birthdayCursor(
