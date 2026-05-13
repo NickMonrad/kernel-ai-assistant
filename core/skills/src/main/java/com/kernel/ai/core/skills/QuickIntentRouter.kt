@@ -243,6 +243,7 @@ class QuickIntentRouter(
     private val cookingConversionValuePattern = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?"
     private val cookingVolumeUnitPattern = CookingConversionService.supportedVolumeRouterRegexPattern()
     private val cookingMassUnitPattern = CookingConversionService.supportedMassRouterRegexPattern()
+    private val cookingIngredientMassUnitPattern = CookingConversionService.supportedIngredientMassRouterRegexPattern()
     private val cookingIngredientVolumeUnitPattern = CookingConversionService.supportedIngredientVolumeRouterRegexPattern()
     private val cookingIngredientPattern = "[A-Za-z][A-Za-z'’\\-]*(?:\\s+[A-Za-z][A-Za-z'’\\-]*){0,5}"
 
@@ -2491,7 +2492,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "convert_cooking_measure",
             regex = Regex(
-                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($cookingMassUnitPattern)$""",
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($cookingIngredientMassUnitPattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2506,7 +2507,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "convert_cooking_measure",
             regex = Regex(
-                """^how\s+many\s+($cookingMassUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                """^how\s+many\s+($cookingIngredientMassUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2521,7 +2522,22 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "convert_cooking_measure",
             regex = Regex(
-                """^how\s+much\s+does\s+($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+weigh(?:\s+in\s+($cookingMassUnitPattern))?$""",
+                """^how\s+many\s+($cookingIngredientMassUnitPattern)\s+does\s+($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+weigh$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    ingredient = match.groupValues[4],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+much\s+does\s+($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+weigh(?:\s+in\s+($cookingIngredientMassUnitPattern))?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2536,7 +2552,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "convert_cooking_measure",
             regex = Regex(
-                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($cookingConversionValuePattern)\s+($cookingMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($cookingIngredientVolumeUnitPattern)$""",
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($cookingConversionValuePattern)\s+($cookingIngredientMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($cookingIngredientVolumeUnitPattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2551,7 +2567,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "convert_cooking_measure",
             regex = Regex(
-                """^how\s+many\s+($cookingIngredientVolumeUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($cookingConversionValuePattern)\s+($cookingMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                """^how\s+many\s+($cookingIngredientVolumeUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($cookingConversionValuePattern)\s+($cookingIngredientMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->

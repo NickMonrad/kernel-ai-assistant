@@ -1314,6 +1314,50 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `convert_cooking_measure weigh phrasing supports larger physical mass targets`() {
+        every {
+            cookingConversionService.convert("2", "gallons", "milk", "pounds")
+        } returns CookingConversionService.Result(
+            inputAmount = java.math.BigDecimal("2"),
+            fromUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.VOLUME,
+                canonicalName = "gal",
+                contentLabel = "gal",
+                spokenSingularName = "gallon",
+                spokenPluralName = "gallons",
+                millilitersPerUnit = java.math.BigDecimal("3785.411784"),
+                aliases = setOf("gallons"),
+            ),
+            toUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.MASS,
+                canonicalName = "lb",
+                contentLabel = "lb",
+                spokenSingularName = "pound",
+                spokenPluralName = "pounds",
+                gramsPerUnit = java.math.BigDecimal("453.59237"),
+                aliases = setOf("pounds"),
+            ),
+            ingredientLabel = "milk",
+            outputAmount = java.math.BigDecimal("17.1915331712"),
+            assumptionTexts = emptyList(),
+            usedIngredientDensity = true,
+        )
+
+        val result = handleIntent(
+            "convert_cooking_measure",
+            mapOf("amount" to "2", "from_unit" to "gallons", "ingredient" to "milk", "to_unit" to "pounds"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "2 gal milk weighs approximately 17.19 lb. This uses the built-in milk cooking conversion. Exact amounts can vary by brand and packing.",
+                spokenSummary = "2 gallons milk weighs approximately 17.19 pounds using the built-in milk cooking conversion.",
+            ),
+            result,
+        )
+    }
+
+    @Test
     fun `convert_cooking_measure same category uses kitchen assumption wording`() {
         every {
             cookingConversionService.convert("3", "tbsp", "butter", "ml")

@@ -82,6 +82,38 @@ class CookingConversionServiceTest {
     }
 
     @Test
+    fun `convert supports larger physical mass targets for density based cooking conversions`() {
+        val result = service.convert(
+            amountRaw = "2",
+            fromUnitRaw = "gallons",
+            ingredientRaw = "milk",
+            toUnitRaw = "pounds",
+        )
+
+        assertEquals(0, result.outputAmount.compareTo(BigDecimal("17.1915331712")))
+        assertEquals("17.19", result.outputAmount.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString())
+        assertEquals("milk", result.ingredientLabel)
+        assertEquals(emptyList<String>(), result.assumptionTexts)
+        assertEquals(true, result.usedIngredientDensity)
+    }
+
+    @Test
+    fun `convert supports ounce targets for kitchen volume cooking conversions`() {
+        val result = service.convert(
+            amountRaw = "3",
+            fromUnitRaw = "tbsp",
+            ingredientRaw = "milk",
+            toUnitRaw = "ounces",
+        )
+
+        assertEquals(0, result.outputAmount.compareTo(BigDecimal("1.6349481364")))
+        assertEquals("1.63", result.outputAmount.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString())
+        assertEquals("milk", result.ingredientLabel)
+        assertEquals(listOf("tablespoons are treated as 15 mL"), result.assumptionTexts)
+        assertEquals(true, result.usedIngredientDensity)
+    }
+
+    @Test
     fun `convert supports larger physical volume targets for density based cooking conversions`() {
         val result = service.convert(
             amountRaw = "400",
@@ -92,6 +124,22 @@ class CookingConversionServiceTest {
 
         assertEquals(0, result.outputAmount.compareTo(BigDecimal("0.1025910883")))
         assertEquals("0.1", result.outputAmount.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString())
+        assertEquals("milk", result.ingredientLabel)
+        assertEquals(emptyList<String>(), result.assumptionTexts)
+        assertEquals(true, result.usedIngredientDensity)
+    }
+
+    @Test
+    fun `convert supports larger physical mass sources for density based cooking conversions`() {
+        val result = service.convert(
+            amountRaw = "2",
+            fromUnitRaw = "pounds",
+            ingredientRaw = "milk",
+            toUnitRaw = "gallons",
+        )
+
+        assertEquals(0, result.outputAmount.compareTo(BigDecimal("0.2326726744")))
+        assertEquals("0.23", result.outputAmount.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString())
         assertEquals("milk", result.ingredientLabel)
         assertEquals(emptyList<String>(), result.assumptionTexts)
         assertEquals(true, result.usedIngredientDensity)
@@ -119,14 +167,14 @@ class CookingConversionServiceTest {
         val error = assertThrows(IllegalArgumentException::class.java) {
             service.convert(
                 amountRaw = "3",
-                fromUnitRaw = "oz",
+                fromUnitRaw = "stone",
                 ingredientRaw = "butter",
                 toUnitRaw = "g",
             )
         }
 
         assertEquals(
-            "Unsupported cooking source unit 'oz'. Use g, kg, mL, L, tsp, tbsp, AU tbsp, cups, fl oz, pints, quarts, or gallons.",
+            "Unsupported cooking source unit 'stone'. Use g, kg, oz, lb, mL, L, tsp, tbsp, AU tbsp, cups, fl oz, pints, quarts, or gallons.",
             error.message,
         )
     }

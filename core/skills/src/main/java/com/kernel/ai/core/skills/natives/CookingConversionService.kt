@@ -69,6 +69,24 @@ class CookingConversionService @Inject constructor() {
             gramsPerUnit = BigDecimal("1000"),
             aliases = setOf("kg", "kgs", "kilogram", "kilograms", "kilogramme", "kilogrammes"),
         )
+        private val OUNCE = SupportedUnit(
+            category = UnitCategory.MASS,
+            canonicalName = "oz",
+            contentLabel = "oz",
+            spokenSingularName = "ounce",
+            spokenPluralName = "ounces",
+            gramsPerUnit = BigDecimal("28.349523125"),
+            aliases = setOf("oz", "ounce", "ounces"),
+        )
+        private val POUND = SupportedUnit(
+            category = UnitCategory.MASS,
+            canonicalName = "lb",
+            contentLabel = "lb",
+            spokenSingularName = "pound",
+            spokenPluralName = "pounds",
+            gramsPerUnit = BigDecimal("453.59237"),
+            aliases = setOf("lb", "lbs", "pound", "pounds"),
+        )
         private val MILLILITER = SupportedUnit(
             category = UnitCategory.VOLUME,
             canonicalName = "mL",
@@ -178,6 +196,10 @@ class CookingConversionService @Inject constructor() {
             GRAM,
             KILOGRAM,
         )
+        private val INGREDIENT_AWARE_MASS_UNITS = KITCHEN_MASS_UNITS + listOf(
+            OUNCE,
+            POUND,
+        )
         private val KITCHEN_VOLUME_UNITS = listOf(
             MILLILITER,
             LITER,
@@ -186,15 +208,15 @@ class CookingConversionService @Inject constructor() {
             AUSTRALIAN_TABLESPOON,
             CUP,
         )
-        private val SUPPORTED_UNITS = KITCHEN_MASS_UNITS + KITCHEN_VOLUME_UNITS + listOf(
+        private val INGREDIENT_AWARE_VOLUME_UNITS = KITCHEN_VOLUME_UNITS + listOf(
             FLUID_OUNCE,
             PINT,
             QUART,
             GALLON,
         )
+        private val SUPPORTED_UNITS = INGREDIENT_AWARE_MASS_UNITS + INGREDIENT_AWARE_VOLUME_UNITS
         private val MASS_UNITS = KITCHEN_MASS_UNITS
         private val VOLUME_UNITS = KITCHEN_VOLUME_UNITS
-        private val INGREDIENT_AWARE_VOLUME_UNITS = SUPPORTED_UNITS.filter { it.category == UnitCategory.VOLUME }
         private val UNIT_LOOKUP = SUPPORTED_UNITS.flatMap { unit ->
             unit.aliases.map { alias -> normalizeLookupKey(alias) to unit }
         }.toMap()
@@ -284,6 +306,8 @@ class CookingConversionService @Inject constructor() {
 
         fun supportedMassRouterRegexPattern(): String = escapedAliasPattern(MASS_UNITS)
 
+        fun supportedIngredientMassRouterRegexPattern(): String = escapedAliasPattern(INGREDIENT_AWARE_MASS_UNITS)
+
         fun supportedIngredientVolumeRouterRegexPattern(): String = escapedAliasPattern(INGREDIENT_AWARE_VOLUME_UNITS)
 
         private fun escapedAliasPattern(units: List<SupportedUnit>): String = units
@@ -311,11 +335,11 @@ class CookingConversionService @Inject constructor() {
         val amount = parseAmount(amountRaw)
         val fromUnit = resolveUnit(fromUnitRaw)
             ?: throw IllegalArgumentException(
-                "Unsupported cooking source unit '$fromUnitRaw'. Use g, kg, mL, L, tsp, tbsp, AU tbsp, cups, fl oz, pints, quarts, or gallons.",
+                "Unsupported cooking source unit '$fromUnitRaw'. Use g, kg, oz, lb, mL, L, tsp, tbsp, AU tbsp, cups, fl oz, pints, quarts, or gallons.",
             )
         val toUnit = resolveUnit(toUnitRaw)
             ?: throw IllegalArgumentException(
-                "Unsupported cooking target unit '$toUnitRaw'. Use g, kg, mL, L, tsp, tbsp, AU tbsp, cups, fl oz, pints, quarts, or gallons.",
+                "Unsupported cooking target unit '$toUnitRaw'. Use g, kg, oz, lb, mL, L, tsp, tbsp, AU tbsp, cups, fl oz, pints, quarts, or gallons.",
             )
         val ingredientLabel = normalizeIngredientDisplay(ingredientRaw)
         val sameCategory = fromUnit.category == toUnit.category
