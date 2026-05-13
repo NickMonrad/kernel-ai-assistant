@@ -2,6 +2,7 @@ package com.kernel.ai.feature.convert
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
 import com.kernel.ai.core.memory.dao.ConversionHistoryDao
 import com.kernel.ai.core.memory.dao.CurrencyFavouriteDao
 import com.kernel.ai.core.memory.entity.CurrencyFavouriteEntity
@@ -68,7 +69,7 @@ class ConvertViewModelTest {
         val prefs = mockk<Preferences>(relaxed = true)
         coEvery { prefs[any<Preferences.Key<Boolean>>()] } returns null
         coEvery { dataStore.data } returns flowOf(prefs)
-        coEvery { dataStore.edit(any()) } returns prefs
+        coEvery { dataStore.updateData(any()) } returns prefs
 
         viewModel = ConvertViewModel(
             currencyService = currencyService,
@@ -468,12 +469,12 @@ class ConvertViewModelTest {
     @Test
     fun `toggleAustralianTablespoon calls dataStore edit`() = runTest {
         val prefs = mockk<Preferences>(relaxed = true)
-        coEvery { dataStore.edit(any()) } returns prefs
+        coEvery { dataStore.updateData(any()) } returns prefs
 
         viewModel.toggleAustralianTablespoon()
         advanceUntilIdle()
 
-        coVerify { dataStore.edit(any()) }
+        coVerify { dataStore.updateData(any()) }
     }
 
     // ─── History collected into uiState ────────────────────────────────────────
