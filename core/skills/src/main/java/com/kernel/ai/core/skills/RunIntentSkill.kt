@@ -24,7 +24,7 @@ class RunIntentSkill @Inject constructor(
     override val name = "run_intent"
     override val description =
         "Perform a native Android device action. Supports flashlight, alarm, timer, calendar, email, SMS, " +
-            "Do Not Disturb, volume control, deterministic arithmetic, deterministic unit conversion, currency conversion with latest ECB-backed rates, system toggles (Wi-Fi, Bluetooth, airplane mode, hotspot), " +
+            "Do Not Disturb, volume control, deterministic arithmetic, deterministic unit conversion, ingredient-aware cooking conversions, currency conversion with latest ECB-backed rates, system toggles (Wi-Fi, Bluetooth, airplane mode, hotspot), " +
             "media playback (local, YouTube, Spotify, Netflix, Plex), navigation, calls, app launching, and info queries. " +
             "For alarms: pass the time exactly as the user said it using the 'time' parameter (e.g. time:\"10pm\", time:\"9:30am\", time:\"22:00\"). " +
             "For calendar events, date accepts YYYY-MM-DD or relative terms like 'tomorrow', 'next wednesday', 'this friday'."
@@ -51,6 +51,7 @@ class RunIntentSkill @Inject constructor(
                     "remove_important_date",
                     "calculate_arithmetic",
                     "convert_units",
+                    "convert_cooking_measure",
                     "convert_currency",
                     // System toggles
                     "toggle_dnd_on",
@@ -108,6 +109,7 @@ class RunIntentSkill @Inject constructor(
         "Calculator → runIntent(intentName=\"calculate_arithmetic\", parameters='{\"expression\":\"18.5% of 240\"}')",
         "Math helpers → runIntent(intentName=\"calculate_arithmetic\", parameters='{\"expression\":\"round(sqrt((25^2)) + abs(-2.6) + (10 % 3), 2)\"}')",
         "Unit conversion → runIntent(intentName=\"convert_units\", parameters='{\"value\":\"100\",\"from_unit\":\"m\",\"to_unit\":\"yards\"}')",
+        "Cooking conversion → runIntent(intentName=\"convert_cooking_measure\", parameters='{\"amount\":\"3\",\"from_unit\":\"tbsp\",\"ingredient\":\"butter\",\"to_unit\":\"g\"}')",
         "Currency conversion → runIntent(intentName=\"convert_currency\", parameters='{\"amount\":\"100\",\"from_currency\":\"AUD\",\"to_currency\":\"NZD\"}')",
         // System toggles
         "Turn on DND → runIntent(intentName=\"toggle_dnd_on\", parameters=\"{}\")",
@@ -157,6 +159,7 @@ class RunIntentSkill @Inject constructor(
         appendLine("CALCULATOR / CONVERSION:")
         appendLine("  calculate_arithmetic — params: expression (calculator expression or simple arithmetic phrase)")
         appendLine("  convert_units — params: value, from_unit, to_unit (supported common units across length, mass, volume, temperature, and speed)")
+        appendLine("  convert_cooking_measure — params: amount, from_unit, ingredient, to_unit (ingredient-aware cooking conversion for volume↔mass and ingredient-qualified kitchen-unit conversions; defaults to grams when the user asks what something weighs)")
         appendLine("  convert_currency — params: amount, from_currency, to_currency (latest ECB-backed rates via Frankfurter; not real-time)")
         appendLine()
         appendLine("SYSTEM TOGGLES:")
@@ -228,6 +231,11 @@ class RunIntentSkill @Inject constructor(
         appendLine("intentName=convert_units instead of doing the conversion yourself.")
         appendLine("Pass value as a decimal string and pass explicit normalized units in from_unit/to_unit")
         appendLine("such as m, yd, km, mi, mg, g, kg, oz, lb, mL, L, tsp, tbsp, cups, gallons, celsius, fahrenheit, kelvin, m/s, mph, or km/h.")
+        appendLine()
+        appendLine("Cooking-conversion rule: for ingredient-aware cooking conversion questions, ALWAYS call runIntent with intentName=convert_cooking_measure.")
+        appendLine("Pass amount as a decimal string, pass explicit mass or volume units in from_unit/to_unit, and include ingredient exactly as the user said it.")
+        appendLine("Use this for ingredient-qualified cooking phrases like 3 tbsp butter → grams, 400 g flour → cups, 2 gallons milk → kilogrammes, or how much 2 gallons milk weighs in pounds.")
+        appendLine("If an ingredient is mentioned but the request is still plain same-category physical unit math outside the cooking path — for example 3 lb flour → grams, 8 oz flour → grams, or 2 gallons milk → liters — keep using convert_units. Do NOT invent cooking densities. The native path uses a small built-in ingredient table and will fail clearly if the ingredient is unsupported.")
         appendLine()
         appendLine("Currency-conversion rule: for exchange-rate questions, ALWAYS call runIntent with intentName=convert_currency.")
         appendLine("Pass amount as a decimal string and pass explicit currency codes or names in from_currency/to_currency")

@@ -59,6 +59,7 @@ class NativeIntentHandlerTest {
     private val clockAlertController = mockk<ClockAlertController>(relaxed = true)
     private val listItemDao = mockk<ListItemDao>(relaxed = true)
     private val listNameDao = mockk<ListNameDao>(relaxed = true)
+    private val cookingConversionService = mockk<CookingConversionService>(relaxed = true)
     private val currencyConversionService = mockk<CurrencyConversionService>(relaxed = true)
     private val handler = NativeIntentHandler(
         context = context,
@@ -71,6 +72,7 @@ class NativeIntentHandlerTest {
         calendarBirthdayLookup = calendarBirthdayLookup,
         memoryRepository = mockk<MemoryRepository>(relaxed = true),
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
+        cookingConversionService = cookingConversionService,
         currencyConversionService = currencyConversionService,
     )
 
@@ -1179,6 +1181,300 @@ class NativeIntentHandlerTest {
 
         assertEquals(
             SkillResult.Failure("convert_units", "Unsupported unit 'parsecs'"),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_cooking_measure returns truthful direct reply with assumptions`() {
+        every {
+            cookingConversionService.convert("3", "tbsp", "butter", "g")
+        } returns CookingConversionService.Result(
+            inputAmount = java.math.BigDecimal("3"),
+            fromUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.VOLUME,
+                canonicalName = "tbsp",
+                contentLabel = "tbsp",
+                spokenSingularName = "tablespoon",
+                spokenPluralName = "tablespoons",
+                millilitersPerUnit = java.math.BigDecimal("15"),
+                aliases = setOf("tbsp"),
+                assumptionText = "tablespoons are treated as 15 mL",
+            ),
+            toUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.MASS,
+                canonicalName = "g",
+                contentLabel = "g",
+                spokenSingularName = "gram",
+                spokenPluralName = "grams",
+                gramsPerUnit = java.math.BigDecimal.ONE,
+                aliases = setOf("g"),
+            ),
+            ingredientLabel = "butter",
+            outputAmount = java.math.BigDecimal("42"),
+            assumptionTexts = listOf("tablespoons are treated as 15 mL"),
+            usedIngredientDensity = true,
+        )
+
+        val result = handleIntent(
+            "convert_cooking_measure",
+            mapOf("amount" to "3", "from_unit" to "tbsp", "ingredient" to "butter", "to_unit" to "g"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "3 tbsp butter weighs approximately 42 g. This uses the built-in butter cooking conversion. Tablespoons are treated as 15 mL. Exact amounts can vary by brand and packing.",
+                spokenSummary = "3 tablespoons butter weighs approximately 42 grams using the built-in butter cooking conversion.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_cooking_measure defaults missing target unit to grams`() {
+        every {
+            cookingConversionService.convert("3", "tbsp", "butter", "g")
+        } returns CookingConversionService.Result(
+            inputAmount = java.math.BigDecimal("3"),
+            fromUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.VOLUME,
+                canonicalName = "tbsp",
+                contentLabel = "tbsp",
+                spokenSingularName = "tablespoon",
+                spokenPluralName = "tablespoons",
+                millilitersPerUnit = java.math.BigDecimal("15"),
+                aliases = setOf("tbsp"),
+            ),
+            toUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.MASS,
+                canonicalName = "g",
+                contentLabel = "g",
+                spokenSingularName = "gram",
+                spokenPluralName = "grams",
+                gramsPerUnit = java.math.BigDecimal.ONE,
+                aliases = setOf("g"),
+            ),
+            ingredientLabel = "butter",
+            outputAmount = java.math.BigDecimal("42"),
+            assumptionTexts = emptyList(),
+            usedIngredientDensity = true,
+        )
+
+        handleIntent(
+            "convert_cooking_measure",
+            mapOf("amount" to "3", "from_unit" to "tbsp", "ingredient" to "butter"),
+        )
+
+        verify { cookingConversionService.convert("3", "tbsp", "butter", "g") }
+    }
+
+    @Test
+    fun `convert_cooking_measure mass to volume uses is phrasing`() {
+        every {
+            cookingConversionService.convert("400", "g", "plain flour", "cups")
+        } returns CookingConversionService.Result(
+            inputAmount = java.math.BigDecimal("400"),
+            fromUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.MASS,
+                canonicalName = "g",
+                contentLabel = "g",
+                spokenSingularName = "gram",
+                spokenPluralName = "grams",
+                gramsPerUnit = java.math.BigDecimal.ONE,
+                aliases = setOf("g"),
+            ),
+            toUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.VOLUME,
+                canonicalName = "cup",
+                contentLabel = "cup",
+                spokenSingularName = "cup",
+                spokenPluralName = "cups",
+                millilitersPerUnit = java.math.BigDecimal("250"),
+                aliases = setOf("cup"),
+                assumptionText = "cups are treated as 250 mL",
+            ),
+            ingredientLabel = "plain flour",
+            outputAmount = java.math.BigDecimal("2.6666666667"),
+            assumptionTexts = listOf("cups are treated as 250 mL"),
+            usedIngredientDensity = true,
+        )
+
+        val result = handleIntent(
+            "convert_cooking_measure",
+            mapOf("amount" to "400", "from_unit" to "g", "ingredient" to "plain flour", "to_unit" to "cups"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "400 g plain flour is approximately 2.67 cups. This uses the built-in plain flour cooking conversion. Cups are treated as 250 mL. Exact amounts can vary by brand and packing.",
+                spokenSummary = "400 grams plain flour is approximately 2.67 cups using the built-in plain flour cooking conversion.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_cooking_measure weigh phrasing supports larger physical mass targets`() {
+        every {
+            cookingConversionService.convert("2", "gallons", "milk", "pounds")
+        } returns CookingConversionService.Result(
+            inputAmount = java.math.BigDecimal("2"),
+            fromUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.VOLUME,
+                canonicalName = "gal",
+                contentLabel = "gal",
+                spokenSingularName = "gallon",
+                spokenPluralName = "gallons",
+                millilitersPerUnit = java.math.BigDecimal("3785.411784"),
+                aliases = setOf("gallons"),
+            ),
+            toUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.MASS,
+                canonicalName = "lb",
+                contentLabel = "lb",
+                spokenSingularName = "pound",
+                spokenPluralName = "pounds",
+                gramsPerUnit = java.math.BigDecimal("453.59237"),
+                aliases = setOf("pounds"),
+            ),
+            ingredientLabel = "milk",
+            outputAmount = java.math.BigDecimal("17.1915331712"),
+            assumptionTexts = emptyList(),
+            usedIngredientDensity = true,
+        )
+
+        val result = handleIntent(
+            "convert_cooking_measure",
+            mapOf("amount" to "2", "from_unit" to "gallons", "ingredient" to "milk", "to_unit" to "pounds"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "2 gal milk weighs approximately 17.19 lb. This uses the built-in milk cooking conversion. Exact amounts can vary by brand and packing.",
+                spokenSummary = "2 gallons milk weighs approximately 17.19 pounds using the built-in milk cooking conversion.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_cooking_measure same category uses kitchen assumption wording`() {
+        every {
+            cookingConversionService.convert("3", "tbsp", "butter", "ml")
+        } returns CookingConversionService.Result(
+            inputAmount = java.math.BigDecimal("3"),
+            fromUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.VOLUME,
+                canonicalName = "tbsp",
+                contentLabel = "tbsp",
+                spokenSingularName = "tablespoon",
+                spokenPluralName = "tablespoons",
+                millilitersPerUnit = java.math.BigDecimal("15"),
+                aliases = setOf("tbsp"),
+                assumptionText = "tablespoons are treated as 15 mL",
+            ),
+            toUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.VOLUME,
+                canonicalName = "mL",
+                contentLabel = "mL",
+                spokenSingularName = "milliliter",
+                spokenPluralName = "milliliters",
+                millilitersPerUnit = java.math.BigDecimal.ONE,
+                aliases = setOf("mL"),
+            ),
+            ingredientLabel = "butter",
+            outputAmount = java.math.BigDecimal("45"),
+            assumptionTexts = listOf("tablespoons are treated as 15 mL"),
+            usedIngredientDensity = false,
+        )
+
+        val result = handleIntent(
+            "convert_cooking_measure",
+            mapOf("amount" to "3", "from_unit" to "tbsp", "ingredient" to "butter", "to_unit" to "ml"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "3 tbsp butter is approximately 45 mL. This uses the explicit kitchen-unit assumptions for cooking measures. Tablespoons are treated as 15 mL.",
+                spokenSummary = "3 tablespoons butter is approximately 45 milliliters using the cooking kitchen-unit assumptions.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_cooking_measure same category without assumptions avoids fake caveats`() {
+        every {
+            cookingConversionService.convert("500", "g", "butter", "kg")
+        } returns CookingConversionService.Result(
+            inputAmount = java.math.BigDecimal("500"),
+            fromUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.MASS,
+                canonicalName = "g",
+                contentLabel = "g",
+                spokenSingularName = "gram",
+                spokenPluralName = "grams",
+                gramsPerUnit = java.math.BigDecimal.ONE,
+                aliases = setOf("g"),
+            ),
+            toUnit = CookingConversionService.SupportedUnit(
+                category = CookingConversionService.UnitCategory.MASS,
+                canonicalName = "kg",
+                contentLabel = "kg",
+                spokenSingularName = "kilogram",
+                spokenPluralName = "kilograms",
+                gramsPerUnit = java.math.BigDecimal("1000"),
+                aliases = setOf("kg"),
+            ),
+            ingredientLabel = "butter",
+            outputAmount = java.math.BigDecimal("0.5"),
+            assumptionTexts = emptyList(),
+            usedIngredientDensity = false,
+        )
+
+        val result = handleIntent(
+            "convert_cooking_measure",
+            mapOf("amount" to "500", "from_unit" to "g", "ingredient" to "butter", "to_unit" to "kg"),
+        )
+
+        assertEquals(
+            SkillResult.DirectReply(
+                "500 g butter is 0.5 kg.",
+                spokenSummary = "500 grams butter is 0.5 kilograms.",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_cooking_measure validates required params`() {
+        assertEquals(
+            SkillResult.Failure("convert_cooking_measure", "No cooking conversion amount provided"),
+            handleIntent("convert_cooking_measure", emptyMap()),
+        )
+        assertEquals(
+            SkillResult.Failure("convert_cooking_measure", "No cooking source unit provided"),
+            handleIntent("convert_cooking_measure", mapOf("amount" to "3", "ingredient" to "butter")),
+        )
+        assertEquals(
+            SkillResult.Failure("convert_cooking_measure", "No cooking ingredient provided"),
+            handleIntent("convert_cooking_measure", mapOf("amount" to "3", "from_unit" to "tbsp")),
+        )
+    }
+
+    @Test
+    fun `convert_cooking_measure surfaces service failures cleanly`() {
+        every {
+            cookingConversionService.convert("3", "tbsp", "unicorn dust", "g")
+        } throws IllegalArgumentException("Unsupported cooking ingredient 'unicorn dust'.")
+
+        val result = handleIntent(
+            "convert_cooking_measure",
+            mapOf("amount" to "3", "from_unit" to "tbsp", "ingredient" to "unicorn dust"),
+        )
+
+        assertEquals(
+            SkillResult.Failure("convert_cooking_measure", "Unsupported cooking ingredient 'unicorn dust'."),
             result,
         )
     }

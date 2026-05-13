@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-05-12 (PR #848 merged: deterministic currency conversion #831; PR #847 merged: homescreen Glance widget #617; PR #845 merged: aye pronunciation fix #843)
+> **Last updated:** 2026-05-12 (PR #848 merged: deterministic currency conversion #831; PR #847 merged: homescreen Glance widget #617; PR #845 merged: aye pronunciation fix #843; cooking conversions #827 in progress)
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -214,6 +214,7 @@ Active follow-on model/runtime investigations now live under
 | [#676](https://github.com/NickMonrad/kernel-ai-assistant/issues/676) | Native unit conversion tool | ✅ Done — PR #816 | 🟡 Medium |
 | [#677](https://github.com/NickMonrad/kernel-ai-assistant/issues/677) | World clock and timezone lookup | ✅ Done — PR #743 | 🟢 Low |
 | [#697](https://github.com/NickMonrad/kernel-ai-assistant/issues/697) | Multi-day weather forecast card in chat | ✅ Done — PR #710 | 🟡 Medium |
+| [#827](https://github.com/NickMonrad/kernel-ai-assistant/issues/827) | Cooking weights and measures for meal planning | 🔄 In progress | 🟡 Medium |
 | [#831](https://github.com/NickMonrad/kernel-ai-assistant/issues/831) | Deterministic currency conversion skill | ✅ Done — PR #848 | 🟡 Medium |
 
 **Already completed skills:**
@@ -557,7 +558,7 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#600](https://github.com/NickMonrad/kernel-ai-assistant/issues/600) | Slot fill spec: document expected multi-step interactions per intent | Phase 3G | ✅ Done — PR #712 |
 | [#601](https://github.com/NickMonrad/kernel-ai-assistant/issues/601) | Multi-slot: re-check for missing slots after each slot reply | Phase 3G | ✅ Done — PR #712 |
 | [#608](https://github.com/NickMonrad/kernel-ai-assistant/issues/608) | Colloquial weather phrases fall through to LLM instead of weather skill | Phase 3C | ✅ Done — PR #667 follow-up completed the routing/references path |
-|| [#617](https://github.com/NickMonrad/kernel-ai-assistant/issues/617) | Homescreen widget for quick actions / voice | Phase 3F | ✅ Done — PR #847 |
+| [#617](https://github.com/NickMonrad/kernel-ai-assistant/issues/617) | Homescreen widget for quick actions / voice | Phase 3F | ✅ Done — PR #847 |
 | [#619](https://github.com/NickMonrad/kernel-ai-assistant/issues/619) | `date_diff` tool — native date arithmetic (LLM arithmetic unreliable) | Phase 3C | ✅ Done |
 | [#620](https://github.com/NickMonrad/kernel-ai-assistant/issues/620) | Bypass `needsConfirmation` for no-param MiniLM matches | Phase 3G | ✅ Done |
 | [#621](https://github.com/NickMonrad/kernel-ai-assistant/issues/621) | Multi-turn QIR: dispatch pending intent on user confirmation | Phase 3G | ✅ Done |
