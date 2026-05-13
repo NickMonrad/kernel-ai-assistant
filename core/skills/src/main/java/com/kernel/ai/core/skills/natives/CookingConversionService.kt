@@ -326,6 +326,10 @@ class CookingConversionService @Inject constructor() {
         }
     }
 
+    fun allSupportedUnits(): List<SupportedUnit> = SUPPORTED_UNITS
+
+    fun allIngredients(): List<Ingredient> = SUPPORTED_INGREDIENTS
+
     fun convert(
         amountRaw: String,
         fromUnitRaw: String,
