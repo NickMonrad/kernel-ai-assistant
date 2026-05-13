@@ -263,12 +263,10 @@ fun ConvertScreen(
                             )
                         }
                         item {
-                            OutlinedTextField(
-                                value = uiState.cookingIngredient,
-                                onValueChange = viewModel::onIngredientChanged,
-                                label = { Text("Ingredient (optional, for density conversion)") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
+                            IngredientPickerButton(
+                                selected = uiState.cookingIngredient,
+                                ingredients = uiState.cookingIngredients,
+                                onSelect = viewModel::onIngredientChanged,
                             )
                         }
                         item {
@@ -357,6 +355,43 @@ private fun ConversionInputSection(
             onSearchChange = { toSearch = it },
             onSelect = { onToChanged(it); showToPicker = false },
             onDismiss = { showToPicker = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun IngredientPickerButton(
+    selected: String,
+    ingredients: List<String>,
+    onSelect: (String) -> Unit,
+) {
+    var showPicker by remember { mutableStateOf(false) }
+    var search by remember { mutableStateOf("") }
+    val sheetState = rememberModalBottomSheetState()
+
+    OutlinedButton(
+        onClick = { showPicker = true },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(if (selected.isBlank()) "Ingredient (optional, for density conversion)" else selected)
+    }
+
+    if (showPicker) {
+        UnitPickerBottomSheet(
+            sheetState = sheetState,
+            options = ingredients,
+            search = search,
+            onSearchChange = { search = it },
+            onSelect = {
+                onSelect(it)
+                showPicker = false
+                search = ""
+            },
+            onDismiss = {
+                showPicker = false
+                search = ""
+            },
         )
     }
 }

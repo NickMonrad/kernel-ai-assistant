@@ -37,6 +37,7 @@ data class ConvertUiState(
     val currencyFavourites: List<CurrencyFavouriteEntity> = emptyList(),
     val availableCurrencies: List<Pair<String, String>> = emptyList(),
     val cookingIngredient: String = "",
+    val cookingIngredients: List<String> = emptyList(),
     val cookingUnits: List<String> = emptyList(),
     val showFavouriteError: Boolean = false,
     val isAustralianTablespoon: Boolean = false,
@@ -61,9 +62,10 @@ class ConvertViewModel @Inject constructor(
     private var convertJob: Job? = null
 
     init {
-        // Load cooking units eagerly
+        // Load cooking units and ingredients eagerly
         val cookingUnits = cookingService.allSupportedUnits().map { it.canonicalName }
-        _uiState.update { it.copy(cookingUnits = cookingUnits) }
+        val cookingIngredients = cookingService.allIngredients().map { it.displayName }
+        _uiState.update { it.copy(cookingUnits = cookingUnits, cookingIngredients = cookingIngredients) }
 
         viewModelScope.launch {
             combine(
