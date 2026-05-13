@@ -39,6 +39,6 @@ class SkillRegistry @Inject constructor(
     }
 
     private companion object {
-        val HIDDEN_FROM_PUBLIC_SKILL_LIST = setOf("load_skill", "run_js", "get_weather_gps")
+        val HIDDEN_FROM_PUBLIC_SKILL_LIST = setOf("load_skill", "run_js", "get_weather_gps", "meal_planner")
     }
 }

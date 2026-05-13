@@ -7,6 +7,11 @@ import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.dao.MealPlanDayDao
+import com.kernel.ai.core.memory.dao.MealPlanGroceryItemDao
+import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
+import com.kernel.ai.core.memory.dao.MealPlanRecipeVersionDao
+import com.kernel.ai.core.memory.dao.MealPlanSessionDao
 import com.kernel.ai.core.memory.dao.ConversationDao
 import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
@@ -89,6 +94,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_29_30,
                     KernelDatabase.MIGRATION_30_31,
                     KernelDatabase.MIGRATION_31_32,
+                    KernelDatabase.MIGRATION_32_33,
                 )
                 .build()
 
@@ -146,5 +152,21 @@ abstract class MemoryModule {
         @Singleton
         fun provideContactAliasRepository(dao: ContactAliasDao): ContactAliasRepository =
             ContactAliasRepository(dao)
+
+
+        @Provides
+        fun provideMealPlanSessionDao(db: KernelDatabase): MealPlanSessionDao = db.mealPlanSessionDao()
+
+        @Provides
+        fun provideMealPlanDayDao(db: KernelDatabase): MealPlanDayDao = db.mealPlanDayDao()
+
+        @Provides
+        fun provideMealPlanRecipeVersionDao(db: KernelDatabase): MealPlanRecipeVersionDao = db.mealPlanRecipeVersionDao()
+
+        @Provides
+        fun provideMealPlanGroceryItemDao(db: KernelDatabase): MealPlanGroceryItemDao = db.mealPlanGroceryItemDao()
+
+        @Provides
+        fun provideMealPlanProjectionWriteDao(db: KernelDatabase): MealPlanProjectionWriteDao = db.mealPlanProjectionWriteDao()
     }
 }

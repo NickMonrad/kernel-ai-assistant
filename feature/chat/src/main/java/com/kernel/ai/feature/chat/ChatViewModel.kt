@@ -29,6 +29,7 @@ import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
+import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.skills.KernelAIToolSet
@@ -42,6 +43,7 @@ import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.SlotFillResult
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -106,6 +108,8 @@ class ChatViewModel @Inject constructor(
     private val memoryRepository: MemoryRepository,
     private val episodicDistillationUseCase: EpisodicDistillationUseCase,
     private val modelSettingsRepository: ModelSettingsRepository,
+    private val mealPlanSessionRepository: MealPlanSessionRepository,
+    private val mealPlannerCoordinator: MealPlannerCoordinator,
     private val skillRegistry: SkillRegistry,
     private val skillExecutor: SkillExecutor,
     private val quickIntentRouter: QuickIntentRouter,
@@ -1116,6 +1120,33 @@ class ChatViewModel @Inject constructor(
                 Log.d("KernelAI", "Set placeholder title for $convId: \"$placeholder\"")
             }
 
+            val mealPlannerRoute = quickIntentRouter.route(text)
+            val explicitMealPlannerStart = when (mealPlannerRoute) {
+                is QuickIntentRouter.RouteResult.RegexMatch ->
+                    mealPlannerRoute.intent.intentName == "start_meal_planner"
+                is QuickIntentRouter.RouteResult.ClassifierMatch ->
+                    mealPlannerRoute.intent.intentName == "start_meal_planner" && !mealPlannerRoute.needsConfirmation
+                else -> false
+            }
+            val hasActiveMealPlanSession = mealPlanSessionRepository.hasActiveSessionForConversation(convId)
+            if (hasActiveMealPlanSession || explicitMealPlannerStart) {
+                if (!inferenceEngine.isReady.value) {
+                    initGemma4()
+                    if (!inferenceEngine.isReady.value) {
+                        appendAssistantMessage(convId, "Still loading the AI model, please try again in a moment.", shouldIndex = false)
+                        return@launch
+                    }
+                }
+                val plannerReply = if (explicitMealPlannerStart) {
+                    mealPlannerCoordinator.startOrResume(convId)
+                } else {
+                    mealPlannerCoordinator.ingestUserMessage(convId, text)
+                }
+                appendAssistantMessage(convId, plannerReply.content, shouldIndex = false)
+                return@launch
+            }
+
+
             // Tier 2: QuickIntentRouter — fast device action intercept (<30 ms, no model load).
             // On a match: execute the skill immediately, then inject [System: ...] context so
             // E4B generates a natural conversational wrapper around the action result.
@@ -1227,7 +1258,7 @@ class ChatViewModel @Inject constructor(
                 query = text,
                 messages = _messages.value.dropLast(1),
             )
-            val routeResult = quickIntentRouter.route(text)
+            val routeResult = mealPlannerRoute
             val matchedIntent = weatherFollowUpLocation?.let {
                 QuickIntentRouter.MatchedIntent(
                     intentName = "get_weather",
@@ -2166,10 +2197,15 @@ class ChatViewModel @Inject constructor(
         // Fire-and-forget episodic distillation on conversation close.
         if (convId != null) {
             val lastDistilled = lastDistilledAt
-            CoroutineScope(Dispatchers.IO).launch {
-                runCatching {
-                    episodicDistillationUseCase.distil(convId, lastDistilled)
-                }.onFailure { Log.w("KernelAI", "Episodic distillation failed: ${it.message}") }
+            val hasMealPlannerHistory = runBlocking {
+                mealPlanSessionRepository.hasAnySessionForConversation(convId)
+            }
+            if (!hasMealPlannerHistory) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    runCatching {
+                        episodicDistillationUseCase.distil(convId, lastDistilled)
+                    }.onFailure { Log.w("KernelAI", "Episodic distillation failed: ${it.message}") }
+                }
             }
         }
         viewModelScope.launch { inferenceEngine.shutdown() }
