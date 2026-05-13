@@ -471,6 +471,7 @@ fun KernelNavHost(
                 composable(ROUTE_IMPORTANT_DATES) {
                     ImportantDatesScreen(
                         onBack = { navController.popBackStack() },
+                        onNavigateToActions = { navController.navigate(ROUTE_ACTIONS) },
                     )
                 }
 
@@ -521,12 +522,14 @@ fun KernelNavHost(
                     // Redirected to the unified Clock screen (#574 / #742)
                     SidePanelScreen(
                         onBack = { navController.popBackStack() },
+                        onNavigateToActions = { navController.navigate(ROUTE_ACTIONS) },
                     )
                 }
 
                 composable(ROUTE_SIDE_PANEL) {
                     SidePanelScreen(
                         onBack = { navController.popBackStack() },
+                        onNavigateToActions = { navController.navigate(ROUTE_ACTIONS) },
                     )
                 }
 
@@ -536,6 +539,7 @@ fun KernelNavHost(
                         onOpenList = { listName ->
                             navController.navigate("lists/${android.net.Uri.encode(listName)}")
                         },
+                        onNavigateToActions = { navController.navigate(ROUTE_ACTIONS) },
                     )
                 }
 

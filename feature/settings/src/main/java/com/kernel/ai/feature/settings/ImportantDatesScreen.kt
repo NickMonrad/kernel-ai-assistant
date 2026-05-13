@@ -28,12 +28,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,6 +60,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -79,6 +82,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ImportantDatesScreen(
     onBack: () -> Unit,
+    onNavigateToActions: () -> Unit = {},
     viewModel: ImportantDatesViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -137,8 +141,20 @@ fun ImportantDatesScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { createRequested = true }) {
-                Icon(Icons.Default.Add, contentDescription = "Add important date")
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                SmallFloatingActionButton(
+                    onClick = onNavigateToActions,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ) {
+                    Icon(Icons.Default.Mic, contentDescription = "Voice input")
+                }
+                FloatingActionButton(onClick = { createRequested = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add important date")
+                }
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
