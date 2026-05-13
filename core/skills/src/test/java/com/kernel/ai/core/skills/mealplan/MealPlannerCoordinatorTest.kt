@@ -6,13 +6,17 @@ import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanSnapshot
 import com.kernel.ai.core.memory.mealplan.MealPlanSnapshotDay
+import com.kernel.ai.core.memory.mealplan.PendingGenerationKind
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 
 class MealPlannerCoordinatorTest {
@@ -42,6 +46,76 @@ class MealPlannerCoordinatorTest {
 
         assertTrue(reply.content.contains("How many people"))
         assertTrue(reply.content.contains("How many days"))
+    }
+
+    @Test
+    fun `ingestUserMessage waits while generation is already running`() = runTest {
+        val ready = collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 2,
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken"),
+        )
+        val collecting = collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
+        val inFlight = ready.copy(pendingGenerationKind = PendingGenerationKind.PLAN)
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+
+        coEvery { sessionRepository.getActiveSession("conv") } returnsMany listOf(collecting, inFlight)
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("low lactose"),
+                proteinPreferences = listOf("chicken"),
+            )
+        } returns ready
+        coEvery { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) } returns Unit
+        coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns ready
+        coEvery { inferenceEngine.generateOnce(any(), any()) } coAnswers {
+            started.complete(Unit)
+            release.await()
+            ""
+        }
+
+        val first = backgroundScope.async { coordinator.ingestUserMessage("conv", "low lactose, chicken") }
+        started.await()
+
+        val second = coordinator.ingestUserMessage("conv", "hello")
+
+        assertTrue(second.content.contains("still building", ignoreCase = true))
+        release.complete(Unit)
+        first.await()
+    }
+
+    @Test
+    fun `ingestUserMessage surfaces blank plan output cleanly`() = runTest {
+        val ready = collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 2,
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken"),
+        )
+        val collecting = collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("low lactose"),
+                proteinPreferences = listOf("chicken"),
+            )
+        } returns ready
+        coEvery { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) } returns Unit
+        coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns ready
+        coEvery { inferenceEngine.generateOnce(any(), any()) } returns ""
+
+        val reply = coordinator.ingestUserMessage("conv", "low lactose, chicken")
+
+        assertTrue(reply.content.contains("didn't return one", ignoreCase = true))
+        assertFalse(reply.content.contains("JSON object", ignoreCase = true))
     }
 
     @Test

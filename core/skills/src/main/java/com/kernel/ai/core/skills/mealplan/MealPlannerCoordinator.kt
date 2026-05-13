@@ -9,6 +9,8 @@ import com.kernel.ai.core.memory.mealplan.MealPlanSnapshot
 import com.kernel.ai.core.memory.mealplan.RecipeDraft
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -25,6 +27,8 @@ class MealPlannerCoordinator @Inject constructor(
     private val embeddingEngine: EmbeddingEngine,
     private val memoryRepository: MemoryRepository,
 ) {
+    private val activeGenerationCounts = mutableMapOf<String, Int>()
+    private val activeGenerationMutex = Mutex()
     suspend fun hasActiveSession(conversationId: String): Boolean =
         sessionRepository.hasActiveSessionForConversation(conversationId)
 
@@ -43,6 +47,10 @@ class MealPlannerCoordinator @Inject constructor(
         if (slotExtractor.isCancelRequest(text)) {
             sessionRepository.cancelSession(snapshot.sessionId)
             return MealPlannerReply("Okay — I’ve cancelled this meal plan session.")
+        }
+
+        if (isGenerationActive(snapshot.sessionId)) {
+            return MealPlannerReply(generationInProgressMessage(snapshot))
         }
 
         return when (snapshot.status) {
@@ -105,21 +113,33 @@ class MealPlannerCoordinator @Inject constructor(
         )
     }
 
-    private suspend fun generatePlanAndPendingRecipes(snapshot: MealPlanSnapshot): MealPlannerReply {
-        sessionRepository.markPendingGeneration(snapshot.sessionId, com.kernel.ai.core.memory.mealplan.PendingGenerationKind.PLAN)
-        val rawPlan = inferenceEngine.generateOnce(
-            prompt = buildPlanUserPrompt(snapshot),
-            systemPrompt = buildPlanSystemPrompt(),
-        )
-        val planDraft = try {
-            jsonParser.parsePlanDraft(rawPlan, snapshot.daysCount ?: 0)
-        } catch (e: MealPlanValidationException) {
-            sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_JSON_INVALID", e.message ?: "Invalid plan JSON")
-            return MealPlannerReply("I couldn't generate a valid high-level plan yet. ${e.message} Try replying with the same requirements again or adjust them.")
+    private suspend fun generatePlanAndPendingRecipes(snapshot: MealPlanSnapshot): MealPlannerReply =
+        withSessionGeneration(snapshot.sessionId) {
+            sessionRepository.markPendingGeneration(snapshot.sessionId, com.kernel.ai.core.memory.mealplan.PendingGenerationKind.PLAN)
+            val rawPlan = inferenceEngine.generateOnce(
+                prompt = buildPlanUserPrompt(snapshot),
+                systemPrompt = buildPlanSystemPrompt(),
+            )
+            if (rawPlan.isBlank()) {
+                sessionRepository.markGenerationFailure(
+                    snapshot.sessionId,
+                    null,
+                    "PLAN_NO_OUTPUT",
+                    "The model did not return a plan.",
+                )
+                return@withSessionGeneration MealPlannerReply(
+                    "I couldn't finish building the plan because the model didn't return one. Try replying with the same requirements again.",
+                )
+            }
+            val planDraft = try {
+                jsonParser.parsePlanDraft(rawPlan, snapshot.daysCount ?: 0)
+            } catch (e: MealPlanValidationException) {
+                sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_JSON_INVALID", e.message ?: "Invalid plan JSON")
+                return@withSessionGeneration MealPlannerReply("I couldn't generate a valid high-level plan yet. ${e.message} Try replying with the same requirements again or adjust them.")
+            }
+            val planned = sessionRepository.savePlanDraft(snapshot.sessionId, planDraft.days)
+            generatePendingRecipesFrom(planned, intro = buildPlanSummary(planned))
         }
-        val planned = sessionRepository.savePlanDraft(snapshot.sessionId, planDraft.days)
-        return generatePendingRecipesFrom(planned, intro = buildPlanSummary(planned))
-    }
 
     private suspend fun generatePendingRecipesFrom(snapshot: MealPlanSnapshot, intro: String? = null): MealPlannerReply {
         val builder = StringBuilder()
@@ -167,7 +187,7 @@ class MealPlannerCoordinator @Inject constructor(
     private suspend fun generateAndPersistRecipe(
         snapshot: MealPlanSnapshot,
         dayIndex: Int,
-    ): GeneratedRecipeResult {
+    ): GeneratedRecipeResult = withSessionGeneration(snapshot.sessionId) {
         val day = snapshot.days.firstOrNull { it.dayIndex == dayIndex }
             ?: throw MealPlanValidationException("Unknown meal-plan day ${dayIndex + 1}.")
         val servings = snapshot.peopleCount ?: throw MealPlanValidationException("Meal-plan session is missing people count.")
@@ -176,6 +196,15 @@ class MealPlannerCoordinator @Inject constructor(
             prompt = buildRecipeUserPrompt(snapshot, dayIndex),
             systemPrompt = buildRecipeSystemPrompt(),
         )
+        if (rawRecipe.isBlank()) {
+            sessionRepository.markGenerationFailure(
+                snapshot.sessionId,
+                dayIndex,
+                "RECIPE_NO_OUTPUT",
+                "The model did not return a recipe.",
+            )
+            throw MealPlanValidationException("The model didn't return a recipe.")
+        }
         val recipe = try {
             jsonParser.parseRecipeDraft(rawRecipe, servings)
         } catch (e: MealPlanValidationException) {
@@ -195,24 +224,28 @@ class MealPlannerCoordinator @Inject constructor(
             rawModelJson = rawRecipe,
             groceries = groceries,
         )
-        return GeneratedRecipeResult(updated, recipe, day.title ?: recipe.title)
+        GeneratedRecipeResult(updated, recipe, day.title ?: recipe.title)
     }
 
-    private suspend fun generateReplacementDay(snapshot: MealPlanSnapshot, dayIndex: Int): MealPlanSnapshot {
-        require(dayIndex in snapshot.days.indices) { "Invalid day index: $dayIndex" }
-        val raw = inferenceEngine.generateOnce(
-            prompt = buildReplacementDayUserPrompt(snapshot, dayIndex),
-            systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
-        )
-        val replacement = jsonParser.parsePlanDraft(raw, 1).days.single()
-        return sessionRepository.replaceDayDraft(
-            sessionId = snapshot.sessionId,
-            dayIndex = dayIndex,
-            title = replacement.title,
-            summary = replacement.summary,
-            proteinTags = replacement.proteinTags,
-        )
-    }
+    private suspend fun generateReplacementDay(snapshot: MealPlanSnapshot, dayIndex: Int): MealPlanSnapshot =
+        withSessionGeneration(snapshot.sessionId) {
+            require(dayIndex in snapshot.days.indices) { "Invalid day index: $dayIndex" }
+            val raw = inferenceEngine.generateOnce(
+                prompt = buildReplacementDayUserPrompt(snapshot, dayIndex),
+                systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
+            )
+            if (raw.isBlank()) {
+                throw MealPlanValidationException("The model didn't return a replacement day.")
+            }
+            val replacement = jsonParser.parsePlanDraft(raw, 1).days.single()
+            sessionRepository.replaceDayDraft(
+                sessionId = snapshot.sessionId,
+                dayIndex = dayIndex,
+                title = replacement.title,
+                summary = replacement.summary,
+                proteinTags = replacement.proteinTags,
+            )
+        }
 
     private suspend fun writeFinalSummaryIfNeeded(snapshot: MealPlanSnapshot) {
         if (snapshot.finalSummaryWritten) return
@@ -220,6 +253,37 @@ class MealPlannerCoordinator @Inject constructor(
         val embedding = embeddingEngine.embed(summary)
         memoryRepository.addEpisodicMemory(snapshot.conversationId, summary, embedding)
         sessionRepository.markFinalSummaryWritten(snapshot.sessionId)
+    }
+
+    private suspend fun isGenerationActive(sessionId: String): Boolean = activeGenerationMutex.withLock {
+        (activeGenerationCounts[sessionId] ?: 0) > 0
+    }
+
+    private suspend fun <T> withSessionGeneration(sessionId: String, block: suspend () -> T): T {
+        activeGenerationMutex.withLock {
+            activeGenerationCounts[sessionId] = (activeGenerationCounts[sessionId] ?: 0) + 1
+        }
+        return try {
+            block()
+        } finally {
+            activeGenerationMutex.withLock {
+                val remaining = (activeGenerationCounts[sessionId] ?: 1) - 1
+                if (remaining <= 0) {
+                    activeGenerationCounts.remove(sessionId)
+                } else {
+                    activeGenerationCounts[sessionId] = remaining
+                }
+            }
+        }
+    }
+
+    private fun generationInProgressMessage(snapshot: MealPlanSnapshot): String = when (snapshot.pendingGenerationKind) {
+        com.kernel.ai.core.memory.mealplan.PendingGenerationKind.PLAN ->
+            "I'm still building your meal plan. Give me a moment."
+        com.kernel.ai.core.memory.mealplan.PendingGenerationKind.RECIPE ->
+            snapshot.pendingGenerationDayIndex?.let { "I'm still finishing Day ${it + 1}. Give me a moment." }
+                ?: "I'm still finishing your meal plan. Give me a moment."
+        null -> "I'm still working on your meal plan. Give me a moment."
     }
 
     private fun promptForSnapshot(snapshot: MealPlanSnapshot): String = when (snapshot.status) {
