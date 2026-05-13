@@ -125,7 +125,14 @@ class ConvertViewModel @Inject constructor(
     }
 
     fun onFromChanged(value: String) {
-        _uiState.update { it.copy(fromUnit = value) }
+        val state = _uiState.value
+        if (state.selectedTab == ConvertTab.UNIT) {
+            val compatibleUnits = UnitConverter.unitsInSameCategoryAs(value)
+            val toUnit = if (state.toUnit in compatibleUnits) state.toUnit else compatibleUnits.firstOrNull() ?: state.toUnit
+            _uiState.update { it.copy(fromUnit = value, toUnit = toUnit) }
+        } else {
+            _uiState.update { it.copy(fromUnit = value) }
+        }
         triggerConvert()
     }
 

@@ -236,6 +236,7 @@ fun ConvertScreen(
                                 onFromChanged = viewModel::onFromChanged,
                                 onToChanged = viewModel::onToChanged,
                                 pickerOptions = UnitConverter.supportedUnits(),
+                                toPickerOptions = UnitConverter.unitsInSameCategoryAs(uiState.fromUnit),
                             )
                         }
                         item {
@@ -296,6 +297,7 @@ private fun ConversionInputSection(
     onFromChanged: (String) -> Unit,
     onToChanged: (String) -> Unit,
     pickerOptions: List<String>,
+    toPickerOptions: List<String> = pickerOptions,
 ) {
     var showFromPicker by remember { mutableStateOf(false) }
     var showToPicker by remember { mutableStateOf(false) }
@@ -350,7 +352,7 @@ private fun ConversionInputSection(
     if (showToPicker) {
         UnitPickerBottomSheet(
             sheetState = toSheetState,
-            options = pickerOptions,
+            options = toPickerOptions,
             search = toSearch,
             onSearchChange = { toSearch = it },
             onSelect = { onToChanged(it); showToPicker = false },

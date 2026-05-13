@@ -29,4 +29,14 @@ object UnitConverter {
 
     fun supportedUnits(): List<String> =
         UnitConversionEvaluator.SupportedUnit.entries.map { it.canonicalName }
+
+    fun unitsInSameCategoryAs(canonicalName: String): List<String> {
+        val category = UnitConversionEvaluator.SupportedUnit.entries
+            .find { it.canonicalName == canonicalName }
+            ?.category
+            ?: return supportedUnits()
+        return UnitConversionEvaluator.SupportedUnit.entries
+            .filter { it.category == category }
+            .map { it.canonicalName }
+    }
 }
