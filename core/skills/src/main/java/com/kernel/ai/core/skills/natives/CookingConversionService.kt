@@ -67,7 +67,7 @@ class CookingConversionService @Inject constructor() {
             spokenSingularName = "kilogram",
             spokenPluralName = "kilograms",
             gramsPerUnit = BigDecimal("1000"),
-            aliases = setOf("kg", "kgs", "kilogram", "kilograms"),
+            aliases = setOf("kg", "kgs", "kilogram", "kilograms", "kilogramme", "kilogrammes"),
         )
         private val MILLILITER = SupportedUnit(
             category = UnitCategory.VOLUME,
@@ -137,10 +137,48 @@ class CookingConversionService @Inject constructor() {
             aliases = setOf("cup", "cups"),
             assumptionText = "cups are treated as 250 mL",
         )
+        private val FLUID_OUNCE = SupportedUnit(
+            category = UnitCategory.VOLUME,
+            canonicalName = "fl oz",
+            contentLabel = "fl oz",
+            spokenSingularName = "fluid ounce",
+            spokenPluralName = "fluid ounces",
+            millilitersPerUnit = BigDecimal("29.5735295625"),
+            aliases = setOf("fl oz", "floz", "fluid ounce", "fluid ounces"),
+        )
+        private val PINT = SupportedUnit(
+            category = UnitCategory.VOLUME,
+            canonicalName = "pt",
+            contentLabel = "pt",
+            spokenSingularName = "pint",
+            spokenPluralName = "pints",
+            millilitersPerUnit = BigDecimal("473.176473"),
+            aliases = setOf("pt", "pts", "pint", "pints"),
+        )
+        private val QUART = SupportedUnit(
+            category = UnitCategory.VOLUME,
+            canonicalName = "qt",
+            contentLabel = "qt",
+            spokenSingularName = "quart",
+            spokenPluralName = "quarts",
+            millilitersPerUnit = BigDecimal("946.352946"),
+            aliases = setOf("qt", "qts", "quart", "quarts"),
+        )
+        private val GALLON = SupportedUnit(
+            category = UnitCategory.VOLUME,
+            canonicalName = "gal",
+            contentLabel = "gal",
+            spokenSingularName = "gallon",
+            spokenPluralName = "gallons",
+            millilitersPerUnit = BigDecimal("3785.411784"),
+            aliases = setOf("gal", "gallon", "gallons"),
+        )
 
-        private val SUPPORTED_UNITS = listOf(
+        private val KITCHEN_MASS_UNITS = listOf(
             GRAM,
             KILOGRAM,
+        )
+        private val KITCHEN_VOLUME_UNITS = listOf(
             MILLILITER,
             LITER,
             TEASPOON,
@@ -148,8 +186,15 @@ class CookingConversionService @Inject constructor() {
             AUSTRALIAN_TABLESPOON,
             CUP,
         )
-        private val MASS_UNITS = SUPPORTED_UNITS.filter { it.category == UnitCategory.MASS }
-        private val VOLUME_UNITS = SUPPORTED_UNITS.filter { it.category == UnitCategory.VOLUME }
+        private val SUPPORTED_UNITS = KITCHEN_MASS_UNITS + KITCHEN_VOLUME_UNITS + listOf(
+            FLUID_OUNCE,
+            PINT,
+            QUART,
+            GALLON,
+        )
+        private val MASS_UNITS = KITCHEN_MASS_UNITS
+        private val VOLUME_UNITS = KITCHEN_VOLUME_UNITS
+        private val INGREDIENT_AWARE_VOLUME_UNITS = SUPPORTED_UNITS.filter { it.category == UnitCategory.VOLUME }
         private val UNIT_LOOKUP = SUPPORTED_UNITS.flatMap { unit ->
             unit.aliases.map { alias -> normalizeLookupKey(alias) to unit }
         }.toMap()
@@ -239,6 +284,8 @@ class CookingConversionService @Inject constructor() {
 
         fun supportedMassRouterRegexPattern(): String = escapedAliasPattern(MASS_UNITS)
 
+        fun supportedIngredientVolumeRouterRegexPattern(): String = escapedAliasPattern(INGREDIENT_AWARE_VOLUME_UNITS)
+
         private fun escapedAliasPattern(units: List<SupportedUnit>): String = units
             .flatMap { it.aliases }
             .sortedByDescending { it.length }
@@ -264,11 +311,11 @@ class CookingConversionService @Inject constructor() {
         val amount = parseAmount(amountRaw)
         val fromUnit = resolveUnit(fromUnitRaw)
             ?: throw IllegalArgumentException(
-                "Unsupported cooking source unit '$fromUnitRaw'. Use g, kg, mL, L, tsp, tbsp, AU tbsp, or cups.",
+                "Unsupported cooking source unit '$fromUnitRaw'. Use g, kg, mL, L, tsp, tbsp, AU tbsp, cups, fl oz, pints, quarts, or gallons.",
             )
         val toUnit = resolveUnit(toUnitRaw)
             ?: throw IllegalArgumentException(
-                "Unsupported cooking target unit '$toUnitRaw'. Use g, kg, mL, L, tsp, tbsp, AU tbsp, or cups.",
+                "Unsupported cooking target unit '$toUnitRaw'. Use g, kg, mL, L, tsp, tbsp, AU tbsp, cups, fl oz, pints, quarts, or gallons.",
             )
         val ingredientLabel = normalizeIngredientDisplay(ingredientRaw)
         val sameCategory = fromUnit.category == toUnit.category

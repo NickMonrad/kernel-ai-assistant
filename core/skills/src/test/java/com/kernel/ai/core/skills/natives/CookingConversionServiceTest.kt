@@ -66,6 +66,38 @@ class CookingConversionServiceTest {
     }
 
     @Test
+    fun `convert supports larger physical volume units for density based cooking conversions`() {
+        val result = service.convert(
+            amountRaw = "2",
+            fromUnitRaw = "gallons",
+            ingredientRaw = "milk",
+            toUnitRaw = "kilogrammes",
+        )
+
+        assertEquals(0, result.outputAmount.compareTo(BigDecimal("7.797948275")))
+        assertEquals("7.8", result.outputAmount.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString())
+        assertEquals("milk", result.ingredientLabel)
+        assertEquals(emptyList<String>(), result.assumptionTexts)
+        assertEquals(true, result.usedIngredientDensity)
+    }
+
+    @Test
+    fun `convert supports larger physical volume targets for density based cooking conversions`() {
+        val result = service.convert(
+            amountRaw = "400",
+            fromUnitRaw = "g",
+            ingredientRaw = "milk",
+            toUnitRaw = "gallons",
+        )
+
+        assertEquals(0, result.outputAmount.compareTo(BigDecimal("0.1025910883")))
+        assertEquals("0.1", result.outputAmount.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString())
+        assertEquals("milk", result.ingredientLabel)
+        assertEquals(emptyList<String>(), result.assumptionTexts)
+        assertEquals(true, result.usedIngredientDensity)
+    }
+
+    @Test
     fun `convert rejects unknown ingredient`() {
         val error = assertThrows(IllegalArgumentException::class.java) {
             service.convert(
@@ -94,7 +126,7 @@ class CookingConversionServiceTest {
         }
 
         assertEquals(
-            "Unsupported cooking source unit 'oz'. Use g, kg, mL, L, tsp, tbsp, AU tbsp, or cups.",
+            "Unsupported cooking source unit 'oz'. Use g, kg, mL, L, tsp, tbsp, AU tbsp, cups, fl oz, pints, quarts, or gallons.",
             error.message,
         )
     }

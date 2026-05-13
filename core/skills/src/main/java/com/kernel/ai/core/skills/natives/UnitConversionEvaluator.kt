@@ -68,7 +68,7 @@ internal object UnitConversionEvaluator {
             singularDisplayName = "kilogram",
             pluralDisplayName = "kilograms",
             baseFactor = BigDecimal("1000"),
-            aliases = setOf("kg", "kgs", "kilogram", "kilograms"),
+            aliases = setOf("kg", "kgs", "kilogram", "kilograms", "kilogramme", "kilogrammes"),
         ),
         OUNCE(
             category = UnitCategory.MASS,
