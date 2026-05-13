@@ -1165,8 +1165,8 @@ class NativeIntentHandlerTest {
 
         assertEquals(
             SkillResult.DirectReply(
-                "2 liters is approximately 8.45350568 cups.",
-                spokenSummary = "2 liters is approximately 8.45 cups.",
+                "2 liters is 8 cups.",
+                spokenSummary = null,
             ),
             result,
         )
