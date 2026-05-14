@@ -4,22 +4,27 @@ import android.content.Context
 import androidx.room.Room
 import com.kernel.ai.core.memory.dao.ContactAliasDao
 import com.kernel.ai.core.memory.dao.ConversionHistoryDao
+import com.kernel.ai.core.memory.dao.ConversationDao
+import com.kernel.ai.core.memory.dao.CoreMemoryDao
 import com.kernel.ai.core.memory.dao.CurrencyFavouriteDao
+import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
-import com.kernel.ai.core.memory.dao.ConversationDao
-import com.kernel.ai.core.memory.dao.CoreMemoryDao
-import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
+import com.kernel.ai.core.memory.dao.MealPlanDayDao
+import com.kernel.ai.core.memory.dao.MealPlanGroceryItemDao
+import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
+import com.kernel.ai.core.memory.dao.MealPlanRecipeVersionDao
+import com.kernel.ai.core.memory.dao.MealPlanSessionDao
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.dao.ModelSettingsDao
 import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.dao.StopwatchDao
-import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
+import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.clock.ClockRepositoryImpl
 import com.kernel.ai.core.memory.repository.MemoryRepository
@@ -92,6 +97,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_30_31,
                     KernelDatabase.MIGRATION_31_32,
                     KernelDatabase.MIGRATION_32_33,
+                    KernelDatabase.MIGRATION_33_34,
                 )
                 .build()
 
@@ -128,7 +134,6 @@ abstract class MemoryModule {
         @Provides
         fun provideStopwatchDao(db: KernelDatabase): StopwatchDao = db.stopwatchDao()
 
-
         @Provides
         fun provideContactAliasDao(db: KernelDatabase): ContactAliasDao = db.contactAliasDao()
 
@@ -155,5 +160,20 @@ abstract class MemoryModule {
 
         @Provides
         fun provideCurrencyFavouriteDao(db: KernelDatabase): CurrencyFavouriteDao = db.currencyFavouriteDao()
+
+        @Provides
+        fun provideMealPlanSessionDao(db: KernelDatabase): MealPlanSessionDao = db.mealPlanSessionDao()
+
+        @Provides
+        fun provideMealPlanDayDao(db: KernelDatabase): MealPlanDayDao = db.mealPlanDayDao()
+
+        @Provides
+        fun provideMealPlanRecipeVersionDao(db: KernelDatabase): MealPlanRecipeVersionDao = db.mealPlanRecipeVersionDao()
+
+        @Provides
+        fun provideMealPlanGroceryItemDao(db: KernelDatabase): MealPlanGroceryItemDao = db.mealPlanGroceryItemDao()
+
+        @Provides
+        fun provideMealPlanProjectionWriteDao(db: KernelDatabase): MealPlanProjectionWriteDao = db.mealPlanProjectionWriteDao()
     }
 }
