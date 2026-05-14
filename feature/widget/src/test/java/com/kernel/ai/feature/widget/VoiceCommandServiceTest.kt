@@ -97,4 +97,16 @@ class VoiceCommandServiceTest {
         coVerify { skill.execute(any()) }
         coVerify { voiceOutputController.speak(VoiceSpeakRequest("Wi-Fi disabled.")) }
     }
+
+    @Test
+    fun `meal planner regex match navigates to chat instead of in-place execution`() = runTest {
+        val transcript = "let's plan meals"
+        val matchedIntent = QuickIntentRouter.MatchedIntent("start_meal_planner", emptyMap())
+        every { quickIntentRouter.route(transcript) } returns QuickIntentRouter.RouteResult.RegexMatch(matchedIntent)
+
+        handler.handle(transcript, context)
+
+        verify { navigator.navigateToChat(context, transcript) }
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+    }
 }
