@@ -376,15 +376,24 @@ class LiteRtInferenceEngine @Inject constructor(
      * cache state with the active chat. Acquires [generationMutex] — if the engine
      * is currently generating, this suspends until the active generation completes.
      */
-    override suspend fun generateOnce(prompt: String, systemPrompt: String?): String = withContext(LlmDispatcher) {
+    override suspend fun generateOnce(
+        prompt: String,
+        systemPrompt: String?,
+        thinkingEnabled: Boolean?,
+    ): String = withContext(LlmDispatcher) {
         val config = currentConfig ?: return@withContext ""
         val requestedSystemPrompt = systemPrompt?.takeIf { it.isNotBlank() }
-        val shouldSwapSystemPrompt = requestedSystemPrompt != null && requestedSystemPrompt != config.systemPrompt
+        val requestedThinkingEnabled = thinkingEnabled ?: config.thinkingEnabled
+        val requestedConfig = config.copy(
+            systemPrompt = requestedSystemPrompt ?: config.systemPrompt,
+            thinkingEnabled = requestedThinkingEnabled,
+        )
+        val shouldSwapConfig = requestedConfig != config
         val timeoutMs = if (requestedSystemPrompt != null) 60_000L else 30_000L
 
         try {
-            if (shouldSwapSystemPrompt) {
-                resetConversationForConfig(config.copy(systemPrompt = requestedSystemPrompt))
+            if (shouldSwapConfig) {
+                resetConversationForConfig(requestedConfig)
             }
 
             val conv = conversation ?: return@withContext ""
@@ -443,7 +452,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 generationMutex.unlock()
             }
         } finally {
-            if (shouldSwapSystemPrompt) {
+            if (shouldSwapConfig) {
                 resetConversationForConfig(config)
             }
         }

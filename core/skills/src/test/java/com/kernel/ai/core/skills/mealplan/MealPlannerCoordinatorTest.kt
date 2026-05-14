@@ -73,7 +73,7 @@ class MealPlannerCoordinatorTest {
         } returns ready
         coEvery { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) } returns Unit
         coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns ready
-        coEvery { inferenceEngine.generateOnce(any(), any()) } coAnswers {
+        coEvery { inferenceEngine.generateOnce(any(), any(), false) } coAnswers {
             started.complete(Unit)
             release.await()
             ""
@@ -110,12 +110,44 @@ class MealPlannerCoordinatorTest {
         } returns ready
         coEvery { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) } returns Unit
         coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns ready
-        coEvery { inferenceEngine.generateOnce(any(), any()) } returns ""
+        coEvery { inferenceEngine.generateOnce(any(), any(), false) } returns ""
 
         val reply = coordinator.ingestUserMessage("conv", "low lactose, chicken")
 
         assertTrue(reply.content.contains("didn't return one", ignoreCase = true))
         assertFalse(reply.content.contains("JSON object", ignoreCase = true))
+    }
+
+    @Test
+    fun `regenerate day recipe uses non-thinking structured generation`() = runTest {
+        val active = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
+            days = readyForFinalizeSnapshot(finalSummaryWritten = false).days.map { day ->
+                if (day.dayIndex == 0) {
+                    day.copy(
+                        status = MealPlanDayStatus.FAILED,
+                        lastErrorCode = "RECIPE_NO_OUTPUT",
+                        lastErrorMessage = "The model did not return a recipe.",
+                    )
+                } else {
+                    day
+                }
+            },
+        )
+        val failed = active.copy(
+            pendingGenerationKind = PendingGenerationKind.RECIPE,
+            pendingGenerationDayIndex = 0,
+            activeDayIndex = 0,
+        )
+
+        coEvery { sessionRepository.getActiveSession("conv") } returns failed
+        coEvery { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.RECIPE, 0) } returns Unit
+        coEvery { sessionRepository.markGenerationFailure("session-1", 0, "RECIPE_NO_OUTPUT", "The model did not return a recipe.") } returns failed
+        coEvery { inferenceEngine.generateOnce(any(), any(), false) } returns ""
+
+        val reply = coordinator.ingestUserMessage("conv", "regenerate day 1")
+
+        assertTrue(reply.content.contains("didn't return a recipe", ignoreCase = true))
+        coVerify(exactly = 1) { inferenceEngine.generateOnce(any(), any(), false) }
     }
 
     @Test

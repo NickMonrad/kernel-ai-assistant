@@ -63,10 +63,17 @@ interface InferenceEngine {
      * @param systemPrompt Optional system prompt for the isolated conversation. Pass a
      *   directive prompt (e.g. "Reply with only a title, no explanation") to constrain
      *   the model's output format. Defaults to null (no system instruction).
+     * @param thinkingEnabled Optional override for the isolated conversation's thinking
+     *   channel. Pass false for bounded JSON generation paths that should skip reasoning
+     *   tokens and respond directly.
      *
      * Blocks until generation completes. Returns an empty string on error.
      */
-    suspend fun generateOnce(prompt: String, systemPrompt: String? = null): String
+    suspend fun generateOnce(
+        prompt: String,
+        systemPrompt: String? = null,
+        thinkingEnabled: Boolean? = null,
+    ): String
 
     /**
      * Clear the conversation context window and start fresh.

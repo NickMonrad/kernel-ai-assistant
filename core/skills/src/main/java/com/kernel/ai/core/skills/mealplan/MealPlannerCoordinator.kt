@@ -119,6 +119,7 @@ class MealPlannerCoordinator @Inject constructor(
             val rawPlan = inferenceEngine.generateOnce(
                 prompt = buildPlanUserPrompt(snapshot),
                 systemPrompt = buildPlanSystemPrompt(),
+                thinkingEnabled = false,
             )
             if (rawPlan.isBlank()) {
                 sessionRepository.markGenerationFailure(
@@ -195,6 +196,7 @@ class MealPlannerCoordinator @Inject constructor(
         val rawRecipe = inferenceEngine.generateOnce(
             prompt = buildRecipeUserPrompt(snapshot, dayIndex),
             systemPrompt = buildRecipeSystemPrompt(),
+            thinkingEnabled = false,
         )
         if (rawRecipe.isBlank()) {
             sessionRepository.markGenerationFailure(
@@ -233,6 +235,7 @@ class MealPlannerCoordinator @Inject constructor(
             val raw = inferenceEngine.generateOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, dayIndex),
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
+                thinkingEnabled = false,
             )
             if (raw.isBlank()) {
                 throw MealPlanValidationException("The model didn't return a replacement day.")
