@@ -65,15 +65,15 @@ class ChatViewModelInitTest {
     private val ragRepository: RagRepository = mockk(relaxed = true)
     private val userProfileRepository: UserProfileRepository = mockk(relaxed = true)
     private val memoryRepository: MemoryRepository = mockk(relaxed = true)
+    private val mealPlanSessionRepository: MealPlanSessionRepository = mockk(relaxed = true)
     private val episodicDistillationUseCase: EpisodicDistillationUseCase = mockk(relaxed = true)
     private val modelSettingsRepository: ModelSettingsRepository = mockk(relaxed = true)
-    private val mealPlanSessionRepository: MealPlanSessionRepository = mockk(relaxed = true)
+    private val mealPlannerCoordinator: MealPlannerCoordinator = mockk(relaxed = true)
     private val skillRegistry: SkillRegistry = mockk(relaxed = true)
     private val skillExecutor: SkillExecutor = mockk(relaxed = true)
     private val quickIntentRouter: QuickIntentRouter = mockk(relaxed = true)
     private val slotFillerManager: SlotFillerManager = mockk(relaxed = true)
     private val kernelAIToolSet: KernelAIToolSet = mockk(relaxed = true)
-    private val mealPlannerCoordinator: MealPlannerCoordinator = mockk(relaxed = true)
     private val toolProvider: ToolProvider = mockk(relaxed = true)
     private val embeddingEngine: EmbeddingEngine = mockk(relaxed = true)
     private val voiceInputController: VoiceInputController = mockk(relaxed = true)
@@ -110,8 +110,6 @@ class ChatViewModelInitTest {
         }
         coEvery { conversationRepository.getMessagesOnce(any()) } returns emptyList()
 
-        coEvery { mealPlanSessionRepository.hasActiveSessionForConversation(any()) } returns false
-        coEvery { mealPlanSessionRepository.hasAnySessionForConversation(any()) } returns false
         every { jandalPersona.personaMode } returns MutableStateFlow(PersonaMode.FULL)
         every { jandalPersona.currentPersonaMode } returns PersonaMode.FULL
         every { voiceOutputPreferences.spokenResponsesEnabled } returns MutableStateFlow(false)
@@ -137,8 +135,6 @@ class ChatViewModelInitTest {
         memoryRepository = memoryRepository,
         episodicDistillationUseCase = episodicDistillationUseCase,
         modelSettingsRepository = modelSettingsRepository,
-        mealPlanSessionRepository = mealPlanSessionRepository,
-        mealPlannerCoordinator = mealPlannerCoordinator,
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
@@ -152,7 +148,9 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
-    )
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        )
 
         advanceUntilIdle()
 
@@ -171,8 +169,6 @@ class ChatViewModelInitTest {
         memoryRepository = memoryRepository,
         episodicDistillationUseCase = episodicDistillationUseCase,
         modelSettingsRepository = modelSettingsRepository,
-        mealPlanSessionRepository = mealPlanSessionRepository,
-        mealPlannerCoordinator = mealPlannerCoordinator,
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
@@ -186,7 +182,9 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
-    )
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        )
 
         advanceUntilIdle()
 
@@ -224,8 +222,6 @@ class ChatViewModelInitTest {
         memoryRepository = memoryRepository,
         episodicDistillationUseCase = episodicDistillationUseCase,
         modelSettingsRepository = modelSettingsRepository,
-        mealPlanSessionRepository = mealPlanSessionRepository,
-        mealPlannerCoordinator = mealPlannerCoordinator,
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
@@ -239,6 +235,8 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
         )
 
         advanceUntilIdle()
@@ -282,8 +280,6 @@ class ChatViewModelInitTest {
         memoryRepository = memoryRepository,
         episodicDistillationUseCase = episodicDistillationUseCase,
         modelSettingsRepository = modelSettingsRepository,
-        mealPlanSessionRepository = mealPlanSessionRepository,
-        mealPlannerCoordinator = mealPlannerCoordinator,
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
@@ -297,6 +293,8 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
         )
 
         advanceUntilIdle()
@@ -330,8 +328,6 @@ class ChatViewModelInitTest {
         memoryRepository = memoryRepository,
         episodicDistillationUseCase = episodicDistillationUseCase,
         modelSettingsRepository = modelSettingsRepository,
-        mealPlanSessionRepository = mealPlanSessionRepository,
-        mealPlannerCoordinator = mealPlannerCoordinator,
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
@@ -345,6 +341,8 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
         )
 
         advanceUntilIdle()
@@ -394,8 +392,6 @@ class ChatViewModelInitTest {
         memoryRepository = memoryRepository,
         episodicDistillationUseCase = episodicDistillationUseCase,
         modelSettingsRepository = modelSettingsRepository,
-        mealPlanSessionRepository = mealPlanSessionRepository,
-        mealPlannerCoordinator = mealPlannerCoordinator,
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
@@ -409,6 +405,8 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
         )
 
         advanceUntilIdle()
@@ -449,8 +447,6 @@ class ChatViewModelInitTest {
         memoryRepository = memoryRepository,
         episodicDistillationUseCase = episodicDistillationUseCase,
         modelSettingsRepository = modelSettingsRepository,
-        mealPlanSessionRepository = mealPlanSessionRepository,
-        mealPlannerCoordinator = mealPlannerCoordinator,
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
@@ -464,6 +460,8 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
         )
         advanceUntilIdle()
 
@@ -500,8 +498,6 @@ class ChatViewModelInitTest {
         memoryRepository = memoryRepository,
         episodicDistillationUseCase = episodicDistillationUseCase,
         modelSettingsRepository = modelSettingsRepository,
-        mealPlanSessionRepository = mealPlanSessionRepository,
-        mealPlannerCoordinator = mealPlannerCoordinator,
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,
@@ -515,6 +511,8 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
         )
         advanceUntilIdle()
 

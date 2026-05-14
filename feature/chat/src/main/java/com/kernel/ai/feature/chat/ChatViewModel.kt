@@ -1137,6 +1137,7 @@ class ChatViewModel @Inject constructor(
                         return@launch
                     }
                 }
+                needsHistoryReplay = true
                 val plannerReply = if (explicitMealPlannerStart) {
                     mealPlannerCoordinator.startOrResume(convId)
                 } else {
@@ -1145,6 +1146,7 @@ class ChatViewModel @Inject constructor(
                 appendAssistantMessage(convId, plannerReply.content, shouldIndex = false)
                 return@launch
             }
+
 
             // Tier 2: QuickIntentRouter — fast device action intercept (<30 ms, no model load).
             // On a match: execute the skill immediately, then inject [System: ...] context so
@@ -1257,7 +1259,7 @@ class ChatViewModel @Inject constructor(
                 query = text,
                 messages = _messages.value.dropLast(1),
             )
-            val routeResult = quickIntentRouter.route(text)
+            val routeResult = mealPlannerRoute
             val matchedIntent = weatherFollowUpLocation?.let {
                 QuickIntentRouter.MatchedIntent(
                     intentName = "get_weather",

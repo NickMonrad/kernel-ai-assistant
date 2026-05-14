@@ -149,6 +149,12 @@ internal fun shouldKeepChatScreenAwake(
             voicePlaybackState != ChatViewModel.VoicePlaybackState.Idle
 }
 
+internal fun shouldShowInlineGenerationIndicator(state: ChatUiState.Ready): Boolean =
+    state.isGenerating &&
+        !state.isLoadingModel &&
+        state.messages.lastOrNull()?.role == ChatMessage.Role.USER &&
+        state.messages.none { it.role == ChatMessage.Role.ASSISTANT && it.isStreaming }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -430,6 +436,27 @@ private fun ChatContent(
                                     Spacer(Modifier.width(8.dp))
                                     Text(
                                         text = "Loading model… keeping this screen awake.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        } else if (shouldShowInlineGenerationIndicator(state)) {
+                            item(key = "direct-generation-indicator") {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = "Working on your reply… keeping this screen awake.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )

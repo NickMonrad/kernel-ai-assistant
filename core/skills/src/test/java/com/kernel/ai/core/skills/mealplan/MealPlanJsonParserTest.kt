@@ -70,6 +70,37 @@ class MealPlanJsonParserTest {
     }
 
     @Test
+    fun `parseRecipeDraft parses simplified string recipe`() {
+        val result = parser.parseRecipeDraft(
+            raw = """
+                {
+                  "title": "Lemon chicken tray bake",
+                  "servings": 3,
+                  "ingredients": [
+                    "600 g chicken thighs",
+                    "1 tbsp olive oil",
+                    "2 carrots, chopped"
+                  ],
+                  "method_steps": [
+                    "Heat the oven to 220C.",
+                    "Toss the chicken and vegetables with oil.",
+                    "Roast until the chicken is cooked through."
+                  ]
+                }
+            """.trimIndent(),
+            expectedServings = 3,
+        )
+
+        assertEquals("Lemon chicken tray bake", result.title)
+        assertEquals(3, result.ingredients.size)
+        assertEquals("600 g chicken thighs", result.ingredients.first().originalText)
+        assertEquals(null, result.ingredients.first().amount)
+        assertEquals(3, result.methodSteps.size)
+        assertEquals(1, result.methodSteps.first().stepNumber)
+        assertEquals("Heat the oven to 220C.", result.methodSteps.first().text)
+    }
+
+    @Test
     fun `parseRecipeDraft rejects servings mismatch`() {
         assertThrows(MealPlanValidationException::class.java) {
             parser.parseRecipeDraft(

@@ -2853,6 +2853,7 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
             requiredSlots = slotContract("create_list"),
         ),
+        // ── Meal Planner ──
         IntentPattern(
             intentName = "start_meal_planner",
             regex = Regex(

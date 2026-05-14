@@ -75,7 +75,7 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.5.2")
     androidTestImplementation("androidx.test:core:1.5.0")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.room:room-testing:2.7.1")
+    androidTestImplementation(libs.room.testing)
 
 
     testImplementation(libs.junit.jupiter)
