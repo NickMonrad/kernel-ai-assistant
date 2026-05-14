@@ -18,6 +18,7 @@ import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
+import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
@@ -29,6 +30,8 @@ import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
+import com.kernel.ai.core.skills.mealplan.MealPlannerReply
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
@@ -80,10 +83,12 @@ class ChatViewModelVoiceTest {
     private val memoryRepository: MemoryRepository = mockk(relaxed = true)
     private val episodicDistillationUseCase: EpisodicDistillationUseCase = mockk(relaxed = true)
     private val modelSettingsRepository: ModelSettingsRepository = mockk(relaxed = true)
+    private val mealPlanSessionRepository: MealPlanSessionRepository = mockk(relaxed = true)
     private val skillRegistry: SkillRegistry = mockk(relaxed = true)
     private val skillExecutor: SkillExecutor = mockk(relaxed = true)
     private val quickIntentRouter: QuickIntentRouter = mockk(relaxed = true)
     private val slotFillerManager: SlotFillerManager = mockk(relaxed = true)
+    private val mealPlannerCoordinator: MealPlannerCoordinator = mockk(relaxed = true)
     private val kernelAIToolSet: KernelAIToolSet = mockk(relaxed = true)
     private val toolProvider: ToolProvider = mockk(relaxed = true)
     private val embeddingEngine: EmbeddingEngine = mockk(relaxed = true)
@@ -128,6 +133,8 @@ class ChatViewModelVoiceTest {
             ConversationEntity(id = id, title = null, createdAt = 1L, updatedAt = 1L)
         }
         coEvery { conversationRepository.getMessagesOnce(any()) } returns emptyList()
+        coEvery { mealPlanSessionRepository.hasActiveSessionForConversation(any()) } returns false
+        coEvery { mealPlanSessionRepository.hasAnySessionForConversation(any()) } returns false
         coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
             listOf("user-msg", "assistant-msg")
 
@@ -538,6 +545,27 @@ class ChatViewModelVoiceTest {
         assertTrue(viewModel.getConversationAsText().contains("You: what time is it"))
     }
 
+    @Test
+    fun `explicit meal planner start uses coordinator instead of llm`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Start meal planner") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent("start_meal_planner", emptyMap()),
+            )
+        coEvery { mealPlannerCoordinator.startOrResume("conv-existing") } returns
+            MealPlannerReply("How many people are you planning meals for?")
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("Start meal planner")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { mealPlannerCoordinator.startOrResume("conv-existing") }
+        coVerify(exactly = 0) { inferenceEngine.generate(any()) }
+        assertTrue(viewModel.getConversationAsText().contains("How many people are you planning meals for?"))
+    }
+
     private fun createViewModel(): ChatViewModel = ChatViewModel(
         savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
         inferenceEngine = inferenceEngine,
@@ -548,6 +576,8 @@ class ChatViewModelVoiceTest {
         memoryRepository = memoryRepository,
         episodicDistillationUseCase = episodicDistillationUseCase,
         modelSettingsRepository = modelSettingsRepository,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
         quickIntentRouter = quickIntentRouter,

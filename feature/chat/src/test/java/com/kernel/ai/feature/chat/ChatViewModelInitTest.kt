@@ -20,6 +20,7 @@ import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
+import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
@@ -28,6 +29,7 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -65,11 +67,13 @@ class ChatViewModelInitTest {
     private val memoryRepository: MemoryRepository = mockk(relaxed = true)
     private val episodicDistillationUseCase: EpisodicDistillationUseCase = mockk(relaxed = true)
     private val modelSettingsRepository: ModelSettingsRepository = mockk(relaxed = true)
+    private val mealPlanSessionRepository: MealPlanSessionRepository = mockk(relaxed = true)
     private val skillRegistry: SkillRegistry = mockk(relaxed = true)
     private val skillExecutor: SkillExecutor = mockk(relaxed = true)
     private val quickIntentRouter: QuickIntentRouter = mockk(relaxed = true)
     private val slotFillerManager: SlotFillerManager = mockk(relaxed = true)
     private val kernelAIToolSet: KernelAIToolSet = mockk(relaxed = true)
+    private val mealPlannerCoordinator: MealPlannerCoordinator = mockk(relaxed = true)
     private val toolProvider: ToolProvider = mockk(relaxed = true)
     private val embeddingEngine: EmbeddingEngine = mockk(relaxed = true)
     private val voiceInputController: VoiceInputController = mockk(relaxed = true)
@@ -106,6 +110,8 @@ class ChatViewModelInitTest {
         }
         coEvery { conversationRepository.getMessagesOnce(any()) } returns emptyList()
 
+        coEvery { mealPlanSessionRepository.hasActiveSessionForConversation(any()) } returns false
+        coEvery { mealPlanSessionRepository.hasAnySessionForConversation(any()) } returns false
         every { jandalPersona.personaMode } returns MutableStateFlow(PersonaMode.FULL)
         every { jandalPersona.currentPersonaMode } returns PersonaMode.FULL
         every { voiceOutputPreferences.spokenResponsesEnabled } returns MutableStateFlow(false)
@@ -122,30 +128,31 @@ class ChatViewModelInitTest {
 
     @Test
     fun `fresh chat initialization resets inherited inference session`() = runTest(dispatcher) {
-        ChatViewModel(
-            savedStateHandle = SavedStateHandle(),
-            inferenceEngine = inferenceEngine,
-            downloadManager = downloadManager,
-            conversationRepository = conversationRepository,
-            ragRepository = ragRepository,
-            userProfileRepository = userProfileRepository,
-            memoryRepository = memoryRepository,
-            episodicDistillationUseCase = episodicDistillationUseCase,
-            modelSettingsRepository = modelSettingsRepository,
-            skillRegistry = skillRegistry,
-            skillExecutor = skillExecutor,
-            quickIntentRouter = quickIntentRouter,
-            slotFillerManager = slotFillerManager,
-            kernelAIToolSet = kernelAIToolSet,
-            toolProvider = toolProvider,
-            embeddingEngine = embeddingEngine,
-            voiceInputController = voiceInputController,
-            voiceOutputController = voiceOutputController,
-            voiceOutputPreferences = voiceOutputPreferences,
-            jandalPersona = jandalPersona,
-            nzTruthSeedingService = nzTruthSeedingService,
-            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
-        )
+        ChatViewModel(savedStateHandle = SavedStateHandle(),
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+    )
 
         advanceUntilIdle()
 
@@ -155,30 +162,31 @@ class ChatViewModelInitTest {
 
     @Test
     fun `restored chat initialization does not reset current inference session`() = runTest(dispatcher) {
-        ChatViewModel(
-            savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
-            inferenceEngine = inferenceEngine,
-            downloadManager = downloadManager,
-            conversationRepository = conversationRepository,
-            ragRepository = ragRepository,
-            userProfileRepository = userProfileRepository,
-            memoryRepository = memoryRepository,
-            episodicDistillationUseCase = episodicDistillationUseCase,
-            modelSettingsRepository = modelSettingsRepository,
-            skillRegistry = skillRegistry,
-            skillExecutor = skillExecutor,
-            quickIntentRouter = quickIntentRouter,
-            slotFillerManager = slotFillerManager,
-            kernelAIToolSet = kernelAIToolSet,
-            toolProvider = toolProvider,
-            embeddingEngine = embeddingEngine,
-            voiceInputController = voiceInputController,
-            voiceOutputController = voiceOutputController,
-            voiceOutputPreferences = voiceOutputPreferences,
-            jandalPersona = jandalPersona,
-            nzTruthSeedingService = nzTruthSeedingService,
-            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
-        )
+        ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+    )
 
         advanceUntilIdle()
 
@@ -207,29 +215,30 @@ class ChatViewModelInitTest {
             ),
         )
 
-        val viewModel = ChatViewModel(
-            savedStateHandle = savedStateHandle,
-            inferenceEngine = inferenceEngine,
-            downloadManager = downloadManager,
-            conversationRepository = conversationRepository,
-            ragRepository = ragRepository,
-            userProfileRepository = userProfileRepository,
-            memoryRepository = memoryRepository,
-            episodicDistillationUseCase = episodicDistillationUseCase,
-            modelSettingsRepository = modelSettingsRepository,
-            skillRegistry = skillRegistry,
-            skillExecutor = skillExecutor,
-            quickIntentRouter = quickIntentRouter,
-            slotFillerManager = slotFillerManager,
-            kernelAIToolSet = kernelAIToolSet,
-            toolProvider = toolProvider,
-            embeddingEngine = embeddingEngine,
-            voiceInputController = voiceInputController,
-            voiceOutputController = voiceOutputController,
-            voiceOutputPreferences = voiceOutputPreferences,
-            jandalPersona = jandalPersona,
-            nzTruthSeedingService = nzTruthSeedingService,
-            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        val viewModel = ChatViewModel(savedStateHandle = savedStateHandle,
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
         )
 
         advanceUntilIdle()
@@ -264,29 +273,30 @@ class ChatViewModelInitTest {
         every { quickIntentRouter.route("and bred to my last") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "and bred to my last")
 
-        val viewModel = ChatViewModel(
-            savedStateHandle = SavedStateHandle(mapOf("minimalContext" to true)),
-            inferenceEngine = inferenceEngine,
-            downloadManager = downloadManager,
-            conversationRepository = conversationRepository,
-            ragRepository = ragRepository,
-            userProfileRepository = userProfileRepository,
-            memoryRepository = memoryRepository,
-            episodicDistillationUseCase = episodicDistillationUseCase,
-            modelSettingsRepository = modelSettingsRepository,
-            skillRegistry = skillRegistry,
-            skillExecutor = skillExecutor,
-            quickIntentRouter = quickIntentRouter,
-            slotFillerManager = slotFillerManager,
-            kernelAIToolSet = kernelAIToolSet,
-            toolProvider = toolProvider,
-            embeddingEngine = embeddingEngine,
-            voiceInputController = voiceInputController,
-            voiceOutputController = voiceOutputController,
-            voiceOutputPreferences = voiceOutputPreferences,
-            jandalPersona = jandalPersona,
-            nzTruthSeedingService = nzTruthSeedingService,
-            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("minimalContext" to true)),
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
         )
 
         advanceUntilIdle()
@@ -311,29 +321,30 @@ class ChatViewModelInitTest {
             ),
         )
 
-        val viewModel = ChatViewModel(
-            savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
-            inferenceEngine = inferenceEngine,
-            downloadManager = downloadManager,
-            conversationRepository = conversationRepository,
-            ragRepository = ragRepository,
-            userProfileRepository = userProfileRepository,
-            memoryRepository = memoryRepository,
-            episodicDistillationUseCase = episodicDistillationUseCase,
-            modelSettingsRepository = modelSettingsRepository,
-            skillRegistry = skillRegistry,
-            skillExecutor = skillExecutor,
-            quickIntentRouter = quickIntentRouter,
-            slotFillerManager = slotFillerManager,
-            kernelAIToolSet = kernelAIToolSet,
-            toolProvider = toolProvider,
-            embeddingEngine = embeddingEngine,
-            voiceInputController = voiceInputController,
-            voiceOutputController = voiceOutputController,
-            voiceOutputPreferences = voiceOutputPreferences,
-            jandalPersona = jandalPersona,
-            nzTruthSeedingService = nzTruthSeedingService,
-            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
         )
 
         advanceUntilIdle()
@@ -374,29 +385,30 @@ class ChatViewModelInitTest {
                 "minimalContext" to true,
             ),
         )
-        val viewModel = ChatViewModel(
-            savedStateHandle = savedStateHandle,
-            inferenceEngine = inferenceEngine,
-            downloadManager = downloadManager,
-            conversationRepository = conversationRepository,
-            ragRepository = ragRepository,
-            userProfileRepository = userProfileRepository,
-            memoryRepository = memoryRepository,
-            episodicDistillationUseCase = episodicDistillationUseCase,
-            modelSettingsRepository = modelSettingsRepository,
-            skillRegistry = skillRegistry,
-            skillExecutor = skillExecutor,
-            quickIntentRouter = quickIntentRouter,
-            slotFillerManager = slotFillerManager,
-            kernelAIToolSet = kernelAIToolSet,
-            toolProvider = toolProvider,
-            embeddingEngine = embeddingEngine,
-            voiceInputController = voiceInputController,
-            voiceOutputController = voiceOutputController,
-            voiceOutputPreferences = voiceOutputPreferences,
-            jandalPersona = jandalPersona,
-            nzTruthSeedingService = nzTruthSeedingService,
-            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        val viewModel = ChatViewModel(savedStateHandle = savedStateHandle,
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
         )
 
         advanceUntilIdle()
@@ -428,29 +440,30 @@ class ChatViewModelInitTest {
             listOf("user-msg-id", "assistant-msg-id")
         every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(input = "hello")
 
-        val viewModel = ChatViewModel(
-            savedStateHandle = SavedStateHandle(),
-            inferenceEngine = inferenceEngine,
-            downloadManager = downloadManager,
-            conversationRepository = conversationRepository,
-            ragRepository = ragRepository,
-            userProfileRepository = userProfileRepository,
-            memoryRepository = memoryRepository,
-            episodicDistillationUseCase = episodicDistillationUseCase,
-            modelSettingsRepository = modelSettingsRepository,
-            skillRegistry = skillRegistry,
-            skillExecutor = skillExecutor,
-            quickIntentRouter = quickIntentRouter,
-            slotFillerManager = slotFillerManager,
-            kernelAIToolSet = kernelAIToolSet,
-            toolProvider = toolProvider,
-            embeddingEngine = embeddingEngine,
-            voiceInputController = voiceInputController,
-            voiceOutputController = voiceOutputController,
-            voiceOutputPreferences = voiceOutputPreferences,
-            jandalPersona = jandalPersona,
-            nzTruthSeedingService = nzTruthSeedingService,
-            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(),
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
         )
         advanceUntilIdle()
 
@@ -478,29 +491,30 @@ class ChatViewModelInitTest {
             listOf("user-msg-id", "assistant-fallback-id")
         every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(input = "hello")
 
-        val viewModel = ChatViewModel(
-            savedStateHandle = SavedStateHandle(),
-            inferenceEngine = inferenceEngine,
-            downloadManager = downloadManager,
-            conversationRepository = conversationRepository,
-            ragRepository = ragRepository,
-            userProfileRepository = userProfileRepository,
-            memoryRepository = memoryRepository,
-            episodicDistillationUseCase = episodicDistillationUseCase,
-            modelSettingsRepository = modelSettingsRepository,
-            skillRegistry = skillRegistry,
-            skillExecutor = skillExecutor,
-            quickIntentRouter = quickIntentRouter,
-            slotFillerManager = slotFillerManager,
-            kernelAIToolSet = kernelAIToolSet,
-            toolProvider = toolProvider,
-            embeddingEngine = embeddingEngine,
-            voiceInputController = voiceInputController,
-            voiceOutputController = voiceOutputController,
-            voiceOutputPreferences = voiceOutputPreferences,
-            jandalPersona = jandalPersona,
-            nzTruthSeedingService = nzTruthSeedingService,
-            verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(),
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
         )
         advanceUntilIdle()
 

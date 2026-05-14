@@ -1728,6 +1728,27 @@ class ActionsViewModelVoiceTest {
             coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
         }
 
+    @Test
+    fun `meal planner quick action handoff navigates to chat instead of run intent`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("let's plan meals") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent("start_meal_planner", emptyMap()),
+            )
+
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        val job = launch { viewModel.events.collect { events.add(it) } }
+
+        viewModel.executeAction("let's plan meals", InputMode.Voice)
+        advanceUntilIdle()
+        job.cancel()
+
+        val nav = events.filterIsInstance<ActionsViewModel.UiEvent.NavigateToChat>().first()
+        assertEquals("let's plan meals", nav.query)
+        assertEquals(true, nav.speakResponse)
+        coVerify(exactly = 0) { quickActionDao.insert(match { it.skillName == "start_meal_planner" }) }
+        verify(exactly = 0) { skillRegistry.get("run_intent") }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // #832 — voice fallthrough NavigateToChat speakResponse handoff
     // ─────────────────────────────────────────────────────────────────────────

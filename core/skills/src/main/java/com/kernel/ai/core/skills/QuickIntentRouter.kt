@@ -2853,6 +2853,30 @@ class QuickIntentRouter(
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
             requiredSlots = slotContract("create_list"),
         ),
+        IntentPattern(
+            intentName = "start_meal_planner",
+            regex = Regex(
+                """^(?:(?:let'?s|lets|can\s+you|help\s+me|i\s+(?:want|need|would\s+like)\s+to)\s+)?(?:plan|make|create)\s+(?:some\s+)?meals?(?:\s+for\s+me)?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "start_meal_planner",
+            regex = Regex(
+                """^(?:(?:let'?s|lets)\s+)?(?:plan|make|create)\s+(?:a\s+)?meal\s+plan(?:\s+for\s+me)?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "start_meal_planner",
+            regex = Regex(
+                """^(?:meal\s+planning|plan\s+my\s+meals|help\s+me\s+plan\s+meals)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
         // ── Important Dates ──
         IntentPattern(
             intentName = "list_important_dates",
