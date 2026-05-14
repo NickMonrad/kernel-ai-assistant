@@ -28,11 +28,19 @@ class VoiceCommandHandler @Inject constructor(
         when (val result = quickIntentRouter.route(transcript)) {
             is QuickIntentRouter.RouteResult.RegexMatch -> {
                 Log.d(TAG, "VoiceCommandHandler: RegexMatch → ${result.intent.intentName}")
-                executeIntentInPlace(transcript, result.intent.intentName, result.intent.params)
+                if (result.intent.intentName == "start_meal_planner") {
+                    navigator.navigateToChat(context, transcript)
+                } else {
+                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params)
+                }
             }
             is QuickIntentRouter.RouteResult.ClassifierMatch -> {
                 Log.d(TAG, "VoiceCommandHandler: ClassifierMatch → ${result.intent.intentName} (${result.confidence})")
-                executeIntentInPlace(transcript, result.intent.intentName, result.intent.params)
+                if (result.intent.intentName == "start_meal_planner") {
+                    navigator.navigateToChat(context, transcript)
+                } else {
+                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params)
+                }
             }
             is QuickIntentRouter.RouteResult.NeedsSlot -> {
                 Log.d(TAG, "VoiceCommandHandler: NeedsSlot → opening ActionsScreen")

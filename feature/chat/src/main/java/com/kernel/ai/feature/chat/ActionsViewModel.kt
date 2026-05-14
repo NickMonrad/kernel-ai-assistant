@@ -508,24 +508,32 @@ class ActionsViewModel @Inject constructor(
                         )
                     }
                     is QuickIntentRouter.RouteResult.RegexMatch -> {
-                        val result = executeIntent(
-                            query = normalizedQuery,
-                            intentName = routeResult.intent.intentName,
-                            params = routeResult.intent.params,
-                            inputMode = inputMode,
-                        )
-                        quickActionDao.insert(result.entity)
-                        speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary)
+                        if (routeResult.intent.intentName == "start_meal_planner") {
+                            handoffMealPlannerToChat(normalizedQuery, inputMode)
+                        } else {
+                            val result = executeIntent(
+                                query = normalizedQuery,
+                                intentName = routeResult.intent.intentName,
+                                params = routeResult.intent.params,
+                                inputMode = inputMode,
+                            )
+                            quickActionDao.insert(result.entity)
+                            speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary)
+                        }
                     }
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> {
-                        val result = executeIntent(
-                            query = normalizedQuery,
-                            intentName = routeResult.intent.intentName,
-                            params = routeResult.intent.params,
-                            inputMode = inputMode,
-                        )
-                        quickActionDao.insert(result.entity)
-                        speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary)
+                        if (routeResult.intent.intentName == "start_meal_planner") {
+                            handoffMealPlannerToChat(normalizedQuery, inputMode)
+                        } else {
+                            val result = executeIntent(
+                                query = normalizedQuery,
+                                intentName = routeResult.intent.intentName,
+                                params = routeResult.intent.params,
+                                inputMode = inputMode,
+                            )
+                            quickActionDao.insert(result.entity)
+                            speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -750,6 +758,18 @@ class ActionsViewModel @Inject constructor(
                 spokenSummary = null,
             )
         }
+    }
+
+    private suspend fun handoffMealPlannerToChat(query: String, inputMode: InputMode) {
+        val entity = QuickActionEntity(
+            userQuery = query,
+            skillName = "meal_planner_handoff",
+            resultText = "Opening Jandal for meal planning…",
+            isSuccess = true,
+        )
+        quickActionDao.insert(entity)
+        speakForVoice(inputMode, entity.resultText)
+        _events.emit(UiEvent.NavigateToChat(query, speakResponse = inputMode == InputMode.Voice))
     }
 
     private fun spokenSummaryFrom(result: SkillResult): String? = when (result) {

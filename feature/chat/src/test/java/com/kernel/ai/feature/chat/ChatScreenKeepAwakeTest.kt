@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.chat
 
 import com.kernel.ai.feature.chat.model.ChatUiState
+import com.kernel.ai.feature.chat.model.ChatMessage
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -87,6 +88,35 @@ class ChatScreenKeepAwakeTest {
     }
 
     @Test
+    fun `shows inline generation indicator for non streaming user initiated generation`() {
+        assertTrue(
+            shouldShowInlineGenerationIndicator(
+                readyState(
+                    isGenerating = true,
+                    messages = listOf(
+                        ChatMessage(id = "user-1", role = ChatMessage.Role.USER, content = "Low lactose, chicken and beef"),
+                    ),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `hides inline generation indicator when assistant already has streaming bubble`() {
+        assertFalse(
+            shouldShowInlineGenerationIndicator(
+                readyState(
+                    isGenerating = true,
+                    messages = listOf(
+                        ChatMessage(id = "user-1", role = ChatMessage.Role.USER, content = "Plan my meals"),
+                        ChatMessage(id = "assistant-1", role = ChatMessage.Role.ASSISTANT, content = "", isStreaming = true),
+                    ),
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun `does not keep screen awake when chat is idle`() {
         assertFalse(
             shouldKeepChatScreenAwake(
@@ -109,10 +139,11 @@ class ChatScreenKeepAwakeTest {
     private fun readyState(
         isGenerating: Boolean = false,
         isLoadingModel: Boolean = false,
+        messages: List<ChatMessage> = emptyList(),
     ) = ChatUiState.Ready(
         conversationId = "conv-1",
         conversationTitle = null,
-        messages = emptyList(),
+        messages = messages,
         isGenerating = isGenerating,
         isSpeakingResponse = false,
         inputText = "",

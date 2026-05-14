@@ -18,6 +18,7 @@ import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
+import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
@@ -29,6 +30,7 @@ import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
@@ -78,8 +80,10 @@ class ChatViewModelVoiceTest {
     private val ragRepository: RagRepository = mockk(relaxed = true)
     private val userProfileRepository: UserProfileRepository = mockk(relaxed = true)
     private val memoryRepository: MemoryRepository = mockk(relaxed = true)
+    private val mealPlanSessionRepository: MealPlanSessionRepository = mockk(relaxed = true)
     private val episodicDistillationUseCase: EpisodicDistillationUseCase = mockk(relaxed = true)
     private val modelSettingsRepository: ModelSettingsRepository = mockk(relaxed = true)
+    private val mealPlannerCoordinator: MealPlannerCoordinator = mockk(relaxed = true)
     private val skillRegistry: SkillRegistry = mockk(relaxed = true)
     private val skillExecutor: SkillExecutor = mockk(relaxed = true)
     private val quickIntentRouter: QuickIntentRouter = mockk(relaxed = true)
@@ -538,28 +542,29 @@ class ChatViewModelVoiceTest {
         assertTrue(viewModel.getConversationAsText().contains("You: what time is it"))
     }
 
-    private fun createViewModel(): ChatViewModel = ChatViewModel(
-        savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
-        inferenceEngine = inferenceEngine,
-        downloadManager = downloadManager,
-        conversationRepository = conversationRepository,
-        ragRepository = ragRepository,
-        userProfileRepository = userProfileRepository,
-        memoryRepository = memoryRepository,
-        episodicDistillationUseCase = episodicDistillationUseCase,
-        modelSettingsRepository = modelSettingsRepository,
-        skillRegistry = skillRegistry,
-        skillExecutor = skillExecutor,
-        quickIntentRouter = quickIntentRouter,
-        slotFillerManager = slotFillerManager,
-        kernelAIToolSet = kernelAIToolSet,
-        toolProvider = toolProvider,
-        embeddingEngine = embeddingEngine,
-        voiceInputController = voiceInputController,
-        voiceOutputController = voiceOutputController,
-        voiceOutputPreferences = voiceOutputPreferences,
-        jandalPersona = jandalPersona,
-        nzTruthSeedingService = nzTruthSeedingService,
-        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
-    )
+    private fun createViewModel(): ChatViewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+    inferenceEngine = inferenceEngine,
+    downloadManager = downloadManager,
+    conversationRepository = conversationRepository,
+    ragRepository = ragRepository,
+    userProfileRepository = userProfileRepository,
+    memoryRepository = memoryRepository,
+    episodicDistillationUseCase = episodicDistillationUseCase,
+    modelSettingsRepository = modelSettingsRepository,
+    skillRegistry = skillRegistry,
+    skillExecutor = skillExecutor,
+    quickIntentRouter = quickIntentRouter,
+    slotFillerManager = slotFillerManager,
+    kernelAIToolSet = kernelAIToolSet,
+    toolProvider = toolProvider,
+    embeddingEngine = embeddingEngine,
+    voiceInputController = voiceInputController,
+    voiceOutputController = voiceOutputController,
+    voiceOutputPreferences = voiceOutputPreferences,
+    jandalPersona = jandalPersona,
+    nzTruthSeedingService = nzTruthSeedingService,
+    verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+    mealPlanSessionRepository = mealPlanSessionRepository,
+    mealPlannerCoordinator = mealPlannerCoordinator,
+)
 }
