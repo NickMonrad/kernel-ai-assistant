@@ -52,7 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun ListsScreen(
     onBack: () -> Unit = {},
     onOpenList: (String) -> Unit = {},
-    onNavigateToActions: () -> Unit = {},
+    onNavigateToVoiceActions: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
 ) {
     val listNames by viewModel.listNames.collectAsStateWithLifecycle()
@@ -82,7 +82,7 @@ fun ListsScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 SmallFloatingActionButton(
-                    onClick = onNavigateToActions,
+                    onClick = onNavigateToVoiceActions,
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 ) {

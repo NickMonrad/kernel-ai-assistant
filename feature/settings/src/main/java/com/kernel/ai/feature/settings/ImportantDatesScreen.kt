@@ -82,7 +82,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ImportantDatesScreen(
     onBack: () -> Unit,
-    onNavigateToActions: () -> Unit = {},
+    onNavigateToVoiceActions: () -> Unit = {},
     viewModel: ImportantDatesViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -146,7 +146,7 @@ fun ImportantDatesScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 SmallFloatingActionButton(
-                    onClick = onNavigateToActions,
+                    onClick = onNavigateToVoiceActions,
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 ) {

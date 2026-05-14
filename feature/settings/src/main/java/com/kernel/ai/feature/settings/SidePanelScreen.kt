@@ -99,7 +99,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun SidePanelScreen(
     onBack: () -> Unit = {},
-    onNavigateToActions: () -> Unit = {},
+    onNavigateToVoiceActions: () -> Unit = {},
     viewModel: SidePanelViewModel = hiltViewModel(),
 ) {
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
@@ -199,7 +199,7 @@ fun SidePanelScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     SmallFloatingActionButton(
-                        onClick = onNavigateToActions,
+                        onClick = onNavigateToVoiceActions,
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                     ) {
