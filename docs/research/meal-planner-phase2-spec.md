@@ -1,7 +1,7 @@
 # Meal Planner Phase 2 — Progressive Reveal and Plan Approval Specification
 > **Issue:** [#869](https://github.com/NickMonrad/kernel-ai-assistant/issues/869)
 > **Depends on:** [#859](https://github.com/NickMonrad/kernel-ai-assistant/issues/859), PR #864
-> **Status:** Draft for product/UX review
+> **Status:** Draft with owner-approved product decisions
 > **Last updated:** 2026-05-14
 
 ---
@@ -298,21 +298,23 @@ Phase 2 does **not** include:
 
 ---
 
-## 12. Recommended defaults needing owner confirmation
+## 12. Locked product decisions
 
-These are the product decisions that should be confirmed before implementation starts:
+These product decisions are now locked for implementation planning:
 
-1. **Approval checkpoint default**
-   - recommended: require explicit `generate recipes` approval after the high-level plan is shown
+1. **Approval checkpoint**
+   - Phase 2 pauses after the high-level plan and requires explicit `generate recipes` approval before recipe generation starts.
 
-2. **Preference editing model**
-   - recommended: `change preferences` returns to slot collection and keeps already captured values editable instead of starting a brand-new session
+2. **Preference editing after plan review**
+   - `change preferences` returns to slot collection inside the same active meal-planner session.
+   - already captured values remain editable instead of forcing a brand-new session.
 
 3. **During-generation controls**
-   - recommended: allow `cancel` only while recipes are actively generating; defer `replace day N` / `regenerate day N` until the current loop stops or completes
+   - while recipes are actively generating, the only interactive control is `cancel`.
+   - `replace day N` / `regenerate day N` stay deferred until the run stops, fails, or completes.
 
 4. **Projection timing**
-   - recommended: update meal-plan projections incrementally after each successful day, not only at finalization
+   - meal-plan shopping and recipe projections update incrementally after each successful persisted day.
 
 5. **Background execution posture**
-   - recommended: design the recipe loop as resumable foreground-visible work rather than a chat-screen-only coroutine path
+   - the recipe loop should be implemented as resumable foreground-visible work rather than a chat-screen-only coroutine path.
