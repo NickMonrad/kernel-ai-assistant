@@ -70,7 +70,7 @@ import java.time.ZoneId
 @Composable
 fun ConvertScreen(
     onBack: () -> Unit = {},
-    onNavigateToActions: () -> Unit = {},
+    onNavigateToVoiceActions: () -> Unit = {},
     viewModel: ConvertViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -150,7 +150,7 @@ fun ConvertScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = onNavigateToActions,
+                onClick = onNavigateToVoiceActions,
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ) {

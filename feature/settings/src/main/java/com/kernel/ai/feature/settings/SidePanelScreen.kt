@@ -39,6 +39,7 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -194,31 +195,49 @@ fun SidePanelScreen(
         },
         floatingActionButton = {
             if (!isInSelectionMode) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    SmallFloatingActionButton(
+                when (selectedTab) {
+                    ClockSurfaceTab.ALARMS -> Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        SmallFloatingActionButton(
+                            onClick = onNavigateToVoiceActions,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice input")
+                        }
+                        ExtendedFloatingActionButton(
+                            text = { Text("New Alarm") },
+                            icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
+                            onClick = { showCreateAlarmDialog = true },
+                        )
+                    }
+
+                    ClockSurfaceTab.WORLD_CLOCK -> Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        SmallFloatingActionButton(
+                            onClick = onNavigateToVoiceActions,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice input")
+                        }
+                        ExtendedFloatingActionButton(
+                            text = { Text("Add City") },
+                            icon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
+                            onClick = { showAddWorldClockDialog = true },
+                        )
+                    }
+
+                    ClockSurfaceTab.TIMERS, ClockSurfaceTab.STOPWATCH -> FloatingActionButton(
                         onClick = onNavigateToVoiceActions,
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                     ) {
                         Icon(Icons.Default.Mic, contentDescription = "Voice input")
-                    }
-                    when (selectedTab) {
-                        ClockSurfaceTab.ALARMS -> ExtendedFloatingActionButton(
-                            text = { Text("New Alarm") },
-                            icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
-                            onClick = { showCreateAlarmDialog = true },
-                        )
-
-                        ClockSurfaceTab.WORLD_CLOCK -> ExtendedFloatingActionButton(
-                            text = { Text("Add City") },
-                            icon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
-                            onClick = { showAddWorldClockDialog = true },
-                        )
-
-                        ClockSurfaceTab.TIMERS, ClockSurfaceTab.STOPWATCH -> Unit
                     }
                 }
             }

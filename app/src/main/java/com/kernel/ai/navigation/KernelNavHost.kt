@@ -472,7 +472,10 @@ fun KernelNavHost(
                     ImportantDatesScreen(
                         onBack = { navController.popBackStack() },
                         onNavigateToVoiceActions = {
-                            navController.navigate(ROUTE_ACTIONS_VOICE) { launchSingleTop = true }
+                            navController.navigate(ROUTE_ACTIONS_VOICE) {
+                                popUpTo(ROUTE_LIST) { saveState = true }
+                                launchSingleTop = true
+                            }
                         },
                     )
                 }
@@ -525,7 +528,10 @@ fun KernelNavHost(
                     SidePanelScreen(
                         onBack = { navController.popBackStack() },
                         onNavigateToVoiceActions = {
-                            navController.navigate(ROUTE_ACTIONS_VOICE) { launchSingleTop = true }
+                            navController.navigate(ROUTE_ACTIONS_VOICE) {
+                                popUpTo(ROUTE_LIST) { saveState = true }
+                                launchSingleTop = true
+                            }
                         },
                     )
                 }
@@ -534,7 +540,10 @@ fun KernelNavHost(
                     SidePanelScreen(
                         onBack = { navController.popBackStack() },
                         onNavigateToVoiceActions = {
-                            navController.navigate(ROUTE_ACTIONS_VOICE) { launchSingleTop = true }
+                            navController.navigate(ROUTE_ACTIONS_VOICE) {
+                                popUpTo(ROUTE_LIST) { saveState = true }
+                                launchSingleTop = true
+                            }
                         },
                     )
                 }
@@ -546,7 +555,10 @@ fun KernelNavHost(
                             navController.navigate("lists/${android.net.Uri.encode(listName)}")
                         },
                         onNavigateToVoiceActions = {
-                            navController.navigate(ROUTE_ACTIONS_VOICE) { launchSingleTop = true }
+                            navController.navigate(ROUTE_ACTIONS_VOICE) {
+                                popUpTo(ROUTE_LIST) { saveState = true }
+                                launchSingleTop = true
+                            }
                         },
                     )
                 }
@@ -560,13 +572,24 @@ fun KernelNavHost(
                     ListItemsScreen(
                         listName = listName,
                         onBack = { navController.popBackStack() },
+                        onNavigateToVoiceActions = {
+                            navController.navigate(ROUTE_ACTIONS_VOICE) {
+                                popUpTo(ROUTE_LIST) { saveState = true }
+                                launchSingleTop = true
+                            }
+                        },
                     )
                 }
 
                 composable(ROUTE_CONVERT) {
                     ConvertScreen(
                         onBack = { navController.popBackStack() },
-                        onNavigateToActions = { navController.navigate(ROUTE_ACTIONS) },
+                        onNavigateToVoiceActions = {
+                            navController.navigate(ROUTE_ACTIONS_VOICE) {
+                                popUpTo(ROUTE_LIST) { saveState = true }
+                                launchSingleTop = true
+                            }
+                        },
                     )
                 }
             }
