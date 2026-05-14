@@ -120,6 +120,7 @@ class MealPlannerCoordinator @Inject constructor(
                 prompt = buildPlanUserPrompt(snapshot),
                 systemPrompt = buildPlanSystemPrompt(),
                 thinkingEnabled = false,
+                stopOnFirstJsonObject = true,
             )
             if (rawPlan.isBlank()) {
                 sessionRepository.markGenerationFailure(
@@ -197,6 +198,7 @@ class MealPlannerCoordinator @Inject constructor(
             prompt = buildRecipeUserPrompt(snapshot, dayIndex),
             systemPrompt = buildRecipeSystemPrompt(),
             thinkingEnabled = false,
+            stopOnFirstJsonObject = true,
         )
         if (rawRecipe.isBlank()) {
             sessionRepository.markGenerationFailure(
@@ -236,6 +238,7 @@ class MealPlannerCoordinator @Inject constructor(
                 prompt = buildReplacementDayUserPrompt(snapshot, dayIndex),
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
                 thinkingEnabled = false,
+                stopOnFirstJsonObject = true,
             )
             if (raw.isBlank()) {
                 throw MealPlanValidationException("The model didn't return a replacement day.")

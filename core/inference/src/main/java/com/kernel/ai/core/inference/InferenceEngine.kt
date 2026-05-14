@@ -66,6 +66,9 @@ interface InferenceEngine {
      * @param thinkingEnabled Optional override for the isolated conversation's thinking
      *   channel. Pass false for bounded JSON generation paths that should skip reasoning
      *   tokens and respond directly.
+     * @param stopOnFirstJsonObject When true, isolated generation returns as soon as a
+     *   complete top-level JSON object has been streamed, without waiting for EOS.
+     *   Use this for strict JSON contracts where trailing chatter is invalid.
      *
      * Blocks until generation completes. Returns an empty string on error.
      */
@@ -73,6 +76,7 @@ interface InferenceEngine {
         prompt: String,
         systemPrompt: String? = null,
         thinkingEnabled: Boolean? = null,
+        stopOnFirstJsonObject: Boolean = false,
     ): String
 
     /**

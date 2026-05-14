@@ -40,6 +40,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
+import org.json.JSONException
+import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -72,6 +74,70 @@ internal fun resolveSpeculativeDecodingForInit(
 
 private fun modelSupportsSpeculativeDecoding(modelPath: String): Boolean =
     Capabilities(modelPath).use { it.hasSpeculativeDecodingSupport() }
+
+internal fun isValidJsonObject(raw: String): Boolean =
+    try {
+        JSONObject(raw)
+        true
+    } catch (_: JSONException) {
+        false
+    }
+
+internal class JsonObjectAccumulator(
+    private val validator: (String) -> Boolean = ::isValidJsonObject,
+) {
+    private val buffer = StringBuilder()
+    private var started = false
+    private var depth = 0
+    private var insideString = false
+    private var escaping = false
+    private var completedJson: String? = null
+
+    fun append(chunk: String): String? {
+        completedJson?.let { return it }
+        for (ch in chunk) {
+            if (!started) {
+                if (ch.isWhitespace()) continue
+                if (ch != '{') continue
+                started = true
+                depth = 1
+                buffer.append(ch)
+                continue
+            }
+
+            buffer.append(ch)
+
+            if (escaping) {
+                escaping = false
+                continue
+            }
+            if (insideString && ch == '\\') {
+                escaping = true
+                continue
+            }
+            if (ch == '"') {
+                insideString = !insideString
+                continue
+            }
+            if (insideString) continue
+
+            when (ch) {
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) {
+                        val candidate = buffer.toString()
+                        if (validator(candidate)) {
+                            completedJson = candidate
+                            return candidate
+                        }
+                    }
+                }
+            }
+        }
+        return null
+    }
+}
 
 /**
  * LiteRT-LM implementation of [InferenceEngine].
@@ -380,6 +446,7 @@ class LiteRtInferenceEngine @Inject constructor(
         prompt: String,
         systemPrompt: String?,
         thinkingEnabled: Boolean?,
+        stopOnFirstJsonObject: Boolean,
     ): String = withContext(LlmDispatcher) {
         val config = currentConfig ?: return@withContext ""
         val requestedSystemPrompt = systemPrompt?.takeIf { it.isNotBlank() }
@@ -415,28 +482,44 @@ class LiteRtInferenceEngine @Inject constructor(
             _isGenerating.value = true
             InferenceGenerationService.start(context)
             try {
-                val sb = StringBuilder()
-                val latch = CompletableDeferred<Unit>()
+                val response = StringBuilder()
+                val jsonAccumulator = if (stopOnFirstJsonObject) JsonObjectAccumulator() else null
+                val latch = CompletableDeferred<String>()
+                val finished = AtomicBoolean(false)
                 conv.sendMessageAsync(
                     Contents.of(Content.Text(prompt)),
                     object : MessageCallback {
                         override fun onMessage(message: Message) {
+                            if (finished.get()) return
                             val text = message.toString()
-                            if (text.isNotEmpty() && !text.startsWith("<ctrl")) sb.append(text)
+                            if (text.isEmpty() || text.startsWith("<ctrl")) return
+                            response.append(text)
+                            val completedJson = jsonAccumulator?.append(text)
+                            if (completedJson != null && finished.compareAndSet(false, true)) {
+                                latch.complete(completedJson)
+                                try {
+                                    conv.cancelProcess()
+                                } catch (cancelError: Exception) {
+                                    Log.d(TAG, "generateOnce: cancelProcess failed after JSON completion — ignoring", cancelError)
+                                }
+                            }
                         }
 
                         override fun onDone() {
-                            latch.complete(Unit)
+                            if (finished.compareAndSet(false, true)) {
+                                latch.complete(response.toString())
+                            }
                         }
 
                         override fun onError(throwable: Throwable) {
-                            latch.completeExceptionally(throwable)
+                            if (finished.compareAndSet(false, true)) {
+                                latch.completeExceptionally(throwable)
+                            }
                         }
                     },
                 )
                 try {
                     withTimeout(timeoutMs) { latch.await() }
-                    sb.toString()
                 } catch (e: TimeoutCancellationException) {
                     try {
                         conv.cancelProcess()

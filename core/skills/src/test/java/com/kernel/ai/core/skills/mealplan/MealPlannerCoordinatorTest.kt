@@ -73,7 +73,7 @@ class MealPlannerCoordinatorTest {
         } returns ready
         coEvery { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) } returns Unit
         coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns ready
-        coEvery { inferenceEngine.generateOnce(any(), any(), false) } coAnswers {
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } coAnswers {
             started.complete(Unit)
             release.await()
             ""
@@ -110,7 +110,7 @@ class MealPlannerCoordinatorTest {
         } returns ready
         coEvery { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) } returns Unit
         coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns ready
-        coEvery { inferenceEngine.generateOnce(any(), any(), false) } returns ""
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns ""
 
         val reply = coordinator.ingestUserMessage("conv", "low lactose, chicken")
 
@@ -142,12 +142,12 @@ class MealPlannerCoordinatorTest {
         coEvery { sessionRepository.getActiveSession("conv") } returns failed
         coEvery { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.RECIPE, 0) } returns Unit
         coEvery { sessionRepository.markGenerationFailure("session-1", 0, "RECIPE_NO_OUTPUT", "The model did not return a recipe.") } returns failed
-        coEvery { inferenceEngine.generateOnce(any(), any(), false) } returns ""
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns ""
 
         val reply = coordinator.ingestUserMessage("conv", "regenerate day 1")
 
         assertTrue(reply.content.contains("didn't return a recipe", ignoreCase = true))
-        coVerify(exactly = 1) { inferenceEngine.generateOnce(any(), any(), false) }
+        coVerify(exactly = 1) { inferenceEngine.generateOnce(any(), any(), false, true) }
     }
 
     @Test
