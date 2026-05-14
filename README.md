@@ -76,9 +76,11 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 |- 🔒 **Blank response guard** — retries without RAG before showing fallback when LiteRT produces 0 tokens; keeps chat awake during load and generation (#839/#841, PRs #840/#842)
 |- 🎙️ **Homescreen Glance widget** — quick actions and voice from the launcher via GlanceAppWidget; VoiceCommandActivity and WidgetTextInputActivity with task isolation (#617, PR #847)
 |- 🔧 **Audio quality fixes** — AudioTrack tail cutoff prevention via hardware-latency silence padding; expectedSlotPromptSpeech normalisation to match TTS output; SID=0 clamp for single-speaker voices; aye pronunciation correction (#837/#828/#810, PRs #838/#836/#811)
+- 🍽️ **Deterministic meal planner foundation** — app-owned meal-planning sessions with bounded JSON generation, per-day recipe persistence, shopping-list projection, quantity sanity validation, and quick-action/chat handoff (#859, PR #864)
 
 ### Coming Soon
 - 💬 **Expanded multi-turn dialog** — broader confirmation, digression, and slot-filling coverage across more intents *(Phase 3G, #708 and follow-ups)*
+- 🍽️ **Meal planner phase 2** — progressive day-by-day reveal, visible `x of y` generation progress, and interruption-safe resume/background handling *(#869)*
 - 🗒️ **Lists — management upgrades** — rename, pin, sort, edit items, favorites, and due dates *(#662)*
 - ⏰ **Alarms CRUD UI** — create, edit, and toggle alarms directly from the Alarms screen *(Phase 3, #479)*
 - 🌙 **Dreaming Engine** — overnight WorkManager consolidation (Light Sleep → REM → Deep Sleep) *(Phase 4)*

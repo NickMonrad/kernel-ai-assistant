@@ -116,3 +116,5 @@ Current phase summary:
 4. **Phase 4 ⬜:** Dreaming Engine — overnight consolidation, semantic cache, and self-healing identity.
 5. **Phase 5 ⬜:** Chicory Wasm Runtime + GitHub-based Skill Store.
 6. **Phase 6 ⬜:** 8GB device optimisation and compatibility-tier loading strategy.
+
+Phase 3 also now includes the merged deterministic meal-planner foundation from [#859](https://github.com/NickMonrad/kernel-ai-assistant/issues/859) / PR #864. The next planned meal-planner slice is [#869](https://github.com/NickMonrad/kernel-ai-assistant/issues/869): progressive reveal, explicit progress, and interruption-safe generation on top of the existing app-owned state machine.
