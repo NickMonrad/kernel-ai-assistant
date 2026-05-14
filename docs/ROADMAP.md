@@ -214,7 +214,7 @@ Active follow-on model/runtime investigations now live under
 | [#676](https://github.com/NickMonrad/kernel-ai-assistant/issues/676) | Native unit conversion tool | ✅ Done — PR #816 | 🟡 Medium |
 | [#677](https://github.com/NickMonrad/kernel-ai-assistant/issues/677) | World clock and timezone lookup | ✅ Done — PR #743 | 🟢 Low |
 | [#697](https://github.com/NickMonrad/kernel-ai-assistant/issues/697) | Multi-day weather forecast card in chat | ✅ Done — PR #710 | 🟡 Medium |
-| [#827](https://github.com/NickMonrad/kernel-ai-assistant/issues/827) | Cooking weights and measures for meal planning | 🔄 In progress | 🟡 Medium |
+| [#827](https://github.com/NickMonrad/kernel-ai-assistant/issues/827) | Cooking weights and measures for meal planning | ✅ Done — PR #855 | 🟡 Medium |
 | [#831](https://github.com/NickMonrad/kernel-ai-assistant/issues/831) | Deterministic currency conversion skill | ✅ Done — PR #848 | 🟡 Medium |
 
 **Already completed skills:**
@@ -355,6 +355,25 @@ Deterministic multi-turn quick actions — slot filling and confirmation baselin
 | Sub-Issue | Title | Status | Priority |
 |-----------|-------|--------|----------|
 | [#521](https://github.com/NickMonrad/kernel-ai-assistant/issues/521) | Add media control intents: pause, stop, skip, previous | ✅ Done | 🟡 Medium |
+
+
+### 3I: Meal Planning Roadmap ([#826](https://github.com/NickMonrad/kernel-ai-assistant/issues/826))
+
+Deterministic meal planning now has its v1 foundation merged. The next phases are deliberately split so UX/resiliency work, durable artifact expansion, and recipe grounding can evolve independently without reopening the prompt-heavy architecture that #859 replaced.
+
+| Sub-Issue | Title | Status | Priority |
+|-----------|-------|--------|----------|
+| [#827](https://github.com/NickMonrad/kernel-ai-assistant/issues/827) | Cooking weights and measures for meal planning | ✅ Done — PR #855 | 🟡 Medium |
+| [#859](https://github.com/NickMonrad/kernel-ai-assistant/issues/859) | Deterministic meal planner foundation | ✅ Done — PR #864 | 🔴 High |
+| [#869](https://github.com/NickMonrad/kernel-ai-assistant/issues/869) | Meal planner phase 2 — progressive reveal + interruption-safe generation | ⬜ Pending | 🔴 High |
+| [#235](https://github.com/NickMonrad/kernel-ai-assistant/issues/235) | Artifact entity — persistent structured documents in Room DB | ⬜ Pending | 🟡 Medium |
+| [#43](https://github.com/NickMonrad/kernel-ai-assistant/issues/43) | Recipe skill datasources & regional produce | ⬜ Pending | 🟢 Low |
+
+**Current state after PR #864:**
+
+- Shipped: app-owned meal-planner session/day/recipe/grocery tables, bounded JSON generation, quantity sanity validation, deterministic shopping/recipe projections, and quick-action/widget handoff into chat.
+- Next UX gap: longer multi-day plans still complete as one long foreground experience; users need progressive day-by-day reveal, explicit `Generating recipe x of y` feedback, and clean resume after interruption/backgrounding (#869).
+- Later platform/data phases stay separate by design: #235 expands durable structured artifacts; #43 adds recipe grounding and regional produce data.
 
 ---
 
