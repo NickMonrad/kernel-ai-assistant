@@ -61,18 +61,35 @@ class MealPlanJsonParser @Inject constructor() {
             throw MealPlanValidationException("Recipe JSON must contain at least one ingredient.")
         }
         val ingredients = List(ingredientsArray.length()) { index ->
-            val item = ingredientsArray.getJSONObject(index)
-            val originalText = item.optString("original_text").trim()
-            if (originalText.isBlank()) {
-                throw MealPlanValidationException("Each ingredient must include original_text.")
+            when (val item = ingredientsArray.get(index)) {
+                is JSONObject -> {
+                    val originalText = item.optString("original_text").trim()
+                    if (originalText.isBlank()) {
+                        throw MealPlanValidationException("Each ingredient must include original_text.")
+                    }
+                    RecipeDraftIngredient(
+                        originalText = originalText,
+                        amount = item.optNullableString("amount"),
+                        unit = item.optNullableString("unit"),
+                        item = item.optNullableString("item"),
+                        note = item.optNullableString("note"),
+                    )
+                }
+                is String -> {
+                    val originalText = item.trim()
+                    if (originalText.isBlank()) {
+                        throw MealPlanValidationException("Each ingredient string must be non-blank.")
+                    }
+                    RecipeDraftIngredient(
+                        originalText = originalText,
+                        amount = null,
+                        unit = null,
+                        item = null,
+                        note = null,
+                    )
+                }
+                else -> throw MealPlanValidationException("Recipe ingredients must be objects or strings.")
             }
-            RecipeDraftIngredient(
-                originalText = originalText,
-                amount = item.optNullableString("amount"),
-                unit = item.optNullableString("unit"),
-                item = item.optNullableString("item"),
-                note = item.optNullableString("note"),
-            )
         }
         val methodArray = obj.optJSONArray("method_steps")
             ?: throw MealPlanValidationException("Recipe JSON must include a method_steps array.")
@@ -80,13 +97,24 @@ class MealPlanJsonParser @Inject constructor() {
             throw MealPlanValidationException("Recipe JSON must contain at least two method steps.")
         }
         val methodSteps = List(methodArray.length()) { index ->
-            val item = methodArray.getJSONObject(index)
-            val number = item.optInt("step_number", index + 1)
-            val text = item.optString("text").trim()
-            if (text.isBlank()) {
-                throw MealPlanValidationException("Each method step must include text.")
+            when (val item = methodArray.get(index)) {
+                is JSONObject -> {
+                    val number = item.optInt("step_number", index + 1)
+                    val text = item.optString("text").trim()
+                    if (text.isBlank()) {
+                        throw MealPlanValidationException("Each method step must include text.")
+                    }
+                    RecipeDraftMethodStep(number, text)
+                }
+                is String -> {
+                    val text = item.trim()
+                    if (text.isBlank()) {
+                        throw MealPlanValidationException("Each method step string must be non-blank.")
+                    }
+                    RecipeDraftMethodStep(index + 1, text)
+                }
+                else -> throw MealPlanValidationException("Recipe method steps must be objects or strings.")
             }
-            RecipeDraftMethodStep(number, text)
         }
         val expectedStepNumbers = (1..methodSteps.size).toList()
         val actualStepNumbers = methodSteps.map { it.stepNumber }

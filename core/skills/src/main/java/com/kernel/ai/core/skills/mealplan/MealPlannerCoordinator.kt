@@ -405,27 +405,22 @@ Output ONLY valid JSON with this exact shape:
   "title": "...",
   "servings": 4,
   "ingredients": [
-    {
-      "original_text": "500 g chicken breast, sliced",
-      "amount": "500",
-      "unit": "g",
-      "item": "chicken breast",
-      "note": "sliced"
-    }
+    "500 g chicken breast, sliced",
+    "1 tbsp olive oil"
   ],
   "method_steps": [
-    {
-      "step_number": 1,
-      "text": "..."
-    }
+    "Heat the oven to 220C.",
+    "Roast the chicken and vegetables until cooked through."
   ]
 }
 Rules:
 - output JSON only
 - servings must exactly match the requested value
+- keep the recipe compact: 6-8 ingredients and 3-5 method steps
 - keep ingredient quantities realistic for a household recipe
 - use metric-friendly units when certain
-- if a line is ambiguous but plausible, keep original_text and use null for amount/unit/item fields you are unsure about
+- every ingredient line must be a single concise string
+- every method step must be a single concise string with the action only
 - never emit absurd magnitudes such as thousands of kilograms, litres, or spoonfuls
 - do not emit markdown, commentary, or code fences
 """.trimIndent()
