@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -38,6 +39,8 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -97,6 +100,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun SidePanelScreen(
     onBack: () -> Unit = {},
+    onNavigateToVoiceActions: () -> Unit = {},
     viewModel: SidePanelViewModel = hiltViewModel(),
 ) {
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
@@ -192,19 +196,49 @@ fun SidePanelScreen(
         floatingActionButton = {
             if (!isInSelectionMode) {
                 when (selectedTab) {
-                    ClockSurfaceTab.ALARMS -> ExtendedFloatingActionButton(
-                        text = { Text("New Alarm") },
-                        icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
-                        onClick = { showCreateAlarmDialog = true },
-                    )
+                    ClockSurfaceTab.ALARMS -> Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        SmallFloatingActionButton(
+                            onClick = onNavigateToVoiceActions,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice input")
+                        }
+                        ExtendedFloatingActionButton(
+                            text = { Text("New Alarm") },
+                            icon = { Icon(Icons.Default.Alarm, contentDescription = null) },
+                            onClick = { showCreateAlarmDialog = true },
+                        )
+                    }
 
-                    ClockSurfaceTab.WORLD_CLOCK -> ExtendedFloatingActionButton(
-                        text = { Text("Add City") },
-                        icon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
-                        onClick = { showAddWorldClockDialog = true },
-                    )
+                    ClockSurfaceTab.WORLD_CLOCK -> Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        SmallFloatingActionButton(
+                            onClick = onNavigateToVoiceActions,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice input")
+                        }
+                        ExtendedFloatingActionButton(
+                            text = { Text("Add City") },
+                            icon = { Icon(Icons.Default.AccessTime, contentDescription = null) },
+                            onClick = { showAddWorldClockDialog = true },
+                        )
+                    }
 
-                    ClockSurfaceTab.TIMERS, ClockSurfaceTab.STOPWATCH -> Unit
+                    ClockSurfaceTab.TIMERS, ClockSurfaceTab.STOPWATCH -> FloatingActionButton(
+                        onClick = onNavigateToVoiceActions,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = "Voice input")
+                    }
                 }
             }
         },
