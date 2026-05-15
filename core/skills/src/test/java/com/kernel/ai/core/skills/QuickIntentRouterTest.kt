@@ -1710,6 +1710,52 @@ class QuickIntentRouterTest {
             assertEquals(expectedLabel, needsSlot.intent.params["label"])
         }
 
+        @ParameterizedTest(name = "NeedsSlot save important date (no label): \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#importantDateSaveNeedsLabelPhrases")
+        fun `should return NeedsSlot for important date phrases where preposition is mistaken for label`(
+            input: String,
+            expectedDate: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+
+            assertEquals("save_important_date", needsSlot.intent.intentName)
+            assertEquals("label", needsSlot.missingSlot.name)
+            assertNull(needsSlot.intent.params["label"], "label should be absent for '$input'")
+            assertEquals(expectedDate, needsSlot.intent.params["date"], "date for '$input'")
+        }
+
+        @ParameterizedTest(name = "alias normalisation \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#importantDateAliasPhrases")
+        fun `should route favourite and special date aliases to save_important_date`(
+            input: String,
+            expectedLabel: String?,
+            expectedDate: String?,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            if (expectedLabel != null && expectedDate != null) {
+                val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+                assertEquals("save_important_date", match.intent.intentName)
+                assertEquals(expectedLabel, match.intent.params["label"], "label for '$input'")
+                assertEquals(expectedDate, match.intent.params["date"], "date for '$input'")
+            } else {
+                val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+                assertEquals("save_important_date", needsSlot.intent.intentName)
+            }
+        }
+
+        @Test
+        fun `alias normalisation does not corrupt labels that contain the aliased phrase`() {
+            // "favourite date movie" in the label must route to save_important_date with
+            // label="favourite date movie" — alias must NOT apply mid-sentence, so normalizer
+            // never sees "important date" and can't strip it to "movie".
+            val result = regexOnlyRouter.route("remember my favourite date movie is 25 December")
+            val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+            assertEquals("save_important_date", match.intent.intentName, "should still route to save_important_date")
+            assertEquals("favourite date movie", match.intent.params["label"], "label must not be corrupted to 'movie'")
+            assertEquals("25 December", match.intent.params["date"], "date extracted correctly")
+        }
+
         @Test
         fun `should match list important dates phrase`() {
             assertRegexMatch(regexOnlyRouter.route("list my important dates"), "list_important_dates", "list my important dates")
@@ -2982,6 +3028,27 @@ class QuickIntentRouterTest {
 
 
         @JvmStatic
+        fun importantDateAliasPhrases(): Stream<Arguments> = Stream.of(
+            // With label + date → RegexMatch
+            Arguments.of("save a favourite date for mum's birthday on 15 March", "mum's birthday", "15 March"),
+            Arguments.of("save my favorite date for our anniversary on 22 June 2018", "our anniversary", "22 June 2018"),
+            Arguments.of("add a special date for freya's birthday 22 August", "freya's birthday", "22 August"),
+            // Alias with no label → NeedsSlot(label)
+            Arguments.of("save a favourite date for 26th of June", null, null),
+            Arguments.of("save a favorite date for 15 March", null, null),
+            Arguments.of("add a special date for 22 August", null, null),
+            // Alias with date value directly (no "for") → NeedsSlot(label)
+            Arguments.of("save favourite date 22 August", null, null),
+            Arguments.of("add a special date 15 March", null, null),
+            // "day" synonym — full label+date (RegexMatch)
+            Arguments.of("save a favourite day for mum's birthday on 15 March", "mum's birthday", "15 March"),
+            Arguments.of("add a special day for freya's birthday 22 August", "freya's birthday", "22 August"),
+            // "day" synonym — date only (NeedsSlot)
+            Arguments.of("save favourite day 22 August", null, null),
+            Arguments.of("add a special day for 15 March", null, null),
+        )
+
+        @JvmStatic
         fun importantDateSaveRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("remember my mum's birthday is 15 March", "mum's birthday", "15 March"),
             Arguments.of("save our anniversary as 22 June 2018", "our anniversary", "22 June 2018"),
@@ -2998,6 +3065,32 @@ class QuickIntentRouterTest {
             Arguments.of("remember my mum's birthday", "mum's birthday"),
             Arguments.of("save our anniversary", "our anniversary"),
             Arguments.of("add important date freya's birthday", "freya's birthday"),
+        )
+
+        @JvmStatic
+        fun importantDateSaveNeedsLabelPhrases(): Stream<Arguments> = Stream.of(
+            // Preposition-only "label" should be stripped → NeedsSlot for label
+            Arguments.of("add important date on 26th of June", "26th of June"),
+            Arguments.of("add important date on the 26th of June", "26th of June"),
+            Arguments.of("add important date for 22 August", "22 August"),
+            Arguments.of("add important date for the 22 August", "22 August"),
+            Arguments.of("add an important date on 15 March", "15 March"),
+            // "on the" preposition after verb+date phrase
+            Arguments.of("save an important date on the 26th of June", "26th of June"),
+            // Reverse-order: <date> as important date — no label
+            Arguments.of("Save the 26th of June as an important date", "26th of June"),
+            Arguments.of("save 22 August as an important date", "22 August"),
+            Arguments.of("remember the 15th of March as an important date", "15th of March"),
+            // STT mishearing: "as" → "is"
+            Arguments.of("Save the 15th of March is an important date", "15th of March"),
+            Arguments.of("save 22 August is an important day", "22 August"),
+            // "special/favourite day" alias (day synonym)
+            Arguments.of("Save the 3rd of April as a special day", "3rd of April"),
+            Arguments.of("save 22 August as a favourite day", "22 August"),
+            Arguments.of("save 22 August as an important day", "22 August"),
+            // STT "is" combined with special/favourite day alias
+            Arguments.of("Save the 3rd of April is a special day", "3rd of April"),
+            Arguments.of("save 22 August is a favourite day", "22 August"),
         )
 
         @JvmStatic
