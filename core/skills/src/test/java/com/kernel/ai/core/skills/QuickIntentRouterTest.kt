@@ -3040,6 +3040,12 @@ class QuickIntentRouterTest {
             // Alias with date value directly (no "for") → NeedsSlot(label)
             Arguments.of("save favourite date 22 August", null, null),
             Arguments.of("add a special date 15 March", null, null),
+            // "day" synonym — full label+date (RegexMatch)
+            Arguments.of("save a favourite day for mum's birthday on 15 March", "mum's birthday", "15 March"),
+            Arguments.of("add a special day for freya's birthday 22 August", "freya's birthday", "22 August"),
+            // "day" synonym — date only (NeedsSlot)
+            Arguments.of("save favourite day 22 August", null, null),
+            Arguments.of("add a special day for 15 March", null, null),
         )
 
         @JvmStatic
@@ -3082,6 +3088,9 @@ class QuickIntentRouterTest {
             Arguments.of("Save the 3rd of April as a special day", "3rd of April"),
             Arguments.of("save 22 August as a favourite day", "22 August"),
             Arguments.of("save 22 August as an important day", "22 August"),
+            // STT "is" combined with special/favourite day alias
+            Arguments.of("Save the 3rd of April is a special day", "3rd of April"),
+            Arguments.of("save 22 August is a favourite day", "22 August"),
         )
 
         @JvmStatic
