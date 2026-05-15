@@ -78,6 +78,11 @@ class QuickIntentRouter(
         RegexOption.IGNORE_CASE,
     )
 
+    private val IMPORTANT_DATE_ALIAS_RE = Regex(
+        """(?:favourite|favorite|special)\s+(?:date|day)(?=\s+for\b|\s+\d|\s+[A-Za-z]{3,}\s+\d|\s*$)""",
+        RegexOption.IGNORE_CASE,
+    )
+
     private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
         "make_call" to mapOf(
             "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
@@ -184,8 +189,10 @@ class QuickIntentRouter(
 
     private fun normalizeImportantDateLabel(raw: String): String = raw.trim()
         .replace(Regex("""^(?:my|the)\s+""", RegexOption.IGNORE_CASE), "")
-        .replace(Regex("""^(?:an?\s+)?important\s+date(?:\s+for)?\s+""", RegexOption.IGNORE_CASE), "")
-        .replace(Regex("""\s+as\s+(?:an?\s+)?important\s+date$""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""^(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""^(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?$""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""\s+(?:as|is)\s+(?:an?\s+)?important\s+(?:date|day)$""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""^(?:on|for|at|the)(?:\s+the)?\s*$""", RegexOption.IGNORE_CASE), "")
         .trim()
 
     private fun normalizeImportantDateLabelOrNull(raw: String): String? =
@@ -2882,7 +2889,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "list_important_dates",
             regex = Regex(
-                """^(?:list|show(?:\s+me)?|what(?:'s|\s+are))\s+(?:my\s+)?important dates$""",
+                """^(?:list|show(?:\s+me)?|what(?:'s|\s+are))\s+(?:my\s+)?important (?:dates|days)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -2890,7 +2897,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+date(?:\s+for)?\s+)?(.+?)\s+(?:is|as|on)\s+($importantDateValuePattern)$""",
+                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+)?(.+?)\s+(?:is|as|on)\s+($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2918,7 +2925,31 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:add|create)(?:\s+an?)?\s+important\s+date(?:\s+for)?\s+(.+?)\s+($importantDateValuePattern)$""",
+                """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+(?:date|day)(?:\s+for)?\s+($importantDateValuePattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                // Date only, no label — NeedsSlot(label) will fire
+                mapOf("date" to match.groupValues[1].trim())
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:the\s+)?($importantDateValuePattern)\s+(?:as|is)\s+(?:an?\s+)?important\s+(?:date|day)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                // "Save the 26th of June as an important date" — date given, label unknown
+                mapOf("date" to match.groupValues[1].trim())
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+(?:date|day)(?:\s+for)?\s+(.+?)\s+($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2932,7 +2963,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:remember|save|store|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+date(?:\s+for)?\s+)?(.+?\b(?:birthday|anniversary)\b.*)$""",
+                """^(?:remember|save|store|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+)?(.+?\b(?:birthday|anniversary)\b.*)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2943,7 +2974,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "remove_important_date",
             regex = Regex(
-                """^(?:remove|delete|forget)\s+(.+?)\s+from\s+(?:my\s+)?important dates$""",
+                """^(?:remove|delete|forget)\s+(.+?)\s+from\s+(?:my\s+)?important (?:dates|days)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3200,6 +3231,11 @@ class QuickIntentRouter(
 
     fun route(input: String): RouteResult {
         val trimmed = INTENT_PREFIX_RE.replace(input.trim(), "")
+        // Alias normalisation scoped to regex pattern matching only — NOT fed to the classifier.
+        // Applying globally would corrupt labels (e.g. "my favourite date movie" → "my important date
+        // movie" → normalizer strips "important date" → label becomes "movie") and distort classifier
+        // input distribution ("a special date" → grammatically wrong "a important date").
+        val aliasNormalized = IMPORTANT_DATE_ALIAS_RE.replace(trimmed, "important date")
 
         // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.
         //   Pass 1: specific patterns (isFallback = false) — tried in declaration order.
@@ -3209,8 +3245,8 @@ class QuickIntentRouter(
         val specificPatterns = patterns.filter { !it.isFallback }
         val fallbackPatterns = patterns.filter { it.isFallback }
 
-        tryMatchPatterns(trimmed, specificPatterns)?.let { return it }
-        tryMatchPatterns(trimmed, fallbackPatterns)?.let { return it }
+        tryMatchPatterns(aliasNormalized, specificPatterns)?.let { return it }
+        tryMatchPatterns(aliasNormalized, fallbackPatterns)?.let { return it }
 
 
         // Stage 2: BERT-tiny classifier (if available)
