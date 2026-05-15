@@ -2193,6 +2193,10 @@ class NativeIntentHandler @Inject constructor(
             "July", "August", "September", "October", "November", "December",
         )
         // Common English words within edit-distance 1 of a month name that must not be corrected.
+        // J-initial words (june, july) have the most risk at length 4-5. M-initial words like
+        // "marsh", "marco", "marcy" are within dist-1 of "March" but are not blocklisted here
+        // because this function is only called on date slot values (e.g. "26th of Marsh"),
+        // where those proper nouns would never appear in practice.
         val blocklist = setOf("junk", "jane", "jive", "jibe")
 
         fun levenshtein(a: String, b: String): Int {

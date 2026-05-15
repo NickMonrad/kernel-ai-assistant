@@ -1746,17 +1746,14 @@ class QuickIntentRouterTest {
 
         @Test
         fun `alias normalisation does not corrupt labels that contain the aliased phrase`() {
-            // "favourite date movie" in the label must NOT be stripped by the normalizer.
-            // Prior to the alias-scope fix, IMPORTANT_DATE_ALIAS_RE applied globally would
-            // turn "favourite date movie" → "important date movie", then the normalizer stripped
-            // "important date " → leaving only "movie" as label. Verify it routes to save_memory
-            // or FallThrough instead — NOT to save_important_date with a mangled label.
+            // "favourite date movie" in the label must route to save_important_date with
+            // label="favourite date movie" — alias must NOT apply mid-sentence, so normalizer
+            // never sees "important date" and can't strip it to "movie".
             val result = regexOnlyRouter.route("remember my favourite date movie is 25 December")
-            if (result is QuickIntentRouter.RouteResult.RegexMatch) {
-                // If it happens to match, label must NOT be the truncated "movie"
-                assertNotEquals("movie", result.intent.params["label"], "alias should not truncate label")
-            }
-            // The important thing: it must not silently save with label="movie"
+            val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+            assertEquals("save_important_date", match.intent.intentName, "should still route to save_important_date")
+            assertEquals("favourite date movie", match.intent.params["label"], "label must not be corrupted to 'movie'")
+            assertEquals("25 December", match.intent.params["date"], "date extracted correctly")
         }
 
         @Test
@@ -3040,6 +3037,9 @@ class QuickIntentRouterTest {
             Arguments.of("save a favourite date for 26th of June", null, null),
             Arguments.of("save a favorite date for 15 March", null, null),
             Arguments.of("add a special date for 22 August", null, null),
+            // Alias with date value directly (no "for") → NeedsSlot(label)
+            Arguments.of("save favourite date 22 August", null, null),
+            Arguments.of("add a special date 15 March", null, null),
         )
 
         @JvmStatic
