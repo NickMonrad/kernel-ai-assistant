@@ -3075,8 +3075,9 @@ class QuickIntentRouterTest {
             Arguments.of("Save the 26th of June as an important date", "26th of June"),
             Arguments.of("save 22 August as an important date", "22 August"),
             Arguments.of("remember the 15th of March as an important date", "15th of March"),
-            // "day" synonym for "date"
-            Arguments.of("Save the 26th of June as an important day", "26th of June"),
+            // STT mishearing: "as" → "is"
+            Arguments.of("Save the 15th of March is an important date", "15th of March"),
+            Arguments.of("save 22 August is an important day", "22 August"),
             Arguments.of("save 22 August as an important day", "22 August"),
         )
 

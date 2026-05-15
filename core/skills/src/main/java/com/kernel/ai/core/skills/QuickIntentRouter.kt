@@ -191,7 +191,7 @@ class QuickIntentRouter(
         .replace(Regex("""^(?:my|the)\s+""", RegexOption.IGNORE_CASE), "")
         .replace(Regex("""^(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+""", RegexOption.IGNORE_CASE), "")
         .replace(Regex("""^(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?$""", RegexOption.IGNORE_CASE), "")
-        .replace(Regex("""\s+as\s+(?:an?\s+)?important\s+(?:date|day)$""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""\s+(?:as|is)\s+(?:an?\s+)?important\s+(?:date|day)$""", RegexOption.IGNORE_CASE), "")
         .replace(Regex("""^(?:on|for|at|the)(?:\s+the)?\s*$""", RegexOption.IGNORE_CASE), "")
         .trim()
 
@@ -2937,7 +2937,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:the\s+)?($importantDateValuePattern)\s+as\s+(?:an?\s+)?important\s+(?:date|day)$""",
+                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:the\s+)?($importantDateValuePattern)\s+(?:as|is)\s+(?:an?\s+)?important\s+(?:date|day)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
