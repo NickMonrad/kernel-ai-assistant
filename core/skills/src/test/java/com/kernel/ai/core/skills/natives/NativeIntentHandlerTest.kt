@@ -37,6 +37,7 @@ import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -1656,6 +1657,48 @@ class NativeIntentHandlerTest {
             SkillResult.DirectReply("100 USD is 100 USD."),
             result,
         )
+    }
+
+    @Test
+    fun `parseImportantDateInput corrects misspelled month names via fuzzy matching`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseImportantDateInput",
+            String::class.java,
+        ).also { it.isAccessible = true }
+
+        // Triple(input, expectedMonth, expectedDay)
+        val cases = listOf(
+            Triple("26th of Jone", 6, 26),      // "Jone" → "June"
+            Triple("22 Febuary", 2, 22),         // "Febuary" → "February"
+            Triple("15th Janury", 1, 15),        // "Janury" → "January"
+            Triple("3 Augest", 8, 3),            // "Augest" → "August"
+            Triple("10 Septembar", 9, 10),       // "Septembar" → "September"
+            Triple("26 June", 6, 26),            // Correct spelling unchanged
+        )
+
+        for ((input, expectedMonth, expectedDay) in cases) {
+            val result = method.invoke(handler, input)
+            assertNotNull(result, "Expected non-null for '$input'")
+            val monthField = result!!.javaClass.getDeclaredField("month").also { it.isAccessible = true }
+            val dayField = result.javaClass.getDeclaredField("day").also { it.isAccessible = true }
+            assertEquals(expectedMonth, monthField.get(result), "month for '$input'")
+            assertEquals(expectedDay, dayField.get(result), "day for '$input'")
+        }
+    }
+
+    @Test
+    fun `parseImportantDateInput does not correct blocklisted common English words`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseImportantDateInput",
+            String::class.java,
+        ).also { it.isAccessible = true }
+
+        // "junk 15" and "jane 15" are within edit-distance 1 of "June" but must NOT be corrected.
+        // They should return null (unparseable date) rather than silently becoming "June 15".
+        listOf("junk 15", "jane 15", "jive 10", "jibe 20").forEach { input ->
+            val result = method.invoke(handler, input)
+            assertNull(result, "Expected null (no correction) for blocklisted word in '$input'")
+        }
     }
 
     private data class PhoneRow(
