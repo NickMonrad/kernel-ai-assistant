@@ -33,11 +33,16 @@ class MealPlanJsonParser @Inject constructor() {
             throw MealPlanValidationException("Replacement day JSON must contain exactly one day.")
         }
         val day = days.single()
-        if (day.dayIndex != expectedDayIndex) {
-            throw MealPlanValidationException("Replacement day JSON must use day_index $expectedDayIndex.")
+        val normalizedDayIndex = when (day.dayIndex) {
+            expectedDayIndex -> expectedDayIndex
+            expectedDayIndex + 1 -> expectedDayIndex
+            else -> throw MealPlanValidationException(
+                "Replacement day JSON must use day_index $expectedDayIndex (zero-based for Day ${expectedDayIndex + 1}).",
+            )
         }
-        validatePlanDayTitles(listOf(day))
-        return day
+        val normalizedDay = day.copy(dayIndex = normalizedDayIndex)
+        validatePlanDayTitles(listOf(normalizedDay))
+        return normalizedDay
     }
 
     private fun parsePlanDays(raw: String): List<MealPlanDraftDay> {

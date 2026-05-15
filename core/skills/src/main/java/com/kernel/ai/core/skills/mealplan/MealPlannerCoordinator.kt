@@ -552,7 +552,8 @@ Output ONLY valid JSON with this exact shape:
   ]
 }
 Rules:
-- output exactly one replacement day object for day_index $dayIndex
+- output exactly one replacement day object
+- day_index is zero-based, so user-visible Day ${dayIndex + 1} must use day_index $dayIndex
 - do not repeat the existing day title verbatim if you can avoid it
 - do not include ingredients, quantities, steps, markdown, commentary, or code fences
 """.trimIndent()
@@ -564,6 +565,7 @@ ${snapshot.days.joinToString("\n") { "Day ${it.dayIndex + 1}: ${it.title}" }}
 Dietary requirements: ${snapshot.dietaryRestrictions.ifEmpty { listOf("none provided") }.joinToString()}
 Protein preferences: ${snapshot.proteinPreferences.ifEmpty { listOf("no preference provided") }.joinToString()}
 Return one alternative day that fits the plan without duplicating the current Day ${dayIndex + 1} dish.
+Remember: this is user-visible Day ${dayIndex + 1}, but the JSON day_index must be zero-based and equal $dayIndex.
 """.trimIndent()
 
     private fun isFinalizeRequest(text: String): Boolean =

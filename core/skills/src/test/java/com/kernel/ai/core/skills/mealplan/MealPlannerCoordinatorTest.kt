@@ -150,6 +150,36 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `replace day after recipe generation accepts one based replacement JSON`() = runTest {
+        val active = readyForFinalizeSnapshot(finalSummaryWritten = false)
+        val replaced = active.copy(
+            days = listOf(
+                draftDay(dayIndex = 0, title = "Chicken stir-fry", status = MealPlanDayStatus.PERSISTED),
+                draftDay(dayIndex = 1, title = "Turkey skillet", status = MealPlanDayStatus.DRAFTED),
+            ),
+        )
+        val persisted = active.copy(
+            days = listOf(
+                draftDay(dayIndex = 0, title = "Chicken stir-fry", status = MealPlanDayStatus.PERSISTED),
+                draftDay(dayIndex = 1, title = "Turkey skillet", status = MealPlanDayStatus.PERSISTED),
+            ),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns active
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+            replacementJson(dayIndex = 2, title = "Turkey skillet"),
+            recipeJson("Turkey skillet"),
+        )
+        coEvery { sessionRepository.replaceDayDraft("session-1", 1, "Turkey skillet", any(), any()) } returns replaced
+        coEvery { sessionRepository.persistRecipeDraft("session-1", 1, any(), any(), any()) } returns persisted
+
+        val reply = coordinator.ingestUserMessage("conv", "replace day 2")
+
+        assertTrue(reply.content.contains("I replaced Day 2", ignoreCase = true))
+        assertTrue(reply.content.contains("Turkey skillet", ignoreCase = true))
+        coVerify { sessionRepository.replaceDayDraft("session-1", 1, "Turkey skillet", any(), any()) }
+    }
+
+    @Test
     fun `ingestUserMessage waits while generation is already running`() = runTest {
         val ready = collectingSnapshot().copy(
             peopleCount = 4,
@@ -322,6 +352,14 @@ class MealPlannerCoordinatorTest {
           "days": [
             {"day_index": 0, "title": "Lemon chicken", "summary": "Quick dinner", "protein_tags": ["chicken"]},
             {"day_index": 1, "title": "Beef bowls", "summary": "Weeknight bowl", "protein_tags": ["beef"]}
+          ]
+        }
+    """.trimIndent()
+
+    private fun replacementJson(dayIndex: Int, title: String): String = """
+        {
+          "days": [
+            {"day_index": $dayIndex, "title": "$title", "summary": "Quick dinner", "protein_tags": ["turkey"]}
           ]
         }
     """.trimIndent()
