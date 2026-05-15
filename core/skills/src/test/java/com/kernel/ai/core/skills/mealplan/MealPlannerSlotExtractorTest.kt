@@ -31,4 +31,15 @@ class MealPlannerSlotExtractorTest {
     fun `isCancelRequest recognizes meal planning cancellation`() {
         assertTrue(extractor.isCancelRequest("cancel the meal plan"))
     }
+
+    @Test
+    fun `isGenerateRecipesRequest recognizes approval and resume phrases`() {
+        assertTrue(extractor.isGenerateRecipesRequest("generate recipes"))
+        assertTrue(extractor.isGenerateRecipesRequest("resume"))
+    }
+
+    @Test
+    fun `isChangePreferencesRequest recognizes edit request`() {
+        assertTrue(extractor.isChangePreferencesRequest("change preferences"))
+    }
 }

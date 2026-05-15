@@ -38,7 +38,7 @@ class MealPlannerSlotExtractor @Inject constructor() {
     }
 
     fun isCancelRequest(text: String): Boolean =
-        Regex("\\b(?:cancel|stop|nevermind|never mind|forget it|abort)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
+        Regex("\\b(?:cancel|nevermind|never mind|forget it|abort)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
 
     fun extractReplaceDayIndex(text: String): Int? =
         Regex("\\b(?:replace|swap|change)\\s+day\\s+(\\d+)\\b", RegexOption.IGNORE_CASE)
@@ -47,6 +47,15 @@ class MealPlannerSlotExtractor @Inject constructor() {
     fun extractRegenerateDayIndex(text: String): Int? =
         Regex("\\b(?:regenerate|redo|retry)\\s+day\\s+(\\d+)\\b", RegexOption.IGNORE_CASE)
             .find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.minus(1)
+
+    fun isGenerateRecipesRequest(text: String): Boolean =
+        Regex("\\b(?:generate|make|create|start)\\b.*\\b(?:recipes?|meal plan)\\b|\\b(?:continue|resume|keep going)\\b", RegexOption.IGNORE_CASE)
+            .containsMatchIn(text)
+
+    fun isChangePreferencesRequest(text: String): Boolean =
+        Regex("\\b(?:change|edit|update|revise)\\s+(?:preferences?|details?|requirements?)\\b", RegexOption.IGNORE_CASE)
+            .containsMatchIn(text)
+
 
     private fun normalizeWords(text: String): String {
         var normalized = text.lowercase()

@@ -44,6 +44,23 @@ class MealPlanJsonParserTest {
     }
 
     @Test
+    fun `parseSinglePlanDay accepts explicit replacement day index`() {
+        val result = parser.parseSinglePlanDay(
+            raw = """
+                {
+                  "days": [
+                    {"day_index": 2, "title": "Lemon chicken", "summary": "Quick dinner", "protein_tags": ["chicken"]}
+                  ]
+                }
+            """.trimIndent(),
+            expectedDayIndex = 2,
+        )
+
+        assertEquals(2, result.dayIndex)
+        assertEquals("Lemon chicken", result.title)
+    }
+
+    @Test
     fun `parseRecipeDraft parses structured recipe`() {
         val result = parser.parseRecipeDraft(
             raw = """

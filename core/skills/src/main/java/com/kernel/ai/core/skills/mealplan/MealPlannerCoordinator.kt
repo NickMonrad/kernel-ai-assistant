@@ -3,9 +3,9 @@ package com.kernel.ai.core.skills.mealplan
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
-import com.kernel.ai.core.memory.mealplan.MealPlanDraftDay
 import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanSnapshot
+import com.kernel.ai.core.memory.mealplan.PendingGenerationKind
 import com.kernel.ai.core.memory.mealplan.RecipeDraft
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
@@ -40,7 +40,11 @@ class MealPlannerCoordinator @Inject constructor(
         return MealPlannerReply(promptForSnapshot(snapshot))
     }
 
-    suspend fun ingestUserMessage(conversationId: String, text: String): MealPlannerReply {
+    suspend fun ingestUserMessage(
+        conversationId: String,
+        text: String,
+        onPlannerMessage: suspend (String) -> Unit = {},
+    ): MealPlannerReply {
         val snapshot = sessionRepository.getActiveSession(conversationId)
             ?: return startOrResume(conversationId)
 
@@ -55,9 +59,9 @@ class MealPlannerCoordinator @Inject constructor(
 
         return when (snapshot.status) {
             MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS -> handleCollecting(snapshot, text)
-            MealPlanSessionStatus.PLAN_REVIEW -> handlePlanReview(snapshot, text)
+            MealPlanSessionStatus.PLAN_REVIEW -> handlePlanReview(snapshot, text, onPlannerMessage)
             MealPlanSessionStatus.RECIPES_IN_PROGRESS,
-            MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY -> handleActiveOrRecovery(snapshot, text)
+            MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY -> handleActiveOrRecovery(snapshot, text, onPlannerMessage)
             MealPlanSessionStatus.COMPLETED -> MealPlannerReply(
                 "This meal plan is already finalized. Start a new one by asking me to plan meals again.",
             )
@@ -66,34 +70,88 @@ class MealPlannerCoordinator @Inject constructor(
     }
 
     private suspend fun handleCollecting(snapshot: MealPlanSnapshot, text: String): MealPlannerReply {
+        val peopleCount = slotExtractor.extractPeopleCount(text)
+        val daysCount = slotExtractor.extractDaysCount(text)
+        val dietaryRestrictions = slotExtractor.extractDietaryRestrictions(text)
+        val proteinPreferences = slotExtractor.extractProteinPreferences(text)
         val updated = sessionRepository.updateRequiredSlots(
             sessionId = snapshot.sessionId,
-            peopleCount = slotExtractor.extractPeopleCount(text),
-            daysCount = slotExtractor.extractDaysCount(text),
-            dietaryRestrictions = slotExtractor.extractDietaryRestrictions(text),
-            proteinPreferences = slotExtractor.extractProteinPreferences(text),
+            peopleCount = peopleCount,
+            daysCount = daysCount,
+            dietaryRestrictions = dietaryRestrictions,
+            proteinPreferences = proteinPreferences,
         )
         val missing = missingSlots(updated)
         if (missing.isNotEmpty()) {
             return MealPlannerReply(promptForMissingSlots(updated, missing))
         }
-        return generatePlanAndPendingRecipes(updated)
-    }
-
-    private suspend fun handlePlanReview(snapshot: MealPlanSnapshot, text: String): MealPlannerReply {
-        val replaceDayIndex = slotExtractor.extractReplaceDayIndex(text)
-        if (replaceDayIndex != null) {
-            val replaced = generateReplacementDay(snapshot, replaceDayIndex)
-            return generatePendingRecipesFrom(replaced, intro = buildPlanSummary(replaced))
+        val hadAllSlotsBefore = missingSlots(snapshot).isEmpty()
+        val hasAnySlotUpdates =
+            peopleCount != null || daysCount != null || dietaryRestrictions != null || proteinPreferences != null
+        if (hadAllSlotsBefore && !hasAnySlotUpdates) {
+            return MealPlannerReply(promptForPreferenceEditing(updated))
         }
-        return generatePendingRecipesFrom(snapshot, intro = buildPlanSummary(snapshot))
+        return generatePlanForReview(updated)
     }
 
-    private suspend fun handleActiveOrRecovery(snapshot: MealPlanSnapshot, text: String): MealPlannerReply {
+    private suspend fun handlePlanReview(
+        snapshot: MealPlanSnapshot,
+        text: String,
+        onPlannerMessage: suspend (String) -> Unit,
+    ): MealPlannerReply {
         val replaceDayIndex = slotExtractor.extractReplaceDayIndex(text)
         if (replaceDayIndex != null) {
-            val replaced = generateReplacementDay(snapshot, replaceDayIndex)
-            return generateSpecificDayRecipe(replaced, replaceDayIndex, intro = "I replaced Day ${replaceDayIndex + 1}. Here’s the updated recipe:\n")
+            return try {
+                val replaced = generateReplacementDay(snapshot, replaceDayIndex)
+                MealPlannerReply(planReviewPrompt(replaced))
+            } catch (e: IllegalArgumentException) {
+                MealPlannerReply(replacementFailureMessage(replaceDayIndex, e.message))
+            } catch (e: MealPlanValidationException) {
+                MealPlannerReply(replacementFailureMessage(replaceDayIndex, e.message))
+            }
+        }
+        if (slotExtractor.isChangePreferencesRequest(text)) {
+            val editable = sessionRepository.returnToSlotCollection(snapshot.sessionId)
+            return MealPlannerReply(promptForPreferenceEditing(editable))
+        }
+        if (slotExtractor.isGenerateRecipesRequest(text)) {
+            return if (snapshot.days.isEmpty()) {
+                generatePlanForReview(snapshot)
+            } else {
+                generatePendingRecipesFrom(snapshot, onPlannerMessage = onPlannerMessage)
+            }
+        }
+        return MealPlannerReply(planReviewPrompt(snapshot))
+    }
+
+    private suspend fun handleActiveOrRecovery(
+        snapshot: MealPlanSnapshot,
+        text: String,
+        onPlannerMessage: suspend (String) -> Unit,
+    ): MealPlannerReply {
+        val failedDay = snapshot.days.firstOrNull { it.status == MealPlanDayStatus.FAILED }
+        val pendingDay = snapshot.days.firstOrNull { it.status != MealPlanDayStatus.PERSISTED && it.status != MealPlanDayStatus.FAILED }
+        if (failedDay == null && pendingDay != null) {
+            if (slotExtractor.isGenerateRecipesRequest(text)) {
+                return generatePendingRecipesFrom(
+                    snapshot,
+                    intro = "Resuming your meal plan at Day ${pendingDay.dayIndex + 1} of ${snapshot.days.size}…",
+                    onPlannerMessage = onPlannerMessage,
+                )
+            }
+            return MealPlannerReply(resumePrompt(snapshot, pendingDay.dayIndex))
+        }
+
+        val replaceDayIndex = slotExtractor.extractReplaceDayIndex(text)
+        if (replaceDayIndex != null) {
+            return try {
+                val replaced = generateReplacementDay(snapshot, replaceDayIndex)
+                generateSpecificDayRecipe(replaced, replaceDayIndex, intro = "I replaced Day ${replaceDayIndex + 1}. Here’s the updated recipe:\n")
+            } catch (e: IllegalArgumentException) {
+                MealPlannerReply(replacementFailureMessage(replaceDayIndex, e.message))
+            } catch (e: MealPlanValidationException) {
+                MealPlannerReply(replacementFailureMessage(replaceDayIndex, e.message))
+            }
         }
         val regenerateDayIndex = slotExtractor.extractRegenerateDayIndex(text)
         if (regenerateDayIndex != null) {
@@ -104,18 +162,17 @@ class MealPlannerCoordinator @Inject constructor(
             writeFinalSummaryIfNeeded(completed)
             return MealPlannerReply("Meal planning is finalized. Your per-plan shopping list and recipe lists are ready.")
         }
-        val pendingDay = snapshot.days.firstOrNull { it.status != MealPlanDayStatus.PERSISTED }
-        if (pendingDay != null) {
-            return generatePendingRecipesFrom(snapshot)
+        if (failedDay != null) {
+            return MealPlannerReply(recoveryPrompt(failedDay.dayIndex))
         }
         return MealPlannerReply(
             "Your meal plan is ready. Say 'regenerate day 2', 'replace day 1', or 'done meal planning' to finalize it.",
         )
     }
 
-    private suspend fun generatePlanAndPendingRecipes(snapshot: MealPlanSnapshot): MealPlannerReply =
+    private suspend fun generatePlanForReview(snapshot: MealPlanSnapshot): MealPlannerReply =
         withSessionGeneration(snapshot.sessionId) {
-            sessionRepository.markPendingGeneration(snapshot.sessionId, com.kernel.ai.core.memory.mealplan.PendingGenerationKind.PLAN)
+            sessionRepository.markPendingGeneration(snapshot.sessionId, PendingGenerationKind.PLAN)
             val rawPlan = inferenceEngine.generateOnce(
                 prompt = buildPlanUserPrompt(snapshot),
                 systemPrompt = buildPlanSystemPrompt(),
@@ -140,60 +197,68 @@ class MealPlannerCoordinator @Inject constructor(
                 return@withSessionGeneration MealPlannerReply("I couldn't generate a valid high-level plan yet. ${e.message} Try replying with the same requirements again or adjust them.")
             }
             val planned = sessionRepository.savePlanDraft(snapshot.sessionId, planDraft.days)
-            generatePendingRecipesFrom(planned, intro = buildPlanSummary(planned))
+            MealPlannerReply(planReviewPrompt(planned))
         }
 
-    private suspend fun generatePendingRecipesFrom(snapshot: MealPlanSnapshot, intro: String? = null): MealPlannerReply {
-        val builder = StringBuilder()
-        if (!intro.isNullOrBlank()) {
-            builder.append(intro.trim())
-        }
+    private suspend fun generatePendingRecipesFrom(
+        snapshot: MealPlanSnapshot,
+        intro: String? = null,
+        onPlannerMessage: suspend (String) -> Unit = {},
+    ): MealPlannerReply = withSessionGeneration(snapshot.sessionId) {
         var currentSnapshot = sessionRepository.getSession(snapshot.sessionId) ?: snapshot
-        val pendingDays = currentSnapshot.days.filter { it.status != MealPlanDayStatus.PERSISTED }
+        if (!intro.isNullOrBlank()) {
+            onPlannerMessage(intro.trim())
+        }
+        val totalDays = currentSnapshot.days.size
+        val pendingDays = currentSnapshot.days
+            .filter { it.status != MealPlanDayStatus.PERSISTED && it.status != MealPlanDayStatus.FAILED }
+            .sortedBy { it.dayIndex }
         for (day in pendingDays) {
+            onPlannerMessage("Generating recipe ${day.dayIndex + 1} of $totalDays…")
             val recipeResult = try {
                 generateAndPersistRecipe(currentSnapshot, day.dayIndex)
             } catch (e: MealPlanValidationException) {
-                if (builder.isNotEmpty()) builder.append("\n\n")
-                builder.append("I hit a validation problem while generating Day ${day.dayIndex + 1}: ${e.message}")
-                builder.append("\nSay 'regenerate day ${day.dayIndex + 1}' or 'replace day ${day.dayIndex + 1}' to recover.")
-                return MealPlannerReply(builder.toString().trim())
+                return@withSessionGeneration MealPlannerReply(
+                    "I hit a validation problem while generating Day ${day.dayIndex + 1}: ${e.message}\nSay 'regenerate day ${day.dayIndex + 1}' or 'replace day ${day.dayIndex + 1}' to recover.",
+                )
             }
-            if (builder.isNotEmpty()) builder.append("\n\n")
-            builder.append(formatRecipeSection(day.dayIndex, recipeResult.recipe))
+            onPlannerMessage(formatRecipeSection(day.dayIndex, recipeResult.recipe))
             currentSnapshot = recipeResult.snapshot
         }
         if (currentSnapshot.days.all { it.status == MealPlanDayStatus.PERSISTED }) {
-            builder.append("\n\nYour meal plan is ready. Say 'regenerate day 2', 'replace day 1', or 'done meal planning' to finalize it.")
+            MealPlannerReply("Your meal plan is ready. Say 'regenerate day 2', 'replace day 1', or 'done meal planning' to finalize it.")
+        } else {
+            val nextPending = currentSnapshot.days.firstOrNull { it.status != MealPlanDayStatus.PERSISTED && it.status != MealPlanDayStatus.FAILED }
+            MealPlannerReply(nextPending?.let { resumePrompt(currentSnapshot, it.dayIndex) } ?: "Your meal plan is ready.")
         }
-        return MealPlannerReply(builder.toString().trim())
     }
 
-    private suspend fun generateSpecificDayRecipe(snapshot: MealPlanSnapshot, dayIndex: Int, intro: String): MealPlannerReply {
-        val result = try {
-            generateAndPersistRecipe(snapshot, dayIndex)
-        } catch (e: MealPlanValidationException) {
-            return MealPlannerReply(
-                "I couldn't generate a valid recipe for Day ${dayIndex + 1}: ${e.message} Say 'regenerate day ${dayIndex + 1}' or 'replace day ${dayIndex + 1}'.",
-            )
+    private suspend fun generateSpecificDayRecipe(snapshot: MealPlanSnapshot, dayIndex: Int, intro: String): MealPlannerReply =
+        withSessionGeneration(snapshot.sessionId) {
+            val result = try {
+                generateAndPersistRecipe(snapshot, dayIndex)
+            } catch (e: MealPlanValidationException) {
+                return@withSessionGeneration MealPlannerReply(
+                    "I couldn't generate a valid recipe for Day ${dayIndex + 1}: ${e.message} Say 'regenerate day ${dayIndex + 1}' or 'replace day ${dayIndex + 1}'.",
+                )
+            }
+            val builder = StringBuilder()
+            builder.append(intro)
+            builder.append(formatRecipeSection(dayIndex, result.recipe))
+            if (result.snapshot.days.all { it.status == MealPlanDayStatus.PERSISTED }) {
+                builder.append("\n\nYour meal plan is ready. Say 'done meal planning' to finalize it, or regenerate another day.")
+            }
+            MealPlannerReply(builder.toString().trim())
         }
-        val builder = StringBuilder()
-        builder.append(intro)
-        builder.append(formatRecipeSection(dayIndex, result.recipe))
-        if (result.snapshot.days.all { it.status == MealPlanDayStatus.PERSISTED }) {
-            builder.append("\n\nYour meal plan is ready. Say 'done meal planning' to finalize it, or regenerate another day.")
-        }
-        return MealPlannerReply(builder.toString().trim())
-    }
 
     private suspend fun generateAndPersistRecipe(
         snapshot: MealPlanSnapshot,
         dayIndex: Int,
-    ): GeneratedRecipeResult = withSessionGeneration(snapshot.sessionId) {
+    ): GeneratedRecipeResult {
         val day = snapshot.days.firstOrNull { it.dayIndex == dayIndex }
             ?: throw MealPlanValidationException("Unknown meal-plan day ${dayIndex + 1}.")
         val servings = snapshot.peopleCount ?: throw MealPlanValidationException("Meal-plan session is missing people count.")
-        sessionRepository.markPendingGeneration(snapshot.sessionId, com.kernel.ai.core.memory.mealplan.PendingGenerationKind.RECIPE, dayIndex)
+        sessionRepository.markPendingGeneration(snapshot.sessionId, PendingGenerationKind.RECIPE, dayIndex)
         val rawRecipe = inferenceEngine.generateOnce(
             prompt = buildRecipeUserPrompt(snapshot, dayIndex),
             systemPrompt = buildRecipeSystemPrompt(),
@@ -228,7 +293,7 @@ class MealPlannerCoordinator @Inject constructor(
             rawModelJson = rawRecipe,
             groceries = groceries,
         )
-        GeneratedRecipeResult(updated, recipe, day.title ?: recipe.title)
+        return GeneratedRecipeResult(updated, recipe, day.title ?: recipe.title)
     }
 
     private suspend fun generateReplacementDay(snapshot: MealPlanSnapshot, dayIndex: Int): MealPlanSnapshot =
@@ -243,7 +308,7 @@ class MealPlannerCoordinator @Inject constructor(
             if (raw.isBlank()) {
                 throw MealPlanValidationException("The model didn't return a replacement day.")
             }
-            val replacement = jsonParser.parsePlanDraft(raw, 1).days.single()
+            val replacement = jsonParser.parseSinglePlanDay(raw, dayIndex)
             sessionRepository.replaceDayDraft(
                 sessionId = snapshot.sessionId,
                 dayIndex = dayIndex,
@@ -284,24 +349,34 @@ class MealPlannerCoordinator @Inject constructor(
     }
 
     private fun generationInProgressMessage(snapshot: MealPlanSnapshot): String = when (snapshot.pendingGenerationKind) {
-        com.kernel.ai.core.memory.mealplan.PendingGenerationKind.PLAN ->
+        PendingGenerationKind.PLAN ->
             "I'm still building your meal plan. Give me a moment."
-        com.kernel.ai.core.memory.mealplan.PendingGenerationKind.RECIPE ->
+        PendingGenerationKind.RECIPE ->
             snapshot.pendingGenerationDayIndex?.let { "I'm still finishing Day ${it + 1}. Give me a moment." }
                 ?: "I'm still finishing your meal plan. Give me a moment."
         null -> "I'm still working on your meal plan. Give me a moment."
     }
 
     private fun promptForSnapshot(snapshot: MealPlanSnapshot): String = when (snapshot.status) {
-        MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS -> promptForMissingSlots(snapshot, missingSlots(snapshot))
-        MealPlanSessionStatus.PLAN_REVIEW -> buildPlanSummary(snapshot) + "\n\nIf you want a different day, say 'replace day 2'. Otherwise I can keep going."
+        MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS -> {
+            val missing = missingSlots(snapshot)
+            if (missing.isEmpty()) {
+                promptForPreferenceEditing(snapshot)
+            } else {
+                promptForMissingSlots(snapshot, missing)
+            }
+        }
+        MealPlanSessionStatus.PLAN_REVIEW -> planReviewPrompt(snapshot)
         MealPlanSessionStatus.RECIPES_IN_PROGRESS,
         MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY -> {
             val failedDay = snapshot.days.firstOrNull { it.status == MealPlanDayStatus.FAILED }
-            if (failedDay != null) {
-                "I still need to finish Day ${failedDay.dayIndex + 1}. Say 'regenerate day ${failedDay.dayIndex + 1}' or 'replace day ${failedDay.dayIndex + 1}'."
-            } else {
-                "Your meal plan is ready. Say 'regenerate day 2', 'replace day 1', or 'done meal planning' to finalize it."
+            when {
+                failedDay != null -> recoveryPrompt(failedDay.dayIndex)
+                snapshot.days.any { it.status != MealPlanDayStatus.PERSISTED && it.status != MealPlanDayStatus.FAILED } -> {
+                    val nextPending = snapshot.days.first { it.status != MealPlanDayStatus.PERSISTED && it.status != MealPlanDayStatus.FAILED }
+                    resumePrompt(snapshot, nextPending.dayIndex)
+                }
+                else -> "Your meal plan is ready. Say 'regenerate day 2', 'replace day 1', or 'done meal planning' to finalize it."
             }
         }
         MealPlanSessionStatus.COMPLETED -> "Your meal plan is already finalized."
@@ -309,12 +384,7 @@ class MealPlannerCoordinator @Inject constructor(
     }
 
     private fun promptForMissingSlots(snapshot: MealPlanSnapshot, missing: List<String>): String {
-        val knownBits = buildList {
-            snapshot.peopleCount?.let { add("$it people") }
-            snapshot.daysCount?.let { add("$it days") }
-            if (snapshot.dietaryRestrictions.isNotEmpty()) add(snapshot.dietaryRestrictions.joinToString())
-            if (snapshot.proteinPreferences.isNotEmpty()) add(snapshot.proteinPreferences.joinToString())
-        }
+        val knownBits = buildKnownBits(snapshot)
         val prompt = missing.joinToString("\n") { missingSlotPrompt(it) }
         return buildString {
             if (knownBits.isNotEmpty()) {
@@ -323,6 +393,20 @@ class MealPlannerCoordinator @Inject constructor(
             append("I need a few details before I build the plan:\n")
             append(prompt)
         }
+    }
+
+    private fun promptForPreferenceEditing(snapshot: MealPlanSnapshot): String = buildString {
+        append("Current plan details: ")
+        append(buildKnownBits(snapshot).ifEmpty { listOf("no saved details yet") }.joinToString(", "))
+        append(".\n\n")
+        append("Reply with any updated people count, days, dietary requirements, or protein preferences.")
+    }
+
+    private fun buildKnownBits(snapshot: MealPlanSnapshot): List<String> = buildList {
+        snapshot.peopleCount?.let { add("$it people") }
+        snapshot.daysCount?.let { add("$it days") }
+        if (snapshot.dietaryRestrictions.isNotEmpty()) add(snapshot.dietaryRestrictions.joinToString())
+        if (snapshot.proteinPreferences.isNotEmpty()) add(snapshot.proteinPreferences.joinToString())
     }
 
     private fun missingSlots(snapshot: MealPlanSnapshot): List<String> = buildList {
@@ -339,6 +423,22 @@ class MealPlannerCoordinator @Inject constructor(
         "protein" -> "- What protein preferences should I use?"
         else -> "- $slot"
     }
+
+    private fun planReviewPrompt(snapshot: MealPlanSnapshot): String =
+        if (snapshot.days.isEmpty()) {
+            "I still need to rebuild your meal plan draft. Say 'generate recipes' to try again, 'change preferences', or 'cancel'."
+        } else {
+            buildPlanSummary(snapshot) + "\n\nSay 'generate recipes', 'replace day 2', 'change preferences', or 'cancel'."
+        }
+
+    private fun resumePrompt(snapshot: MealPlanSnapshot, dayIndex: Int): String =
+        "I still need to finish Day ${dayIndex + 1} of ${snapshot.days.size}. Say 'generate recipes' to continue or 'cancel' to stop."
+
+    private fun recoveryPrompt(dayIndex: Int): String =
+        "I still need to finish Day ${dayIndex + 1}. Say 'regenerate day ${dayIndex + 1}' or 'replace day ${dayIndex + 1}'."
+
+    private fun replacementFailureMessage(dayIndex: Int, detail: String?): String =
+        "I couldn't replace Day ${dayIndex + 1}. ${detail ?: "Try again with a different day."}"
 
     private fun buildPlanSummary(snapshot: MealPlanSnapshot): String = buildString {
         append("Here’s the meal plan I built for ${snapshot.peopleCount} people over ${snapshot.daysCount} days")
