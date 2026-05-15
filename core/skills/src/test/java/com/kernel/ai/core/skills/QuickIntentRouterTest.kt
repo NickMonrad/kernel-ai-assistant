@@ -3054,6 +3054,12 @@ class QuickIntentRouterTest {
             Arguments.of("add important date for 22 August", "22 August"),
             Arguments.of("add important date for the 22 August", "22 August"),
             Arguments.of("add an important date on 15 March", "15 March"),
+            // "on the" preposition after verb+date phrase
+            Arguments.of("save an important date on the 26th of June", "26th of June"),
+            // Reverse-order: <date> as important date — no label
+            Arguments.of("Save the 26th of June as an important date", "26th of June"),
+            Arguments.of("save 22 August as an important date", "22 August"),
+            Arguments.of("remember the 15th of March as an important date", "15th of March"),
         )
 
         @JvmStatic
