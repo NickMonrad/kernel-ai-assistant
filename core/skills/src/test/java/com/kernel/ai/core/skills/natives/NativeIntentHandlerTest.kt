@@ -1658,6 +1658,33 @@ class NativeIntentHandlerTest {
         )
     }
 
+    @Test
+    fun `parseImportantDateInput corrects misspelled month names via fuzzy matching`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseImportantDateInput",
+            String::class.java,
+        ).also { it.isAccessible = true }
+
+        data class Case(val input: String, val expectedMonth: Int, val expectedDay: Int)
+        val cases = listOf(
+            Case("26th of Jone", 6, 26),      // "Jone" → "June"
+            Case("22 Febuary", 2, 22),         // "Febuary" → "February"
+            Case("15th Janury", 1, 15),        // "Janury" → "January"
+            Case("3 Augest", 8, 3),            // "Augest" → "August"
+            Case("10 Septembar", 9, 10),       // "Septembar" → "September"
+            Case("26 June", 6, 26),            // Correct spelling unchanged
+        )
+
+        for (case in cases) {
+            val result = method.invoke(handler, case.input)
+            assertNotNull(result, "Expected non-null for '${case.input}'")
+            val monthField = result!!.javaClass.getDeclaredField("month").also { it.isAccessible = true }
+            val dayField = result.javaClass.getDeclaredField("day").also { it.isAccessible = true }
+            assertEquals(case.expectedMonth, monthField.get(result), "month for '${case.input}'")
+            assertEquals(case.expectedDay, dayField.get(result), "day for '${case.input}'")
+        }
+    }
+
     private data class PhoneRow(
         val contactId: String,
         val displayName: String,

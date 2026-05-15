@@ -2176,8 +2176,49 @@ class NativeIntentHandler @Inject constructor(
         return date.format(DateTimeFormatter.ofPattern(pattern, Locale.ENGLISH))
     }
 
+    /**
+     * Corrects common month name misspellings (e.g. "Jone" → "June", "Febuary" → "February").
+     * Uses Levenshtein edit distance on each word-boundary token:
+     *  - words < 4 chars: no correction (too risky — "day", "of", "the" etc.)
+     *  - words 4–5 chars: correct only at distance 1 (avoids "mark"→"March", "date"→?)
+     *  - words ≥ 6 chars: correct at distance ≤ 2
+     * Also requires the word to start with the same letter as the matched month.
+     */
+    private fun correctMonthSpelling(input: String): String {
+        val months = listOf(
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        )
+
+        fun levenshtein(a: String, b: String): Int {
+            val dp = Array(a.length + 1) { IntArray(b.length + 1) }
+            for (i in 0..a.length) dp[i][0] = i
+            for (j in 0..b.length) dp[0][j] = j
+            for (i in 1..a.length) for (j in 1..b.length) {
+                dp[i][j] = if (a[i - 1].equals(b[j - 1], ignoreCase = true)) {
+                    dp[i - 1][j - 1]
+                } else {
+                    1 + minOf(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+                }
+            }
+            return dp[a.length][b.length]
+        }
+
+        return input.replace(Regex("""\b([A-Za-z]{4,})\b""")) { match ->
+            val word = match.groupValues[1]
+            if (months.any { it.equals(word, ignoreCase = true) }) return@replace word
+            val maxDist = if (word.length >= 6) 2 else 1
+            val best = months
+                .filter { it[0].equals(word[0], ignoreCase = true) }
+                .minByOrNull { levenshtein(word, it) }
+                ?: return@replace word
+            val dist = levenshtein(word, best)
+            if (dist in 1..maxDist) best else word
+        }
+    }
+
     private fun parseImportantDateInput(input: String): ParsedImportantDateInput? {
-        val sanitized = input.trim()
+        val sanitized = correctMonthSpelling(input).trim()
             .replace(Regex("""\b(\d{1,2})(st|nd|rd|th)\b""", RegexOption.IGNORE_CASE), "$1")
             .replace(",", "")
         val fullDateFormatters = listOf(
