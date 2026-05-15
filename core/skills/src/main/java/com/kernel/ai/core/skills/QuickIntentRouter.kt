@@ -2937,6 +2937,18 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
+                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:the\s+)?($importantDateValuePattern)\s+as\s+(?:an?\s+)?important\s+date$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                // "Save the 26th of June as an important date" — date given, label unknown
+                mapOf("date" to match.groupValues[1].trim())
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
                 """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+date(?:\s+for)?\s+(.+?)\s+($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
