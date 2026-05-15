@@ -37,6 +37,7 @@ import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -1665,23 +1666,38 @@ class NativeIntentHandlerTest {
             String::class.java,
         ).also { it.isAccessible = true }
 
-        data class Case(val input: String, val expectedMonth: Int, val expectedDay: Int)
+        // Triple(input, expectedMonth, expectedDay)
         val cases = listOf(
-            Case("26th of Jone", 6, 26),      // "Jone" → "June"
-            Case("22 Febuary", 2, 22),         // "Febuary" → "February"
-            Case("15th Janury", 1, 15),        // "Janury" → "January"
-            Case("3 Augest", 8, 3),            // "Augest" → "August"
-            Case("10 Septembar", 9, 10),       // "Septembar" → "September"
-            Case("26 June", 6, 26),            // Correct spelling unchanged
+            Triple("26th of Jone", 6, 26),      // "Jone" → "June"
+            Triple("22 Febuary", 2, 22),         // "Febuary" → "February"
+            Triple("15th Janury", 1, 15),        // "Janury" → "January"
+            Triple("3 Augest", 8, 3),            // "Augest" → "August"
+            Triple("10 Septembar", 9, 10),       // "Septembar" → "September"
+            Triple("26 June", 6, 26),            // Correct spelling unchanged
         )
 
-        for (case in cases) {
-            val result = method.invoke(handler, case.input)
-            assertNotNull(result, "Expected non-null for '${case.input}'")
+        for ((input, expectedMonth, expectedDay) in cases) {
+            val result = method.invoke(handler, input)
+            assertNotNull(result, "Expected non-null for '$input'")
             val monthField = result!!.javaClass.getDeclaredField("month").also { it.isAccessible = true }
             val dayField = result.javaClass.getDeclaredField("day").also { it.isAccessible = true }
-            assertEquals(case.expectedMonth, monthField.get(result), "month for '${case.input}'")
-            assertEquals(case.expectedDay, dayField.get(result), "day for '${case.input}'")
+            assertEquals(expectedMonth, monthField.get(result), "month for '$input'")
+            assertEquals(expectedDay, dayField.get(result), "day for '$input'")
+        }
+    }
+
+    @Test
+    fun `parseImportantDateInput does not correct blocklisted common English words`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseImportantDateInput",
+            String::class.java,
+        ).also { it.isAccessible = true }
+
+        // "junk 15" and "jane 15" are within edit-distance 1 of "June" but must NOT be corrected.
+        // They should return null (unparseable date) rather than silently becoming "June 15".
+        listOf("junk 15", "jane 15", "jive 10", "jibe 20").forEach { input ->
+            val result = method.invoke(handler, input)
+            assertNull(result, "Expected null (no correction) for blocklisted word in '$input'")
         }
     }
 

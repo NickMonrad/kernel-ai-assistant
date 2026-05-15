@@ -2180,15 +2180,20 @@ class NativeIntentHandler @Inject constructor(
      * Corrects common month name misspellings (e.g. "Jone" → "June", "Febuary" → "February").
      * Uses Levenshtein edit distance on each word-boundary token:
      *  - words < 4 chars: no correction (too risky — "day", "of", "the" etc.)
-     *  - words 4–5 chars: correct only at distance 1 (avoids "mark"→"March", "date"→?)
+     *  - words 4–5 chars: correct only at distance 1; blocklisted common words are excluded
      *  - words ≥ 6 chars: correct at distance ≤ 2
      * Also requires the word to start with the same letter as the matched month.
+     *
+     * Blocklist guards against the specific false positives identified for short j-words:
+     * "junk"→June (dist 1) and "jane"→June (dist 1) are the main risk cases.
      */
     private fun correctMonthSpelling(input: String): String {
         val months = listOf(
             "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December",
         )
+        // Common English words within edit-distance 1 of a month name that must not be corrected.
+        val blocklist = setOf("junk", "jane", "jive", "jibe")
 
         fun levenshtein(a: String, b: String): Int {
             val dp = Array(a.length + 1) { IntArray(b.length + 1) }
@@ -2207,6 +2212,7 @@ class NativeIntentHandler @Inject constructor(
         return input.replace(Regex("""\b([A-Za-z]{4,})\b""")) { match ->
             val word = match.groupValues[1]
             if (months.any { it.equals(word, ignoreCase = true) }) return@replace word
+            if (word.lowercase() in blocklist) return@replace word
             val maxDist = if (word.length >= 6) 2 else 1
             val best = months
                 .filter { it[0].equals(word[0], ignoreCase = true) }

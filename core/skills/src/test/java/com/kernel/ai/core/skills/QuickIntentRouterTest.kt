@@ -1745,6 +1745,21 @@ class QuickIntentRouterTest {
         }
 
         @Test
+        fun `alias normalisation does not corrupt labels that contain the aliased phrase`() {
+            // "favourite date movie" in the label must NOT be stripped by the normalizer.
+            // Prior to the alias-scope fix, IMPORTANT_DATE_ALIAS_RE applied globally would
+            // turn "favourite date movie" → "important date movie", then the normalizer stripped
+            // "important date " → leaving only "movie" as label. Verify it routes to save_memory
+            // or FallThrough instead — NOT to save_important_date with a mangled label.
+            val result = regexOnlyRouter.route("remember my favourite date movie is 25 December")
+            if (result is QuickIntentRouter.RouteResult.RegexMatch) {
+                // If it happens to match, label must NOT be the truncated "movie"
+                assertNotEquals("movie", result.intent.params["label"], "alias should not truncate label")
+            }
+            // The important thing: it must not silently save with label="movie"
+        }
+
+        @Test
         fun `should match list important dates phrase`() {
             assertRegexMatch(regexOnlyRouter.route("list my important dates"), "list_important_dates", "list my important dates")
         }

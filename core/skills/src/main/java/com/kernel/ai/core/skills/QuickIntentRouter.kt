@@ -79,7 +79,7 @@ class QuickIntentRouter(
     )
 
     private val IMPORTANT_DATE_ALIAS_RE = Regex(
-        """(?:favourite|favorite|special)\s+date""",
+        """(?:favourite|favorite|special)\s+date(?=\s+for\b|\s*$)""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -3231,7 +3231,11 @@ class QuickIntentRouter(
 
     fun route(input: String): RouteResult {
         val trimmed = INTENT_PREFIX_RE.replace(input.trim(), "")
-            .let { IMPORTANT_DATE_ALIAS_RE.replace(it, "important date") }
+        // Alias normalisation scoped to regex pattern matching only — NOT fed to the classifier.
+        // Applying globally would corrupt labels (e.g. "my favourite date movie" → "my important date
+        // movie" → normalizer strips "important date" → label becomes "movie") and distort classifier
+        // input distribution ("a special date" → grammatically wrong "a important date").
+        val aliasNormalized = IMPORTANT_DATE_ALIAS_RE.replace(trimmed, "important date")
 
         // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.
         //   Pass 1: specific patterns (isFallback = false) — tried in declaration order.
@@ -3241,8 +3245,8 @@ class QuickIntentRouter(
         val specificPatterns = patterns.filter { !it.isFallback }
         val fallbackPatterns = patterns.filter { it.isFallback }
 
-        tryMatchPatterns(trimmed, specificPatterns)?.let { return it }
-        tryMatchPatterns(trimmed, fallbackPatterns)?.let { return it }
+        tryMatchPatterns(aliasNormalized, specificPatterns)?.let { return it }
+        tryMatchPatterns(aliasNormalized, fallbackPatterns)?.let { return it }
 
 
         // Stage 2: BERT-tiny classifier (if available)
