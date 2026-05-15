@@ -50,6 +50,7 @@ private fun KernelWidgetContent(packageName: String) {
                         night = Color(0xCC000000),
                     )
                 )
+                .cornerRadius(24.dp)
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -62,6 +63,7 @@ private fun KernelWidgetContent(packageName: String) {
                             night = Color(0x1AFFFFFF),
                         )
                     )
+                    .cornerRadius(16.dp)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .clickable(actionStartActivity(WidgetTextInputActivity::class.java)),
                 contentAlignment = Alignment.CenterStart,
