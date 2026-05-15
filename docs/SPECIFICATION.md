@@ -424,7 +424,7 @@ The `QuickIntentRouter` includes dedicated QIR patterns for colloquial weather p
 - "should I bring an umbrella" / "is it sunny out"
 
 **Indirect-location resolution path:**
-- When the user specifies a named location ("weather in Queenstown", "forecast for the CBD"), the router resolves the name via Nominatim reverse geocoding into lat/long coordinates, then passes them to `GetWeatherUnifiedSkill` — the same unified skill used for GPS-based requests.
+- When the user specifies a named location ("weather in Queenstown", "forecast for the CBD"), the router resolves the name via Nominatim forward geocoding (the `/search` endpoint, name → lat/long) into coordinates, then passes them to `GetWeatherUnifiedSkill` — the same unified skill used for GPS-based requests. Note: reverse geocoding (lat/long → display name) is a separate call used only to label GPS-based results.
 - Direct GPS weather and profile-location fallback remain available as before.
 
 #### NLU/Routing Hardening (#871, #874)
@@ -901,15 +901,13 @@ Sherpa-ONNX VITS replaced Android `TextToSpeech` as the on-device TTS engine, pr
 **Key properties:**
 
 - **Voice packs are download-only** — voices are not bundled in the APK. `:core:voice` packages no assets; voice packs are fetched on demand from the voice pack server and cached on-device.
-- **Multi-speaker selection** — both VCTK (#782, PR #805) and Semaine (#817, PR #818) speaker banks are available via Settings → Voice.
-  - **VCTK** — a range of English speakers across accents and gender (Alan is currently the owner's preferred voice)
-  - **Semaine** — 4 speakers: Prudence, Spike, Obadiah, Poppy. These are distinct *speakers*, not emotional style variants; the earlier emotion-detection approach was abandoned (`#781` closed, superseded by #817).
+- **Multi-speaker selection** — both VCTK (#782, PR #805) and Semaine (#817, PR #818) speaker banks are available via Settings → Voice. See §6.2 for speaker bank details.
 - **Pitch control** — a pitch slider (0.5–2.0×) is exposed in Settings → Voice (Sherpa only).
 - **Quality evaluation** — Sherpa VITS quality was evaluated against Android TTS on Samsung Galaxy S23 Ultra (#770); Sherpa is measurably better for conversational Kiwi English.
 
 #### 6.2.2 STT Engine — Android Native (#678, #717, PR #714, PR #718)
 
-Android native on-device STT has replaced Vosk as the primary speech-to-text engine. This is a significant quality improvement, especially for New Zealand/Kiwi English and te reo Māori words.
+Android native on-device STT is available alongside Vosk as a selectable speech-to-text backend, switchable in Settings → Voice. Vosk remains the factory default. Android native offers significantly better accuracy for New Zealand/Kiwi English and te reo Māori words.
 
 - **Engine:** Android `SpeechRecognizer` with `EXTRA_PREFER_OFFLINE=true` — on-device model, no network calls.
 - **#717 hardening (PR #718):** The on-device recognizer path was hardened against edge cases: recognizer lifecycle bugs, partial-result race conditions, and no-speech detection robustness.
