@@ -1725,6 +1725,25 @@ class QuickIntentRouterTest {
             assertEquals(expectedDate, needsSlot.intent.params["date"], "date for '$input'")
         }
 
+        @ParameterizedTest(name = "alias normalisation \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#importantDateAliasPhrases")
+        fun `should route favourite and special date aliases to save_important_date`(
+            input: String,
+            expectedLabel: String?,
+            expectedDate: String?,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            if (expectedLabel != null && expectedDate != null) {
+                val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+                assertEquals("save_important_date", match.intent.intentName)
+                assertEquals(expectedLabel, match.intent.params["label"], "label for '$input'")
+                assertEquals(expectedDate, match.intent.params["date"], "date for '$input'")
+            } else {
+                val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+                assertEquals("save_important_date", needsSlot.intent.intentName)
+            }
+        }
+
         @Test
         fun `should match list important dates phrase`() {
             assertRegexMatch(regexOnlyRouter.route("list my important dates"), "list_important_dates", "list my important dates")
@@ -2995,6 +3014,18 @@ class QuickIntentRouterTest {
             Arguments.of("take a note"),
         )
 
+
+        @JvmStatic
+        fun importantDateAliasPhrases(): Stream<Arguments> = Stream.of(
+            // With label + date → RegexMatch
+            Arguments.of("save a favourite date for mum's birthday on 15 March", "mum's birthday", "15 March"),
+            Arguments.of("save my favorite date for our anniversary on 22 June 2018", "our anniversary", "22 June 2018"),
+            Arguments.of("add a special date for freya's birthday 22 August", "freya's birthday", "22 August"),
+            // Alias with no label → NeedsSlot(label)
+            Arguments.of("save a favourite date for 26th of June", null, null),
+            Arguments.of("save a favorite date for 15 March", null, null),
+            Arguments.of("add a special date for 22 August", null, null),
+        )
 
         @JvmStatic
         fun importantDateSaveRegexPhrases(): Stream<Arguments> = Stream.of(

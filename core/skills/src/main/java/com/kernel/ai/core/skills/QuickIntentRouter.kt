@@ -78,6 +78,11 @@ class QuickIntentRouter(
         RegexOption.IGNORE_CASE,
     )
 
+    private val IMPORTANT_DATE_ALIAS_RE = Regex(
+        """(?:favourite|favorite|special)\s+date""",
+        RegexOption.IGNORE_CASE,
+    )
+
     private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
         "make_call" to mapOf(
             "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
@@ -2920,7 +2925,19 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:add|create)(?:\s+an?)?\s+important\s+date(?:\s+for)?\s+(.+?)\s+($importantDateValuePattern)$""",
+                """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+date(?:\s+for)?\s+($importantDateValuePattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                // Date only, no label — NeedsSlot(label) will fire
+                mapOf("date" to match.groupValues[1].trim())
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+date(?:\s+for)?\s+(.+?)\s+($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3202,6 +3219,7 @@ class QuickIntentRouter(
 
     fun route(input: String): RouteResult {
         val trimmed = INTENT_PREFIX_RE.replace(input.trim(), "")
+            .let { IMPORTANT_DATE_ALIAS_RE.replace(it, "important date") }
 
         // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.
         //   Pass 1: specific patterns (isFallback = false) — tried in declaration order.
