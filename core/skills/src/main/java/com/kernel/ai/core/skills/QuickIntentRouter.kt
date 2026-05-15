@@ -79,7 +79,7 @@ class QuickIntentRouter(
     )
 
     private val IMPORTANT_DATE_ALIAS_RE = Regex(
-        """(?:favourite|favorite|special)\s+date(?=\s+for\b|\s+\d|\s+[A-Za-z]{3,}\s+\d|\s*$)""",
+        """(?:favourite|favorite|special)\s+(?:date|day)(?=\s+for\b|\s+\d|\s+[A-Za-z]{3,}\s+\d|\s*$)""",
         RegexOption.IGNORE_CASE,
     )
 
