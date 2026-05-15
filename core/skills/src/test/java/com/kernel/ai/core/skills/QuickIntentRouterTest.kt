@@ -1710,6 +1710,21 @@ class QuickIntentRouterTest {
             assertEquals(expectedLabel, needsSlot.intent.params["label"])
         }
 
+        @ParameterizedTest(name = "NeedsSlot save important date (no label): \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#importantDateSaveNeedsLabelPhrases")
+        fun `should return NeedsSlot for important date phrases where preposition is mistaken for label`(
+            input: String,
+            expectedDate: String,
+        ) {
+            val result = regexOnlyRouter.route(input)
+            val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+
+            assertEquals("save_important_date", needsSlot.intent.intentName)
+            assertEquals("label", needsSlot.missingSlot.name)
+            assertNull(needsSlot.intent.params["label"], "label should be absent for '$input'")
+            assertEquals(expectedDate, needsSlot.intent.params["date"], "date for '$input'")
+        }
+
         @Test
         fun `should match list important dates phrase`() {
             assertRegexMatch(regexOnlyRouter.route("list my important dates"), "list_important_dates", "list my important dates")
@@ -2998,6 +3013,16 @@ class QuickIntentRouterTest {
             Arguments.of("remember my mum's birthday", "mum's birthday"),
             Arguments.of("save our anniversary", "our anniversary"),
             Arguments.of("add important date freya's birthday", "freya's birthday"),
+        )
+
+        @JvmStatic
+        fun importantDateSaveNeedsLabelPhrases(): Stream<Arguments> = Stream.of(
+            // Preposition-only "label" should be stripped → NeedsSlot for label
+            Arguments.of("add important date on 26th of June", "26th of June"),
+            Arguments.of("add important date on the 26th of June", "26th of June"),
+            Arguments.of("add important date for 22 August", "22 August"),
+            Arguments.of("add important date for the 22 August", "22 August"),
+            Arguments.of("add an important date on 15 March", "15 March"),
         )
 
         @JvmStatic

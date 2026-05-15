@@ -185,7 +185,9 @@ class QuickIntentRouter(
     private fun normalizeImportantDateLabel(raw: String): String = raw.trim()
         .replace(Regex("""^(?:my|the)\s+""", RegexOption.IGNORE_CASE), "")
         .replace(Regex("""^(?:an?\s+)?important\s+date(?:\s+for)?\s+""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""^(?:an?\s+)?important\s+date(?:\s+for)?$""", RegexOption.IGNORE_CASE), "")
         .replace(Regex("""\s+as\s+(?:an?\s+)?important\s+date$""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""^(?:on|for|at|the)(?:\s+the)?\s*$""", RegexOption.IGNORE_CASE), "")
         .trim()
 
     private fun normalizeImportantDateLabelOrNull(raw: String): String? =
