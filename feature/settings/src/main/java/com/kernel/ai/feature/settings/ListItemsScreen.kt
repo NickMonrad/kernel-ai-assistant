@@ -1,6 +1,6 @@
 package com.kernel.ai.feature.settings
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -79,6 +79,7 @@ fun ListItemsScreen(
     else completedItems.filter { it.text.contains(searchQuery, ignoreCase = true) }
 
     var showAddDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
     var completedExpanded by rememberSaveable { mutableStateOf(false) }
 
     // Clear item search when leaving the screen
@@ -89,7 +90,12 @@ fun ListItemsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(displayName.replaceFirstChar { it.uppercase() }) },
+                title = {
+                    Text(
+                        text = displayName.replaceFirstChar { it.uppercase() },
+                        modifier = Modifier.clickable { showRenameDialog = true },
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -219,6 +225,20 @@ fun ListItemsScreen(
                 }
             }
         }
+    }
+
+    // Rename dialog — opened by tapping the screen title
+    if (showRenameDialog) {
+        NameInputDialog(
+            title = "Rename list",
+            confirmLabel = "Save",
+            initialValue = displayName,
+            onConfirm = { newName ->
+                viewModel.renameList(listId, newName)
+                showRenameDialog = false
+            },
+            onDismiss = { showRenameDialog = false },
+        )
     }
 
     if (showAddDialog) {
