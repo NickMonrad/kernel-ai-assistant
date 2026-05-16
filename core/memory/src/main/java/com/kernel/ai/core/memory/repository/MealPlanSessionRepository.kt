@@ -361,6 +361,7 @@ class MealPlanSessionRepository @Inject constructor(
     suspend fun cancelSession(sessionId: String): MealPlanSnapshot {
         val session = requireNotNull(sessionDao.getById(sessionId))
         val now = System.currentTimeMillis()
+        deleteActiveProjections(sessionId, supersededAt = now)
         val updated = session.copy(
             status = MealPlanSessionStatus.CANCELLED.name,
             pendingGenerationKind = null,
@@ -473,6 +474,13 @@ class MealPlanSessionRepository @Inject constructor(
     private suspend fun deleteList(name: String) {
         // With FK CASCADE on list_items.listId, deleting from lists removes all child items
         listNameDao.deleteByName(name)
+    }
+
+    private suspend fun deleteActiveProjections(sessionId: String, supersededAt: Long) {
+        for (targetName in projectionWriteDao.getActiveTargetNamesForSession(sessionId)) {
+            deleteList(targetName)
+        }
+        projectionWriteDao.markSupersededForSession(sessionId, supersededAt)
     }
 
     private suspend fun createSession(conversationId: String): MealPlanSessionEntity {

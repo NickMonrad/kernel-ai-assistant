@@ -188,6 +188,45 @@ class MealPlanSessionRepositoryAndroidTest {
     }
 
     @Test
+    fun cancelSession_deletesPlannerOwnedListsAndSupersedesProjections() = runBlocking {
+        val session = repository.startOrResume("conv-3")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(
+                    dayIndex = 0,
+                    title = "Chicken Stir Fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                ),
+            ),
+        )
+
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(
+                title = "Chicken Stir Fry",
+                method = listOf("Prep vegetables.", "Stir-fry chicken."),
+            ),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh"),
+                grocery(displayText = "2 onions", ingredientName = "onions", normalizationStatus = GroceryNormalizationStatus.OPAQUE),
+            ),
+        )
+
+        val cancelled = repository.cancelSession(session.sessionId)
+
+        assertEquals(MealPlanSessionStatus.CANCELLED, cancelled.status)
+        assertTrue(listNameDao.getAll().isEmpty())
+        assertEquals(2, projectionCount(session.sessionId, "PLAN_SHOPPING_LIST", superseded = true))
+        assertEquals(2, projectionCount(session.sessionId, "RECIPE_LIST", superseded = true))
+        assertEquals(0, projectionCount(session.sessionId, "PLAN_SHOPPING_LIST", superseded = false))
+        assertEquals(0, projectionCount(session.sessionId, "RECIPE_LIST", superseded = false))
+    }
+
+    @Test
     fun migration33To34_preservesExistingListsAndCreatesMealPlannerTables() {
         migrationHelper.createDatabase(MIGRATION_DB_NAME, 33).apply {
             execSQL("INSERT INTO `lists` (`id`, `name`, `createdAt`) VALUES (1, 'Existing list', 1234)")
