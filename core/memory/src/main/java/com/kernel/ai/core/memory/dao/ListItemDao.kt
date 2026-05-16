@@ -13,23 +13,15 @@ interface ListItemDao {
     suspend fun insert(item: ListItemEntity)
 
     /** Unchecked items for a given list, oldest first. */
-    @Query("SELECT * FROM list_items WHERE listName = :listName AND checked = 0 ORDER BY addedAt ASC")
-    suspend fun getByList(listName: String): List<ListItemEntity>
+    @Query("SELECT * FROM list_items WHERE listId = :listId AND checked = 0 ORDER BY createdAt ASC")
+    suspend fun getByList(listId: Long): List<ListItemEntity>
 
     /** All items for a given list (checked + unchecked), for display purposes. */
-    @Query("SELECT * FROM list_items WHERE listName = :listName ORDER BY checked ASC, addedAt ASC")
-    fun observeByList(listName: String): Flow<List<ListItemEntity>>
-
-    /** Distinct list names that have at least one item. */
-    @Query("SELECT DISTINCT listName FROM list_items ORDER BY listName ASC")
-    suspend fun getAllLists(): List<String>
-
-    /** Observe all list names reactively. */
-    @Query("SELECT DISTINCT listName FROM list_items ORDER BY listName ASC")
-    fun observeAllLists(): Flow<List<String>>
+    @Query("SELECT * FROM list_items WHERE listId = :listId ORDER BY checked ASC, createdAt ASC")
+    fun observeByList(listId: Long): Flow<List<ListItemEntity>>
 
     /** All items across all lists, for grouped display. */
-    @Query("SELECT * FROM list_items ORDER BY listName ASC, checked ASC, addedAt ASC")
+    @Query("SELECT * FROM list_items ORDER BY listId ASC, checked ASC, createdAt ASC")
     fun observeAll(): Flow<List<ListItemEntity>>
 
     @Query("UPDATE list_items SET checked = 1 WHERE id = :id")
@@ -38,15 +30,14 @@ interface ListItemDao {
     @Query("UPDATE list_items SET checked = 0 WHERE id = :id")
     suspend fun markUnchecked(id: Long)
 
+    @Query("UPDATE list_items SET text = :text, dueAt = :dueAt, isFavourite = :isFavourite, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateItem(id: Long, text: String, dueAt: Long?, isFavourite: Boolean, updatedAt: Long)
+
     /** Remove all checked items from a list. */
-    @Query("DELETE FROM list_items WHERE listName = :listName AND checked = 1")
-    suspend fun deleteChecked(listName: String)
+    @Query("DELETE FROM list_items WHERE listId = :listId AND checked = 1")
+    suspend fun deleteChecked(listId: Long)
 
     /** Remove a single item by id. */
     @Query("DELETE FROM list_items WHERE id = :id")
     suspend fun deleteItem(id: Long)
-
-    /** Remove the entire list. */
-    @Query("DELETE FROM list_items WHERE listName = :listName")
-    suspend fun deleteList(listName: String)
 }

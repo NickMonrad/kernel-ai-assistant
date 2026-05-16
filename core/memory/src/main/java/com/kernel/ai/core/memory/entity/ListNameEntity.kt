@@ -12,4 +12,7 @@ data class ListNameEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val createdAt: Long = System.currentTimeMillis(),
+    /** Bumped on rename and whenever any child item changes. */
+    val updatedAt: Long = System.currentTimeMillis(),
+    val pinned: Boolean = false,
 )
