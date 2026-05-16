@@ -12,6 +12,14 @@ interface ListNameDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(list: ListNameEntity)
 
+    /**
+     * Inserts a new list and returns the generated row-id (= entity id), or -1 on a
+     * name-unique conflict (IGNORE strategy).  Callers can fall back to [getByName] when -1
+     * is returned to handle the already-exists case.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAndGet(list: ListNameEntity): Long
+
     @Query("SELECT * FROM lists ORDER BY pinned DESC, createdAt ASC")
     fun observeAll(): Flow<List<ListNameEntity>>
 
@@ -33,6 +41,9 @@ interface ListNameDao {
 
     @Query("UPDATE lists SET pinned = :pinned, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updatePinned(id: Long, pinned: Boolean, updatedAt: Long)
+
+    @Query("UPDATE lists SET pinned = NOT pinned, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun togglePinned(id: Long, updatedAt: Long)
 
     @Query("UPDATE lists SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateTimestamp(id: Long, updatedAt: Long)
