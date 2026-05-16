@@ -1738,11 +1738,11 @@ class QuickIntentRouter(
         ),
         // Open app — "open YouTube" / "launch Spotify"
         // Excludes timer/countdown/alarm phrases and phrases that contain "timer" anywhere
-        // Also excludes list and new-conversation/chat phrases to prevent false matches on slot-fill commands
+        // Also excludes list, meal-planner, and new-conversation/chat phrases to prevent false matches on deterministic skills
         IntentPattern(
             intentName = "open_app",
             regex = Regex(
-                """^(?:open|launch|start)\s+(?:the\s+)?(?!(?:a\s+)?(?:count(?:down|ing)|timer|alarm|(?:my\s+)?list|new\s+conversation|new\s+chat|conversation|chat)\b)(?!.*\btimer\b)(.+?)(?:\s+app)?$""",
+                """^(?:open|launch|start)\s+(?:the\s+)?(?!(?:a\s+)?(?:count(?:down|ing)|timer|alarm|(?:my\s+)?list|meal\s+planning|meal\s+plan|meal\s+prep|meals?|dinners?|menu|new\s+conversation|new\s+chat|conversation|chat)\b)(?!.*\btimer\b)(.+?)(?:\s+app)?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("app_name" to match.groupValues[1].trim()) },
@@ -2864,7 +2864,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "start_meal_planner",
             regex = Regex(
-                """^(?:(?:let'?s|lets|can\s+you|help\s+me|i\s+(?:want|need)\s+to|i\s+would\s+like\s+to|i(?:['’])?d\s+like\s+to)\s+)?(?:plan|make|create)(?:\s+me)?\s+(?:(?:some|my)\s+)?meals?(?:\s+for\s+me)?[.!?]*$""",
+                """^(?:(?:let'?s|lets|can\s+you|could\s+you|help\s+me|i\s+(?:want|need)\s+to|i\s+would\s+like\s+to|i(?:['’])?d\s+like\s+to)\s+)?(?:plan|make|create)(?:\s+me)?\s+(?:(?:some|my)\s+)?meals?(?:\s+for\s+me)?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -2872,7 +2872,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "start_meal_planner",
             regex = Regex(
-                """^(?:(?:let'?s|lets|can\s+you|help\s+me|i\s+(?:want|need)\s+to|i\s+would\s+like\s+to|i(?:['’])?d\s+like\s+to)\s+)?(?:plan|make|create)(?:\s+me)?\s+(?:a\s+)?meal\s+plan(?:\s+for\s+me)?[.!?]*$""",
+                """^(?:(?:let'?s|lets|can\s+you|could\s+you|help\s+me|i\s+(?:want|need)\s+to|i\s+would\s+like\s+to|i(?:['’])?d\s+like\s+to)\s+)?(?:plan|make|create)(?:\s+me)?\s+(?:a\s+)?meal\s+plan(?:\s+for\s+me)?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -2880,7 +2880,23 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "start_meal_planner",
             regex = Regex(
-                """^(?:(?:let'?s|lets|can\s+you|help\s+me|i\s+(?:want|need)\s+to|i\s+would\s+like\s+to|i(?:['’])?d\s+like\s+to)\s+)?(?:meal\s+planning|plan\s+my\s+meals|help\s+me\s+plan\s+meals)[.!?]*$""",
+                """^(?:(?:let'?s|lets|can\s+you|could\s+you|help\s+me|i\s+(?:want|need)\s+to|i\s+would\s+like\s+to|i(?:['’])?d\s+like\s+to)\s+)?(?:meal\s+planning|plan\s+my\s+meals|help\s+me\s+plan\s+meals)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "start_meal_planner",
+            regex = Regex(
+                """^(?:(?:please\s+)?(?:can\s+you|could\s+you)|i\s+(?:want|need)|i\s+would\s+like|i(?:['’])?d\s+like|give\s+me)?\s*(?:a\s+)?(?:meal\s+plan|meal\s+planning|weekly\s+menu)(?:\s+(?:for\s+the\s+week|this\s+week|weekly))?(?:\s+please)?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "start_meal_planner",
+            regex = Regex(
+                """^(?:(?:let'?s|lets|can\s+you|could\s+you|please|help\s+me)\s+)?(?:plan|start|set\s+up|organi[sz]e|map\s+out|figure\s+out|sort\s+out|prep)\s+(?:(?:(?:my|our|the|a)\s+)?(?:weekly\s+)?)?(?:meal\s+planning|meal\s+plan|meals?|dinners?|menu|meal\s+prep)(?:\s+(?:for\s+the\s+week|this\s+week|weekly))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
