@@ -59,6 +59,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.drop
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -163,10 +165,12 @@ fun ListItemsScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<ListItemEntity?>(null) }
 
-    LaunchedEffect(viewModel.itemFilter) {
-        if (viewModel.itemFilter == ItemFilter.COMPLETED_ONLY) {
-            completedExpanded = true
-        }
+    LaunchedEffect(Unit) {
+        snapshotFlow { viewModel.itemFilter }
+            .drop(1) // skip initial emission; rememberSaveable owns first-run state
+            .collect { filter ->
+                if (filter == ItemFilter.COMPLETED_ONLY) completedExpanded = true
+            }
     }
 
     DisposableEffect(Unit) {
