@@ -57,6 +57,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -158,7 +159,7 @@ fun ListItemsScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     val renameInitialValue = remember(showRenameDialog) { if (showRenameDialog) displayName else "" }
-    var completedExpanded by remember { mutableStateOf(viewModel.itemFilter == ItemFilter.COMPLETED_ONLY) }
+    var completedExpanded by rememberSaveable { mutableStateOf(viewModel.itemFilter == ItemFilter.COMPLETED_ONLY) }
     var showSortMenu by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<ListItemEntity?>(null) }
 
