@@ -144,6 +144,11 @@ fun ListsScreen(
                         }
                     },
                     actions = {
+                        TextButton(onClick = {
+                            viewModel.selectAllLists((pinnedItems + unpinnedItems).map { it.id })
+                        }) {
+                            Text("Select All")
+                        }
                         IconButton(onClick = { showBulkDeleteDialog = true }) {
                             Icon(
                                 Icons.Default.Delete,

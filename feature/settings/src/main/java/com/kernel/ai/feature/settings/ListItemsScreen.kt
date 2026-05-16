@@ -199,6 +199,13 @@ fun ListItemsScreen(
                         }
                     },
                     actions = {
+                        TextButton(onClick = {
+                            viewModel.selectAllItems(
+                                (filteredActive + filteredCompleted).map { it.id }
+                            )
+                        }) {
+                            Text("Select All")
+                        }
                         // Mark selected items complete
                         IconButton(onClick = { viewModel.markSelectedItemsComplete() }) {
                             Icon(

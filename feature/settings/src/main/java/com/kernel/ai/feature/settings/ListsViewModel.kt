@@ -220,6 +220,8 @@ class ListsViewModel @Inject constructor(
 
     fun exitListMultiSelect() { selectedListIds = emptySet() }
 
+    fun selectAllLists(ids: List<Long>) { selectedListIds = ids.toSet() }
+
     /** Bulk-deletes the currently selected lists (cascade removes all child items via FK). */
     fun deleteSelectedLists() {
         val ids = selectedListIds.toList()
@@ -243,6 +245,8 @@ class ListsViewModel @Inject constructor(
     }
 
     fun exitItemMultiSelect() { selectedItemIds = emptySet() }
+
+    fun selectAllItems(ids: List<Long>) { selectedItemIds = ids.toSet() }
 
     /** Bulk-deletes the currently selected list items. */
     fun deleteSelectedItems() {
