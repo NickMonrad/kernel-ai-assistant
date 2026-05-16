@@ -1,5 +1,7 @@
 package com.kernel.ai.core.memory.repository
 
+import androidx.room.withTransaction
+import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.MealPlanDayDao
@@ -40,6 +42,7 @@ import javax.inject.Singleton
 
 @Singleton
 class MealPlanSessionRepository @Inject constructor(
+    private val database: KernelDatabase,
     private val sessionDao: MealPlanSessionDao,
     private val dayDao: MealPlanDayDao,
     private val recipeVersionDao: MealPlanRecipeVersionDao,
@@ -477,10 +480,12 @@ class MealPlanSessionRepository @Inject constructor(
     }
 
     private suspend fun deleteActiveProjections(sessionId: String, supersededAt: Long) {
-        for (targetName in projectionWriteDao.getActiveTargetNamesForSession(sessionId)) {
-            deleteList(targetName)
+        database.withTransaction {
+            for (targetName in projectionWriteDao.getActiveTargetNamesForSession(sessionId)) {
+                deleteList(targetName)
+            }
+            projectionWriteDao.markSupersededForSession(sessionId, supersededAt)
         }
-        projectionWriteDao.markSupersededForSession(sessionId, supersededAt)
     }
 
     private suspend fun createSession(conversationId: String): MealPlanSessionEntity {

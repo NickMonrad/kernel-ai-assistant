@@ -11,6 +11,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.mealplan.CanonicalGroceryItem
 import com.kernel.ai.core.memory.mealplan.GroceryNormalizationStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanDraftDay
@@ -51,6 +52,7 @@ class MealPlanSessionRepositoryAndroidTest {
             .allowMainThreadQueries()
             .build()
         repository = MealPlanSessionRepository(
+            database = database,
             sessionDao = database.mealPlanSessionDao(),
             dayDao = database.mealPlanDayDao(),
             recipeVersionDao = database.mealPlanRecipeVersionDao(),
@@ -216,10 +218,13 @@ class MealPlanSessionRepositoryAndroidTest {
             ),
         )
 
+        val keepListName = "My Groceries"
+        listNameDao.insert(ListNameEntity(name = keepListName, createdAt = 1L, updatedAt = 1L))
+
         val cancelled = repository.cancelSession(session.sessionId)
 
         assertEquals(MealPlanSessionStatus.CANCELLED, cancelled.status)
-        assertTrue(listNameDao.getAll().isEmpty())
+        assertEquals(listOf(keepListName), listNameDao.getAll().map { it.name })
         assertEquals(2, projectionCount(session.sessionId, "PLAN_SHOPPING_LIST", superseded = true))
         assertEquals(2, projectionCount(session.sessionId, "RECIPE_LIST", superseded = true))
         assertEquals(0, projectionCount(session.sessionId, "PLAN_SHOPPING_LIST", superseded = false))
