@@ -80,6 +80,9 @@ fun ListItemsScreen(
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
+    // Snapshot displayName at the moment the dialog opens so live Room updates
+    // don't reset text the user is actively typing.
+    val renameInitialValue = remember(showRenameDialog) { if (showRenameDialog) displayName else "" }
     var completedExpanded by rememberSaveable { mutableStateOf(false) }
 
     // Clear item search when leaving the screen
@@ -232,7 +235,7 @@ fun ListItemsScreen(
         NameInputDialog(
             title = "Rename list",
             confirmLabel = "Save",
-            initialValue = displayName,
+            initialValue = renameInitialValue,
             onConfirm = { newName ->
                 viewModel.renameList(listId, newName)
                 showRenameDialog = false

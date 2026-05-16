@@ -58,8 +58,8 @@ class ListsViewModel @Inject constructor(
         }
         val comparator: Comparator<ListNameEntity> = when (sort) {
             ListSort.LAST_MODIFIED -> compareByDescending { it.updatedAt }
-            ListSort.NAME_ASC -> compareBy { it.name }
-            ListSort.NAME_DESC -> compareByDescending { it.name }
+            ListSort.NAME_ASC -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }
+            ListSort.NAME_DESC -> compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.name }
             ListSort.CREATED_ASC -> compareBy { it.createdAt }
             ListSort.CREATED_DESC -> compareByDescending { it.createdAt }
         }
@@ -170,11 +170,10 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    /** Toggles the pinned state of a list, bumping the updatedAt timestamp. */
+    /** Toggles the pinned state of a list atomically, bumping the updatedAt timestamp. */
     fun togglePin(id: Long) {
         viewModelScope.launch {
-            val entity = listEntities.value.firstOrNull { it.id == id } ?: return@launch
-            listNameDao.updatePinned(id, !entity.pinned, System.currentTimeMillis())
+            listNameDao.togglePinned(id, System.currentTimeMillis())
         }
     }
 

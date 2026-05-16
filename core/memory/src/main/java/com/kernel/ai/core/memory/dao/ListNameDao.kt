@@ -42,6 +42,9 @@ interface ListNameDao {
     @Query("UPDATE lists SET pinned = :pinned, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updatePinned(id: Long, pinned: Boolean, updatedAt: Long)
 
+    @Query("UPDATE lists SET pinned = NOT pinned, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun togglePinned(id: Long, updatedAt: Long)
+
     @Query("UPDATE lists SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateTimestamp(id: Long, updatedAt: Long)
 }
