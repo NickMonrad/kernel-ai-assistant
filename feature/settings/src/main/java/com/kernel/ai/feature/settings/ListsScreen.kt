@@ -1,7 +1,10 @@
 package com.kernel.ai.feature.settings
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,16 +17,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -31,6 +37,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -38,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,8 +55,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ListsScreen(
     onBack: () -> Unit = {},
@@ -56,15 +65,23 @@ fun ListsScreen(
     onNavigateToVoiceActions: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
 ) {
+    val displayedLists by viewModel.displayedLists.collectAsStateWithLifecycle()
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val itemCounts by viewModel.itemCounts.collectAsStateWithLifecycle()
     val searchQuery by viewModel.listSearchQuery.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingDeleteEntity by remember { mutableStateOf<ListNameEntity?>(null) }
+    var pendingRenameEntity by remember { mutableStateOf<ListNameEntity?>(null) }
+    var showSortMenu by remember { mutableStateOf(false) }
 
-    val filtered = if (searchQuery.isBlank()) listEntities
-    else listEntities.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    // Apply search on top of the already sort/filter-applied displayedLists
+    val filtered = if (searchQuery.isBlank()) displayedLists
+    else displayedLists.filter { it.name.contains(searchQuery, ignoreCase = true) }
+
+    val pinnedItems = filtered.filter { it.pinned }
+    val unpinnedItems = filtered.filter { !it.pinned }
 
     Scaffold(
         topBar = {
@@ -73,6 +90,21 @@ fun ListsScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    Box {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Sort and filter")
+                        }
+                        SortFilterMenu(
+                            expanded = showSortMenu,
+                            currentSort = viewModel.listSort,
+                            currentFilter = viewModel.listFilter,
+                            onSortSelected = { viewModel.listSort = it },
+                            onFilterSelected = { viewModel.listFilter = it },
+                            onDismiss = { showSortMenu = false },
+                        )
                     }
                 },
             )
@@ -128,7 +160,12 @@ fun ListsScreen(
                 ) {
                     Spacer(modifier = Modifier.height(32.dp))
                     Text(
-                        text = if (listEntities.isEmpty()) "No lists yet." else "No lists match \"$searchQuery\".",
+                        text = when {
+                            listEntities.isEmpty() -> "No lists yet."
+                            searchQuery.isNotBlank() -> "No lists match \"$searchQuery\"."
+                            viewModel.listFilter == ListFilter.PINNED_ONLY -> "No pinned lists."
+                            else -> "No lists found."
+                        },
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -143,65 +180,82 @@ fun ListsScreen(
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(filtered, key = { it.id }) { entity ->
-                        val count = itemCounts[entity.id] ?: 0
-                        ListItem(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpenList(entity.id) },
-                            headlineContent = {
-                                Text(entity.name.replaceFirstChar { it.uppercase() })
-                            },
-                            supportingContent = {
-                                Text("$count item${if (count == 1) "" else "s"}")
-                            },
-                            leadingContent = {
-                                Icon(
-                                    Icons.Default.Checklist,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            },
-                            trailingContent = {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(0.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    IconButton(onClick = { pendingDeleteEntity = entity }) {
-                                        Icon(
-                                            Icons.Default.Delete,
-                                            contentDescription = "Delete list",
-                                            tint = MaterialTheme.colorScheme.error,
-                                        )
-                                    }
-                                    Icon(Icons.Default.ChevronRight, contentDescription = null)
-                                }
-                            },
-                        )
-                        HorizontalDivider()
+                    // ── Pinned section ──────────────────────────────────────────────────────
+                    if (pinnedItems.isNotEmpty()) {
+                        stickyHeader(key = "header_pinned") {
+                            ListSectionHeader(label = "Pinned")
+                        }
+                        items(pinnedItems, key = { it.id }) { entity ->
+                            ListOverviewRow(
+                                entity = entity,
+                                count = itemCounts[entity.id] ?: 0,
+                                onOpen = { onOpenList(entity.id) },
+                                onPin = { viewModel.togglePin(entity.id) },
+                                onRename = { pendingRenameEntity = entity },
+                                onDelete = { pendingDeleteEntity = entity },
+                            )
+                        }
                     }
+
+                    // ── Unpinned section ────────────────────────────────────────────────────
+                    if (unpinnedItems.isNotEmpty()) {
+                        if (pinnedItems.isNotEmpty()) {
+                            stickyHeader(key = "header_other") {
+                                ListSectionHeader(label = "Other")
+                            }
+                        }
+                        items(unpinnedItems, key = { it.id }) { entity ->
+                            ListOverviewRow(
+                                entity = entity,
+                                count = itemCounts[entity.id] ?: 0,
+                                onOpen = { onOpenList(entity.id) },
+                                onPin = { viewModel.togglePin(entity.id) },
+                                onRename = { pendingRenameEntity = entity },
+                                onDelete = { pendingDeleteEntity = entity },
+                            )
+                        }
+                    }
+
+                    item { Spacer(modifier = Modifier.height(88.dp)) } // FAB clearance
                 }
             }
         }
     }
 
-    // Create list dialog
+    // ── Create list dialog ────────────────────────────────────────────────────────────────────
     if (showCreateDialog) {
-        CreateListDialog(
+        NameInputDialog(
+            title = "New list",
+            confirmLabel = "Create",
+            initialValue = "",
             onConfirm = { name ->
                 showCreateDialog = false
                 if (name.isNotBlank()) {
-                    viewModel.addList(name)
-                    // Navigate immediately — the list will be created and visible on return
-                    // We can't navigate by ID here since the row is inserted async;
-                    // in slice 2 this will be improved. For now, stay on overview after create.
+                    scope.launch {
+                        val newId = viewModel.createList(name)
+                        if (newId > 0L) onOpenList(newId)
+                    }
                 }
             },
             onDismiss = { showCreateDialog = false },
         )
     }
 
-    // Delete confirmation dialog
+    // ── Rename dialog ─────────────────────────────────────────────────────────────────────────
+    pendingRenameEntity?.let { entity ->
+        NameInputDialog(
+            title = "Rename list",
+            confirmLabel = "Save",
+            initialValue = entity.name,
+            onConfirm = { newName ->
+                viewModel.renameList(entity.id, newName)
+                pendingRenameEntity = null
+            },
+            onDismiss = { pendingRenameEntity = null },
+        )
+    }
+
+    // ── Delete confirmation dialog ────────────────────────────────────────────────────────────
     pendingDeleteEntity?.let { entity ->
         val count = itemCounts[entity.id] ?: 0
         AlertDialog(
@@ -226,20 +280,204 @@ fun ListsScreen(
     }
 }
 
+// ── Internal composables ──────────────────────────────────────────────────────────────────────────
+
+/** Sticky section header — surface background so it occludes scrolled-under rows. */
 @Composable
-private fun CreateListDialog(
+private fun ListSectionHeader(label: String) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+    )
+}
+
+/** A single row in the lists overview. */
+@Composable
+private fun ListOverviewRow(
+    entity: ListNameEntity,
+    count: Int,
+    onOpen: () -> Unit,
+    onPin: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var showOverflow by remember { mutableStateOf(false) }
+
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen),
+        headlineContent = {
+            Text(entity.name.replaceFirstChar { it.uppercase() })
+        },
+        supportingContent = {
+            Text("$count item${if (count == 1) "" else "s"}")
+        },
+        leadingContent = {
+            Icon(
+                Icons.Default.Checklist,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        },
+        trailingContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                // Pin toggle
+                IconButton(onClick = onPin) {
+                    Icon(
+                        if (entity.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = if (entity.pinned) "Unpin" else "Pin",
+                        tint = if (entity.pinned) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                // Overflow: Rename / Delete
+                Box {
+                    IconButton(onClick = { showOverflow = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                    }
+                    DropdownMenu(
+                        expanded = showOverflow,
+                        onDismissRequest = { showOverflow = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Rename") },
+                            onClick = { showOverflow = false; onRename() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                            onClick = { showOverflow = false; onDelete() },
+                        )
+                    }
+                }
+            }
+        },
+    )
+    HorizontalDivider()
+}
+
+/** Sort & filter drop-down menu anchored on the top-bar ⋮ button. */
+@Composable
+private fun SortFilterMenu(
+    expanded: Boolean,
+    currentSort: ListSort,
+    currentFilter: ListFilter,
+    onSortSelected: (ListSort) -> Unit,
+    onFilterSelected: (ListFilter) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        // ── Sort section ────────────────────────────────────────────────────
+        DropdownMenuItem(
+            text = {
+                Text(
+                    "Sort by",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            },
+            onClick = {},
+            enabled = false,
+        )
+        SortItem(
+            label = "Last modified",
+            selected = currentSort == ListSort.LAST_MODIFIED,
+            onClick = { onSortSelected(ListSort.LAST_MODIFIED); onDismiss() },
+        )
+        SortItem(
+            label = "Name A → Z",
+            selected = currentSort == ListSort.NAME_ASC,
+            onClick = { onSortSelected(ListSort.NAME_ASC); onDismiss() },
+        )
+        SortItem(
+            label = "Name Z → A",
+            selected = currentSort == ListSort.NAME_DESC,
+            onClick = { onSortSelected(ListSort.NAME_DESC); onDismiss() },
+        )
+        SortItem(
+            label = "Created (newest)",
+            selected = currentSort == ListSort.CREATED_DESC,
+            onClick = { onSortSelected(ListSort.CREATED_DESC); onDismiss() },
+        )
+        SortItem(
+            label = "Created (oldest)",
+            selected = currentSort == ListSort.CREATED_ASC,
+            onClick = { onSortSelected(ListSort.CREATED_ASC); onDismiss() },
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+        // ── Filter section ──────────────────────────────────────────────────
+        DropdownMenuItem(
+            text = {
+                Text(
+                    "Filter",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            },
+            onClick = {},
+            enabled = false,
+        )
+        SortItem(
+            label = "All",
+            selected = currentFilter == ListFilter.ALL,
+            onClick = { onFilterSelected(ListFilter.ALL); onDismiss() },
+        )
+        SortItem(
+            label = "Pinned only",
+            selected = currentFilter == ListFilter.PINNED_ONLY,
+            onClick = { onFilterSelected(ListFilter.PINNED_ONLY); onDismiss() },
+        )
+    }
+}
+
+@Composable
+private fun SortItem(label: String, selected: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        onClick = onClick,
+        trailingIcon = {
+            if (selected) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        },
+    )
+}
+
+/**
+ * Reusable single-field dialog for both "New list" (create) and "Rename list".
+ * Exposed as [internal] so [ListItemsScreen] can use it without a separate file.
+ */
+@Composable
+internal fun NameInputDialog(
+    title: String,
+    confirmLabel: String,
+    initialValue: String,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
+    var text by remember(initialValue) { mutableStateOf(initialValue) }
     val focusRequester = remember { FocusRequester() }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New list") },
+        title = { Text(title) },
         text = {
             OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
+                value = text,
+                onValueChange = { text = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(focusRequester),
@@ -249,12 +487,13 @@ private fun CreateListDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(name) },
-                enabled = name.isNotBlank(),
-            ) { Text("Create") }
+                onClick = { onConfirm(text) },
+                enabled = text.isNotBlank(),
+            ) { Text(confirmLabel) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
 }
+
