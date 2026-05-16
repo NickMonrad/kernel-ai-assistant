@@ -12,6 +12,7 @@ import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -183,9 +184,12 @@ class ListsViewModel @Inject constructor(
 
     // ── Drag-and-drop reorder (#897) ─────────────────────────────────────────────────────────────
 
+    private var reorderJob: Job? = null
+
     /**
-     * Called when the user finishes dragging a list row.  Persists the new display order for both
-     * groups and automatically switches the sort mode to [ListSort.MANUAL].
+     * Called when the user finishes dragging a list row.  Cancels any in-flight reorder job and
+     * persists the new display order atomically for both groups, automatically switching the sort
+     * mode to [ListSort.MANUAL].
      *
      * @param pinnedIds  Ordered list of pinned entity IDs after the drag.
      * @param unpinnedIds  Ordered list of unpinned entity IDs after the drag.
@@ -193,13 +197,11 @@ class ListsViewModel @Inject constructor(
     fun onListsReordered(pinnedIds: List<Long>, unpinnedIds: List<Long>) {
         listSort = ListSort.MANUAL
         val now = System.currentTimeMillis()
-        viewModelScope.launch(Dispatchers.IO) {
-            pinnedIds.forEachIndexed { index, id ->
-                listNameDao.updateDisplayOrder(id, index, now)
-            }
-            unpinnedIds.forEachIndexed { index, id ->
-                listNameDao.updateDisplayOrder(id, index, now)
-            }
+        reorderJob?.cancel()
+        reorderJob = viewModelScope.launch(Dispatchers.IO) {
+            val updates = pinnedIds.mapIndexed { i, id -> id to i } +
+                          unpinnedIds.mapIndexed { i, id -> id to i }
+            listNameDao.updateDisplayOrders(updates, now)
         }
     }
 

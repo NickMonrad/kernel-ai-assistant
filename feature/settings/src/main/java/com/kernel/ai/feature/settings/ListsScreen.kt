@@ -47,7 +47,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -103,6 +106,10 @@ fun ListsScreen(
 
     LaunchedEffect(pinnedItems) { if (!dragInProgress) localPinned = pinnedItems }
     LaunchedEffect(unpinnedItems) { if (!dragInProgress) localUnpinned = unpinnedItems }
+
+    DisposableEffect(Unit) {
+        onDispose { viewModel.exitListMultiSelect() }
+    }
 
     val lazyListState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
@@ -526,7 +533,11 @@ private fun ListOverviewRow(
                         Icons.Default.DragHandle,
                         contentDescription = "Drag to reorder",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = dragHandleModifier.padding(horizontal = 4.dp),
+                        modifier = dragHandleModifier
+                            .pointerInput(Unit) {
+                                detectTapGestures(onLongPress = { /* absorb — prevent combinedClickable from firing */ })
+                            }
+                            .padding(horizontal = 4.dp),
                     )
                 }
             }
