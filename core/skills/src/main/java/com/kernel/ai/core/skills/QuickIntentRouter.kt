@@ -2864,7 +2864,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "start_meal_planner",
             regex = Regex(
-                """^(?:(?:let'?s|lets|can\s+you|help\s+me|i\s+(?:want|need|would\s+like)\s+to)\s+)?(?:plan|make|create)\s+(?:some\s+)?meals?(?:\s+for\s+me)?[.!?]*$""",
+                """^(?:(?:let'?s|lets|can\s+you|help\s+me|i\s+(?:want|need)\s+to|i\s+would\s+like\s+to|i(?:['’])?d\s+like\s+to)\s+)?(?:plan|make|create)\s+(?:(?:some|my)\s+)?meals?(?:\s+for\s+me)?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -2872,7 +2872,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "start_meal_planner",
             regex = Regex(
-                """^(?:(?:let'?s|lets)\s+)?(?:plan|make|create)\s+(?:a\s+)?meal\s+plan(?:\s+for\s+me)?[.!?]*$""",
+                """^(?:(?:let'?s|lets|can\s+you|help\s+me|i\s+(?:want|need)\s+to|i\s+would\s+like\s+to|i(?:['’])?d\s+like\s+to)\s+)?(?:plan|make|create)\s+(?:a\s+)?meal\s+plan(?:\s+for\s+me)?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -2880,7 +2880,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "start_meal_planner",
             regex = Regex(
-                """^(?:meal\s+planning|plan\s+my\s+meals|help\s+me\s+plan\s+meals)[.!?]*$""",
+                """^(?:(?:let'?s|lets|can\s+you|help\s+me|i\s+(?:want|need)\s+to|i\s+would\s+like\s+to|i(?:['’])?d\s+like\s+to)\s+)?(?:meal\s+planning|plan\s+my\s+meals|help\s+me\s+plan\s+meals)[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
