@@ -2437,11 +2437,11 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("expression" to match.groupValues[1].trim()) },
         ),
-        // Worded root phrases: "square root of 144", "what's the cube root of 27"
+        // Worded root phrases: "square root of 144", "square root 144", "what's the cube root of 27"
         IntentPattern(
             intentName = "calculate_arithmetic",
             regex = Regex(
-                """^(?:(?:what(?:'s|\s+is)|calculate|compute)\s+)?(?:the\s+)?(square|cube)\s+root\s+of\s+(-?\d+(?:\.\d+)?)$""",
+                """^(?:(?:what(?:'s|\s+is)|calculate|compute)\s+)?(?:the\s+)?(square|cube)\s+root\s+(?:of\s+)?(-?\d+(?:\.\d+)?)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
