@@ -20,17 +20,20 @@ class MealPlannerSlotExtractor @Inject constructor() {
 
     fun extractDietaryRestrictions(text: String): List<String>? {
         val normalized = normalizeWords(text)
-        if (Regex("\\b(?:none|no dietary restrictions|anything is fine)\\b").containsMatchIn(normalized)) {
-            return emptyList()
+        if (Regex("\\b(?:none|no\\s+(?:(?:dietary(?:\\s+(?:requirements?|restrictions?))?)|requirements?|restrictions?)|anything is fine)\\b").containsMatchIn(normalized)) {
+            return listOf(NO_DIETARY_REQUIREMENTS)
         }
         val matches = DIETARY_KEYWORDS.filter { normalized.contains(it.first) }.map { it.second }.distinct()
         return matches.takeIf { it.isNotEmpty() }
     }
 
-    fun extractProteinPreferences(text: String): List<String>? {
+    fun extractProteinPreferences(text: String, allowBareNoPreference: Boolean = false): List<String>? {
         val normalized = normalizeWords(text)
-        if (Regex("\\b(?:anything|any protein|surprise me)\\b").containsMatchIn(normalized)) {
-            return emptyList()
+        if (
+            Regex("\\b(?:any\\s+protein(?:\\s+is\\s+fine)?|surprise me|no\\s+preferences?|no\\s+protein\\s+preferences?)\\b").containsMatchIn(normalized) ||
+                (allowBareNoPreference && normalized.matches(Regex("^\\s*(?:none|any)\\s*[.!?]*$")))
+        ) {
+            return listOf(NO_PROTEIN_PREFERENCE)
         }
         val matches = PROTEIN_KEYWORDS.filter { normalized.contains(it.first) }.map { it.second }.distinct().toMutableList()
         if ("beef mince" in matches) matches.remove("beef")
@@ -38,7 +41,7 @@ class MealPlannerSlotExtractor @Inject constructor() {
     }
 
     fun isCancelRequest(text: String): Boolean =
-        Regex("\\b(?:cancel|stop|nevermind|never mind|forget it|abort)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
+        Regex("\\b(?:cancel|nevermind|never mind|forget it|abort)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
 
     fun extractReplaceDayIndex(text: String): Int? =
         Regex("\\b(?:replace|swap|change)\\s+day\\s+(\\d+)\\b", RegexOption.IGNORE_CASE)
@@ -47,6 +50,18 @@ class MealPlannerSlotExtractor @Inject constructor() {
     fun extractRegenerateDayIndex(text: String): Int? =
         Regex("\\b(?:regenerate|redo|retry)\\s+day\\s+(\\d+)\\b", RegexOption.IGNORE_CASE)
             .find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.minus(1)
+
+    fun isGenerateRecipesRequest(text: String): Boolean =
+        Regex("\\b(?:generate|make|create|start)\\b.*\\b(?:recipes?|meal plan)\\b|\\b(?:continue|resume|keep going)\\b", RegexOption.IGNORE_CASE)
+            .containsMatchIn(text)
+
+    fun isRetryRequest(text: String): Boolean =
+        Regex("\\b(?:retry|try again)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
+
+    fun isChangePreferencesRequest(text: String): Boolean =
+        Regex("\\b(?:change|edit|update|revise)\\s+(?:preferences?|details?|requirements?)\\b", RegexOption.IGNORE_CASE)
+            .containsMatchIn(text)
+
 
     private fun normalizeWords(text: String): String {
         var normalized = text.lowercase()
@@ -71,6 +86,9 @@ class MealPlannerSlotExtractor @Inject constructor() {
             "nine" to "9",
             "ten" to "10",
         )
+        const val NO_DIETARY_REQUIREMENTS = "no dietary requirements"
+        const val NO_PROTEIN_PREFERENCE = "no protein preference"
+
         val DIETARY_KEYWORDS = listOf(
             "low lactose" to "low lactose",
             "lactose intolerant" to "lactose intolerant",
