@@ -20,8 +20,8 @@ class MealPlannerSlotExtractor @Inject constructor() {
 
     fun extractDietaryRestrictions(text: String): List<String>? {
         val normalized = normalizeWords(text)
-        if (Regex("\\b(?:none|no dietary restrictions|anything is fine)\\b").containsMatchIn(normalized)) {
-            return emptyList()
+        if (Regex("\\b(?:none|no\\s+(?:dietary\\s+)?(?:requirements?|restrictions?)|anything is fine)\\b").containsMatchIn(normalized)) {
+            return listOf(NO_DIETARY_REQUIREMENTS)
         }
         val matches = DIETARY_KEYWORDS.filter { normalized.contains(it.first) }.map { it.second }.distinct()
         return matches.takeIf { it.isNotEmpty() }
@@ -29,8 +29,8 @@ class MealPlannerSlotExtractor @Inject constructor() {
 
     fun extractProteinPreferences(text: String): List<String>? {
         val normalized = normalizeWords(text)
-        if (Regex("\\b(?:anything|any protein|surprise me)\\b").containsMatchIn(normalized)) {
-            return emptyList()
+        if (Regex("\\b(?:anything|any\\s+protein|surprise me|no\\s+protein\\s+preference)\\b").containsMatchIn(normalized)) {
+            return listOf(NO_PROTEIN_PREFERENCE)
         }
         val matches = PROTEIN_KEYWORDS.filter { normalized.contains(it.first) }.map { it.second }.distinct().toMutableList()
         if ("beef mince" in matches) matches.remove("beef")
@@ -80,6 +80,9 @@ class MealPlannerSlotExtractor @Inject constructor() {
             "nine" to "9",
             "ten" to "10",
         )
+        const val NO_DIETARY_REQUIREMENTS = "no dietary requirements"
+        const val NO_PROTEIN_PREFERENCE = "no protein preference"
+
         val DIETARY_KEYWORDS = listOf(
             "low lactose" to "low lactose",
             "lactose intolerant" to "lactose intolerant",

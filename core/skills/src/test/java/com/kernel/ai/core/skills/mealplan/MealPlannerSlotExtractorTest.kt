@@ -18,6 +18,26 @@ class MealPlannerSlotExtractorTest {
     }
 
     @Test
+    fun `extractDietaryRestrictions recognizes explicit no requirements`() {
+        assertEquals(
+            listOf("no dietary requirements"),
+            extractor.extractDietaryRestrictions("No dietary requirements"),
+        )
+        assertEquals(
+            listOf("no dietary requirements"),
+            extractor.extractDietaryRestrictions("None"),
+        )
+    }
+
+    @Test
+    fun `extractProteinPreferences recognizes explicit no preference`() {
+        assertEquals(
+            listOf("no protein preference"),
+            extractor.extractProteinPreferences("Any protein is fine"),
+        )
+    }
+
+    @Test
     fun `extractReplaceDayIndex parses one based day number`() {
         assertEquals(1, extractor.extractReplaceDayIndex("replace day 2"))
     }

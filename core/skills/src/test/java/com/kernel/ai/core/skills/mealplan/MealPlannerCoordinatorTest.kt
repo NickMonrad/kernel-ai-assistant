@@ -80,6 +80,45 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `collecting no dietary requirements completes slot collection`() = runTest {
+        val ready = collectingSnapshot().copy(
+            peopleCount = 5,
+            daysCount = 2,
+            dietaryRestrictions = listOf("no dietary requirements"),
+            proteinPreferences = listOf("chicken", "beef"),
+        )
+        val reviewed = planReviewSnapshot().copy(
+            peopleCount = 5,
+            daysCount = 2,
+            dietaryRestrictions = listOf("no dietary requirements"),
+            proteinPreferences = listOf("chicken", "beef"),
+        )
+        coEvery {
+            sessionRepository.getActiveSession("conv")
+        } returns collectingSnapshot().copy(
+            peopleCount = 5,
+            daysCount = 2,
+            proteinPreferences = listOf("chicken", "beef"),
+        )
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("no dietary requirements"),
+                proteinPreferences = null,
+            )
+        } returns ready
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
+
+        val reply = coordinator.ingestUserMessage("conv", "No dietary requirements")
+
+        assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
+        coVerify(exactly = 1) { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) }
+    }
+
+    @Test
     fun `plan review generate recipes emits progress and recipes sequentially`() = runTest {
         val planReview = planReviewSnapshot()
         val afterDay1 = planReview.copy(
