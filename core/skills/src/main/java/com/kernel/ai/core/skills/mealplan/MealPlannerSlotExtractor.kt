@@ -53,7 +53,7 @@ class MealPlannerSlotExtractor @Inject constructor() {
 
     fun isGenerateRecipesRequest(text: String): Boolean =
         Regex(
-            "\\b(?:generate(?:\\s+recipes?)?|make(?:\\s+(?:recipes?|meal plan))?|create(?:\\s+(?:recipes?|meal plan))?|start(?:\\s+(?:recipes?|meal plan))?|continue|resume|keep going)\\b",
+            "\\b(?:generate(?:\\s+recipes?)?|make(?:\\s+(?:recipes?|meal plan))|create(?:\\s+(?:recipes?|meal plan))|start(?:\\s+(?:recipes?|meal plan))|continue|resume|keep going)\\b",
             RegexOption.IGNORE_CASE,
         ).containsMatchIn(text)
 

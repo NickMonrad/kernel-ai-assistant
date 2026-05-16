@@ -2239,7 +2239,9 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
-        viewModelScope.launch { inferenceEngine.shutdown() }
+        // InferenceEngine is a process-scoped singleton. Do not shut it down just because this
+        // screen is closing — that can interrupt active meal-plan generation while the user
+        // navigates elsewhere in the app (for example to Lists).
     }
 
     private fun submitVoiceTranscript(rawTranscript: String) {

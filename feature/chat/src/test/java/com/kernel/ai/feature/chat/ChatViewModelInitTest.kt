@@ -197,6 +197,41 @@ class ChatViewModelInitTest {
     }
 
     @Test
+    fun `closing chat never shuts down process scoped inference engine`() = runTest(dispatcher) {
+        val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        )
+
+        advanceUntilIdle()
+        invokeOnCleared(viewModel)
+
+        coVerify(exactly = 0) { inferenceEngine.shutdown() }
+    }
+
+
+    @Test
     fun `restored chat initialization shows actionable meal planner resume prompt without persisting it`() = runTest(dispatcher) {
         val prompt = "I still need to finish Day 2 of 3. Say 'generate recipes' to continue or 'cancel' to stop."
         every { inferenceEngine.isReady } returns MutableStateFlow(true)
@@ -698,5 +733,11 @@ class ChatViewModelInitTest {
         coVerify(atLeast = 1) { ragRepository.indexMessage("user-msg-id", any(), "hello") }
         // Fallback text must not be indexed.
         coVerify(exactly = 0) { ragRepository.indexMessage("assistant-fallback-id", any(), any()) }
+    }
+
+    private fun invokeOnCleared(viewModel: ChatViewModel) {
+        val method = ChatViewModel::class.java.getDeclaredMethod("onCleared")
+        method.isAccessible = true
+        method.invoke(viewModel)
     }
 }
