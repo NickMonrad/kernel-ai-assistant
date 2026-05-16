@@ -30,6 +30,10 @@ interface ListItemDao {
     @Query("UPDATE list_items SET checked = 0 WHERE id = :id")
     suspend fun markUnchecked(id: Long)
 
+    /** Set checked state and bump updatedAt in one round-trip. */
+    @Query("UPDATE list_items SET checked = :checked, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setChecked(id: Long, checked: Boolean, updatedAt: Long)
+
     @Query("UPDATE list_items SET text = :text, dueAt = :dueAt, isFavourite = :isFavourite, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateItem(id: Long, text: String, dueAt: Long?, isFavourite: Boolean, updatedAt: Long)
 
@@ -40,4 +44,12 @@ interface ListItemDao {
     /** Remove a single item by id. */
     @Query("DELETE FROM list_items WHERE id = :id")
     suspend fun deleteItem(id: Long)
+
+    /** Atomically flip checked and bump updatedAt — avoids TOCTOU on rapid taps. */
+    @Query("UPDATE list_items SET checked = NOT checked, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun toggleChecked(id: Long, updatedAt: Long)
+
+    /** Atomically flip isFavourite and bump updatedAt — avoids TOCTOU on rapid taps. */
+    @Query("UPDATE list_items SET isFavourite = NOT isFavourite, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun toggleFavourite(id: Long, updatedAt: Long)
 }
