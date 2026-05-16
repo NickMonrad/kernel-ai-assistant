@@ -70,6 +70,7 @@ import com.kernel.ai.core.memory.entity.ListItemEntity
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 // ── Date / timestamp helpers ─────────────────────────────────────────────────────────────────────
@@ -616,14 +617,28 @@ private fun EditItemSheet(
     // Date picker rendered as a separate dialog that floats over the bottom sheet
     if (showDatePicker) {
         val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = dueAt ?: System.currentTimeMillis(),
+            initialSelectedDateMillis = dueAt?.let { localMs ->
+                Instant.ofEpochMilli(localMs)
+                    .atZone(ZoneId.systemDefault())
+                    .toLocalDate()
+                    .atStartOfDay(ZoneOffset.UTC)
+                    .toInstant()
+                    .toEpochMilli()
+            } ?: System.currentTimeMillis(),
         )
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        dueAt = datePickerState.selectedDateMillis
+                        dueAt = datePickerState.selectedDateMillis?.let { utcMs ->
+                            Instant.ofEpochMilli(utcMs)
+                                .atZone(ZoneOffset.UTC)
+                                .toLocalDate()
+                                .atStartOfDay(ZoneId.systemDefault())
+                                .toInstant()
+                                .toEpochMilli()
+                        }
                         showDatePicker = false
                     },
                 ) { Text("OK") }

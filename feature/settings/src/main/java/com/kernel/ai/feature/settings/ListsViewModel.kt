@@ -11,6 +11,7 @@ import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -209,8 +210,8 @@ class ListsViewModel @Inject constructor(
 
     fun toggleChecked(item: ListItemEntity) {
         val now = System.currentTimeMillis()
-        viewModelScope.launch {
-            dao.setChecked(item.id, !item.checked, now)
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.toggleChecked(item.id, now)
             listNameDao.updateTimestamp(item.listId, now)
         }
     }
@@ -237,14 +238,8 @@ class ListsViewModel @Inject constructor(
     /** Toggles isFavourite and bumps updatedAt + parent list updatedAt. */
     fun toggleFavourite(item: ListItemEntity) {
         val now = System.currentTimeMillis()
-        viewModelScope.launch {
-            dao.updateItem(
-                id = item.id,
-                text = item.text,
-                dueAt = item.dueAt,
-                isFavourite = !item.isFavourite,
-                updatedAt = now,
-            )
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.toggleFavourite(item.id, now)
             listNameDao.updateTimestamp(item.listId, now)
         }
     }

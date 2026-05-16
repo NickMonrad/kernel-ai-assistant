@@ -44,4 +44,12 @@ interface ListItemDao {
     /** Remove a single item by id. */
     @Query("DELETE FROM list_items WHERE id = :id")
     suspend fun deleteItem(id: Long)
+
+    /** Atomically flip checked and bump updatedAt — avoids TOCTOU on rapid taps. */
+    @Query("UPDATE list_items SET checked = NOT checked, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun toggleChecked(id: Long, updatedAt: Long)
+
+    /** Atomically flip isFavourite and bump updatedAt — avoids TOCTOU on rapid taps. */
+    @Query("UPDATE list_items SET isFavourite = NOT isFavourite, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun toggleFavourite(id: Long, updatedAt: Long)
 }
