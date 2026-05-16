@@ -640,6 +640,15 @@ class ChatViewModel @Inject constructor(
                 needsHistoryReplay = true
             }
 
+            if (mealPlannerCoordinator.hasActiveSession(id)) {
+                val plannerReply = mealPlannerCoordinator.startOrResume(id)
+                val latestAssistantContent = _messages.value.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
+                if (plannerReply.content.isNotBlank() && plannerReply.content != latestAssistantContent) {
+                    appendAssistantMessage(id, plannerReply.content, shouldIndex = false, speak = false)
+                    needsHistoryReplay = true
+                }
+            }
+
             // Determine whether smart-title generation should still fire on this restored session.
             // A title that looks like a first-message placeholder (ends with '…', ≤43 chars) can
             // still be overwritten if the conversation is long enough for a smart title.
