@@ -785,6 +785,7 @@ class ChatViewModel @Inject constructor(
         content: String,
         shouldIndex: Boolean = true,
         spokenSummary: String? = null,
+        speak: Boolean = true,
     ) {
         val msgId = UUID.randomUUID().toString()
         val msg = ChatMessage(
@@ -795,7 +796,9 @@ class ChatViewModel @Inject constructor(
         _messages.update { it + msg }
         val savedId = conversationRepository.addMessage(convId, "assistant", content)
         if (shouldIndex) ragRepository.indexMessage(savedId, convId, content)
-        speakAssistantReplyIfNeeded(content, spokenSummary)
+        if (speak) {
+            speakAssistantReplyIfNeeded(content, spokenSummary)
+        }
     }
 
     /** Like [appendAssistantMessage] but also attaches a [ToolCallInfo] chip so the UI shows
@@ -809,6 +812,7 @@ class ChatViewModel @Inject constructor(
         isSuccess: Boolean,
         presentation: ToolPresentation? = null,
         spokenSummary: String? = null,
+        speak: Boolean = true,
     ) {
         val msgId = UUID.randomUUID().toString()
         val toolCall = ToolCallInfo(
@@ -831,7 +835,9 @@ class ChatViewModel @Inject constructor(
             toolCallJson = toolCall.toJsonString(),
         )
         if (shouldIndexToolCallResult(skillName)) ragRepository.indexMessage(savedId, convId, content)
-        speakAssistantReplyIfNeeded(content, spokenSummary)
+        if (speak) {
+            speakAssistantReplyIfNeeded(content, spokenSummary)
+        }
     }
 
     fun retryDownload(model: KernelModel) {
@@ -1141,9 +1147,13 @@ class ChatViewModel @Inject constructor(
                 val plannerReply = if (explicitMealPlannerStart) {
                     mealPlannerCoordinator.startOrResume(convId)
                 } else {
-                    mealPlannerCoordinator.ingestUserMessage(convId, text)
+                    mealPlannerCoordinator.ingestUserMessage(convId, text) { plannerMessage ->
+                        appendAssistantMessage(convId, plannerMessage, shouldIndex = false, speak = false)
+                    }
                 }
-                appendAssistantMessage(convId, plannerReply.content, shouldIndex = false)
+                if (plannerReply.content.isNotBlank()) {
+                    appendAssistantMessage(convId, plannerReply.content, shouldIndex = false)
+                }
                 return@launch
             }
 

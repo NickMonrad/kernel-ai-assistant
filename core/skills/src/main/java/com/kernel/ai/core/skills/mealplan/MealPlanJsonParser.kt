@@ -14,18 +14,7 @@ import javax.inject.Singleton
 @Singleton
 class MealPlanJsonParser @Inject constructor() {
     fun parsePlanDraft(raw: String, expectedDays: Int): MealPlanDraft {
-        val obj = parseRootObject(raw)
-        val daysArray = obj.optJSONArray("days")
-            ?: throw MealPlanValidationException("Plan JSON must contain a 'days' array.")
-        val days = List(daysArray.length()) { index ->
-            val item = daysArray.getJSONObject(index)
-            MealPlanDraftDay(
-                dayIndex = item.optInt("day_index", -1),
-                title = item.optString("title").trim(),
-                summary = item.optString("summary").trim().takeIf { it.isNotBlank() },
-                proteinTags = jsonArrayToStrings(item.optJSONArray("protein_tags")),
-            )
-        }
+        val days = parsePlanDays(raw)
         if (days.size != expectedDays) {
             throw MealPlanValidationException("Plan JSON returned ${days.size} days; expected $expectedDays.")
         }
@@ -34,14 +23,50 @@ class MealPlanJsonParser @Inject constructor() {
         if (actualIndexes != expectedIndexes) {
             throw MealPlanValidationException("Plan JSON day_index values must be contiguous from 0 to ${expectedDays - 1}.")
         }
+        validatePlanDayTitles(days)
+        return MealPlanDraft(days)
+    }
+
+    fun parseSinglePlanDay(raw: String, expectedDayIndex: Int): MealPlanDraftDay {
+        val days = parsePlanDays(raw)
+        if (days.size != 1) {
+            throw MealPlanValidationException("Replacement day JSON must contain exactly one day.")
+        }
+        val day = days.single()
+        val normalizedDayIndex = when (day.dayIndex) {
+            expectedDayIndex -> expectedDayIndex
+            expectedDayIndex + 1 -> expectedDayIndex
+            else -> throw MealPlanValidationException(
+                "Replacement day JSON must use day_index $expectedDayIndex (zero-based for Day ${expectedDayIndex + 1}).",
+            )
+        }
+        val normalizedDay = day.copy(dayIndex = normalizedDayIndex)
+        validatePlanDayTitles(listOf(normalizedDay))
+        return normalizedDay
+    }
+
+    private fun parsePlanDays(raw: String): List<MealPlanDraftDay> {
+        val obj = parseRootObject(raw)
+        val daysArray = obj.optJSONArray("days")
+            ?: throw MealPlanValidationException("Plan JSON must contain a 'days' array.")
+        return List(daysArray.length()) { index ->
+            val item = daysArray.getJSONObject(index)
+            MealPlanDraftDay(
+                dayIndex = item.optInt("day_index", -1),
+                title = item.optString("title").trim(),
+                summary = item.optString("summary").trim().takeIf { it.isNotBlank() },
+                proteinTags = jsonArrayToStrings(item.optJSONArray("protein_tags")),
+            )
+        }
+    }
+
+    private fun validatePlanDayTitles(days: List<MealPlanDraftDay>) {
         days.forEach {
             if (it.title.isBlank()) {
                 throw MealPlanValidationException("Each plan day must include a non-blank title.")
             }
         }
-        return MealPlanDraft(days)
     }
-
     fun parseRecipeDraft(raw: String, expectedServings: Int): RecipeDraft {
         val obj = parseRootObject(raw)
         val title = obj.optString("title").trim()
