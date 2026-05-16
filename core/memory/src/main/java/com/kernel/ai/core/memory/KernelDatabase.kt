@@ -628,13 +628,17 @@ abstract class KernelDatabase : RoomDatabase() {
                     """.trimIndent(),
                 )
 
-                // 3. Populate: join old listName string to lists.id to resolve the FK
+                // 3. Populate: join old listName string to lists.id to resolve the FK.
+                //    Use LEFT JOIN + WHERE to intentionally drop orphaned items (items whose
+                //    listName no longer has a matching lists row) rather than silently losing
+                //    them via INNER JOIN.
                 db.execSQL(
                     """
                     INSERT INTO list_items_new (id, listId, text, createdAt, updatedAt, checked)
                     SELECT li.id, l.id, li.item, li.addedAt, li.addedAt, li.checked
                     FROM list_items li
-                    INNER JOIN lists l ON li.listName = l.name
+                    LEFT JOIN lists l ON li.listName = l.name
+                    WHERE l.id IS NOT NULL
                     """.trimIndent(),
                 )
 

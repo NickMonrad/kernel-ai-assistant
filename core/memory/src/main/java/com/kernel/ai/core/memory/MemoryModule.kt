@@ -2,6 +2,8 @@ package com.kernel.ai.core.memory
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.kernel.ai.core.memory.dao.ContactAliasDao
 import com.kernel.ai.core.memory.dao.ConversionHistoryDao
 import com.kernel.ai.core.memory.dao.ConversationDao
@@ -100,6 +102,14 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_33_34,
                     KernelDatabase.MIGRATION_34_35,
                 )
+                .addCallback(object : RoomDatabase.Callback() {
+                    // SQLite disables FK enforcement by default — enable it per-connection
+                    // so ON DELETE CASCADE on list_items.listId fires correctly.
+                    override fun onOpen(db: SupportSQLiteDatabase) {
+                        super.onOpen(db)
+                        db.execSQL("PRAGMA foreign_keys = ON")
+                    }
+                })
                 .build()
 
         @Provides

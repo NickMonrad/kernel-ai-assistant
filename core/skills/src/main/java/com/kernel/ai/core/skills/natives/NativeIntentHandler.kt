@@ -1703,10 +1703,12 @@ class NativeIntentHandler @Inject constructor(
     /**
      * Returns true when the item text looks like a generic placeholder (e.g. "an item",
      * "something") rather than a real item the user wants to add.
+     * Length check is intentionally omitted — short real items ("egg", "tea", "oil") must
+     * not be blocked.
      */
     private fun isFillerItem(item: String): Boolean {
         val normalized = item.trim().lowercase()
-        return normalized.length <= 3 || ITEM_FILLER_RE.matches(normalized)
+        return ITEM_FILLER_RE.matches(normalized)
     }
 
     private fun normalizeListName(raw: String): String {
