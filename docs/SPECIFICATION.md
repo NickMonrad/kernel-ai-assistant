@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-05-12 (PR #848: deterministic currency conversion #831; PR #847: homescreen Glance widget #617; PR #845: aye pronunciation fix #843)
+> **Last updated:** 2026-05-13 (PR #834 spec sync: documented 18 completed roadmap items — voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, important dates, world clock, colloquial weather QIR; prior: PR #848 currency #831; PR #847 widget #617; PR #845 aye fix #843)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -246,6 +246,15 @@ NZ truth memories have a `vibe_level` (1–5) that controls how closely a query 
 
 The filter runs in `MemoryRepositoryImpl.searchMemories()` after the initial L2 vec search, as a post-filter on `identity` (agent_identity) results.
 
+#### 3.3.4 Memory Management UI
+
+The Settings → Core Memories screen provides:
+
+- **Bulk delete (#110):** Multi-select mode allows the user to select multiple core memories and delete them in one action. A checkbox appears on each memory entry when multi-select is active; a confirm-delete action removes all selected entries from both the Room table and the `core_memories_vec` vec0 table.
+- **CRUD operations:** Individual core memories can be viewed, edited, and deleted. New memories can be added manually.
+- **Category filtering:** Memories are grouped and filterable by category (`user` vs `agent_identity`).
+- **Memory stats:** The screen shows total counts for core memories and episodic memories.
+
 ### 3.4 Episodic Distillation
 
 On conversation close, `EpisodicDistillationUseCase` uses Gemma-4 to summarise the conversation
@@ -394,6 +403,8 @@ has safe defaults, including current-location behavior and optional forecast fie
 | "what time is it / what's the date" | Time/Date | `LocalDateTime.now()` |
 | "battery level / how much battery" | Battery | `BatteryManager.getIntProperty()` |
 | "how many days until X / how long since Y" | Date diff | `LocalDate` calculation |
+| "how's the weather / what's it like outside / weather forecast" | Weather (colloquial) | `GetWeatherUnifiedSkill` via `getWeather()` — colloquial routing added by #608 |
+| "what's the weather in [city/landmark]" | Weather (indirect location) | `GetWeatherUnifiedSkill` + Nominatim geocoding for indirect-location resolution (#608, #663, PR #667) |
 
 If no regex or classifier match → query falls through to Tier 3 (Gemma-4).
 
@@ -402,6 +413,31 @@ If no regex or classifier match → query falls through to Tier 3 (Gemma-4).
 - Deterministic: same input always produces same result
 - MiniLM loads lazily in background; `classify()` waits up to 500ms on first call if init is in progress
 - Testable: pure function, no Android dependencies in unit tests (via interface)
+
+#### Colloquial + Indirect Weather Routing (#608, #663, PR #667)
+
+The `QuickIntentRouter` includes dedicated QIR patterns for colloquial weather phrases so these queries route directly to the weather skill rather than falling through to Gemma-4. The indirect-location resolution path uses Nominatim geocoding to convert city names and landmarks to GPS coordinates when the user specifies a location by name.
+
+**Colloquial patterns matched (examples):**
+- "how's the weather" / "what's the weather like" / "what's it like outside"
+- "weather forecast" / "will it rain today" / "is it going to be hot"
+- "should I bring an umbrella" / "is it sunny out"
+
+**Indirect-location resolution path:**
+- When the user specifies a named location ("weather in Queenstown", "forecast for the CBD"), the router resolves the name via Nominatim forward geocoding (the `/search` endpoint, name → lat/long) into coordinates, then passes them to `GetWeatherUnifiedSkill` — the same unified skill used for GPS-based requests. Note: reverse geocoding (lat/long → display name) is a separate call used only to label GPS-based results.
+- Direct GPS weather and profile-location fallback remain available as before.
+
+#### NLU/Routing Hardening (#871, #874)
+
+A set of quality improvements to `QuickIntentRouter` and the `important_dates` skill routing pipeline:
+
+| Fix | Description |
+|-----|-------------|
+| **Important dates label fix** (#871) | Corrects a display-label regression in the `important_dates` skill result card so saved dates render with correct labels |
+| **"important day" synonym** (#871) | Added "important day" as a routing synonym for `important_dates` in `QuickIntentRouter`, so queries like "what important days do I have?" route correctly without LLM fallthrough |
+| **STT "is"→"as" correction** (#874) | Normalises a common STT transcription error where "as" is heard as "is" in date-related queries (e.g. "remind me what's coming as October" → correct parse) |
+| **Fuzzy month spelling corrector** (#874) | Applies a Levenshtein-based correction pass for common STT month misspellings before date parsing (e.g. "Janury" → "January", "Feburary" → "February") |
+| **Alias normalisation in QuickIntentRouter** (#874) | Intent alias normalisation pass ensures synonyms and partial phrases reliably map to canonical intent names before regex matching, reducing false-negatives on intent detection |
 
 ### 4.2 Tier 3: E4B Native Tool Calling
 
@@ -688,6 +724,35 @@ and awaits the result with a 15s timeout.
 | `important_dates` | Taught dates + calendar birthday integration via Calendar Provider | ✅ — PR #797 |
 | `world_clock` | Timezone lookup and world clock display | ✅ — PR #743 |
 
+> **`important_dates` skill (#631, PR #797):** Manages user-taught important dates (birthdays, anniversaries, custom events) and integrates with the Android Calendar Provider to surface calendar birthdays. Operations: `save` (store a date with label and type), `list` (show all saved dates), `remove` (delete by label), `lookup` (check what's coming up or what happened on a date). Calendar birthday integration queries `CalendarContract.Events` via `ContentResolver`. The `QuickIntentRouter` routes "important dates", "important day", "upcoming dates", and related phrases (including #871 synonym additions) to this skill path.
+
+> **`world_clock` skill (#677, PR #743):** Timezone lookup and world clock display. The user can ask "what time is it in Tokyo" or "world clock for New York" and get the current local time in the target timezone. Uses Android's `ZoneId` / `ZonedDateTime` with the bundled timezone database. Supports common city and country names mapped to IANA timezone IDs.
+
+#### Complete Phase 3C Skills Inventory (#347)
+
+The following skills are all shipped and registered in `SkillRegistry` / `NativeIntentHandler`:
+
+| Skill | Entry point | Notes |
+|-------|-------------|-------|
+| `set_alarm` | `run_intent` → `ClockRepository` | App-owned alarm backend; PR #257/#262, time fix PR #339 |
+| `set_timer` | `run_intent` → `ClockRepository` | App-owned timer scheduler; PR #257/#262 |
+| `toggle_flashlight` | `run_intent` → `CameraManager` | On/off; PR #247 |
+| `send_email` | `run_intent` → `ACTION_SEND` | Explicit intent only; PR #247 |
+| `send_sms` | `run_intent` → `ACTION_SENDTO` | Background SMS via `SEND_SMS`; PR #247 |
+| `get_weather` | `getWeather()` (unified) | GPS + city + profile location fallback + colloquial QIR routing + indirect-location Nominatim; PR #274, #412, #667 |
+| `query_wikipedia` | `run_js` → WebView | PR #257 |
+| `save_memory` | `SaveMemorySkill` | Explicit user trigger; PR #257/#270 |
+| `search_memory` | `SearchMemorySkill` | Cross-conversation semantic search; PR #270, quality PR #326 |
+| `get_system_info` | native Kotlin | datetime fix PR #339 |
+| `create_calendar_event` | `run_intent` → `ACTION_INSERT` | PR #309, date parsing PR #325 |
+| `set_dnd` | `run_intent` → `NotificationManager` | PR #390 |
+| `rich tool result UI` | `ToolResultCard` Compose | Weather cards, confirmation chips, list cards; #222, PR #661 |
+| `get_date_diff` | `run_intent` | Native date arithmetic; #619 |
+| `list preview + fallback link` | `NativeIntentHandler` | List item preview with fallback link for long lists; #664/#665, PR #668 |
+| `important_dates` | `run_intent` → `ContentResolver` | Taught dates + Calendar Provider birthdays; #631, PR #797 |
+| `world_clock` | `run_intent` → `ZonedDateTime` | Timezone lookup; #677, PR #743 |
+| `multi-day weather forecast` | `getWeather(forecastDays)` | Day-by-day with WMO emoji, min/max temps; #697, PR #710 |
+
 > **save_memory trigger:** Works reliably when the user explicitly says "remember", "save",
 > "don't forget", "can you remember", or "make a note of". Does not activate proactively from
 > implicit personal facts shared in conversation — small model limitation. The trigger is
@@ -748,6 +813,7 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 - **Chat:** Streaming token display, thinking mode indicator, markdown rendering, multi-conversation
 - **Actions tab:** History list, FAB (⚡) for new commands, bottom sheet input, Room-persisted history
 - **Voice:** Quick Actions push-to-talk with offline STT, spoken QIR responses, and streaming spoken chat replies; wake word remains future work
+- **Conversation search (#151, PR #156):** A search bar on the conversations list screen filters by conversation title. The query applies a `LIKE` wildcard match against the title column; a `NULL` guard prevents crashes for conversations that have not yet been auto-titled. Wildcard characters in the search input are escaped to avoid accidental SQL injection via the LIKE pattern.
 
 **Chat TTS speech normalisation (`ChatTextUtils.normalizeChatTextForSpeech`):** Before TTS
 input, the text passes through a chain of `SpeechPronunciationRule` entries that rewrite
@@ -809,7 +875,7 @@ than waiting for the full response.
 - URL colon preservation in `cleanTextForSpeech()` — prevents URLs like
   `https://example.com:8080` from being read as "eight zero eight zero"
 - Speech rate clamping — prevents unnaturally fast or slow playback
-- Abbreviation-aware sentence splitting — handles "Dr.", "Mr.", "U.S." correctly
+- Abbreviation-aware sentence splitting in `truncateForSpeech()` via `KNOWN_ABBREV` set and `INITIALS_REGEX` — prevents sentences from being incorrectly split at abbreviations like "Dr.", "Mr.", "U.S.", "vs.", and initials such as "J.K."
 - Sherpa voice quality evaluation performed on Samsung Galaxy S23 Ultra (`#770`)
 
 **TTS settings (PR #789):** Expanded settings include pitch control, auto-speak toggle,
@@ -825,6 +891,28 @@ mid-sentence.
 **TTS pronoun normalisation (`#828`, PR #830):** Converts first-person pronouns
 (my/I → your/you) in TTS output so the assistant speaks in third person when reading
 LLM responses that reference the user.
+
+### 6.2 Voice I/O
+
+#### 6.2.1 TTS Engine — Sherpa/VITS (#729, PR #804)
+
+Sherpa-ONNX VITS replaced Android `TextToSpeech` as the on-device TTS engine, providing significantly better conversational voice quality (#729, PR #804).
+
+**Key properties:**
+
+- **Voice packs are download-only** — voices are not bundled in the APK. `:core:voice` packages no assets; voice packs are fetched on demand from the voice pack server and cached on-device.
+- **Multi-speaker selection** — both VCTK (#782, PR #805) and Semaine (#817, PR #818) speaker banks are available via Settings → Voice. See §6.2 for speaker bank details.
+- **Pitch control** — a pitch slider (0.5–2.0×) is exposed in Settings → Voice (Sherpa only).
+- **Quality evaluation** — Sherpa VITS quality was evaluated against Android TTS on Samsung Galaxy S23 Ultra (#770); Sherpa is measurably better for conversational Kiwi English.
+
+#### 6.2.2 STT Engine — Android Native (#678, #717, PR #714, PR #718)
+
+Android native on-device STT is available alongside Vosk as a selectable speech-to-text backend, switchable in Settings → Voice. Vosk remains the factory default. Android native offers significantly better accuracy for New Zealand/Kiwi English and te reo Māori words.
+
+- **Engine:** Android `SpeechRecognizer` with `EXTRA_PREFER_OFFLINE=true` — on-device model, no network calls.
+- **#717 hardening (PR #718):** The on-device recognizer path was hardened against edge cases: recognizer lifecycle bugs, partial-result race conditions, and no-speech detection robustness.
+- **Kiwi accent quality:** Android native STT outperforms Vosk for New Zealand English accents and Māori vocabulary, confirmed on Samsung Galaxy S23 Ultra.
+- **Push-to-talk integration:** The recognizer is wired into `VoiceInputController`, which feeds final transcripts into `QuickIntentRouter` (Actions screen) or the chat input field (Chat voice mode).
 
 #### 6.2.3 Quick Actions Voice
 
