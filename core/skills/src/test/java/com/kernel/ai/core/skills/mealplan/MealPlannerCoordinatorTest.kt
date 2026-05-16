@@ -189,6 +189,77 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `interrupted replacement generation prompts for retry`() = runTest {
+        val interrupted = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
+            status = MealPlanSessionStatus.RECIPES_IN_PROGRESS,
+            activeDayIndex = 0,
+            pendingGenerationKind = PendingGenerationKind.REPLACEMENT,
+            pendingGenerationDayIndex = 0,
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns interrupted
+
+        val reply = coordinator.ingestUserMessage("conv", "hello")
+
+        assertTrue(reply.content.contains("retry", ignoreCase = true))
+        assertTrue(reply.content.contains("replace day 1", ignoreCase = true))
+    }
+
+    @Test
+    fun `retry resumes interrupted replacement generation`() = runTest {
+        val interrupted = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
+            status = MealPlanSessionStatus.RECIPES_IN_PROGRESS,
+            activeDayIndex = 0,
+            pendingGenerationKind = PendingGenerationKind.REPLACEMENT,
+            pendingGenerationDayIndex = 0,
+        )
+        val replaced = interrupted.copy(
+            status = MealPlanSessionStatus.PLAN_REVIEW,
+            pendingGenerationKind = null,
+            pendingGenerationDayIndex = null,
+            activeDayIndex = null,
+            days = listOf(
+                draftDay(dayIndex = 0, title = "Pan-Seared Chicken", status = MealPlanDayStatus.DRAFTED),
+                draftDay(dayIndex = 1, title = "Chicken curry", status = MealPlanDayStatus.PERSISTED),
+            ),
+        )
+        val completed = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
+            days = listOf(
+                draftDay(dayIndex = 0, title = "Pan-Seared Chicken", status = MealPlanDayStatus.PERSISTED),
+                draftDay(dayIndex = 1, title = "Chicken curry", status = MealPlanDayStatus.PERSISTED),
+            ),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns interrupted
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+            replacementJson(dayIndex = 1, title = "Pan-Seared Chicken"),
+            recipeJson("Pan-Seared Chicken"),
+        )
+        coEvery { sessionRepository.replaceDayDraft("session-1", 0, "Pan-Seared Chicken", any(), any()) } returns replaced
+        coEvery { sessionRepository.persistRecipeDraft("session-1", 0, any(), any(), any()) } returns completed
+
+        val reply = coordinator.ingestUserMessage("conv", "Retry")
+
+        assertTrue(reply.content.contains("I replaced Day 1", ignoreCase = true))
+        assertTrue(reply.content.contains("Pan-Seared Chicken", ignoreCase = true))
+        coVerify { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.REPLACEMENT, 0) }
+    }
+
+    @Test
+    fun `interrupted regenerate day prompts for retry`() = runTest {
+        val interrupted = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
+            status = MealPlanSessionStatus.RECIPES_IN_PROGRESS,
+            activeDayIndex = 0,
+            pendingGenerationKind = PendingGenerationKind.RECIPE,
+            pendingGenerationDayIndex = 0,
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns interrupted
+
+        val reply = coordinator.ingestUserMessage("conv", "hello")
+
+        assertTrue(reply.content.contains("retry", ignoreCase = true))
+        assertTrue(reply.content.contains("regenerate day 1", ignoreCase = true))
+    }
+
+    @Test
     fun `replace day after recipe generation accepts one based replacement JSON`() = runTest {
         val active = readyForFinalizeSnapshot(finalSummaryWritten = false)
         val replaced = active.copy(

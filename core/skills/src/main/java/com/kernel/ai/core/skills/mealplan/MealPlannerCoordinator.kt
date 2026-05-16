@@ -131,8 +131,39 @@ class MealPlannerCoordinator @Inject constructor(
     ): MealPlannerReply {
         val failedDay = snapshot.days.firstOrNull { it.status == MealPlanDayStatus.FAILED }
         val pendingDay = snapshot.days.firstOrNull { it.status != MealPlanDayStatus.PERSISTED && it.status != MealPlanDayStatus.FAILED }
+        val replaceDayIndex = slotExtractor.extractReplaceDayIndex(text)
+        val regenerateDayIndex = slotExtractor.extractRegenerateDayIndex(text)
+        val interruptedReplacementDayIndex = snapshot.pendingGenerationDayIndex?.takeIf {
+            snapshot.pendingGenerationKind == PendingGenerationKind.REPLACEMENT && snapshot.days.all { day -> day.status == MealPlanDayStatus.PERSISTED }
+        }
+        if (interruptedReplacementDayIndex != null) {
+            if (slotExtractor.isRetryRequest(text) || replaceDayIndex == interruptedReplacementDayIndex) {
+                return try {
+                    val replaced = generateReplacementDay(snapshot, interruptedReplacementDayIndex)
+                    generateSpecificDayRecipe(replaced, interruptedReplacementDayIndex, intro = "I replaced Day ${interruptedReplacementDayIndex + 1}. Here’s the updated recipe:\n")
+                } catch (e: IllegalArgumentException) {
+                    MealPlannerReply(replacementFailureMessage(interruptedReplacementDayIndex, e.message))
+                } catch (e: MealPlanValidationException) {
+                    MealPlannerReply(replacementFailureMessage(interruptedReplacementDayIndex, e.message))
+                }
+            }
+            if (replaceDayIndex == null && regenerateDayIndex == null) {
+                return MealPlannerReply(replacementRetryPrompt(interruptedReplacementDayIndex))
+            }
+        }
+        val interruptedRecipeDayIndex = snapshot.pendingGenerationDayIndex?.takeIf {
+            snapshot.pendingGenerationKind == PendingGenerationKind.RECIPE && snapshot.days.all { day -> day.status == MealPlanDayStatus.PERSISTED }
+        }
+        if (interruptedRecipeDayIndex != null) {
+            if (slotExtractor.isRetryRequest(text) || regenerateDayIndex == interruptedRecipeDayIndex) {
+                return generateSpecificDayRecipe(snapshot, interruptedRecipeDayIndex, intro = "I regenerated Day ${interruptedRecipeDayIndex + 1}. Here’s the updated recipe:\n")
+            }
+            if (replaceDayIndex == null && regenerateDayIndex == null) {
+                return MealPlannerReply(regenerateRetryPrompt(snapshot, interruptedRecipeDayIndex))
+            }
+        }
         if (failedDay == null && pendingDay != null) {
-            if (slotExtractor.isGenerateRecipesRequest(text)) {
+            if (slotExtractor.isGenerateRecipesRequest(text) || slotExtractor.isRetryRequest(text)) {
                 return generatePendingRecipesFrom(
                     snapshot,
                     intro = "Resuming your meal plan at Day ${pendingDay.dayIndex + 1} of ${snapshot.days.size}…",
@@ -142,7 +173,6 @@ class MealPlannerCoordinator @Inject constructor(
             return MealPlannerReply(resumePrompt(snapshot, pendingDay.dayIndex))
         }
 
-        val replaceDayIndex = slotExtractor.extractReplaceDayIndex(text)
         if (replaceDayIndex != null) {
             return try {
                 val replaced = generateReplacementDay(snapshot, replaceDayIndex)
@@ -153,7 +183,6 @@ class MealPlannerCoordinator @Inject constructor(
                 MealPlannerReply(replacementFailureMessage(replaceDayIndex, e.message))
             }
         }
-        val regenerateDayIndex = slotExtractor.extractRegenerateDayIndex(text)
         if (regenerateDayIndex != null) {
             return generateSpecificDayRecipe(snapshot, regenerateDayIndex, intro = "I regenerated Day ${regenerateDayIndex + 1}. Here’s the updated recipe:\n")
         }
@@ -299,23 +328,32 @@ class MealPlannerCoordinator @Inject constructor(
     private suspend fun generateReplacementDay(snapshot: MealPlanSnapshot, dayIndex: Int): MealPlanSnapshot =
         withSessionGeneration(snapshot.sessionId) {
             require(dayIndex in snapshot.days.indices) { "Invalid day index: $dayIndex" }
-            val raw = inferenceEngine.generateOnce(
-                prompt = buildReplacementDayUserPrompt(snapshot, dayIndex),
-                systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
-                thinkingEnabled = false,
-                stopOnFirstJsonObject = true,
-            )
-            if (raw.isBlank()) {
-                throw MealPlanValidationException("The model didn't return a replacement day.")
+            sessionRepository.markPendingGeneration(snapshot.sessionId, PendingGenerationKind.REPLACEMENT, dayIndex)
+            try {
+                val raw = inferenceEngine.generateOnce(
+                    prompt = buildReplacementDayUserPrompt(snapshot, dayIndex),
+                    systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
+                    thinkingEnabled = false,
+                    stopOnFirstJsonObject = true,
+                )
+                if (raw.isBlank()) {
+                    throw MealPlanValidationException("The model didn't return a replacement day.")
+                }
+                val replacement = jsonParser.parseSinglePlanDay(raw, dayIndex)
+                sessionRepository.replaceDayDraft(
+                    sessionId = snapshot.sessionId,
+                    dayIndex = dayIndex,
+                    title = replacement.title,
+                    summary = replacement.summary,
+                    proteinTags = replacement.proteinTags,
+                )
+            } catch (e: MealPlanValidationException) {
+                sessionRepository.clearPendingGeneration(snapshot.sessionId)
+                throw e
+            } catch (e: IllegalArgumentException) {
+                sessionRepository.clearPendingGeneration(snapshot.sessionId)
+                throw e
             }
-            val replacement = jsonParser.parseSinglePlanDay(raw, dayIndex)
-            sessionRepository.replaceDayDraft(
-                sessionId = snapshot.sessionId,
-                dayIndex = dayIndex,
-                title = replacement.title,
-                summary = replacement.summary,
-                proteinTags = replacement.proteinTags,
-            )
         }
 
     private suspend fun writeFinalSummaryIfNeeded(snapshot: MealPlanSnapshot) {
@@ -354,6 +392,9 @@ class MealPlannerCoordinator @Inject constructor(
         PendingGenerationKind.RECIPE ->
             snapshot.pendingGenerationDayIndex?.let { "I'm still finishing Day ${it + 1}. Give me a moment." }
                 ?: "I'm still finishing your meal plan. Give me a moment."
+        PendingGenerationKind.REPLACEMENT ->
+            snapshot.pendingGenerationDayIndex?.let { "I'm still replacing Day ${it + 1}. Give me a moment." }
+                ?: "I'm still updating your meal plan. Give me a moment."
         null -> "I'm still working on your meal plan. Give me a moment."
     }
 
@@ -370,8 +411,15 @@ class MealPlannerCoordinator @Inject constructor(
         MealPlanSessionStatus.RECIPES_IN_PROGRESS,
         MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY -> {
             val failedDay = snapshot.days.firstOrNull { it.status == MealPlanDayStatus.FAILED }
+            val pendingGenerationDayIndex = snapshot.pendingGenerationDayIndex
             when {
                 failedDay != null -> recoveryPrompt(failedDay.dayIndex)
+                snapshot.pendingGenerationKind == PendingGenerationKind.REPLACEMENT && pendingGenerationDayIndex != null &&
+                    snapshot.days.all { it.status == MealPlanDayStatus.PERSISTED } ->
+                    replacementRetryPrompt(pendingGenerationDayIndex)
+                snapshot.pendingGenerationKind == PendingGenerationKind.RECIPE && pendingGenerationDayIndex != null &&
+                    snapshot.days.all { it.status == MealPlanDayStatus.PERSISTED } ->
+                    regenerateRetryPrompt(snapshot, pendingGenerationDayIndex)
                 snapshot.days.any { it.status != MealPlanDayStatus.PERSISTED && it.status != MealPlanDayStatus.FAILED } -> {
                     val nextPending = snapshot.days.first { it.status != MealPlanDayStatus.PERSISTED && it.status != MealPlanDayStatus.FAILED }
                     resumePrompt(snapshot, nextPending.dayIndex)
@@ -433,6 +481,12 @@ class MealPlannerCoordinator @Inject constructor(
 
     private fun resumePrompt(snapshot: MealPlanSnapshot, dayIndex: Int): String =
         "I still need to finish Day ${dayIndex + 1} of ${snapshot.days.size}. Say 'generate recipes' to continue or 'cancel' to stop."
+
+    private fun replacementRetryPrompt(dayIndex: Int): String =
+        "I still need to replace Day ${dayIndex + 1}. Say 'retry' or 'replace day ${dayIndex + 1}' to try again, or 'cancel' to stop."
+
+    private fun regenerateRetryPrompt(snapshot: MealPlanSnapshot, dayIndex: Int): String =
+        "I still need to finish Day ${dayIndex + 1} of ${snapshot.days.size}. Say 'retry' or 'regenerate day ${dayIndex + 1}' to try again, or 'cancel' to stop."
 
     private fun recoveryPrompt(dayIndex: Int): String =
         "I still need to finish Day ${dayIndex + 1}. Say 'regenerate day ${dayIndex + 1}' or 'replace day ${dayIndex + 1}'."

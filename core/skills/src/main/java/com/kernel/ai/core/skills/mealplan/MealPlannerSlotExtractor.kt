@@ -52,6 +52,9 @@ class MealPlannerSlotExtractor @Inject constructor() {
         Regex("\\b(?:generate|make|create|start)\\b.*\\b(?:recipes?|meal plan)\\b|\\b(?:continue|resume|keep going)\\b", RegexOption.IGNORE_CASE)
             .containsMatchIn(text)
 
+    fun isRetryRequest(text: String): Boolean =
+        Regex("\\b(?:retry|try again)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
+
     fun isChangePreferencesRequest(text: String): Boolean =
         Regex("\\b(?:change|edit|update|revise)\\s+(?:preferences?|details?|requirements?)\\b", RegexOption.IGNORE_CASE)
             .containsMatchIn(text)

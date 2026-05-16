@@ -59,6 +59,12 @@ class MealPlannerSlotExtractorTest {
     }
 
     @Test
+    fun `isRetryRequest recognizes retry phrases`() {
+        assertTrue(extractor.isRetryRequest("Retry"))
+        assertTrue(extractor.isRetryRequest("try again"))
+    }
+
+    @Test
     fun `isChangePreferencesRequest recognizes edit request`() {
         assertTrue(extractor.isChangePreferencesRequest("change preferences"))
     }
