@@ -396,7 +396,9 @@ fun ListItemsScreen(
                     if (sortedCompleted.isNotEmpty()) {
                         item(key = "completed_header") {
                             ListItem(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { completedExpanded = !completedExpanded },
                                 headlineContent = {
                                     Text(
                                         "Completed (${sortedCompleted.size})",
@@ -405,14 +407,13 @@ fun ListItemsScreen(
                                     )
                                 },
                                 trailingContent = {
-                                    IconButton(onClick = { completedExpanded = !completedExpanded }) {
-                                        Icon(
-                                            if (completedExpanded) Icons.Default.ExpandLess
-                                            else Icons.Default.ExpandMore,
-                                            contentDescription = if (completedExpanded) "Collapse"
-                                            else "Expand",
-                                        )
-                                    }
+                                    Icon(
+                                        if (completedExpanded) Icons.Default.ExpandLess
+                                        else Icons.Default.ExpandMore,
+                                        contentDescription = if (completedExpanded) "Collapse"
+                                        else "Expand",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 },
                             )
                             HorizontalDivider()
