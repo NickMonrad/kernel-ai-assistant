@@ -1,0 +1,42 @@
+name: Cleanup old releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      days_older_than:
+        description: 'Delete pre-releases published more than this many days ago'
+        required: true
+        default: '7'
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  cleanup:
+    name: Delete old pre-releases
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Delete pre-releases older than N days
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DAYS: ${{ inputs.days_older_than }}
+        run: |
+          CUTOFF=$(date -d "$DAYS days ago" --utc +%Y-%m-%dT%H:%M:%SZ)
+          echo "Deleting pre-releases published before $CUTOFF"
+
+          gh release list \
+            --repo "$GITHUB_REPOSITORY" \
+            --limit 100 \
+            --json tagName,publishedAt,isPrerelease \
+            --jq --arg cutoff "$CUTOFF" \
+              '.[] | select(.isPrerelease == true and .publishedAt < $cutoff) | .tagName' \
+          | while read -r TAG; do
+              echo "Deleting release + tag: $TAG"
+              gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+            done
+
+          echo "Done."
