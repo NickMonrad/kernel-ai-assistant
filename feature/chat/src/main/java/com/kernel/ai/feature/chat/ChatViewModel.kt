@@ -640,12 +640,10 @@ class ChatViewModel @Inject constructor(
                 needsHistoryReplay = true
             }
 
-            if (mealPlannerCoordinator.hasActiveSession(id)) {
-                val plannerReply = mealPlannerCoordinator.startOrResume(id)
+            mealPlannerCoordinator.activeSessionReply(id)?.let { plannerReply ->
                 val latestAssistantContent = _messages.value.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
                 if (plannerReply.content.isNotBlank() && plannerReply.content != latestAssistantContent) {
-                    appendAssistantMessage(id, plannerReply.content, shouldIndex = false, speak = false)
-                    needsHistoryReplay = true
+                    appendTransientAssistantMessage(plannerReply.content)
                 }
             }
 
@@ -808,6 +806,19 @@ class ChatViewModel @Inject constructor(
         if (speak) {
             speakAssistantReplyIfNeeded(content, spokenSummary)
         }
+    }
+
+    /**
+     * Adds UI-only assistant guidance that should be visible immediately but must not be
+     * persisted to Room, indexed for RAG, or replayed into LiteRT history.
+     */
+    private fun appendTransientAssistantMessage(content: String) {
+        val msg = ChatMessage(
+            id = UUID.randomUUID().toString(),
+            role = ChatMessage.Role.ASSISTANT,
+            content = content,
+        )
+        _messages.update { it + msg }
     }
 
     /** Like [appendAssistantMessage] but also attaches a [ToolCallInfo] chip so the UI shows

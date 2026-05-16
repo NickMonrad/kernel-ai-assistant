@@ -31,6 +31,7 @@ import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.skills.mealplan.MealPlannerReply
+import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -47,12 +48,14 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -194,13 +197,14 @@ class ChatViewModelInitTest {
     }
 
     @Test
-    fun `restored chat initialization appends actionable meal planner resume prompt`() = runTest(dispatcher) {
+    fun `restored chat initialization shows actionable meal planner resume prompt without persisting it`() = runTest(dispatcher) {
         val prompt = "I still need to finish Day 2 of 3. Say 'generate recipes' to continue or 'cancel' to stop."
-        coEvery { mealPlannerCoordinator.hasActiveSession("conv-existing") } returns true
-        coEvery { mealPlannerCoordinator.startOrResume("conv-existing") } returns MealPlannerReply(prompt)
-        coEvery { conversationRepository.addMessage("conv-existing", "assistant", prompt, any(), any()) } returns "assistant-msg"
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
 
-        ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+        coEvery { mealPlannerCoordinator.activeSessionReply("conv-existing") } returns MealPlannerReply(prompt)
+
+        val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -228,16 +232,20 @@ class ChatViewModelInitTest {
 
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { mealPlannerCoordinator.startOrResume("conv-existing") }
-        coVerify(exactly = 1) { conversationRepository.addMessage("conv-existing", "assistant", prompt, any(), any()) }
+        coVerify(exactly = 1) { mealPlannerCoordinator.activeSessionReply("conv-existing") }
+        coVerify(exactly = 0) { conversationRepository.addMessage("conv-existing", "assistant", prompt, any(), any()) }
         coVerify(exactly = 0) { ragRepository.indexMessage(any(), any(), any()) }
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertEquals(prompt, state.messages.last().content)
     }
 
     @Test
     fun `restored chat initialization does not duplicate latest meal planner resume prompt`() = runTest(dispatcher) {
         val prompt = "I still need to finish Day 2 of 3. Say 'generate recipes' to continue or 'cancel' to stop."
-        coEvery { mealPlannerCoordinator.hasActiveSession("conv-existing") } returns true
-        coEvery { mealPlannerCoordinator.startOrResume("conv-existing") } returns MealPlannerReply(prompt)
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+
+        coEvery { mealPlannerCoordinator.activeSessionReply("conv-existing") } returns MealPlannerReply(prompt)
         coEvery { conversationRepository.getMessagesOnce("conv-existing") } returns listOf(
             com.kernel.ai.core.memory.entity.MessageEntity(
                 id = "msg-1",
@@ -249,7 +257,7 @@ class ChatViewModelInitTest {
             ),
         )
 
-        ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+        val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -277,8 +285,79 @@ class ChatViewModelInitTest {
 
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { mealPlannerCoordinator.startOrResume("conv-existing") }
+        coVerify(exactly = 1) { mealPlannerCoordinator.activeSessionReply("conv-existing") }
         coVerify(exactly = 0) { conversationRepository.addMessage("conv-existing", "assistant", prompt, any(), any()) }
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertEquals(1, state.messages.size)
+        assertEquals(prompt, state.messages.last().content)
+    }
+
+    @Test
+    fun `restored chat initialization re-shows planner guidance after later conversation turns without writing duplicates`() = runTest(dispatcher) {
+        val prompt = "I still need to finish Day 2 of 3. Say 'generate recipes' to continue or 'cancel' to stop."
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        coEvery { mealPlannerCoordinator.activeSessionReply("conv-existing") } returns MealPlannerReply(prompt)
+        coEvery { conversationRepository.getMessagesOnce("conv-existing") } returns listOf(
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-1",
+                conversationId = "conv-existing",
+                role = "assistant",
+                content = prompt,
+                thinkingText = null,
+                timestamp = 1L,
+            ),
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-2",
+                conversationId = "conv-existing",
+                role = "user",
+                content = "continue please",
+                thinkingText = null,
+                timestamp = 2L,
+            ),
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-3",
+                conversationId = "conv-existing",
+                role = "assistant",
+                content = "Still working on Day 2 — give me a moment.",
+                thinkingText = null,
+                timestamp = 3L,
+            ),
+        )
+
+        val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        )
+
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { mealPlannerCoordinator.activeSessionReply("conv-existing") }
+        coVerify(exactly = 0) { conversationRepository.addMessage("conv-existing", "assistant", prompt, any(), any()) }
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertEquals(4, state.messages.size)
+        assertEquals(prompt, state.messages.last().content)
     }
 
     @Test
