@@ -367,12 +367,18 @@ class MealPlanSessionRepository @Inject constructor(
         val session = requireNotNull(sessionDao.getById(sessionId))
         val targetName = shoppingListName(session)
         deleteList(targetName)
-        listNameDao.insert(ListNameEntity(name = targetName))
-        val projectedAt = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        listNameDao.insert(ListNameEntity(name = targetName, createdAt = now, updatedAt = now))
+        val projectedAt = now
         projectionWriteDao.markSupersededForTarget(sessionId, TARGET_KIND_PLAN_SHOPPING_LIST, projectedAt)
+        // Resolve the list id after insert
+        val listEntity = listNameDao.getByName(targetName) ?: return
+        val listId = listEntity.id
         val groceries = groceryItemDao.getCurrentForSession(sessionId)
         groceries.forEach { grocery ->
-            listItemDao.insert(ListItemEntity(listName = targetName, item = grocery.displayText))
+            listItemDao.insert(
+                ListItemEntity(listId = listId, text = grocery.displayText, createdAt = now, updatedAt = now),
+            )
         }
         projectionWriteDao.insertAll(
             groceries.map { grocery ->
@@ -404,7 +410,8 @@ class MealPlanSessionRepository @Inject constructor(
             sourceKeyPrefix = sourcePrefix,
         )
         oldTargets.forEach { deleteList(it) }
-        val projectedAt = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        val projectedAt = now
         projectionWriteDao.markSupersededForSourcePrefix(
             sessionId = sessionId,
             targetKind = TARGET_KIND_RECIPE_LIST,
@@ -412,10 +419,15 @@ class MealPlanSessionRepository @Inject constructor(
             timestamp = projectedAt,
         )
         val targetName = recipeListName(sessionId, dayIndex, recipeVersion.title)
-        listNameDao.insert(ListNameEntity(name = targetName))
+        listNameDao.insert(ListNameEntity(name = targetName, createdAt = now, updatedAt = now))
+        // Resolve the list id after insert
+        val listEntity = listNameDao.getByName(targetName) ?: return
+        val listId = listEntity.id
         val methodSteps = jsonToMethodSteps(recipeVersion.methodStepsJson)
         methodSteps.forEach { step ->
-            listItemDao.insert(ListItemEntity(listName = targetName, item = step.text))
+            listItemDao.insert(
+                ListItemEntity(listId = listId, text = step.text, createdAt = now, updatedAt = now),
+            )
         }
         projectionWriteDao.insertAll(
             methodSteps.mapIndexed { index, _ ->
@@ -435,7 +447,7 @@ class MealPlanSessionRepository @Inject constructor(
     }
 
     private suspend fun deleteList(name: String) {
-        listItemDao.deleteList(name)
+        // With FK CASCADE on list_items.listId, deleting from lists removes all child items
         listNameDao.deleteByName(name)
     }
 

@@ -81,7 +81,7 @@ import java.time.ZoneId
         MealPlanGroceryItemEntity::class,
         MealPlanProjectionWriteEntity::class,
     ],
-    version = 34,
+    version = 35,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -602,6 +602,48 @@ abstract class KernelDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_meal_plan_projection_writes_mealPlanSessionId` ON `meal_plan_projection_writes` (`mealPlanSessionId`)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_plan_projection_writes_targetKind_targetName_sourceKey_sourceVersion` ON `meal_plan_projection_writes` (`targetKind`, `targetName`, `sourceKey`, `sourceVersion`)")
+            }
+        }
+        /** Adds updatedAt + pinned to lists; migrates list_items from listName string FK to listId integer FK (#887). */
+        val MIGRATION_34_35 = object : Migration(34, 35) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Add updatedAt and pinned to the lists table
+                db.execSQL("ALTER TABLE lists ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE lists ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+
+                // 2. Create the new list_items table with listId FK and new columns
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `list_items_new` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `listId` INTEGER NOT NULL,
+                        `text` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        `checked` INTEGER NOT NULL DEFAULT 0,
+                        `dueAt` INTEGER DEFAULT NULL,
+                        `isFavourite` INTEGER NOT NULL DEFAULT 0,
+                        FOREIGN KEY(`listId`) REFERENCES `lists`(`id`) ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+
+                // 3. Populate: join old listName string to lists.id to resolve the FK
+                db.execSQL(
+                    """
+                    INSERT INTO list_items_new (id, listId, text, createdAt, updatedAt, checked)
+                    SELECT li.id, l.id, li.item, li.addedAt, li.addedAt, li.checked
+                    FROM list_items li
+                    INNER JOIN lists l ON li.listName = l.name
+                    """.trimIndent(),
+                )
+
+                // 4. Drop old table and rename new table
+                db.execSQL("DROP TABLE list_items")
+                db.execSQL("ALTER TABLE list_items_new RENAME TO list_items")
+
+                // 5. Add index for the FK column
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_items_listId` ON `list_items` (`listId`)")
             }
         }
     }

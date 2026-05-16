@@ -10,6 +10,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.mealplan.CanonicalGroceryItem
 import com.kernel.ai.core.memory.mealplan.GroceryNormalizationStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanDraftDay
@@ -41,6 +42,7 @@ class MealPlanSessionRepositoryAndroidTest {
     private lateinit var database: KernelDatabase
     private lateinit var repository: MealPlanSessionRepository
     private lateinit var listItemDao: ListItemDao
+    private lateinit var listNameDao: ListNameDao
 
     @Before
     fun setUp() {
@@ -58,6 +60,7 @@ class MealPlanSessionRepositoryAndroidTest {
             listNameDao = database.listNameDao(),
         )
         listItemDao = database.listItemDao()
+        listNameDao = database.listNameDao()
     }
 
     @After
@@ -106,17 +109,20 @@ class MealPlanSessionRepositoryAndroidTest {
         assertEquals(1, updated.days.first().currentRecipeVersion)
         assertNotNull(updated.days.first().currentRecipe)
 
-        val listNames = listItemDao.getAllLists()
+        val allListEntities = listNameDao.getAll()
+        val listNames = allListEntities.map { it.name }
         val shoppingListName = listNames.single { it.endsWith("Shopping List") }
         val recipeListName = listNames.single { it.contains("Day 1 — Chicken Stir Fry") }
+        val shoppingListId = allListEntities.first { it.name == shoppingListName }.id
+        val recipeListId = allListEntities.first { it.name == recipeListName }.id
 
         assertEquals(
             listOf("500 g chicken thigh", "2 onions"),
-            listItemDao.getByList(shoppingListName).map { it.item },
+            listItemDao.getByList(shoppingListId).map { it.text },
         )
         assertEquals(
             listOf("Slice the vegetables.", "Stir-fry everything until glossy."),
-            listItemDao.getByList(recipeListName).map { it.item },
+            listItemDao.getByList(recipeListId).map { it.text },
         )
         assertEquals(2, projectionCount(updated.sessionId, "PLAN_SHOPPING_LIST", superseded = null))
         assertEquals(2, projectionCount(updated.sessionId, "RECIPE_LIST", superseded = null))
@@ -150,7 +156,7 @@ class MealPlanSessionRepositoryAndroidTest {
                 grocery(displayText = "2 onions", ingredientName = "onions", normalizationStatus = GroceryNormalizationStatus.OPAQUE),
             ),
         )
-        val originalRecipeList = listItemDao.getAllLists().single { it.contains("Day 1 — Chicken Stir Fry") }
+        val originalRecipeListName = listNameDao.getAll().single { it.name.contains("Day 1 — Chicken Stir Fry") }.name
 
         val regenerated = repository.persistRecipeDraft(
             sessionId = session.sessionId,
@@ -165,15 +171,16 @@ class MealPlanSessionRepositoryAndroidTest {
             ),
         )
 
-        val currentLists = listItemDao.getAllLists()
-        val shoppingListName = currentLists.single { it.endsWith("Shopping List") }
-        val regeneratedRecipeList = currentLists.single { it.contains("Day 1 — Lemon Chicken") }
+        val currentListEntities = listNameDao.getAll()
+        val currentListNames = currentListEntities.map { it.name }
+        val shoppingListId = currentListEntities.single { it.name.endsWith("Shopping List") }.id
+        val regeneratedRecipeListId = currentListEntities.single { it.name.contains("Day 1 — Lemon Chicken") }.id
 
         assertEquals(MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY, regenerated.status)
         assertEquals(2, regenerated.days.single().currentRecipeVersion)
-        assertFalse(currentLists.contains(originalRecipeList))
-        assertEquals(listOf("1 lemon"), listItemDao.getByList(shoppingListName).map { it.item })
-        assertEquals(listOf("Roast the chicken with lemon."), listItemDao.getByList(regeneratedRecipeList).map { it.item })
+        assertFalse(currentListNames.contains(originalRecipeListName))
+        assertEquals(listOf("1 lemon"), listItemDao.getByList(shoppingListId).map { it.text })
+        assertEquals(listOf("Roast the chicken with lemon."), listItemDao.getByList(regeneratedRecipeListId).map { it.text })
         assertEquals(1, projectionCount(regenerated.sessionId, "PLAN_SHOPPING_LIST", superseded = false))
         assertEquals(2, projectionCount(regenerated.sessionId, "PLAN_SHOPPING_LIST", superseded = true))
         assertEquals(1, projectionCount(regenerated.sessionId, "RECIPE_LIST", superseded = false))
@@ -260,6 +267,37 @@ class MealPlanSessionRepositoryAndroidTest {
         normalizationStatus = normalizationStatus,
         mergeKey = ingredientName,
     )
+
+    @Test
+    fun migration34To35_addsNewColumnsAndPreservesListItems() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 34).apply {
+            execSQL("INSERT INTO `lists` (`id`, `name`, `createdAt`) VALUES (1, 'My List', 1000)")
+            execSQL("INSERT INTO `list_items` (`id`, `listName`, `item`, `addedAt`) VALUES (1, 'My List', 'apple', 2000)")
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            MIGRATION_DB_NAME,
+            35,
+            true,
+            KernelDatabase.MIGRATION_34_35,
+        )
+
+        // lists table gains updatedAt and pinned columns
+        migratedDb.query("SELECT name, updatedAt, pinned FROM `lists` WHERE id = 1").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("My List", cursor.getString(0))
+            assertEquals(1000L, cursor.getLong(1)) // updatedAt defaults to createdAt
+            assertEquals(0, cursor.getInt(2))      // pinned defaults to 0 (false)
+        }
+        // list_items now has listId FK and text column
+        migratedDb.query("SELECT listId, text FROM `list_items` WHERE id = 1").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1L, cursor.getLong(0)) // listId resolved from name join
+            assertEquals("apple", cursor.getString(1)) // text (was item)
+        }
+        migratedDb.close()
+    }
 
     private companion object {
         private const val MIGRATION_DB_NAME = "meal-plan-migration-test"

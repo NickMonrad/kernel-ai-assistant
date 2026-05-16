@@ -508,11 +508,28 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `add to list returns failure for filler item text`() {
+        val fillerCases = listOf("an item", "something", "a thing", "it", "one", "some")
+        fillerCases.forEach { filler ->
+            val result = handleIntent("add_to_list", mapOf("item" to filler, "list_name" to "shopping list"))
+            assertTrue(
+                result is SkillResult.Failure,
+                "Expected Failure for filler item \"$filler\" but got $result",
+            )
+            coVerify(exactly = 0) { listItemDao.insert(any()) }
+        }
+    }
+
+    @Test
     fun `shopping list aliases resolve to the same stored list`() {
-        coEvery { listItemDao.getByList("shopping list") } returnsMany
+        val shoppingList = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 1L, name = "shopping list", createdAt = 0L, updatedAt = 0L,
+        )
+        coEvery { listNameDao.getByName("shopping list") } returns shoppingList
+        coEvery { listItemDao.getByList(1L) } returnsMany
             listOf(
                 emptyList(),
-                listOf(ListItemEntity(listName = "shopping list", item = "milk")),
+                listOf(ListItemEntity(listId = 1L, text = "milk", createdAt = 0L, updatedAt = 0L)),
             )
 
         val addResult = handleIntent("add_to_list", mapOf(
@@ -535,15 +552,19 @@ class NativeIntentHandlerTest {
             ),
             readResult,
         )
-        coVerify(exactly = 2) { listItemDao.getByList("shopping list") }
+        coVerify(exactly = 2) { listItemDao.getByList(1L) }
     }
 
     @Test
     fun `create list shares canonical shopping alias with add and get`() {
-        coEvery { listItemDao.getByList("shopping list") } returnsMany
+        val shoppingList = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 1L, name = "shopping list", createdAt = 0L, updatedAt = 0L,
+        )
+        coEvery { listNameDao.getByName("shopping list") } returns shoppingList
+        coEvery { listItemDao.getByList(1L) } returnsMany
             listOf(
                 emptyList(),
-                listOf(ListItemEntity(listName = "shopping list", item = "milk")),
+                listOf(ListItemEntity(listId = 1L, text = "milk", createdAt = 0L, updatedAt = 0L)),
             )
 
         val createResult = handleIntent("create_list", mapOf("list_name" to "shopping"))
@@ -568,7 +589,7 @@ class NativeIntentHandlerTest {
             readResult,
         )
         coVerify(atLeast = 1) { listNameDao.insert(match { it.name == "shopping list" }) }
-        coVerify(exactly = 2) { listItemDao.getByList("shopping list") }
+        coVerify(exactly = 2) { listItemDao.getByList(1L) }
     }
 
     @Test

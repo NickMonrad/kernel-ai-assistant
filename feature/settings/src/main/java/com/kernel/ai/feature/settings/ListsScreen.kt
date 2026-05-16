@@ -46,24 +46,25 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.memory.entity.ListNameEntity
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListsScreen(
     onBack: () -> Unit = {},
-    onOpenList: (String) -> Unit = {},
+    onOpenList: (Long) -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
 ) {
-    val listNames by viewModel.listNames.collectAsStateWithLifecycle()
+    val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val itemCounts by viewModel.itemCounts.collectAsStateWithLifecycle()
     val searchQuery by viewModel.listSearchQuery.collectAsStateWithLifecycle()
 
     var showCreateDialog by remember { mutableStateOf(false) }
-    var pendingDeleteList by remember { mutableStateOf<String?>(null) }
+    var pendingDeleteEntity by remember { mutableStateOf<ListNameEntity?>(null) }
 
-    val filtered = if (searchQuery.isBlank()) listNames
-    else listNames.filter { it.contains(searchQuery, ignoreCase = true) }
+    val filtered = if (searchQuery.isBlank()) listEntities
+    else listEntities.filter { it.name.contains(searchQuery, ignoreCase = true) }
 
     Scaffold(
         topBar = {
@@ -127,11 +128,11 @@ fun ListsScreen(
                 ) {
                     Spacer(modifier = Modifier.height(32.dp))
                     Text(
-                        text = if (listNames.isEmpty()) "No lists yet." else "No lists match \"$searchQuery\".",
+                        text = if (listEntities.isEmpty()) "No lists yet." else "No lists match \"$searchQuery\".",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (listNames.isEmpty()) {
+                    if (listEntities.isEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "Tap + to create a list, or ask Jandal — e.g. \"Add milk to my shopping list\".",
@@ -142,14 +143,14 @@ fun ListsScreen(
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(filtered, key = { it }) { listName ->
-                        val count = itemCounts[listName] ?: 0
+                    items(filtered, key = { it.id }) { entity ->
+                        val count = itemCounts[entity.id] ?: 0
                         ListItem(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onOpenList(listName) },
+                                .clickable { onOpenList(entity.id) },
                             headlineContent = {
-                                Text(listName.replaceFirstChar { it.uppercase() })
+                                Text(entity.name.replaceFirstChar { it.uppercase() })
                             },
                             supportingContent = {
                                 Text("$count item${if (count == 1) "" else "s"}")
@@ -166,7 +167,7 @@ fun ListsScreen(
                                     horizontalArrangement = Arrangement.spacedBy(0.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    IconButton(onClick = { pendingDeleteList = listName }) {
+                                    IconButton(onClick = { pendingDeleteEntity = entity }) {
                                         Icon(
                                             Icons.Default.Delete,
                                             contentDescription = "Delete list",
@@ -191,7 +192,9 @@ fun ListsScreen(
                 showCreateDialog = false
                 if (name.isNotBlank()) {
                     viewModel.addList(name)
-                    onOpenList(name.trim().lowercase())
+                    // Navigate immediately — the list will be created and visible on return
+                    // We can't navigate by ID here since the row is inserted async;
+                    // in slice 2 this will be improved. For now, stay on overview after create.
                 }
             },
             onDismiss = { showCreateDialog = false },
@@ -199,11 +202,11 @@ fun ListsScreen(
     }
 
     // Delete confirmation dialog
-    pendingDeleteList?.let { listName ->
-        val count = itemCounts[listName] ?: 0
+    pendingDeleteEntity?.let { entity ->
+        val count = itemCounts[entity.id] ?: 0
         AlertDialog(
-            onDismissRequest = { pendingDeleteList = null },
-            title = { Text("Delete \"${listName.replaceFirstChar { it.uppercase() }}\"?") },
+            onDismissRequest = { pendingDeleteEntity = null },
+            title = { Text("Delete \"${entity.name.replaceFirstChar { it.uppercase() }}\"?") },
             text = {
                 if (count > 0) Text("This will permanently delete $count item${if (count == 1) "" else "s"}.")
                 else Text("The list is empty and will be deleted.")
@@ -211,13 +214,13 @@ fun ListsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.deleteList(listName)
-                        pendingDeleteList = null
+                        viewModel.deleteList(entity.id)
+                        pendingDeleteEntity = null
                     },
                 ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDeleteList = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDeleteEntity = null }) { Text("Cancel") }
             },
         )
     }

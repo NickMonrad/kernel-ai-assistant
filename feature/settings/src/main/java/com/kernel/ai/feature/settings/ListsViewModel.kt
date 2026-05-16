@@ -22,22 +22,27 @@ class ListsViewModel @Inject constructor(
     private val listNameDao: ListNameDao,
 ) : ViewModel() {
 
-    /** All items grouped by list name — used by the drill-in item screen. */
-    val groupedItems: StateFlow<Map<String, List<ListItemEntity>>> =
-        dao.observeAll()
-            .map { items -> items.groupBy { it.listName } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-
-    /** List names from the lists table — persists even when lists are empty. */
-    val listNames: StateFlow<List<String>> =
+    /** Full list entities — exposes id, name, pinned, updatedAt for the overview screen. */
+    val listEntities: StateFlow<List<ListNameEntity>> =
         listNameDao.observeAll()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** List names derived from listEntities — kept for search filtering. */
+    val listNames: StateFlow<List<String>> =
+        listEntities
             .map { it.map { e -> e.name } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Item counts keyed by list name — shown in the overview. */
-    val itemCounts: StateFlow<Map<String, Int>> =
+    /** All items grouped by listId — used by the drill-in item screen. */
+    val groupedItems: StateFlow<Map<Long, List<ListItemEntity>>> =
         dao.observeAll()
-            .map { items -> items.groupBy { it.listName }.mapValues { it.value.size } }
+            .map { items -> items.groupBy { it.listId } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** Item counts keyed by listId — shown in the overview. */
+    val itemCounts: StateFlow<Map<Long, Int>> =
+        dao.observeAll()
+            .map { items -> items.groupBy { it.listId }.mapValues { it.value.size } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** Search query for the list overview screen. */
@@ -56,8 +61,9 @@ class ListsViewModel @Inject constructor(
     fun addList(name: String) {
         val trimmed = name.trim().lowercase()
         if (trimmed.isBlank()) return
+        val now = System.currentTimeMillis()
         viewModelScope.launch {
-            listNameDao.insert(ListNameEntity(name = trimmed))
+            listNameDao.insert(ListNameEntity(name = trimmed, createdAt = now, updatedAt = now))
         }
     }
 
@@ -67,11 +73,13 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    fun addItem(listName: String, itemText: String) {
+    fun addItem(listId: Long, itemText: String) {
         val trimmed = itemText.trim()
         if (trimmed.isBlank()) return
+        val now = System.currentTimeMillis()
         viewModelScope.launch {
-            dao.insert(ListItemEntity(listName = listName, item = trimmed))
+            dao.insert(ListItemEntity(listId = listId, text = trimmed, createdAt = now, updatedAt = now))
+            listNameDao.updateTimestamp(listId, now)
         }
     }
 
@@ -79,15 +87,36 @@ class ListsViewModel @Inject constructor(
         viewModelScope.launch { dao.deleteItem(id) }
     }
 
-    fun clearChecked(listName: String) {
-        viewModelScope.launch { dao.deleteChecked(listName) }
+    fun clearChecked(listId: Long) {
+        viewModelScope.launch { dao.deleteChecked(listId) }
     }
 
-    fun deleteList(listName: String) {
+    /** Deletes a list by ID; cascade FK removes all child items automatically. */
+    fun deleteList(listId: Long) {
+        viewModelScope.launch { listNameDao.deleteById(listId) }
+    }
+
+    /** Stub — renames a list. Full implementation in slice 2. */
+    fun renameList(id: Long, newName: String) {
+        val trimmed = newName.trim().lowercase()
+        if (trimmed.isBlank()) return
         viewModelScope.launch {
-            dao.deleteList(listName)
-            listNameDao.deleteByName(listName)
+            listNameDao.updateName(id, trimmed, System.currentTimeMillis())
         }
     }
+
+    /** Stub — toggles the pinned state of a list. Full implementation in slice 2. */
+    fun togglePin(id: Long) {
+        viewModelScope.launch {
+            val entity = listEntities.value.firstOrNull { it.id == id } ?: return@launch
+            listNameDao.updatePinned(id, !entity.pinned, System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * Resolves a display name to the list entity, for use by handlers that receive
+     * a name string (e.g. NativeIntentHandler at the skill boundary).
+     */
+    suspend fun resolveListByName(name: String): ListNameEntity? = listNameDao.getByName(name)
 }
 

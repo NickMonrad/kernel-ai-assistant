@@ -54,14 +54,19 @@ import androidx.compose.material3.AlertDialog
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListItemsScreen(
-    listName: String,
+    listId: Long,
     onBack: () -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
 ) {
     val grouped by viewModel.groupedItems.collectAsStateWithLifecycle()
+    val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val searchQuery by viewModel.itemSearchQuery.collectAsStateWithLifecycle()
-    val allItems = grouped[listName] ?: emptyList()
+
+    // Resolve the display name from the entities list
+    val displayName = listEntities.firstOrNull { it.id == listId }?.name ?: ""
+
+    val allItems = grouped[listId] ?: emptyList()
 
     // Split active vs completed
     val activeItems = allItems.filter { !it.checked }
@@ -69,9 +74,9 @@ fun ListItemsScreen(
 
     // Apply search filter
     val filteredActive = if (searchQuery.isBlank()) activeItems
-    else activeItems.filter { it.item.contains(searchQuery, ignoreCase = true) }
+    else activeItems.filter { it.text.contains(searchQuery, ignoreCase = true) }
     val filteredCompleted = if (searchQuery.isBlank()) completedItems
-    else completedItems.filter { it.item.contains(searchQuery, ignoreCase = true) }
+    else completedItems.filter { it.text.contains(searchQuery, ignoreCase = true) }
 
     var showAddDialog by remember { mutableStateOf(false) }
     var completedExpanded by rememberSaveable { mutableStateOf(false) }
@@ -84,7 +89,7 @@ fun ListItemsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(listName.replaceFirstChar { it.uppercase() }) },
+                title = { Text(displayName.replaceFirstChar { it.uppercase() }) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -92,7 +97,7 @@ fun ListItemsScreen(
                 },
                 actions = {
                     if (completedItems.isNotEmpty()) {
-                        TextButton(onClick = { viewModel.clearChecked(listName) }) {
+                        TextButton(onClick = { viewModel.clearChecked(listId) }) {
                             Text("Clear done")
                         }
                     }
@@ -220,7 +225,7 @@ fun ListItemsScreen(
         AddItemDialog(
             onConfirm = { text ->
                 showAddDialog = false
-                viewModel.addItem(listName, text)
+                viewModel.addItem(listId, text)
             },
             onDismiss = { showAddDialog = false },
         )
@@ -236,7 +241,7 @@ private fun ListItemRow(
     ListItem(
         headlineContent = {
             Text(
-                text = item.item,
+                text = item.text,
                 style = if (item.checked) {
                     MaterialTheme.typography.bodyLarge.copy(
                         textDecoration = TextDecoration.LineThrough,

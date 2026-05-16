@@ -1692,7 +1692,22 @@ class NativeIntentHandler @Inject constructor(
         return atIndex > 0 && atIndex < trimmed.lastIndex && trimmed.substring(atIndex + 1).contains('.')
     }
 
-    // ── List Management (#315 / #476 / #477) ─────────────────────────────────
+    // ── List Management (#315 / #476 / #477 / #887) ───────────────────────────
+
+    /** Bare placeholder phrases that should trigger slot-fill rather than being added verbatim. */
+    private val ITEM_FILLER_RE = Regex(
+        """^(an?\s+item|something|a\s+thing|it|one|some)$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * Returns true when the item text looks like a generic placeholder (e.g. "an item",
+     * "something") rather than a real item the user wants to add.
+     */
+    private fun isFillerItem(item: String): Boolean {
+        val normalized = item.trim().lowercase()
+        return normalized.length <= 3 || ITEM_FILLER_RE.matches(normalized)
+    }
 
     private fun normalizeListName(raw: String): String {
         val trimmed = raw.lowercase().trim()
@@ -1707,13 +1722,31 @@ class NativeIntentHandler @Inject constructor(
     private fun addToList(params: Map<String, String>): SkillResult {
         val item = params["item"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_to_list", "No item specified")
+
+        // Guard against filler phrases like "an item", "something", "it", etc.
+        if (isFillerItem(item)) {
+            val targetList = params["list_name"]?.trim()?.lowercase()
+                ?.let { normalizeListName(it) } ?: "the list"
+            return SkillResult.Failure(
+                "add_to_list",
+                "What would you like to add to $targetList?",
+            )
+        }
+
         val raw = params["list_name"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_to_list", "No list name specified")
         val listName = normalizeListName(raw.lowercase())
+        val now = System.currentTimeMillis()
         val items = runBlocking {
-            listNameDao.insert(ListNameEntity(name = listName))
-            listItemDao.insert(ListItemEntity(listName = listName, item = item))
-            listItemDao.getByList(listName)
+            // Insert list (IGNORE if already exists), then resolve its id
+            listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
+            val list = listNameDao.getByName(listName)
+                ?: return@runBlocking emptyList<ListItemEntity>()
+            val listId = list.id
+            listItemDao.insert(
+                ListItemEntity(listId = listId, text = item, createdAt = now, updatedAt = now),
+            )
+            listItemDao.getByList(listId)
         }
         return SkillResult.DirectReply(
             "Added \"$item\" to your $listName.",
@@ -1733,10 +1766,16 @@ class NativeIntentHandler @Inject constructor(
             itemsParam.split(",").map { it.trim() }.filter { it.isNotBlank() }
         }
         if (items.isEmpty()) return SkillResult.Failure("bulk_add_to_list", "No valid items to add")
+        val now = System.currentTimeMillis()
         val currentItems = runBlocking {
-            listNameDao.insert(ListNameEntity(name = listName))
-            items.forEach { listItemDao.insert(ListItemEntity(listName = listName, item = it)) }
-            listItemDao.getByList(listName)
+            listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
+            val list = listNameDao.getByName(listName)
+                ?: return@runBlocking emptyList<ListItemEntity>()
+            val listId = list.id
+            items.forEach {
+                listItemDao.insert(ListItemEntity(listId = listId, text = it, createdAt = now, updatedAt = now))
+            }
+            listItemDao.getByList(listId)
         }
         return SkillResult.DirectReply(
             "Added ${items.size} item${if (items.size == 1) "" else "s"} to your $listName:\n" +
@@ -1748,7 +1787,8 @@ class NativeIntentHandler @Inject constructor(
     private fun createList(params: Map<String, String>): SkillResult {
         val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
         val name = normalizeListName(raw)
-        runBlocking { listNameDao.insert(ListNameEntity(name = name)) }
+        val now = System.currentTimeMillis()
+        runBlocking { listNameDao.insert(ListNameEntity(name = name, createdAt = now, updatedAt = now)) }
         return SkillResult.DirectReply(
             "Created list \"$name\".",
             presentation = buildListPreview(name, emptyList(), "No items yet."),
@@ -1758,14 +1798,17 @@ class NativeIntentHandler @Inject constructor(
     private fun getListItems(params: Map<String, String>): SkillResult {
         val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
         val listName = normalizeListName(raw)
-        val items = runBlocking { listItemDao.getByList(listName) }
+        val items = runBlocking {
+            val list = listNameDao.getByName(listName) ?: return@runBlocking emptyList<ListItemEntity>()
+            listItemDao.getByList(list.id)
+        }
         return if (items.isEmpty()) {
             SkillResult.DirectReply(
                 "Your $listName is empty.",
                 presentation = buildListPreview(listName, emptyList(), "No items yet."),
             )
         } else {
-            val bullets = items.joinToString("\n") { "• ${it.item}" }
+            val bullets = items.joinToString("\n") { "• ${it.text}" }
             SkillResult.DirectReply(
                 "$listName (${items.size} item${if (items.size == 1) "" else "s"}):\n$bullets",
                 presentation = buildListPreview(listName, items),
@@ -1777,16 +1820,20 @@ class NativeIntentHandler @Inject constructor(
         val item = params["item"] ?: return SkillResult.Failure("remove_from_list", "No item specified")
         val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
         val listName = normalizeListName(raw)
-        val all = runBlocking { listItemDao.getByList(listName) }
-        val match = all.firstOrNull { it.item.equals(item, ignoreCase = true) }
-            ?: all.firstOrNull { it.item.contains(item, ignoreCase = true) }
+        val all = runBlocking {
+            val list = listNameDao.getByName(listName) ?: return@runBlocking emptyList<ListItemEntity>()
+            listItemDao.getByList(list.id)
+        }
+        val match = all.firstOrNull { it.text.equals(item, ignoreCase = true) }
+            ?: all.firstOrNull { it.text.contains(item, ignoreCase = true) }
             ?: return SkillResult.DirectReply("\"$item\" not found in $listName.")
         val remaining = runBlocking {
             listItemDao.deleteItem(match.id)
-            listItemDao.getByList(listName)
+            val list = listNameDao.getByName(listName) ?: return@runBlocking emptyList<ListItemEntity>()
+            listItemDao.getByList(list.id)
         }
         return SkillResult.DirectReply(
-            "Removed \"${match.item}\" from $listName.",
+            "Removed \"${match.text}\" from $listName.",
             presentation = buildListPreview(listName, remaining, "No items left."),
         )
     }
@@ -2156,7 +2203,7 @@ class NativeIntentHandler @Inject constructor(
         emptyMessage: String? = null,
     ): ToolPresentation.ListPreview = ToolPresentation.ListPreview(
         title = listName,
-        items = items.sortedByDescending { it.addedAt }.map { it.item },
+        items = items.sortedByDescending { it.createdAt }.map { it.text },
         totalCount = items.size,
         emptyMessage = emptyMessage,
     )
