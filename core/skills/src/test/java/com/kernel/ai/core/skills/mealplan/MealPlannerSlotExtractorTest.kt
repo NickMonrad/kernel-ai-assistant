@@ -33,6 +33,10 @@ class MealPlannerSlotExtractorTest {
         )
         assertEquals(
             listOf("no dietary requirements"),
+            extractor.extractDietaryRestrictions("No requirements"),
+        )
+        assertEquals(
+            listOf("no dietary requirements"),
             extractor.extractDietaryRestrictions("None"),
         )
         assertEquals(
