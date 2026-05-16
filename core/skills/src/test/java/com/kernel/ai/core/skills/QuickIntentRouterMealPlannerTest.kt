@@ -16,6 +16,7 @@ class QuickIntentRouterMealPlannerTest {
             "plan my meals",
             "I'd like to plan meals",
             "I’d like to plan my meals",
+            "Make me a meal plan",
         )
 
         phrases.forEach { input ->
