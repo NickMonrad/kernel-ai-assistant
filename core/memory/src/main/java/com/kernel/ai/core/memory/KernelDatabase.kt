@@ -81,7 +81,7 @@ import java.time.ZoneId
         MealPlanGroceryItemEntity::class,
         MealPlanProjectionWriteEntity::class,
     ],
-    version = 35,
+    version = 36,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -648,6 +648,14 @@ abstract class KernelDatabase : RoomDatabase() {
 
                 // 5. Add index for the FK column
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_items_listId` ON `list_items` (`listId`)")
+            }
+        }
+        /** Adds displayOrder to lists for drag-and-drop manual reorder (#897). */
+        val MIGRATION_35_36 = object : Migration(35, 36) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE lists ADD COLUMN displayOrder INTEGER NOT NULL DEFAULT 0")
+                // Initialise existing rows to a stable order (by id)
+                db.execSQL("UPDATE lists SET displayOrder = id")
             }
         }
     }

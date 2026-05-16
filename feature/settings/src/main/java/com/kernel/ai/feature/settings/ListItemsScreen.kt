@@ -1,6 +1,8 @@
 package com.kernel.ai.feature.settings
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
@@ -135,7 +138,7 @@ private fun ItemFilter.label(): String = when (this) {
 
 // ── Screen ───────────────────────────────────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ListItemsScreen(
     listId: Long,
@@ -165,6 +168,10 @@ fun ListItemsScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<ListItemEntity?>(null) }
 
+    val selectedItemIds = viewModel.selectedItemIds
+    val isItemMultiSelectMode = viewModel.isItemMultiSelectMode
+    var showItemBulkDeleteDialog by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         snapshotFlow { viewModel.itemFilter }
             .drop(1) // skip initial emission; rememberSaveable owns first-run state
@@ -174,91 +181,136 @@ fun ListItemsScreen(
     }
 
     DisposableEffect(Unit) {
-        onDispose { viewModel.clearItemSearchQuery() }
+        onDispose {
+            viewModel.clearItemSearchQuery()
+            viewModel.exitItemMultiSelect()
+        }
     }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = displayName.replaceFirstChar { it.uppercase() },
-                        modifier = Modifier.clickable { showRenameDialog = true },
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (sortedCompleted.isNotEmpty()) {
-                        TextButton(onClick = { viewModel.clearChecked(listId) }) {
-                            Text("Clear done")
+            if (isItemMultiSelectMode) {
+                // ── Contextual multi-select bar ─────────────────────────────────────────────
+                TopAppBar(
+                    title = { Text("${selectedItemIds.size} selected") },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.exitItemMultiSelect() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Exit selection")
                         }
-                    }
-                    // Sort / filter menu
-                    Box {
-                        IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "Sort and filter")
+                    },
+                    actions = {
+                        TextButton(onClick = {
+                            viewModel.selectAllItems(
+                                (filteredActive + if (completedExpanded) filteredCompleted else emptyList())
+                                    .map { it.id }
+                            )
+                        }) {
+                            Text("Select All")
                         }
-                        DropdownMenu(
-                            expanded = showSortMenu,
-                            onDismissRequest = { showSortMenu = false },
+                        // Mark selected items complete
+                        IconButton(onClick = { viewModel.markSelectedItemsComplete() }) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = "Mark complete",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        // Delete selected items
+                        IconButton(
+                            onClick = { showItemBulkDeleteDialog = true },
+                            enabled = selectedItemIds.isNotEmpty(),
                         ) {
-                            // ── Sort section ──────────────────────────────────────────
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "Sort by",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                },
-                                onClick = {},
-                                enabled = false,
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete selected",
+                                tint = MaterialTheme.colorScheme.error,
                             )
-                            ItemSort.entries.forEach { sort ->
-                                DropdownMenuItem(
-                                    text = { Text(sort.label()) },
-                                    onClick = {
-                                        viewModel.itemSort = sort
-                                        showSortMenu = false
-                                    },
-                                    trailingIcon = if (viewModel.itemSort == sort) {
-                                        { Icon(Icons.Default.Check, contentDescription = null) }
-                                    } else null,
-                                )
-                            }
-                            HorizontalDivider()
-                            // ── Filter section ────────────────────────────────────────
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "Filter",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                },
-                                onClick = {},
-                                enabled = false,
-                            )
-                            ItemFilter.entries.forEach { filter ->
-                                DropdownMenuItem(
-                                    text = { Text(filter.label()) },
-                                    onClick = {
-                                        viewModel.itemFilter = filter
-                                        showSortMenu = false
-                                    },
-                                    trailingIcon = if (viewModel.itemFilter == filter) {
-                                        { Icon(Icons.Default.Check, contentDescription = null) }
-                                    } else null,
-                                )
+                        }
+                    },
+                )
+            } else {
+                // ── Normal top app bar ───────────────────────────────────────────────────────
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = displayName.replaceFirstChar { it.uppercase() },
+                            modifier = Modifier.clickable { showRenameDialog = true },
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        if (sortedCompleted.isNotEmpty()) {
+                            TextButton(onClick = { viewModel.clearChecked(listId) }) {
+                                Text("Clear done")
                             }
                         }
-                    }
-                },
-            )
+                        // Sort / filter menu
+                        Box {
+                            IconButton(onClick = { showSortMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Sort and filter")
+                            }
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false },
+                            ) {
+                                // ── Sort section ──────────────────────────────────────────
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "Sort by",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    },
+                                    onClick = {},
+                                    enabled = false,
+                                )
+                                ItemSort.entries.forEach { sort ->
+                                    DropdownMenuItem(
+                                        text = { Text(sort.label()) },
+                                        onClick = {
+                                            viewModel.itemSort = sort
+                                            showSortMenu = false
+                                        },
+                                        trailingIcon = if (viewModel.itemSort == sort) {
+                                            { Icon(Icons.Default.Check, contentDescription = null) }
+                                        } else null,
+                                    )
+                                }
+                                HorizontalDivider()
+                                // ── Filter section ────────────────────────────────────────
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "Filter",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    },
+                                    onClick = {},
+                                    enabled = false,
+                                )
+                                ItemFilter.entries.forEach { filter ->
+                                    DropdownMenuItem(
+                                        text = { Text(filter.label()) },
+                                        onClick = {
+                                            viewModel.itemFilter = filter
+                                            showSortMenu = false
+                                        },
+                                        trailingIcon = if (viewModel.itemFilter == filter) {
+                                            { Icon(Icons.Default.Check, contentDescription = null) }
+                                        } else null,
+                                    )
+                                }
+                            }
+                        }
+                    },
+                )
+            }
         },
         floatingActionButton = {
             Column(
@@ -326,12 +378,17 @@ fun ListItemsScreen(
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     // Active items
                     items(filteredActive, key = { it.id }) { item ->
+                        val isSelected = item.id in selectedItemIds
                         ListItemRow(
                             item = item,
+                            isMultiSelectMode = isItemMultiSelectMode,
+                            isSelected = isSelected,
                             onToggle = { viewModel.toggleChecked(item) },
                             onDelete = { viewModel.deleteItem(item) },
                             onEdit = { editingItem = item },
                             onToggleFavourite = { viewModel.toggleFavourite(item) },
+                            onLongClick = { viewModel.enterItemMultiSelect(item.id) },
+                            onSelectToggle = { viewModel.toggleItemSelection(item.id) },
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
                     }
@@ -340,7 +397,9 @@ fun ListItemsScreen(
                     if (sortedCompleted.isNotEmpty()) {
                         item(key = "completed_header") {
                             ListItem(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { completedExpanded = !completedExpanded },
                                 headlineContent = {
                                     Text(
                                         "Completed (${sortedCompleted.size})",
@@ -349,14 +408,13 @@ fun ListItemsScreen(
                                     )
                                 },
                                 trailingContent = {
-                                    IconButton(onClick = { completedExpanded = !completedExpanded }) {
-                                        Icon(
-                                            if (completedExpanded) Icons.Default.ExpandLess
-                                            else Icons.Default.ExpandMore,
-                                            contentDescription = if (completedExpanded) "Collapse"
-                                            else "Expand",
-                                        )
-                                    }
+                                    Icon(
+                                        if (completedExpanded) Icons.Default.ExpandLess
+                                        else Icons.Default.ExpandMore,
+                                        contentDescription = if (completedExpanded) "Collapse"
+                                        else "Expand",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 },
                             )
                             HorizontalDivider()
@@ -366,12 +424,17 @@ fun ListItemsScreen(
                     // Completed items (collapsible)
                     if (completedExpanded) {
                         items(filteredCompleted, key = { "done_${it.id}" }) { item ->
+                            val isSelected = item.id in selectedItemIds
                             ListItemRow(
                                 item = item,
+                                isMultiSelectMode = isItemMultiSelectMode,
+                                isSelected = isSelected,
                                 onToggle = { viewModel.toggleChecked(item) },
                                 onDelete = { viewModel.deleteItem(item) },
                                 onEdit = { editingItem = item },
                                 onToggleFavourite = { viewModel.toggleFavourite(item) },
+                                onLongClick = { viewModel.enterItemMultiSelect(item.id) },
+                                onSelectToggle = { viewModel.toggleItemSelection(item.id) },
                             )
                             HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
                         }
@@ -419,23 +482,58 @@ fun ListItemsScreen(
             onDismiss = { showAddDialog = false },
         )
     }
+
+    // ── Bulk delete dialog ───────────────────────────────────────────────────────────────────────
+    if (showItemBulkDeleteDialog) {
+        val count = selectedItemIds.size
+        AlertDialog(
+            onDismissRequest = { showItemBulkDeleteDialog = false },
+            title = { Text("Delete $count item${if (count == 1) "" else "s"}?") },
+            text = { Text("This will permanently delete the selected item${if (count == 1) "" else "s"}.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteSelectedItems()
+                        showItemBulkDeleteDialog = false
+                    },
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showItemBulkDeleteDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 // ── Item row ─────────────────────────────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ListItemRow(
     item: ListItemEntity,
+    isMultiSelectMode: Boolean = false,
+    isSelected: Boolean = false,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
     onToggleFavourite: () -> Unit,
+    onLongClick: () -> Unit = {},
+    onSelectToggle: () -> Unit = {},
 ) {
     ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = {
+                    if (isMultiSelectMode) onSelectToggle() else onEdit()
+                },
+                onLongClick = {
+                    if (!isMultiSelectMode) onLongClick()
+                },
+            ),
         headlineContent = {
             Text(
                 text = item.text,
-                modifier = Modifier.clickable(onClick = onEdit),
                 style = if (item.checked) {
                     MaterialTheme.typography.bodyLarge.copy(
                         textDecoration = TextDecoration.LineThrough,
@@ -453,7 +551,6 @@ private fun ListItemRow(
                     val overdue = isOverdue(dueAtMs, item.checked)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable(onClick = onEdit),
                     ) {
                         Icon(
                             Icons.Default.Event,
@@ -480,28 +577,37 @@ private fun ListItemRow(
             }
         },
         leadingContent = {
-            Checkbox(
-                checked = item.checked,
-                onCheckedChange = { onToggle() },
-            )
+            if (isMultiSelectMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onSelectToggle() },
+                )
+            } else {
+                Checkbox(
+                    checked = item.checked,
+                    onCheckedChange = { onToggle() },
+                )
+            }
         },
-        trailingContent = {
-            Row {
-                IconButton(onClick = onToggleFavourite) {
-                    Icon(
-                        imageVector = if (item.isFavourite) Icons.Default.Star
-                        else Icons.Default.StarBorder,
-                        contentDescription = if (item.isFavourite) "Unfavourite" else "Favourite",
-                        tint = if (item.isFavourite) MaterialTheme.colorScheme.tertiary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete item",
-                        tint = MaterialTheme.colorScheme.error,
-                    )
+        trailingContent = if (isMultiSelectMode) null else {
+            {
+                Row {
+                    IconButton(onClick = onToggleFavourite) {
+                        Icon(
+                            imageVector = if (item.isFavourite) Icons.Default.Star
+                            else Icons.Default.StarBorder,
+                            contentDescription = if (item.isFavourite) "Unfavourite" else "Favourite",
+                            tint = if (item.isFavourite) MaterialTheme.colorScheme.tertiary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete item",
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
         },

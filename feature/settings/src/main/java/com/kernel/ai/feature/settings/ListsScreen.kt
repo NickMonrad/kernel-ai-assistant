@@ -1,8 +1,9 @@
 package com.kernel.ai.feature.settings
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,18 +15,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,10 +43,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,11 +60,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import kotlinx.coroutines.launch
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -69,12 +81,15 @@ fun ListsScreen(
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val itemCounts by viewModel.itemCounts.collectAsStateWithLifecycle()
     val searchQuery by viewModel.listSearchQuery.collectAsStateWithLifecycle()
+    val selectedListIds = viewModel.selectedListIds
+    val isMultiSelect = viewModel.isListMultiSelectMode
     val scope = rememberCoroutineScope()
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingDeleteEntity by remember { mutableStateOf<ListNameEntity?>(null) }
     var pendingRenameEntity by remember { mutableStateOf<ListNameEntity?>(null) }
     var showSortMenu by remember { mutableStateOf(false) }
+    var showBulkDeleteDialog by remember { mutableStateOf(false) }
 
     // Apply search on top of the already sort/filter-applied displayedLists
     val filtered = if (searchQuery.isBlank()) displayedLists
@@ -83,46 +98,108 @@ fun ListsScreen(
     val pinnedItems = filtered.filter { it.pinned }
     val unpinnedItems = filtered.filter { !it.pinned }
 
+    // ── Drag-and-drop local state ────────────────────────────────────────────────────────────────
+    // Maintain local copies for optimistic UI updates during drag; sync from ViewModel when idle.
+    var localPinned by remember { mutableStateOf(pinnedItems) }
+    var localUnpinned by remember { mutableStateOf(unpinnedItems) }
+    var dragInProgress by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pinnedItems) { if (!dragInProgress) localPinned = pinnedItems }
+    LaunchedEffect(unpinnedItems) { if (!dragInProgress) localUnpinned = unpinnedItems }
+
+    DisposableEffect(Unit) {
+        onDispose { viewModel.exitListMultiSelect() }
+    }
+
+    val lazyListState = rememberLazyListState()
+    val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        // Only handle moves between real list entities (keys are Long IDs); skip headers
+        val fromKey = from.key as? Long ?: return@rememberReorderableLazyListState
+        val toKey = to.key as? Long ?: return@rememberReorderableLazyListState
+        // Enforce pinned/unpinned group boundary
+        val fromInPinned = localPinned.any { it.id == fromKey }
+        val toInPinned = localPinned.any { it.id == toKey }
+        if (fromInPinned != toInPinned) return@rememberReorderableLazyListState
+        // Optimistic reorder within the correct group
+        if (fromInPinned) {
+            val fi = localPinned.indexOfFirst { it.id == fromKey }
+            val ti = localPinned.indexOfFirst { it.id == toKey }
+            localPinned = localPinned.toMutableList().apply { add(ti, removeAt(fi)) }
+        } else {
+            val fi = localUnpinned.indexOfFirst { it.id == fromKey }
+            val ti = localUnpinned.indexOfFirst { it.id == toKey }
+            localUnpinned = localUnpinned.toMutableList().apply { add(ti, removeAt(fi)) }
+        }
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Lists") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    Box {
-                        IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "Sort and filter")
+            if (isMultiSelect) {
+                // ── Contextual multi-select top bar ──────────────────────────────────────────────
+                TopAppBar(
+                    title = { Text("${selectedListIds.size} selected") },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.exitListMultiSelect() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Exit selection")
                         }
-                        SortFilterMenu(
-                            expanded = showSortMenu,
-                            currentSort = viewModel.listSort,
-                            currentFilter = viewModel.listFilter,
-                            onSortSelected = { viewModel.listSort = it },
-                            onFilterSelected = { viewModel.listFilter = it },
-                            onDismiss = { showSortMenu = false },
-                        )
-                    }
-                },
-            )
+                    },
+                    actions = {
+                        TextButton(onClick = {
+                            viewModel.selectAllLists((pinnedItems + unpinnedItems).map { it.id })
+                        }) {
+                            Text("Select All")
+                        }
+                        IconButton(onClick = { showBulkDeleteDialog = true }) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete selected",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    },
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("Lists") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        Box {
+                            IconButton(onClick = { showSortMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Sort and filter")
+                            }
+                            SortFilterMenu(
+                                expanded = showSortMenu,
+                                currentSort = viewModel.listSort,
+                                currentFilter = viewModel.listFilter,
+                                onSortSelected = { viewModel.listSort = it },
+                                onFilterSelected = { viewModel.listFilter = it },
+                                onDismiss = { showSortMenu = false },
+                            )
+                        }
+                    },
+                )
+            }
         },
         floatingActionButton = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                SmallFloatingActionButton(
-                    onClick = onNavigateToVoiceActions,
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            if (!isMultiSelect) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Icon(Icons.Default.Mic, contentDescription = "Voice input")
-                }
-                FloatingActionButton(onClick = { showCreateDialog = true }) {
-                    Icon(Icons.Default.Add, contentDescription = "Create list")
+                    SmallFloatingActionButton(
+                        onClick = onNavigateToVoiceActions,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = "Voice input")
+                    }
+                    FloatingActionButton(onClick = { showCreateDialog = true }) {
+                        Icon(Icons.Default.Add, contentDescription = "Create list")
+                    }
                 }
             }
         },
@@ -132,24 +209,26 @@ fun ListsScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            // Search bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = viewModel::setListSearchQuery,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("Search lists") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.setListSearchQuery("") }) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear")
+            // Search bar (hidden in multi-select mode to keep UI clean)
+            if (!isMultiSelect) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = viewModel::setListSearchQuery,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    placeholder = { Text("Search lists") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.setListSearchQuery("") }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear")
+                            }
                         }
-                    }
-                },
-                singleLine = true,
-            )
+                    },
+                    singleLine = true,
+                )
+            }
 
             if (filtered.isEmpty()) {
                 Column(
@@ -179,40 +258,95 @@ fun ListsScreen(
                     }
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    state = lazyListState,
+                ) {
                     // ── Pinned section ──────────────────────────────────────────────────────
-                    if (pinnedItems.isNotEmpty()) {
+                    if (localPinned.isNotEmpty()) {
                         stickyHeader(key = "header_pinned") {
                             ListSectionHeader(label = "Pinned")
                         }
-                        items(pinnedItems, key = { it.id }) { entity ->
-                            ListOverviewRow(
-                                entity = entity,
-                                count = itemCounts[entity.id] ?: 0,
-                                onOpen = { onOpenList(entity.id) },
-                                onPin = { viewModel.togglePin(entity.id) },
-                                onRename = { pendingRenameEntity = entity },
-                                onDelete = { pendingDeleteEntity = entity },
-                            )
+                        items(localPinned, key = { it.id }) { entity ->
+                            ReorderableItem(reorderState, key = entity.id) { isDragging ->
+                                val elevation by animateDpAsState(
+                                    if (isDragging) 6.dp else 0.dp,
+                                    label = "drag_elevation_pinned",
+                                )
+                                Surface(shadowElevation = elevation) {
+                                    ListOverviewRow(
+                                        entity = entity,
+                                        count = itemCounts[entity.id] ?: 0,
+                                        isSelected = entity.id in selectedListIds,
+                                        isMultiSelectMode = isMultiSelect,
+                                        dragHandleModifier = if (!isMultiSelect) {
+                                            Modifier.draggableHandle(
+                                                onDragStarted = { dragInProgress = true },
+                                                onDragStopped = {
+                                                    dragInProgress = false
+                                                    viewModel.onListsReordered(
+                                                        localPinned.map { it.id },
+                                                        localUnpinned.map { it.id },
+                                                    )
+                                                },
+                                            )
+                                        } else Modifier,
+                                        onOpen = {
+                                            if (isMultiSelect) viewModel.toggleListSelection(entity.id)
+                                            else onOpenList(entity.id)
+                                        },
+                                        onLongClick = { viewModel.enterListMultiSelect(entity.id) },
+                                        onPin = { viewModel.togglePin(entity.id) },
+                                        onRename = { pendingRenameEntity = entity },
+                                        onDelete = { pendingDeleteEntity = entity },
+                                    )
+                                }
+                            }
                         }
                     }
 
                     // ── Unpinned section ────────────────────────────────────────────────────
-                    if (unpinnedItems.isNotEmpty()) {
-                        if (pinnedItems.isNotEmpty()) {
+                    if (localUnpinned.isNotEmpty()) {
+                        if (localPinned.isNotEmpty()) {
                             stickyHeader(key = "header_other") {
                                 ListSectionHeader(label = "Other")
                             }
                         }
-                        items(unpinnedItems, key = { it.id }) { entity ->
-                            ListOverviewRow(
-                                entity = entity,
-                                count = itemCounts[entity.id] ?: 0,
-                                onOpen = { onOpenList(entity.id) },
-                                onPin = { viewModel.togglePin(entity.id) },
-                                onRename = { pendingRenameEntity = entity },
-                                onDelete = { pendingDeleteEntity = entity },
-                            )
+                        items(localUnpinned, key = { it.id }) { entity ->
+                            ReorderableItem(reorderState, key = entity.id) { isDragging ->
+                                val elevation by animateDpAsState(
+                                    if (isDragging) 6.dp else 0.dp,
+                                    label = "drag_elevation_unpinned",
+                                )
+                                Surface(shadowElevation = elevation) {
+                                    ListOverviewRow(
+                                        entity = entity,
+                                        count = itemCounts[entity.id] ?: 0,
+                                        isSelected = entity.id in selectedListIds,
+                                        isMultiSelectMode = isMultiSelect,
+                                        dragHandleModifier = if (!isMultiSelect) {
+                                            Modifier.draggableHandle(
+                                                onDragStarted = { dragInProgress = true },
+                                                onDragStopped = {
+                                                    dragInProgress = false
+                                                    viewModel.onListsReordered(
+                                                        localPinned.map { it.id },
+                                                        localUnpinned.map { it.id },
+                                                    )
+                                                },
+                                            )
+                                        } else Modifier,
+                                        onOpen = {
+                                            if (isMultiSelect) viewModel.toggleListSelection(entity.id)
+                                            else onOpenList(entity.id)
+                                        },
+                                        onLongClick = { viewModel.enterListMultiSelect(entity.id) },
+                                        onPin = { viewModel.togglePin(entity.id) },
+                                        onRename = { pendingRenameEntity = entity },
+                                        onDelete = { pendingDeleteEntity = entity },
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -255,7 +389,7 @@ fun ListsScreen(
         )
     }
 
-    // ── Delete confirmation dialog ────────────────────────────────────────────────────────────
+    // ── Single-list delete confirmation dialog ────────────────────────────────────────────────
     pendingDeleteEntity?.let { entity ->
         val count = itemCounts[entity.id] ?: 0
         AlertDialog(
@@ -278,6 +412,29 @@ fun ListsScreen(
             },
         )
     }
+
+    // ── Bulk delete confirmation dialog ───────────────────────────────────────────────────────
+    if (showBulkDeleteDialog) {
+        val count = selectedListIds.size
+        AlertDialog(
+            onDismissRequest = { showBulkDeleteDialog = false },
+            title = { Text("Delete $count list${if (count == 1) "" else "s"}?") },
+            text = {
+                Text("This will also delete all items in ${if (count == 1) "that list" else "those lists"}.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteSelectedLists()
+                        showBulkDeleteDialog = false
+                    },
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBulkDeleteDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 // ── Internal composables ──────────────────────────────────────────────────────────────────────────
@@ -296,12 +453,17 @@ private fun ListSectionHeader(label: String) {
     )
 }
 
-/** A single row in the lists overview. */
+/** A single row in the lists overview. Supports multi-select and drag-and-drop. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ListOverviewRow(
     entity: ListNameEntity,
     count: Int,
+    isSelected: Boolean,
+    isMultiSelectMode: Boolean,
+    dragHandleModifier: Modifier,
     onOpen: () -> Unit,
+    onLongClick: () -> Unit,
     onPin: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
@@ -311,7 +473,10 @@ private fun ListOverviewRow(
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpen),
+            .combinedClickable(
+                onClick = onOpen,
+                onLongClick = onLongClick,
+            ),
         headlineContent = {
             Text(entity.name.replaceFirstChar { it.uppercase() })
         },
@@ -319,44 +484,66 @@ private fun ListOverviewRow(
             Text("$count item${if (count == 1) "" else "s"}")
         },
         leadingContent = {
-            Icon(
-                Icons.Default.Checklist,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
+            if (isMultiSelectMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onOpen() },
+                )
+            } else {
+                Icon(
+                    Icons.Default.Checklist,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
         },
         trailingContent = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(0.dp),
             ) {
-                // Pin toggle
-                IconButton(onClick = onPin) {
-                    Icon(
-                        if (entity.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
-                        contentDescription = if (entity.pinned) "Unpin" else "Pin",
-                        tint = if (entity.pinned) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                if (!isMultiSelectMode) {
+                    // Pin toggle
+                    IconButton(onClick = onPin) {
+                        Icon(
+                            if (entity.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                            contentDescription = if (entity.pinned) "Unpin" else "Pin",
+                            tint = if (entity.pinned) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // Overflow: Rename / Delete
+                    Box {
+                        IconButton(onClick = { showOverflow = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                        }
+                        DropdownMenu(
+                            expanded = showOverflow,
+                            onDismissRequest = { showOverflow = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Rename") },
+                                onClick = { showOverflow = false; onRename() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                onClick = { showOverflow = false; onDelete() },
+                            )
+                        }
+                    }
                 }
-                // Overflow: Rename / Delete
-                Box {
-                    IconButton(onClick = { showOverflow = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
-                    }
-                    DropdownMenu(
-                        expanded = showOverflow,
-                        onDismissRequest = { showOverflow = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Rename") },
-                            onClick = { showOverflow = false; onRename() },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                            onClick = { showOverflow = false; onDelete() },
-                        )
-                    }
+                // Drag handle — always rendered but hidden in multi-select mode
+                if (!isMultiSelectMode) {
+                    Icon(
+                        Icons.Default.DragHandle,
+                        contentDescription = "Drag to reorder",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = dragHandleModifier
+                            .pointerInput(Unit) {
+                                detectTapGestures(onLongPress = { /* absorb — prevent combinedClickable from firing */ })
+                            }
+                            .padding(horizontal = 4.dp),
+                    )
                 }
             }
         },
@@ -386,6 +573,11 @@ private fun SortFilterMenu(
             },
             onClick = {},
             enabled = false,
+        )
+        SortItem(
+            label = "Manual (drag to reorder)",
+            selected = currentSort == ListSort.MANUAL,
+            onClick = { onSortSelected(ListSort.MANUAL); onDismiss() },
         )
         SortItem(
             label = "Last modified",
@@ -496,4 +688,5 @@ internal fun NameInputDialog(
         },
     )
 }
+
 

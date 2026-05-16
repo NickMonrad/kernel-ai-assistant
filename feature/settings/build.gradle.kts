@@ -65,6 +65,9 @@ dependencies {
 
     implementation(libs.datastore.preferences)
 
+    // Drag-and-drop reorder for LazyColumn (#897)
+    implementation("sh.calvin.reorderable:reorderable:2.4.3")
+
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
