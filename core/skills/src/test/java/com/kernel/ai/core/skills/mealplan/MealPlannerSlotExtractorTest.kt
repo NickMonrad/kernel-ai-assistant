@@ -74,6 +74,7 @@ class MealPlannerSlotExtractorTest {
 
     @Test
     fun `isGenerateRecipesRequest recognizes approval and resume phrases`() {
+        assertTrue(extractor.isGenerateRecipesRequest("generate"))
         assertTrue(extractor.isGenerateRecipesRequest("generate recipes"))
         assertTrue(extractor.isGenerateRecipesRequest("resume"))
     }
