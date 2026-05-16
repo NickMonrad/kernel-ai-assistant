@@ -2437,6 +2437,20 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("expression" to match.groupValues[1].trim()) },
         ),
+        // Worded root phrases: "square root of 144", "square root 144", "what's the cube root of 27"
+        IntentPattern(
+            intentName = "calculate_arithmetic",
+            regex = Regex(
+                """^(?:(?:what(?:'s|\s+is)|calculate|compute)\s+)?(?:the\s+)?(square|cube)\s+root\s+(?:of\s+)?(-?\d+(?:\.\d+)?)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val kind = match.groupValues[1].lowercase()
+                val n = match.groupValues[2]
+                val expression = if (kind == "cube") "($n)^(1/3)" else "sqrt($n)"
+                mapOf("expression" to expression)
+            },
+        ),
         // Unit conversion phrases: "convert 5 miles to km", "what is 60 mph in km/h", "100m to yards"
         IntentPattern(
             intentName = "convert_units",
