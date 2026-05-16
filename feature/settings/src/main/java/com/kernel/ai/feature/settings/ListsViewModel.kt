@@ -276,6 +276,7 @@ class ListsViewModel @Inject constructor(
         val ids = selectedItemIds.toList()
         selectedItemIds = emptySet()
         val now = System.currentTimeMillis()
+        ids.forEach { scheduler.cancel(it) }
         viewModelScope.launch(Dispatchers.IO) {
             ids.forEach { dao.setChecked(it, true, now) }
         }
@@ -382,12 +383,18 @@ class ListsViewModel @Inject constructor(
     }
 
     fun clearChecked(listId: Long) {
-        viewModelScope.launch { dao.deleteChecked(listId) }
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.getByList(listId).forEach { scheduler.cancel(it.id) }
+            dao.deleteChecked(listId)
+        }
     }
 
     /** Deletes a list by ID; cascade FK removes all child items automatically. */
     fun deleteList(listId: Long) {
-        viewModelScope.launch { listNameDao.deleteById(listId) }
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.getByList(listId).forEach { scheduler.cancel(it.id) }
+            listNameDao.deleteById(listId)
+        }
     }
 
     /** Renames a list, bumping the updatedAt timestamp. */

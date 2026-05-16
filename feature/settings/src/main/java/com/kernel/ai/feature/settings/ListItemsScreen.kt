@@ -749,9 +749,9 @@ private fun EditItemSheet(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         if (notifyEnabled && notificationTime != null) {
-                            val notifTime = LocalTime.ofSecondOfDay(
-                                (notificationTime!! % 86_400_000L) / 1_000L,
-                            )
+                            val notifTime = java.time.Instant.ofEpochMilli(notificationTime!!)
+                                .atZone(java.time.ZoneId.systemDefault())
+                                .toLocalTime()
                             Text(
                                 text = notifTime.format(
                                     java.time.format.DateTimeFormatter.ofPattern("HH:mm"),
