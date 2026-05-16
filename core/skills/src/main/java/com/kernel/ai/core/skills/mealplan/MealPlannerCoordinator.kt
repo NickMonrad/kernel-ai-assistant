@@ -623,8 +623,10 @@ Remember: this is user-visible Day ${dayIndex + 1}, but the JSON day_index must 
 """.trimIndent()
 
     private fun isFinalizeRequest(text: String): Boolean =
-        Regex("\\b(?:done meal planning|done with meal planning|finalize meal plan|finalise meal plan|done)\\b", RegexOption.IGNORE_CASE)
-            .containsMatchIn(text)
+        Regex(
+            """\b(?:done(?:\s+with\s+meal\s+planning|\s+meal\s+planning)?|finali[sz]e(?:\s+(?:meal\s+plan|meal\s+planning))?)\b""",
+            RegexOption.IGNORE_CASE,
+        ).containsMatchIn(text)
 }
 
 data class MealPlannerReply(

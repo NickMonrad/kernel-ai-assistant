@@ -377,6 +377,25 @@ class MealPlannerCoordinatorTest {
         coVerify { memoryRepository.addEpisodicMemory("conv", "Created a 2-day meal plan.", any()) }
     }
 
+    @Test
+    fun `ingestUserMessage finalise finalizes completed meal plan`() = runTest {
+        val active = readyForFinalizeSnapshot(finalSummaryWritten = false)
+        val completed = active.copy(status = MealPlanSessionStatus.COMPLETED, completedAt = 1234L)
+        coEvery { sessionRepository.getActiveSession("conv") } returns active
+        coEvery { sessionRepository.completeSession("session-1") } returns completed
+        coEvery { sessionRepository.buildFinalSummary("session-1") } returns "Created a 2-day meal plan."
+        coEvery { embeddingEngine.embed("Created a 2-day meal plan.") } returns floatArrayOf(1f, 2f)
+        coEvery { sessionRepository.markFinalSummaryWritten("session-1") } returns Unit
+
+        val reply = coordinator.ingestUserMessage("conv", "finalise")
+
+        assertTrue(reply.content.contains("finalized", ignoreCase = true))
+        coVerify { sessionRepository.completeSession("session-1") }
+        coVerify { sessionRepository.buildFinalSummary("session-1") }
+        coVerify { sessionRepository.markFinalSummaryWritten("session-1") }
+        coVerify { memoryRepository.addEpisodicMemory("conv", "Created a 2-day meal plan.", any()) }
+    }
+
     private fun collectingSnapshot(): MealPlanSnapshot = MealPlanSnapshot(
         sessionId = "session-1",
         conversationId = "conv",
