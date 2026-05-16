@@ -53,10 +53,10 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -158,9 +158,15 @@ fun ListItemsScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     val renameInitialValue = remember(showRenameDialog) { if (showRenameDialog) displayName else "" }
-    var completedExpanded by rememberSaveable { mutableStateOf(false) }
+    var completedExpanded by remember { mutableStateOf(viewModel.itemFilter == ItemFilter.COMPLETED_ONLY) }
     var showSortMenu by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<ListItemEntity?>(null) }
+
+    LaunchedEffect(viewModel.itemFilter) {
+        if (viewModel.itemFilter == ItemFilter.COMPLETED_ONLY) {
+            completedExpanded = true
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose { viewModel.clearItemSearchQuery() }
@@ -442,7 +448,10 @@ private fun ListItemRow(
                     val dueAtMs = item.dueAt
                     if (dueAtMs != null) {
                         val overdue = isOverdue(dueAtMs, item.checked)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable(onClick = onEdit),
+                            ) {
                             Icon(
                                 Icons.Default.Event,
                                 contentDescription = null,
