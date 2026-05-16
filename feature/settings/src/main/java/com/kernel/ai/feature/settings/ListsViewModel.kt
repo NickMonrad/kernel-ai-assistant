@@ -1,5 +1,9 @@
 package com.kernel.ai.feature.settings
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.memory.dao.ListItemDao
@@ -11,10 +15,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+enum class ListSort { LAST_MODIFIED, NAME_ASC, NAME_DESC, CREATED_ASC, CREATED_DESC }
+enum class ListFilter { ALL, PINNED_ONLY }
 
 @HiltViewModel
 class ListsViewModel @Inject constructor(
@@ -26,6 +34,41 @@ class ListsViewModel @Inject constructor(
     val listEntities: StateFlow<List<ListNameEntity>> =
         listNameDao.observeAll()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // ── Sort / filter state (ViewModel-scoped, survives recomposition) ──────────────────────────
+
+    /** Current sort order selected by the user on the overview screen. */
+    var listSort by mutableStateOf(ListSort.LAST_MODIFIED)
+
+    /** Current filter selected by the user on the overview screen. */
+    var listFilter by mutableStateOf(ListFilter.ALL)
+
+    /**
+     * Derived list for the overview screen — pinned group first, then unpinned; each group sorted
+     * independently per [listSort]; optionally narrowed by [listFilter].
+     */
+    val displayedLists: StateFlow<List<ListNameEntity>> = combine(
+        listEntities,
+        snapshotFlow { listSort },
+        snapshotFlow { listFilter },
+    ) { entities, sort, filter ->
+        val base = when (filter) {
+            ListFilter.ALL -> entities
+            ListFilter.PINNED_ONLY -> entities.filter { it.pinned }
+        }
+        val comparator: Comparator<ListNameEntity> = when (sort) {
+            ListSort.LAST_MODIFIED -> compareByDescending { it.updatedAt }
+            ListSort.NAME_ASC -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }
+            ListSort.NAME_DESC -> compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.name }
+            ListSort.CREATED_ASC -> compareBy { it.createdAt }
+            ListSort.CREATED_DESC -> compareByDescending { it.createdAt }
+        }
+        val pinned = base.filter { it.pinned }.sortedWith(comparator)
+        val unpinned = base.filter { !it.pinned }.sortedWith(comparator)
+        pinned + unpinned
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // ── Derived helpers ──────────────────────────────────────────────────────────────────────────
 
     /** List names derived from listEntities — kept for search filtering. */
     val listNames: StateFlow<List<String>> =
@@ -45,6 +88,8 @@ class ListsViewModel @Inject constructor(
             .map { items -> items.groupBy { it.listId }.mapValues { it.value.size } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    // ── Search ───────────────────────────────────────────────────────────────────────────────────
+
     /** Search query for the list overview screen. */
     private val _listSearchQuery = MutableStateFlow("")
     val listSearchQuery: StateFlow<String> = _listSearchQuery.asStateFlow()
@@ -57,7 +102,12 @@ class ListsViewModel @Inject constructor(
     fun setItemSearchQuery(q: String) { _itemSearchQuery.value = q }
     fun clearItemSearchQuery() { _itemSearchQuery.value = "" }
 
-    /** Creates a new list entry in the lists table (idempotent — IGNORE conflict). */
+    // ── List mutations ───────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Creates a new list entry (idempotent — IGNORE conflict) without returning the id.
+     * Prefer [createList] when you need to navigate into the newly created list.
+     */
     fun addList(name: String) {
         val trimmed = name.trim().lowercase()
         if (trimmed.isBlank()) return
@@ -65,6 +115,21 @@ class ListsViewModel @Inject constructor(
         viewModelScope.launch {
             listNameDao.insert(ListNameEntity(name = trimmed, createdAt = now, updatedAt = now))
         }
+    }
+
+    /**
+     * Creates a new list and returns the auto-generated [ListNameEntity.id] so the caller can
+     * navigate directly into the new list.  Returns -1 if [name] is blank.
+     * Falls back to [ListNameDao.getByName] when the name already exists (IGNORE conflict).
+     */
+    suspend fun createList(name: String): Long {
+        val trimmed = name.trim().lowercase()
+        if (trimmed.isBlank()) return -1L
+        val now = System.currentTimeMillis()
+        val id = listNameDao.insertAndGet(
+            ListNameEntity(name = trimmed, createdAt = now, updatedAt = now),
+        )
+        return if (id > 0L) id else listNameDao.getByName(trimmed)?.id ?: -1L
     }
 
     fun toggleChecked(item: ListItemEntity) {
@@ -96,7 +161,7 @@ class ListsViewModel @Inject constructor(
         viewModelScope.launch { listNameDao.deleteById(listId) }
     }
 
-    /** Stub — renames a list. Full implementation in slice 2. */
+    /** Renames a list, bumping the updatedAt timestamp. */
     fun renameList(id: Long, newName: String) {
         val trimmed = newName.trim().lowercase()
         if (trimmed.isBlank()) return
@@ -105,11 +170,10 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    /** Stub — toggles the pinned state of a list. Full implementation in slice 2. */
+    /** Toggles the pinned state of a list atomically, bumping the updatedAt timestamp. */
     fun togglePin(id: Long) {
         viewModelScope.launch {
-            val entity = listEntities.value.firstOrNull { it.id == id } ?: return@launch
-            listNameDao.updatePinned(id, !entity.pinned, System.currentTimeMillis())
+            listNameDao.togglePinned(id, System.currentTimeMillis())
         }
     }
 
@@ -119,4 +183,5 @@ class ListsViewModel @Inject constructor(
      */
     suspend fun resolveListByName(name: String): ListNameEntity? = listNameDao.getByName(name)
 }
+
 
