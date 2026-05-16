@@ -47,4 +47,7 @@ interface ListNameDao {
 
     @Query("UPDATE lists SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateTimestamp(id: Long, updatedAt: Long)
+
+    @Query("UPDATE lists SET displayOrder = :order, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateDisplayOrder(id: Long, order: Int, updatedAt: Long)
 }
