@@ -201,7 +201,8 @@ fun ListItemsScreen(
                     actions = {
                         TextButton(onClick = {
                             viewModel.selectAllItems(
-                                (filteredActive + filteredCompleted).map { it.id }
+                                (filteredActive + if (completedExpanded) filteredCompleted else emptyList())
+                                    .map { it.id }
                             )
                         }) {
                             Text("Select All")
