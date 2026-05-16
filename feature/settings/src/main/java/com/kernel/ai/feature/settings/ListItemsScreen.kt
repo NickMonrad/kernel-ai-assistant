@@ -444,41 +444,35 @@ private fun ListItemRow(
         },
         supportingContent = {
             Column {
-                // Due date chip + timestamp on same row
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val dueAtMs = item.dueAt
-                    if (dueAtMs != null) {
-                        val overdue = isOverdue(dueAtMs, item.checked)
-                        Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.clickable(onClick = onEdit),
-                            ) {
-                            Icon(
-                                Icons.Default.Event,
-                                contentDescription = null,
-                                modifier = Modifier.padding(end = 2.dp),
-                                tint = if (overdue) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                text = formatDueDate(dueAtMs),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (overdue) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                val dueAtMs = item.dueAt
+                if (dueAtMs != null) {
+                    val overdue = isOverdue(dueAtMs, item.checked)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable(onClick = onEdit),
+                    ) {
+                        Icon(
+                            Icons.Default.Event,
+                            contentDescription = null,
+                            modifier = Modifier.padding(end = 2.dp),
+                            tint = if (overdue) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         Text(
-                            text = "  ·  ",
+                            text = formatDueDate(dueAtMs),
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (overdue) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
                         )
                     }
-                    Text(
-                        text = formatTimestamp(item),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
+                Text(
+                    text = formatTimestamp(item),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
             }
         },
         leadingContent = {
