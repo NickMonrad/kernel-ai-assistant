@@ -24,6 +24,10 @@ abstract class ListNameDao {
     @Query("SELECT * FROM lists ORDER BY pinned DESC, createdAt ASC")
     abstract fun observeAll(): Flow<List<ListNameEntity>>
 
+    /** Active lists only (archivedAt IS NULL), used by the main overview screen. */
+    @Query("SELECT * FROM lists WHERE archivedAt IS NULL ORDER BY pinned DESC, createdAt ASC")
+    abstract fun observeActiveLists(): Flow<List<ListNameEntity>>
+
     @Query("SELECT * FROM lists ORDER BY pinned DESC, createdAt ASC")
     abstract suspend fun getAll(): List<ListNameEntity>
 
@@ -51,6 +55,18 @@ abstract class ListNameDao {
 
     @Query("UPDATE lists SET displayOrder = :order, updatedAt = :updatedAt WHERE id = :id")
     abstract suspend fun updateDisplayOrder(id: Long, order: Int, updatedAt: Long)
+
+    /** Archive a list by recording the epoch-ms timestamp; null = active. */
+    @Query("UPDATE lists SET archivedAt = :archivedAt, updatedAt = :updatedAt WHERE id = :id")
+    abstract suspend fun archiveList(id: Long, archivedAt: Long, updatedAt: Long)
+
+    /** Restore a list by clearing the archivedAt timestamp. */
+    @Query("UPDATE lists SET archivedAt = NULL, updatedAt = :updatedAt WHERE id = :id")
+    abstract suspend fun restoreList(id: Long, updatedAt: Long)
+
+    /** Archived lists, newest-archive-date first. */
+    @Query("SELECT * FROM lists WHERE archivedAt IS NOT NULL ORDER BY archivedAt DESC")
+    abstract fun observeArchivedLists(): Flow<List<ListNameEntity>>
 
     @Transaction
     open suspend fun updateDisplayOrders(updates: List<Pair<Long, Int>>, updatedAt: Long) {

@@ -34,8 +34,8 @@ interface ListItemDao {
     @Query("UPDATE list_items SET checked = :checked, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setChecked(id: Long, checked: Boolean, updatedAt: Long)
 
-    @Query("UPDATE list_items SET text = :text, dueAt = :dueAt, isFavourite = :isFavourite, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun updateItem(id: Long, text: String, dueAt: Long?, isFavourite: Boolean, updatedAt: Long)
+    @Query("UPDATE list_items SET text = :text, dueAt = :dueAt, isFavourite = :isFavourite, notificationTime = :notificationTime, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateItem(id: Long, text: String, dueAt: Long?, isFavourite: Boolean, notificationTime: Long?, updatedAt: Long)
 
     /** Remove all checked items from a list. */
     @Query("DELETE FROM list_items WHERE listId = :listId AND checked = 1")

@@ -10,6 +10,7 @@ import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -42,12 +43,21 @@ enum class ItemFilter { ALL, FAVOURITES_ONLY, ACTIVE_ONLY, COMPLETED_ONLY }
 class ListsViewModel @Inject constructor(
     private val dao: ListItemDao,
     private val listNameDao: ListNameDao,
+    private val scheduler: ListNotificationScheduler,
 ) : ViewModel() {
 
     /** Full list entities — exposes id, name, pinned, updatedAt for the overview screen. */
     val listEntities: StateFlow<List<ListNameEntity>> =
-        listNameDao.observeAll()
+        listNameDao.observeActiveLists()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Archived lists, newest-archived-first — exposed when [showArchived] is true. */
+    val archivedLists: StateFlow<List<ListNameEntity>> =
+        listNameDao.observeArchivedLists()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** When true the UI shows the archived lists view instead of the active lists. */
+    var showArchived by mutableStateOf(false)
 
     // ── Sort / filter state (ViewModel-scoped, survives recomposition) ──────────────────────────
 
@@ -252,6 +262,7 @@ class ListsViewModel @Inject constructor(
     fun deleteSelectedItems() {
         val ids = selectedItemIds.toList()
         selectedItemIds = emptySet()
+        ids.forEach { scheduler.cancel(it) }
         viewModelScope.launch(Dispatchers.IO) {
             ids.forEach { dao.deleteItem(it) }
         }
@@ -305,6 +316,8 @@ class ListsViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             dao.toggleChecked(item.id, now)
             listNameDao.updateTimestamp(item.listId, now)
+            // When an item is being checked (completing), cancel any pending notification
+            if (!item.checked) scheduler.cancel(item.id)
         }
     }
 
@@ -319,11 +332,13 @@ class ListsViewModel @Inject constructor(
     }
 
     fun deleteItem(id: Long) {
+        scheduler.cancel(id)
         viewModelScope.launch { dao.deleteItem(id) }
     }
 
     /** Entity overload — preferred from the item screen. */
     fun deleteItem(item: ListItemEntity) {
+        scheduler.cancel(item.id)
         viewModelScope.launch { dao.deleteItem(item.id) }
     }
 
@@ -336,18 +351,33 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    /** Persists edits made in the edit bottom sheet (text, dueAt, isFavourite). */
+    /** Persists edits made in the edit bottom sheet (text, dueAt, isFavourite, notificationTime). */
     fun updateItem(item: ListItemEntity) {
         val now = System.currentTimeMillis()
+        val listName = listEntities.value.firstOrNull { it.id == item.listId }?.name ?: ""
         viewModelScope.launch {
             dao.updateItem(
                 id = item.id,
                 text = item.text,
                 dueAt = item.dueAt,
                 isFavourite = item.isFavourite,
+                notificationTime = item.notificationTime,
                 updatedAt = now,
             )
             listNameDao.updateTimestamp(item.listId, now)
+            // Schedule or cancel the notification alarm
+            val nt = item.notificationTime
+            if (nt != null) {
+                scheduler.schedule(
+                    itemId = item.id,
+                    itemText = item.text,
+                    listId = item.listId,
+                    listName = listName,
+                    triggerAtMs = nt,
+                )
+            } else {
+                scheduler.cancel(item.id)
+            }
         }
     }
 
@@ -381,6 +411,34 @@ class ListsViewModel @Inject constructor(
      * a name string (e.g. NativeIntentHandler at the skill boundary).
      */
     suspend fun resolveListByName(name: String): ListNameEntity? = listNameDao.getByName(name)
+
+    // ── Archive / restore (#903) ──────────────────────────────────────────────────────────────────
+
+    /** Archives a single list, removing it from the active view. */
+    fun archiveList(id: Long) {
+        selectedListIds = selectedListIds - id
+        val now = System.currentTimeMillis()
+        viewModelScope.launch(Dispatchers.IO) {
+            listNameDao.archiveList(id = id, archivedAt = now, updatedAt = now)
+        }
+    }
+
+    /** Restores an archived list back to the active view. */
+    fun restoreList(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            listNameDao.restoreList(id = id, updatedAt = System.currentTimeMillis())
+        }
+    }
+
+    /** Archives all currently selected lists and clears the selection. */
+    fun bulkArchiveSelected() {
+        val ids = selectedListIds.toList()
+        selectedListIds = emptySet()
+        val now = System.currentTimeMillis()
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.forEach { listNameDao.archiveList(id = it, archivedAt = now, updatedAt = now) }
+        }
+    }
 }
 
 
