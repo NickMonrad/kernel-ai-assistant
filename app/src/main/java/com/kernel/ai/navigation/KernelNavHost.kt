@@ -76,9 +76,9 @@ private const val ROUTE_CONTACT_ALIASES = "settings/contact_aliases"
 private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
 private const val ROUTE_SIDE_PANEL = "settings/side_panel"
 private const val ROUTE_LISTS = "lists"
-private const val ROUTE_LIST_ITEMS = "lists/{listName}"
+private const val ROUTE_LIST_ITEMS = "lists/{listId}"
 private const val ROUTE_CONVERT = "convert"
-private const val ARG_LIST_NAME = "listName"
+private const val ARG_LIST_ID = "listId"
 private const val ARG_CONVERSATION_ID = "conversationId"
 private const val ARG_INITIAL_QUERY = "initialQuery"
 private const val ARG_MINIMAL_CONTEXT = "minimalContext"
@@ -551,8 +551,8 @@ fun KernelNavHost(
                 composable(ROUTE_LISTS) {
                     ListsScreen(
                         onBack = { navController.popBackStack() },
-                        onOpenList = { listName ->
-                            navController.navigate("lists/${android.net.Uri.encode(listName)}")
+                        onOpenList = { listId ->
+                            navController.navigate("lists/$listId")
                         },
                         onNavigateToVoiceActions = {
                             navController.navigate(ROUTE_ACTIONS_VOICE) {
@@ -565,12 +565,12 @@ fun KernelNavHost(
 
                 composable(
                     route = ROUTE_LIST_ITEMS,
-                    arguments = listOf(navArgument(ARG_LIST_NAME) { type = NavType.StringType }),
+                    arguments = listOf(navArgument(ARG_LIST_ID) { type = NavType.LongType }),
                 ) { backStackEntry ->
-                    val listName = backStackEntry.arguments?.getString(ARG_LIST_NAME)
-                        ?.let { android.net.Uri.decode(it) } ?: return@composable
+                    val listId = backStackEntry.arguments?.getLong(ARG_LIST_ID)
+                        ?: return@composable
                     ListItemsScreen(
-                        listName = listName,
+                        listId = listId,
                         onBack = { navController.popBackStack() },
                         onNavigateToVoiceActions = {
                             navController.navigate(ROUTE_ACTIONS_VOICE) {
