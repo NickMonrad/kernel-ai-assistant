@@ -20,16 +20,19 @@ class MealPlannerSlotExtractor @Inject constructor() {
 
     fun extractDietaryRestrictions(text: String): List<String>? {
         val normalized = normalizeWords(text)
-        if (Regex("\\b(?:none|no\\s+(?:dietary\\s+)?(?:requirements?|restrictions?)|anything is fine)\\b").containsMatchIn(normalized)) {
+        if (Regex("\\b(?:none|no\\s+dietary(?:\\s+(?:requirements?|restrictions?))?|anything is fine)\\b").containsMatchIn(normalized)) {
             return listOf(NO_DIETARY_REQUIREMENTS)
         }
         val matches = DIETARY_KEYWORDS.filter { normalized.contains(it.first) }.map { it.second }.distinct()
         return matches.takeIf { it.isNotEmpty() }
     }
 
-    fun extractProteinPreferences(text: String): List<String>? {
+    fun extractProteinPreferences(text: String, allowBareNoPreference: Boolean = false): List<String>? {
         val normalized = normalizeWords(text)
-        if (Regex("\\b(?:anything|any\\s+protein|surprise me|no\\s+protein\\s+preference)\\b").containsMatchIn(normalized)) {
+        if (
+            Regex("\\b(?:any\\s+protein(?:\\s+is\\s+fine)?|surprise me|no\\s+preferences?|no\\s+protein\\s+preferences?)\\b").containsMatchIn(normalized) ||
+                (allowBareNoPreference && normalized.matches(Regex("^\\s*(?:none|any)\\s*[.!?]*$")))
+        ) {
             return listOf(NO_PROTEIN_PREFERENCE)
         }
         val matches = PROTEIN_KEYWORDS.filter { normalized.contains(it.first) }.map { it.second }.distinct().toMutableList()

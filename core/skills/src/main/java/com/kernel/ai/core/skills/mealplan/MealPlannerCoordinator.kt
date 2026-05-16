@@ -70,10 +70,14 @@ class MealPlannerCoordinator @Inject constructor(
     }
 
     private suspend fun handleCollecting(snapshot: MealPlanSnapshot, text: String): MealPlannerReply {
+        val missingBefore = missingSlots(snapshot)
         val peopleCount = slotExtractor.extractPeopleCount(text)
         val daysCount = slotExtractor.extractDaysCount(text)
         val dietaryRestrictions = slotExtractor.extractDietaryRestrictions(text)
-        val proteinPreferences = slotExtractor.extractProteinPreferences(text)
+        val proteinPreferences = slotExtractor.extractProteinPreferences(
+            text,
+            allowBareNoPreference = missingBefore == listOf("protein"),
+        )
         val updated = sessionRepository.updateRequiredSlots(
             sessionId = snapshot.sessionId,
             peopleCount = peopleCount,
