@@ -18,6 +18,46 @@ class MealPlannerSlotExtractorTest {
     }
 
     @Test
+    fun `negative dietary and protein answers normalize to concrete markers`() {
+        assertEquals(
+            listOf("no dietary requirements"),
+            extractor.extractDietaryRestrictions("No dietary requirements"),
+        )
+        assertEquals(
+            listOf("no dietary requirements"),
+            extractor.extractDietaryRestrictions("No dietary"),
+        )
+        assertEquals(
+            listOf("no dietary requirements"),
+            extractor.extractDietaryRestrictions("No restrictions"),
+        )
+        assertEquals(
+            listOf("no dietary requirements"),
+            extractor.extractDietaryRestrictions("No requirements"),
+        )
+        assertEquals(
+            listOf("no dietary requirements"),
+            extractor.extractDietaryRestrictions("None"),
+        )
+        assertEquals(
+            listOf("no protein preference"),
+            extractor.extractProteinPreferences("Any protein is fine"),
+        )
+        assertEquals(
+            listOf("no protein preference"),
+            extractor.extractProteinPreferences("No preferences"),
+        )
+        assertEquals(
+            listOf("no protein preference"),
+            extractor.extractProteinPreferences("None", allowBareNoPreference = true),
+        )
+        assertEquals(
+            listOf("no protein preference"),
+            extractor.extractProteinPreferences("Any", allowBareNoPreference = true),
+        )
+    }
+
+    @Test
     fun `extractReplaceDayIndex parses one based day number`() {
         assertEquals(1, extractor.extractReplaceDayIndex("replace day 2"))
     }
@@ -30,5 +70,22 @@ class MealPlannerSlotExtractorTest {
     @Test
     fun `isCancelRequest recognizes meal planning cancellation`() {
         assertTrue(extractor.isCancelRequest("cancel the meal plan"))
+    }
+
+    @Test
+    fun `isGenerateRecipesRequest recognizes approval and resume phrases`() {
+        assertTrue(extractor.isGenerateRecipesRequest("generate recipes"))
+        assertTrue(extractor.isGenerateRecipesRequest("resume"))
+    }
+
+    @Test
+    fun `isRetryRequest recognizes retry phrases`() {
+        assertTrue(extractor.isRetryRequest("Retry"))
+        assertTrue(extractor.isRetryRequest("try again"))
+    }
+
+    @Test
+    fun `isChangePreferencesRequest recognizes edit request`() {
+        assertTrue(extractor.isChangePreferencesRequest("change preferences"))
     }
 }

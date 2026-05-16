@@ -102,7 +102,7 @@ class MealPlanSessionRepository @Inject constructor(
                     title = day.title,
                     summary = day.summary,
                     proteinTagsJson = day.proteinTags.distinct().toJsonArrayString(),
-                    status = MealPlanDayStatus.PENDING.name,
+                    status = MealPlanDayStatus.DRAFTED.name,
                     currentRecipeVersion = null,
                     attemptCount = 0,
                     lastErrorCode = null,
@@ -114,10 +114,10 @@ class MealPlanSessionRepository @Inject constructor(
         )
         val updatedSession = session.copy(
             status = MealPlanSessionStatus.PLAN_REVIEW.name,
-            pendingGenerationKind = PendingGenerationKind.RECIPE.name,
-            pendingGenerationDayIndex = 0,
+            pendingGenerationKind = null,
+            pendingGenerationDayIndex = null,
             pendingGenerationStartedAt = null,
-            activeDayIndex = 0,
+            activeDayIndex = null,
             planVersion = session.planVersion + 1,
             updatedAt = now,
         )
@@ -140,7 +140,7 @@ class MealPlanSessionRepository @Inject constructor(
                 title = title,
                 summary = summary,
                 proteinTagsJson = proteinTags.distinct().toJsonArrayString(),
-                status = MealPlanDayStatus.PENDING.name,
+                status = MealPlanDayStatus.DRAFTED.name,
                 updatedAt = System.currentTimeMillis(),
                 lastErrorCode = null,
                 lastErrorMessage = null,
@@ -149,11 +149,28 @@ class MealPlanSessionRepository @Inject constructor(
         val session = requireNotNull(sessionDao.getById(sessionId))
         val updatedSession = session.copy(
             status = MealPlanSessionStatus.PLAN_REVIEW.name,
-            activeDayIndex = dayIndex,
+            activeDayIndex = null,
+            pendingGenerationKind = null,
+            pendingGenerationDayIndex = null,
+            pendingGenerationStartedAt = null,
             updatedAt = System.currentTimeMillis(),
         )
         sessionDao.update(updatedSession)
         return updatedSession.toSnapshot()
+    }
+
+    suspend fun returnToSlotCollection(sessionId: String): MealPlanSnapshot {
+        val session = requireNotNull(sessionDao.getById(sessionId)) { "Unknown meal-plan session: $sessionId" }
+        val updated = session.copy(
+            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS.name,
+            activeDayIndex = null,
+            pendingGenerationKind = null,
+            pendingGenerationDayIndex = null,
+            pendingGenerationStartedAt = null,
+            updatedAt = System.currentTimeMillis(),
+        )
+        sessionDao.update(updated)
+        return updated.toSnapshot()
     }
 
     suspend fun persistRecipeDraft(
@@ -163,6 +180,10 @@ class MealPlanSessionRepository @Inject constructor(
         rawModelJson: String,
         groceries: List<CanonicalGroceryItem>,
     ): MealPlanSnapshot {
+        val session = requireNotNull(sessionDao.getById(sessionId)) { "Unknown meal-plan session: $sessionId" }
+        if (session.status == MealPlanSessionStatus.CANCELLED.name) {
+            return session.toSnapshot()
+        }
         val now = System.currentTimeMillis()
         val day = requireNotNull(dayDao.getBySessionAndIndex(sessionId, dayIndex)) {
             "Unknown meal-plan day $dayIndex for session $sessionId"
@@ -215,11 +236,11 @@ class MealPlanSessionRepository @Inject constructor(
         rebuildRecipeProjection(sessionId, day.id, dayIndex, recipeVersion)
         rebuildShoppingProjection(sessionId)
 
-        val session = requireNotNull(sessionDao.getById(sessionId))
+        val currentSession = requireNotNull(sessionDao.getById(sessionId))
         val nextPending = dayDao.getBySession(sessionId)
             .firstOrNull { it.status != MealPlanDayStatus.PERSISTED.name }
         val updatedSession = if (nextPending == null) {
-            session.copy(
+            currentSession.copy(
                 status = MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY.name,
                 activeDayIndex = null,
                 pendingGenerationKind = null,
@@ -228,7 +249,7 @@ class MealPlanSessionRepository @Inject constructor(
                 updatedAt = now,
             )
         } else {
-            session.copy(
+            currentSession.copy(
                 status = MealPlanSessionStatus.RECIPES_IN_PROGRESS.name,
                 activeDayIndex = nextPending.dayIndex,
                 pendingGenerationKind = PendingGenerationKind.RECIPE.name,
@@ -267,7 +288,7 @@ class MealPlanSessionRepository @Inject constructor(
             activeDayIndex = dayIndex,
             pendingGenerationKind = if (dayIndex == null) PendingGenerationKind.PLAN.name else PendingGenerationKind.RECIPE.name,
             pendingGenerationDayIndex = dayIndex,
-            pendingGenerationStartedAt = now,
+            pendingGenerationStartedAt = null,
             updatedAt = now,
         )
         sessionDao.update(updated)
@@ -280,10 +301,13 @@ class MealPlanSessionRepository @Inject constructor(
         dayIndex: Int? = null,
     ) {
         val session = requireNotNull(sessionDao.getById(sessionId))
+        if (session.status == MealPlanSessionStatus.CANCELLED.name) {
+            return
+        }
         sessionDao.update(
             session.copy(
                 status = if (kind == PendingGenerationKind.PLAN) {
-                    MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS.name
+                    MealPlanSessionStatus.PLAN_REVIEW.name
                 } else {
                     MealPlanSessionStatus.RECIPES_IN_PROGRESS.name
                 },

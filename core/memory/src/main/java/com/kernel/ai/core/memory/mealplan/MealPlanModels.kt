@@ -22,6 +22,7 @@ enum class MealPlanDayStatus {
 enum class PendingGenerationKind {
     PLAN,
     RECIPE,
+    REPLACEMENT,
 }
 
 enum class GroceryNormalizationStatus {
