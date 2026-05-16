@@ -30,6 +30,10 @@ interface ListItemDao {
     @Query("UPDATE list_items SET checked = 0 WHERE id = :id")
     suspend fun markUnchecked(id: Long)
 
+    /** Set checked state and bump updatedAt in one round-trip. */
+    @Query("UPDATE list_items SET checked = :checked, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setChecked(id: Long, checked: Boolean, updatedAt: Long)
+
     @Query("UPDATE list_items SET text = :text, dueAt = :dueAt, isFavourite = :isFavourite, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateItem(id: Long, text: String, dueAt: Long?, isFavourite: Boolean, updatedAt: Long)
 
