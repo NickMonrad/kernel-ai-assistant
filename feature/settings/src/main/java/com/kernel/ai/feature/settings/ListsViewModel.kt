@@ -12,6 +12,7 @@ import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,7 +23,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-enum class ListSort { LAST_MODIFIED, NAME_ASC, NAME_DESC, CREATED_ASC, CREATED_DESC }
+enum class ListSort { MANUAL, LAST_MODIFIED, NAME_ASC, NAME_DESC, CREATED_ASC, CREATED_DESC }
 enum class ListFilter { ALL, PINNED_ONLY }
 
 enum class ItemSort {
@@ -50,8 +51,8 @@ class ListsViewModel @Inject constructor(
 
     // ── Sort / filter state (ViewModel-scoped, survives recomposition) ──────────────────────────
 
-    /** Current sort order selected by the user on the overview screen. */
-    var listSort by mutableStateOf(ListSort.LAST_MODIFIED)
+    /** Current sort order selected by the user on the overview screen. Defaults to MANUAL. */
+    var listSort by mutableStateOf(ListSort.MANUAL)
 
     /** Current filter selected by the user on the overview screen. */
     var listFilter by mutableStateOf(ListFilter.ALL)
@@ -70,6 +71,9 @@ class ListsViewModel @Inject constructor(
             ListFilter.PINNED_ONLY -> entities.filter { it.pinned }
         }
         val comparator: Comparator<ListNameEntity> = when (sort) {
+            ListSort.MANUAL ->
+                compareBy<ListNameEntity> { it.displayOrder }
+                    .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
             ListSort.LAST_MODIFIED -> compareByDescending { it.updatedAt }
             ListSort.NAME_ASC -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }
             ListSort.NAME_DESC -> compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.name }
@@ -177,6 +181,94 @@ class ListsViewModel @Inject constructor(
     fun setListSearchQuery(q: String) { _listSearchQuery.value = q }
     fun setItemSearchQuery(q: String) { _itemSearchQuery.value = q }
     fun clearItemSearchQuery() { _itemSearchQuery.value = "" }
+
+    // ── Drag-and-drop reorder (#897) ─────────────────────────────────────────────────────────────
+
+    private var reorderJob: Job? = null
+
+    /**
+     * Called when the user finishes dragging a list row.  Cancels any in-flight reorder job and
+     * persists the new display order atomically for both groups, automatically switching the sort
+     * mode to [ListSort.MANUAL].
+     *
+     * @param pinnedIds  Ordered list of pinned entity IDs after the drag.
+     * @param unpinnedIds  Ordered list of unpinned entity IDs after the drag.
+     */
+    fun onListsReordered(pinnedIds: List<Long>, unpinnedIds: List<Long>) {
+        listSort = ListSort.MANUAL
+        val now = System.currentTimeMillis()
+        reorderJob?.cancel()
+        reorderJob = viewModelScope.launch(Dispatchers.IO) {
+            val updates = pinnedIds.mapIndexed { i, id -> id to i } +
+                          unpinnedIds.mapIndexed { i, id -> id to i }
+            listNameDao.updateDisplayOrders(updates, now)
+        }
+    }
+
+    // ── Multi-select state — lists overview (#896) ───────────────────────────────────────────────
+
+    var selectedListIds by mutableStateOf<Set<Long>>(emptySet())
+        private set
+
+    val isListMultiSelectMode: Boolean get() = selectedListIds.isNotEmpty()
+
+    fun enterListMultiSelect(id: Long) { selectedListIds = setOf(id) }
+
+    fun toggleListSelection(id: Long) {
+        selectedListIds = if (id in selectedListIds) selectedListIds - id else selectedListIds + id
+    }
+
+    fun exitListMultiSelect() { selectedListIds = emptySet() }
+
+    fun selectAllLists(ids: List<Long>) { selectedListIds = ids.toSet() }
+
+    /** Bulk-deletes the currently selected lists (cascade removes all child items via FK). */
+    fun deleteSelectedLists() {
+        val ids = selectedListIds.toList()
+        selectedListIds = emptySet()
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.forEach { listNameDao.deleteById(it) }
+        }
+    }
+
+    // ── Multi-select state — list items (#896) ───────────────────────────────────────────────────
+
+    var selectedItemIds by mutableStateOf<Set<Long>>(emptySet())
+        private set
+
+    val isItemMultiSelectMode: Boolean get() = selectedItemIds.isNotEmpty()
+
+    fun enterItemMultiSelect(id: Long) { selectedItemIds = setOf(id) }
+
+    fun toggleItemSelection(id: Long) {
+        selectedItemIds = if (id in selectedItemIds) selectedItemIds - id else selectedItemIds + id
+    }
+
+    fun exitItemMultiSelect() { selectedItemIds = emptySet() }
+
+    fun selectAllItems(ids: List<Long>) { selectedItemIds = ids.toSet() }
+
+    /** Bulk-deletes the currently selected list items. */
+    fun deleteSelectedItems() {
+        val ids = selectedItemIds.toList()
+        selectedItemIds = emptySet()
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.forEach { dao.deleteItem(it) }
+        }
+    }
+
+    /**
+     * Marks all currently selected list items as complete.
+     * Uses [ListItemDao.setChecked] to atomically set checked=true without a TOCTOU risk.
+     */
+    fun markSelectedItemsComplete() {
+        val ids = selectedItemIds.toList()
+        selectedItemIds = emptySet()
+        val now = System.currentTimeMillis()
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.forEach { dao.setChecked(it, true, now) }
+        }
+    }
 
     // ── List mutations ───────────────────────────────────────────────────────────────────────────
 
