@@ -78,6 +78,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -252,6 +253,11 @@ class ChatViewModel @Inject constructor(
      * need the model; [sendMessage] handles model loading internally for LLM-routed queries.
      */
     val isConversationReady: StateFlow<Boolean> = _conversationInitialized.asStateFlow()
+
+    val isArchived: StateFlow<Boolean> = conversationRepository.observeConversationById(navConversationId ?: "")
+        .map { it?.archivedAt != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     private val _showThinkingProcess = MutableStateFlow(true)
     private val _correctGroundedFactsEnabled = MutableStateFlow(false)
 
