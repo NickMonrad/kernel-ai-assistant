@@ -344,20 +344,18 @@ fun ListItemsScreen(
                                     onClick = {},
                                     enabled = false,
                                 )
-                                ItemSort.entries
-                                    .filter { it != ItemSort.MANUAL }
-                                    .forEach { sort ->
-                                        DropdownMenuItem(
-                                            text = { Text(sort.label()) },
-                                            onClick = {
-                                                viewModel.itemSort = sort
-                                                showSortMenu = false
-                                            },
-                                            trailingIcon = if (viewModel.itemSort == sort) {
-                                                { Icon(Icons.Default.Check, contentDescription = null) }
-                                            } else null,
-                                        )
-                                    }
+                                ItemSort.entries.forEach { sort ->
+                                    DropdownMenuItem(
+                                        text = { Text(sort.label()) },
+                                        onClick = {
+                                            viewModel.itemSort = sort
+                                            showSortMenu = false
+                                        },
+                                        trailingIcon = if (viewModel.itemSort == sort) {
+                                            { Icon(Icons.Default.Check, contentDescription = null) }
+                                        } else null,
+                                    )
+                                }
                                 HorizontalDivider()
                                 // ── Filter section ────────────────────────────────────────
                                 DropdownMenuItem(
