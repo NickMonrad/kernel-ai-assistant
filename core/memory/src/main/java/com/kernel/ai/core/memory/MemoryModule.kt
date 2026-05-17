@@ -106,6 +106,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_37_38,
                     KernelDatabase.MIGRATION_38_39,
                     KernelDatabase.MIGRATION_39_40,
+                    KernelDatabase.MIGRATION_40_41,
                 )
                 .addCallback(object : RoomDatabase.Callback() {
                     // SQLite disables FK enforcement by default — enable it per-connection
