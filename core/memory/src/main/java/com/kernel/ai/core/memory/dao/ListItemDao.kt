@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -68,4 +69,18 @@ interface ListItemDao {
     /** Atomically flip isFavourite and bump updatedAt — avoids TOCTOU on rapid taps. */
     @Query("UPDATE list_items SET isFavourite = NOT isFavourite, updatedAt = :updatedAt WHERE id = :id")
     suspend fun toggleFavourite(id: Long, updatedAt: Long)
+
+    /** Set isFavourite to an explicit value and bump updatedAt — used by bulk-favourite (#917). */
+    @Query("UPDATE list_items SET isFavourite = :fav, updatedAt = :now WHERE id = :id")
+    suspend fun setFavourite(id: Long, fav: Boolean, now: Long)
+
+    /** Update the displayOrder for manual drag-to-reorder (#917). */
+    @Query("UPDATE list_items SET displayOrder = :order, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateItemOrder(id: Long, order: Long, updatedAt: Long)
+
+    /** Atomically persist a full reorder in one transaction (#917). */
+    @Transaction
+    suspend fun replaceItemOrders(updates: List<Pair<Long, Long>>, now: Long) {
+        updates.forEach { (id, order) -> updateItemOrder(id, order, now) }
+    }
 }

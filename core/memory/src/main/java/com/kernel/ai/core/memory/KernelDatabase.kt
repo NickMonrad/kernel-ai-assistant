@@ -81,7 +81,7 @@ import java.time.ZoneId
         MealPlanGroceryItemEntity::class,
         MealPlanProjectionWriteEntity::class,
     ],
-    version = 38,
+    version = 39,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -670,6 +670,14 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_37_38 = object : Migration(37, 38) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE list_items ADD COLUMN notificationTime INTEGER DEFAULT NULL")
+            }
+        }
+
+        /** Adds displayOrder to list_items for drag-to-reorder (#917). */
+        val MIGRATION_38_39 = object : Migration(38, 39) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE list_items ADD COLUMN displayOrder INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE list_items SET displayOrder = id")
             }
         }
     }

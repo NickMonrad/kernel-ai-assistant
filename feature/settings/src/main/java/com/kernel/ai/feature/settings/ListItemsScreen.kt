@@ -1,7 +1,9 @@
 package com.kernel.ai.feature.settings
 
 import android.content.Intent
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -23,6 +26,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -30,6 +34,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsNone
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -53,6 +58,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -77,6 +83,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -92,6 +99,8 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 // ── Date / timestamp helpers ─────────────────────────────────────────────────────────────────────
 
@@ -134,6 +143,7 @@ private fun isOverdue(dueAt: Long, checked: Boolean): Boolean =
 // ── Sort / filter label helpers ──────────────────────────────────────────────────────────────────
 
 private fun ItemSort.label(): String = when (this) {
+    ItemSort.MANUAL -> "Manual order"
     ItemSort.CREATED_NEWEST -> "Created (newest first)"
     ItemSort.CREATED_OLDEST -> "Created (oldest first)"
     ItemSort.UPDATED_NEWEST -> "Updated (newest first)"
@@ -185,11 +195,28 @@ fun ListItemsScreen(
     val selectedItemIds = viewModel.selectedItemIds
     val isItemMultiSelectMode = viewModel.isItemMultiSelectMode
     var showItemBulkDeleteDialog by remember { mutableStateOf(false) }
+    var showSelectAllMenu by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // ── Drag-to-reorder state (#917) ─────────────────────────────────────────────────────────────
+    var localActiveItems by remember { mutableStateOf(filteredActive) }
+    var itemDragInProgress by remember { mutableStateOf(false) }
+    LaunchedEffect(filteredActive) { if (!itemDragInProgress) localActiveItems = filteredActive }
+
+    val lazyListState = rememberLazyListState()
+    val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        // Only reorder Long-keyed items (active items); String keys are completed/header keys
+        val fromKey = from.key as? Long ?: return@rememberReorderableLazyListState
+        val toKey = to.key as? Long ?: return@rememberReorderableLazyListState
+        val fi = localActiveItems.indexOfFirst { it.id == fromKey }
+        val ti = localActiveItems.indexOfFirst { it.id == toKey }
+        if (fi < 0 || ti < 0) return@rememberReorderableLazyListState
+        localActiveItems = localActiveItems.toMutableList().apply { add(ti, removeAt(fi)) }
+    }
 
     LaunchedEffect(Unit) {
         snapshotFlow { viewModel.itemFilter }
@@ -218,20 +245,37 @@ fun ListItemsScreen(
                         }
                     },
                     actions = {
-                        TextButton(onClick = {
-                            viewModel.selectAllItems(
-                                (filteredActive + if (completedExpanded) filteredCompleted else emptyList())
-                                    .map { it.id }
-                            )
-                        }) {
-                            Text("Select All")
-                        }
                         // Mark selected items complete
                         IconButton(onClick = { viewModel.markSelectedItemsComplete() }) {
                             Icon(
                                 Icons.Default.CheckCircle,
                                 contentDescription = "Mark complete",
                                 tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        // Unmark selected items (set unchecked)
+                        IconButton(onClick = { viewModel.unmarkSelectedItemsComplete() }) {
+                            Icon(
+                                Icons.Default.RadioButtonUnchecked,
+                                contentDescription = "Unmark complete",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        // Bulk-favourite / unfavourite selected items
+                        val allSelectedFavourited = selectedItemIds.isNotEmpty() &&
+                            selectedItemIds.all { id ->
+                                allItems.firstOrNull { it.id == id }?.isFavourite == true
+                            }
+                        IconButton(
+                            onClick = {
+                                if (allSelectedFavourited) viewModel.unfavouriteSelectedItems()
+                                else viewModel.favouriteSelectedItems()
+                            },
+                        ) {
+                            Icon(
+                                if (allSelectedFavourited) Icons.Default.StarBorder else Icons.Default.Star,
+                                contentDescription = if (allSelectedFavourited) "Remove from favourites" else "Add to favourites",
+                                tint = MaterialTheme.colorScheme.tertiary,
                             )
                         }
                         // Delete selected items
@@ -244,6 +288,27 @@ fun ListItemsScreen(
                                 contentDescription = "Delete selected",
                                 tint = MaterialTheme.colorScheme.error,
                             )
+                        }
+                        // Overflow: Select All
+                        Box {
+                            IconButton(onClick = { showSelectAllMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                            }
+                            DropdownMenu(
+                                expanded = showSelectAllMenu,
+                                onDismissRequest = { showSelectAllMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Select all") },
+                                    onClick = {
+                                        showSelectAllMenu = false
+                                        viewModel.selectAllItems(
+                                            (filteredActive + if (completedExpanded) filteredCompleted else emptyList())
+                                                .map { it.id }
+                                        )
+                                    },
+                                )
+                            }
                         }
                     },
                 )
@@ -423,22 +488,40 @@ fun ListItemsScreen(
                     )
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    // Active items
-                    items(filteredActive, key = { it.id }) { item ->
-                        val isSelected = item.id in selectedItemIds
-                        ListItemRow(
-                            item = item,
-                            isMultiSelectMode = isItemMultiSelectMode,
-                            isSelected = isSelected,
-                            onToggle = { viewModel.toggleChecked(item) },
-                            onDelete = { viewModel.deleteItem(item) },
-                            onEdit = { editingItem = item },
-                            onToggleFavourite = { viewModel.toggleFavourite(item) },
-                            onLongClick = { viewModel.enterItemMultiSelect(item.id) },
-                            onSelectToggle = { viewModel.toggleItemSelection(item.id) },
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                LazyColumn(modifier = Modifier.fillMaxSize(), state = lazyListState) {
+                    // Active items — wrapped in ReorderableItem for drag-to-reorder (#917)
+                    items(localActiveItems, key = { it.id }) { item ->
+                        ReorderableItem(reorderState, key = item.id) { isDragging ->
+                            val elevation by animateDpAsState(
+                                if (isDragging) 6.dp else 0.dp,
+                                label = "item_drag_elevation",
+                            )
+                            Surface(shadowElevation = elevation) {
+                                val isSelected = item.id in selectedItemIds
+                                ListItemRow(
+                                    item = item,
+                                    isMultiSelectMode = isItemMultiSelectMode,
+                                    isSelected = isSelected,
+                                    showDragHandle = !isItemMultiSelectMode,
+                                    dragHandleModifier = if (!isItemMultiSelectMode) {
+                                        Modifier.longPressDraggableHandle(
+                                            onDragStarted = { itemDragInProgress = true },
+                                            onDragStopped = {
+                                                itemDragInProgress = false
+                                                viewModel.reorderItems(localActiveItems.map { it.id })
+                                            },
+                                        )
+                                    } else Modifier,
+                                    onToggle = { viewModel.toggleChecked(item) },
+                                    onDelete = { viewModel.deleteItem(item) },
+                                    onEdit = { editingItem = item },
+                                    onToggleFavourite = { viewModel.toggleFavourite(item) },
+                                    onLongClick = { viewModel.enterItemMultiSelect(item.id) },
+                                    onSelectToggle = { viewModel.toggleItemSelection(item.id) },
+                                )
+                            }
+                            HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                        }
                     }
 
                     // Completed section header
@@ -469,7 +552,7 @@ fun ListItemsScreen(
                         }
                     }
 
-                    // Completed items (collapsible)
+                    // Completed items (collapsible) — no drag handle for completed items
                     if (completedExpanded) {
                         items(filteredCompleted, key = { "done_${it.id}" }) { item ->
                             val isSelected = item.id in selectedItemIds
@@ -477,6 +560,7 @@ fun ListItemsScreen(
                                 item = item,
                                 isMultiSelectMode = isItemMultiSelectMode,
                                 isSelected = isSelected,
+                                showDragHandle = false,
                                 onToggle = { viewModel.toggleChecked(item) },
                                 onDelete = { viewModel.deleteItem(item) },
                                 onEdit = { editingItem = item },
@@ -561,6 +645,8 @@ private fun ListItemRow(
     item: ListItemEntity,
     isMultiSelectMode: Boolean = false,
     isSelected: Boolean = false,
+    showDragHandle: Boolean = false,
+    dragHandleModifier: Modifier = Modifier,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
@@ -646,9 +732,29 @@ private fun ListItemRow(
                 )
             }
         },
-        trailingContent = if (isMultiSelectMode) null else {
+        trailingContent = if (isMultiSelectMode) {
+            if (item.isFavourite) {
+                {
+                    IconButton(onClick = {}) {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = "Favourited",
+                            tint = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
+                }
+            } else null
+        } else {
             {
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (showDragHandle) {
+                        Icon(
+                            Icons.Default.DragHandle,
+                            contentDescription = "Drag to reorder",
+                            modifier = dragHandleModifier.padding(8.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     IconButton(onClick = onToggleFavourite) {
                         Icon(
                             imageVector = if (item.isFavourite) Icons.Default.Star
