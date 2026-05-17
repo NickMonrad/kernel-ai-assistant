@@ -44,6 +44,7 @@ import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.SlotFillResult
 import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -235,6 +236,9 @@ class ChatViewModel @Inject constructor(
     /** Active voice interaction mode, or null when no voice session is running (#741). */
     private val _voiceMode = MutableStateFlow<VoiceMode?>(null)
     val voiceMode: StateFlow<VoiceMode?> = _voiceMode.asStateFlow()
+    private val _mealPlannerActivity = MutableStateFlow<MealPlannerActivity?>(null)
+    val mealPlannerActivity: StateFlow<MealPlannerActivity?> = _mealPlannerActivity.asStateFlow()
+
 
     /** The message ID currently being played back via the per-message speaker button (#785). */
     private val _speakingMessageId = MutableStateFlow<String?>(null)
@@ -640,13 +644,6 @@ class ChatViewModel @Inject constructor(
                 needsHistoryReplay = true
             }
 
-            mealPlannerCoordinator.activeSessionReply(id)?.let { plannerReply ->
-                val latestAssistantContent = _messages.value.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
-                if (plannerReply.content.isNotBlank() && plannerReply.content != latestAssistantContent) {
-                    appendTransientAssistantMessage(plannerReply.content)
-                }
-            }
-
             // Determine whether smart-title generation should still fire on this restored session.
             // A title that looks like a first-message placeholder (ends with '…', ≤43 chars) can
             // still be overwritten if the conversation is long enough for a smart title.
@@ -663,6 +660,16 @@ class ChatViewModel @Inject constructor(
                 }
             }
             // else: new conversation, both flags stay false (defaults)
+
+            setMealPlannerActivity(null)
+            mealPlannerCoordinator.activeSessionReply(id)?.let { plannerReply ->
+                val latestAssistantContent = _messages.value.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
+                if (plannerReply.content.isNotBlank() && plannerReply.content != latestAssistantContent) {
+                    appendTransientAssistantMessage(plannerReply.content)
+                }
+            }
+            refreshMealPlannerActivity(id)
+            syncMealPlanConversationTitleIfNeeded(id)
         } finally {
             // Always unblock the Loading guard — even on DB error the engine-ready
             // path should still transition to Ready rather than freezing the screen.
@@ -821,6 +828,17 @@ class ChatViewModel @Inject constructor(
         _messages.update { it + msg }
     }
 
+    private suspend fun refreshMealPlannerActivity(conversationId: String) {
+        setMealPlannerActivity(mealPlannerCoordinator.activeSessionActivity(conversationId))
+    }
+
+    private fun setMealPlannerActivity(activity: MealPlannerActivity?) {
+        _mealPlannerActivity.value = activity
+        if (activity != null && _voiceCaptureState.value is VoiceCaptureState.Processing) {
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+        }
+    }
+
     /** Like [appendAssistantMessage] but also attaches a [ToolCallInfo] chip so the UI shows
      *  which skill produced the reply. Used by the DirectReply path (QuickIntentRouter skills
      *  that bypass the LLM). */
@@ -869,6 +887,10 @@ class ChatViewModel @Inject constructor(
         if (_error.value != null) _error.value = null
     }
 
+    /** Prefills the composer from a planner smart reply chip; chips never auto-submit. */
+    fun onSmartReplySelected(command: String) {
+        onInputChanged(command)
+    }
     /** Starts a one-shot voice capture: user speaks once, reply may be spoken, then loop ends. */
     fun startVoiceInput() = startVoiceInput(VoiceMode.OneShot)
 
@@ -1075,6 +1097,24 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private suspend fun syncMealPlanConversationTitleIfNeeded(conversationId: String) {
+        if (titleGenerationStarted && !titleIsPlaceholder) return
+        val snapshot = mealPlanSessionRepository.getActiveSession(conversationId) ?: return
+        if (snapshot.planVersion <= 0 || snapshot.days.isEmpty()) return
+        val canonicalTitle = snapshot.displayName
+        if (_conversationTitle.value == canonicalTitle) {
+            titleIsPlaceholder = false
+            titleGenerationStarted = true
+            return
+        }
+        if (_conversationTitle.value != null && !titleIsPlaceholder) return
+        conversationRepository.renameConversation(conversationId, canonicalTitle)
+        _conversationTitle.value = canonicalTitle
+        titleIsPlaceholder = false
+        titleGenerationStarted = true
+        Log.d("KernelAI", "Synced meal-plan conversation title for $conversationId to $canonicalTitle")
+    }
+
     fun sendMessage() {
         sendMessage(SubmitMode.Text)
     }
@@ -1167,13 +1207,22 @@ class ChatViewModel @Inject constructor(
                 val plannerReply = if (explicitMealPlannerStart) {
                     mealPlannerCoordinator.startOrResume(convId)
                 } else {
-                    mealPlannerCoordinator.ingestUserMessage(convId, text) { plannerMessage ->
-                        appendAssistantMessage(convId, plannerMessage, shouldIndex = false, speak = false)
-                    }
+                    mealPlannerCoordinator.ingestUserMessage(
+                        conversationId = convId,
+                        text = text,
+                        onPlannerMessage = { plannerMessage ->
+                            appendAssistantMessage(convId, plannerMessage, shouldIndex = false, speak = false)
+                        },
+                        onPlannerActivityChanged = { activity ->
+                            setMealPlannerActivity(activity)
+                        },
+                    )
                 }
                 if (plannerReply.content.isNotBlank()) {
                     appendAssistantMessage(convId, plannerReply.content, shouldIndex = false)
                 }
+                refreshMealPlannerActivity(convId)
+                syncMealPlanConversationTitleIfNeeded(convId)
                 return@launch
             }
 

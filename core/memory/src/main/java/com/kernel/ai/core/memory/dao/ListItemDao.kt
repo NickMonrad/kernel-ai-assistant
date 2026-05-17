@@ -13,12 +13,12 @@ interface ListItemDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(item: ListItemEntity)
 
-    /** Unchecked items for a given list, oldest first. */
-    @Query("SELECT * FROM list_items WHERE listId = :listId AND checked = 0 ORDER BY createdAt ASC")
+    /** Unchecked items for a given list, oldest first with a stable id tiebreaker. */
+    @Query("SELECT * FROM list_items WHERE listId = :listId AND checked = 0 ORDER BY createdAt ASC, id ASC")
     suspend fun getByList(listId: Long): List<ListItemEntity>
 
     /** All items for a given list (checked + unchecked), for display purposes. */
-    @Query("SELECT * FROM list_items WHERE listId = :listId ORDER BY checked ASC, createdAt ASC")
+    @Query("SELECT * FROM list_items WHERE listId = :listId ORDER BY checked ASC, createdAt ASC, id ASC")
     fun observeByList(listId: Long): Flow<List<ListItemEntity>>
 
     /** All items for a given list as a one-shot query — active first, then completed, both asc by creation. */
@@ -26,7 +26,7 @@ interface ListItemDao {
     suspend fun getAllByList(listId: Long): List<ListItemEntity>
 
     /** All items across all lists, for grouped display. */
-    @Query("SELECT * FROM list_items ORDER BY listId ASC, checked ASC, createdAt ASC")
+    @Query("SELECT * FROM list_items ORDER BY listId ASC, checked ASC, createdAt ASC, id ASC")
     fun observeAll(): Flow<List<ListItemEntity>>
 
     @Query("UPDATE list_items SET checked = 1 WHERE id = :id")

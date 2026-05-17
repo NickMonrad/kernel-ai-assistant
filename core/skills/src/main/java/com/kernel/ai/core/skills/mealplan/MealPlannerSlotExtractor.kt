@@ -51,9 +51,17 @@ class MealPlannerSlotExtractor @Inject constructor() {
         Regex("\\b(?:regenerate|redo|retry)\\s+day\\s+(\\d+)\\b", RegexOption.IGNORE_CASE)
             .find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.minus(1)
 
-    fun isGenerateRecipesRequest(text: String): Boolean =
+    fun isGenerateRecipesRequest(text: String): Boolean {
+        val normalized = text.trim()
+        return Regex(
+            "^(?:(?:ok(?:ay)?|yes(?:\\s+please)?|please|let'?s|can\\s+we|could\\s+we|i(?:'d|\\s+would)\\s+like\\s+to)[,\\s]+)*(?:generate(?:\\s+recipes?)?|make\\s+(?:recipes?|meal\\s+plan)|create\\s+(?:recipes?|meal\\s+plan)|start\\s+(?:recipes?|meal\\s+plan)|continue|resume|keep\\s+going)[.!?]*$",
+            RegexOption.IGNORE_CASE,
+        ).matches(normalized)
+    }
+
+    fun isShowCurrentPlanRequest(text: String): Boolean =
         Regex(
-            "\\b(?:generate(?:\\s+recipes?)?|make(?:\\s+(?:recipes?|meal plan))|create(?:\\s+(?:recipes?|meal plan))|start(?:\\s+(?:recipes?|meal plan))|continue|resume|keep going)\\b",
+            "(?:\\bshow(?:\\s+me)?(?:\\s+(?:my|the))?\\s+current\\s+plan\\b|\\bwhat(?:'s| is)\\s+(?:(?:my|the)\\s+)?current\\s+plan\\b)",
             RegexOption.IGNORE_CASE,
         ).containsMatchIn(text)
 

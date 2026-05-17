@@ -9,6 +9,7 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["conversationId"]),
         Index(value = ["status"]),
+        Index(value = ["displayCode"], unique = true),
     ],
 )
 data class MealPlanSessionEntity(
@@ -24,6 +25,7 @@ data class MealPlanSessionEntity(
     val pendingGenerationKind: String? = null,
     val pendingGenerationDayIndex: Int? = null,
     val pendingGenerationStartedAt: Long? = null,
+    val displayCode: Int,
     val planVersion: Int = 0,
     val finalSummaryWritten: Boolean = false,
     val createdAt: Long,

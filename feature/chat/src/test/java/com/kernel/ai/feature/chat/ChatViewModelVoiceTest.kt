@@ -19,6 +19,10 @@ import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
+import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
+import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
+import com.kernel.ai.core.memory.mealplan.MealPlanSnapshot
+import com.kernel.ai.core.memory.mealplan.MealPlanSnapshotDay
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
@@ -30,7 +34,10 @@ import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
 import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
+import com.kernel.ai.core.skills.mealplan.MealPlannerReply
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
@@ -41,6 +48,7 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.VoiceOutputStreamingSession
+import com.kernel.ai.feature.chat.model.ChatUiState
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -57,6 +65,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -151,6 +160,7 @@ class ChatViewModelVoiceTest {
         coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
         every { voiceOutputController.stop() } just runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
+        every { voiceOutputPreferences.autoSpeak } returns MutableStateFlow(true)
         every { voiceOutputPreferences.maxSpokenSentences } returns flowOf(0)
         every { nzTruthSeedingService.isSeeding } returns MutableStateFlow(false)
         every { nzTruthSeedingService.seedIfNeeded() } just runs
@@ -541,6 +551,134 @@ class ChatViewModelVoiceTest {
 
         assertTrue(viewModel.getConversationAsText().contains("You: what time is it"))
     }
+
+    @Test
+    fun `meal planner activity clears processing transcript and switches to planner status`() = runTest(dispatcher) {
+        val workingActivity = MealPlannerActivity(
+            title = "Generating meal plan",
+            subtitle = "Drafting 5 dinners for 2 people.",
+            state = MealPlannerActivityState.WORKING,
+        )
+        val waitingActivity = MealPlannerActivity(
+            title = "Meal plan ready",
+            subtitle = "Say 'show current plan' or 'done meal planning'.",
+            state = MealPlannerActivityState.WAITING,
+        )
+        val releaseReply = CompletableDeferred<Unit>()
+        every { quickIntentRouter.route("no protein preferences") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "no protein preferences")
+        coEvery { mealPlanSessionRepository.hasActiveSessionForConversation("conv-existing") } returns true
+        coEvery { mealPlannerCoordinator.activeSessionActivity("conv-existing") } returnsMany listOf(null, waitingActivity)
+        coEvery {
+            mealPlannerCoordinator.ingestUserMessage(
+                conversationId = "conv-existing",
+                text = "no protein preferences",
+                onPlannerMessage = any(),
+                onPlannerActivityChanged = any(),
+            )
+        } coAnswers {
+            @Suppress("UNCHECKED_CAST")
+            val onPlannerMessage = invocation.args[2] as (suspend (String) -> Unit)
+            @Suppress("UNCHECKED_CAST")
+            val onPlannerActivityChanged = invocation.args[3] as (suspend (MealPlannerActivity) -> Unit)
+            onPlannerActivityChanged(workingActivity)
+            onPlannerMessage("Generating meal plan…")
+            releaseReply.await()
+            MealPlannerReply("Your meal plan is ready.")
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "no protein preferences"))
+        runCurrent()
+
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        assertEquals(workingActivity, viewModel.mealPlannerActivity.value)
+
+        releaseReply.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(waitingActivity, viewModel.mealPlannerActivity.value)
+    }
+
+    @Test
+    fun `smart reply selection prefills the composer`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onSmartReplySelected("generate recipes")
+
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertEquals("generate recipes", state.inputText)
+        coVerify(exactly = 0) { conversationRepository.addMessage(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `planner reply syncs placeholder conversation title to canonical meal plan name`() = runTest(dispatcher) {
+        val snapshot = MealPlanSnapshot(
+            sessionId = "session-1",
+            conversationId = "conv-existing",
+            displayName = "Meal Plan 2026-05-17 (MP-001)",
+            status = MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY,
+            peopleCount = 2,
+            daysCount = 3,
+            dietaryRestrictions = emptyList(),
+            proteinPreferences = listOf("chicken"),
+            activeDayIndex = null,
+            pendingGenerationKind = null,
+            pendingGenerationDayIndex = null,
+            planVersion = 1,
+            finalSummaryWritten = false,
+            createdAt = 1L,
+            updatedAt = 1L,
+            completedAt = null,
+            cancelledAt = null,
+            days = listOf(
+                MealPlanSnapshotDay(
+                    id = "day-1",
+                    dayIndex = 0,
+                    title = "Chicken stir-fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                    status = MealPlanDayStatus.PERSISTED,
+                    currentRecipeVersion = 1,
+                    attemptCount = 1,
+                    lastErrorCode = null,
+                    lastErrorMessage = null,
+                    currentRecipe = null,
+                ),
+            ),
+        )
+        coEvery { conversationRepository.getConversation("conv-existing") } returns
+            ConversationEntity(id = "conv-existing", title = "plan meals…", createdAt = 1L, updatedAt = 1L)
+        every { quickIntentRouter.route("generate recipes") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "generate recipes")
+        coEvery { mealPlanSessionRepository.hasActiveSessionForConversation("conv-existing") } returns true
+        coEvery { mealPlanSessionRepository.getActiveSession("conv-existing") } returnsMany listOf(null, snapshot)
+        coEvery { mealPlannerCoordinator.activeSessionActivity("conv-existing") } returns null
+        coEvery {
+            mealPlannerCoordinator.ingestUserMessage(
+                conversationId = "conv-existing",
+                text = "generate recipes",
+                onPlannerMessage = any(),
+                onPlannerActivityChanged = any(),
+            )
+        } returns MealPlannerReply("Your meal plan is ready.")
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("generate recipes")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { conversationRepository.renameConversation("conv-existing", snapshot.displayName) }
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertEquals(snapshot.displayName, state.conversationTitle)
+    }
+
 
     private fun createViewModel(): ChatViewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
     inferenceEngine = inferenceEngine,

@@ -1,5 +1,6 @@
 package com.kernel.ai.core.memory.repository
 
+import android.util.Log
 import androidx.room.withTransaction
 import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.dao.ListItemDao
@@ -24,6 +25,7 @@ import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanSnapshot
 import com.kernel.ai.core.memory.mealplan.MealPlanSnapshotDay
 import com.kernel.ai.core.memory.mealplan.PendingGenerationKind
+import com.kernel.ai.core.memory.mealplan.RecentMealHistoryEntry
 import com.kernel.ai.core.memory.mealplan.RecipeDraft
 import com.kernel.ai.core.memory.mealplan.RecipeDraftIngredient
 import com.kernel.ai.core.memory.mealplan.RecipeDraftMethodStep
@@ -65,7 +67,25 @@ class MealPlanSessionRepository @Inject constructor(
     suspend fun hasAnySessionForConversation(conversationId: String): Boolean =
         sessionDao.hasAnyForConversation(conversationId)
 
+    suspend fun getRecentMealHistory(limit: Int): List<RecentMealHistoryEntry> =
+        sessionDao.getRecentTerminalMealHistory(limit).map { row ->
+            RecentMealHistoryEntry(
+                title = row.title.trim(),
+                summary = row.summary?.trim()?.takeIf { it.isNotBlank() },
+                proteinTags = jsonArrayToStringList(row.proteinTagsJson),
+            )
+        }
+
+    suspend fun getPendingCompletedSummarySessions(limit: Int): List<MealPlanSnapshot> =
+        sessionDao.getCompletedWithoutSummary(limit).map { it.toSnapshot() }
+
+    /**
+     * Planner retention pruning runs here before resuming/creating a session so old terminal
+     * planner state does not accumulate indefinitely between active planner uses.
+     */
     suspend fun startOrResume(conversationId: String): MealPlanSnapshot = sessionMutex.withLock {
+        runCatching { pruneTerminalSessions() }
+            .onFailure { Log.w("MealPlanSessionRepo", "Failed to prune terminal sessions before startOrResume", it) }
         sessionDao.getActiveByConversation(conversationId)?.toSnapshot()
             ?: createSession(conversationId).toSnapshot()
     }
@@ -76,8 +96,11 @@ class MealPlanSessionRepository @Inject constructor(
         daysCount: Int? = null,
         dietaryRestrictions: List<String>? = null,
         proteinPreferences: List<String>? = null,
-    ): MealPlanSnapshot {
+    ): MealPlanSnapshot = database.withTransaction {
         val session = requireNotNull(sessionDao.getById(sessionId)) { "Unknown meal-plan session: $sessionId" }
+        if (session.status == MealPlanSessionStatus.CANCELLED.name) {
+            return@withTransaction session.toSnapshot()
+        }
         val updated = session.copy(
             peopleCount = peopleCount ?: session.peopleCount,
             daysCount = daysCount ?: session.daysCount,
@@ -86,15 +109,17 @@ class MealPlanSessionRepository @Inject constructor(
             updatedAt = System.currentTimeMillis(),
         )
         sessionDao.update(updated)
-        return updated.toSnapshot()
+        updated.toSnapshot()
     }
 
     suspend fun savePlanDraft(
         sessionId: String,
         days: List<MealPlanDraftDay>,
-    ): MealPlanSnapshot {
+    ): MealPlanSnapshot = database.withTransaction {
         val now = System.currentTimeMillis()
         val session = requireNotNull(sessionDao.getById(sessionId)) { "Unknown meal-plan session: $sessionId" }
+        projectionWriteDao.getActiveTargetNamesForSession(sessionId).forEach { deleteList(it) }
+        projectionWriteDao.markSupersededForSession(sessionId, now)
         dayDao.deleteBySession(sessionId)
         dayDao.insertAll(
             days.sortedBy { it.dayIndex }.map { day ->
@@ -125,7 +150,7 @@ class MealPlanSessionRepository @Inject constructor(
             updatedAt = now,
         )
         sessionDao.update(updatedSession)
-        return updatedSession.toSnapshot()
+        updatedSession.toSnapshot()
     }
 
     suspend fun replaceDayDraft(
@@ -134,7 +159,9 @@ class MealPlanSessionRepository @Inject constructor(
         title: String,
         summary: String?,
         proteinTags: List<String>,
-    ): MealPlanSnapshot {
+        recipeGenerationPending: Boolean = false,
+    ): MealPlanSnapshot = database.withTransaction {
+        val now = System.currentTimeMillis()
         val existing = requireNotNull(dayDao.getBySessionAndIndex(sessionId, dayIndex)) {
             "Unknown meal-plan day $dayIndex for session $sessionId"
         }
@@ -144,26 +171,33 @@ class MealPlanSessionRepository @Inject constructor(
                 summary = summary,
                 proteinTagsJson = proteinTags.distinct().toJsonArrayString(),
                 status = MealPlanDayStatus.DRAFTED.name,
-                updatedAt = System.currentTimeMillis(),
+                updatedAt = now,
                 lastErrorCode = null,
                 lastErrorMessage = null,
             ),
         )
         val session = requireNotNull(sessionDao.getById(sessionId))
         val updatedSession = session.copy(
-            status = MealPlanSessionStatus.PLAN_REVIEW.name,
-            activeDayIndex = null,
-            pendingGenerationKind = null,
-            pendingGenerationDayIndex = null,
-            pendingGenerationStartedAt = null,
-            updatedAt = System.currentTimeMillis(),
+            status = if (recipeGenerationPending) {
+                MealPlanSessionStatus.RECIPES_IN_PROGRESS.name
+            } else {
+                MealPlanSessionStatus.PLAN_REVIEW.name
+            },
+            activeDayIndex = if (recipeGenerationPending) dayIndex else null,
+            pendingGenerationKind = if (recipeGenerationPending) PendingGenerationKind.RECIPE.name else null,
+            pendingGenerationDayIndex = if (recipeGenerationPending) dayIndex else null,
+            pendingGenerationStartedAt = if (recipeGenerationPending) now else null,
+            updatedAt = now,
         )
         sessionDao.update(updatedSession)
-        return updatedSession.toSnapshot()
+        updatedSession.toSnapshot()
     }
 
-    suspend fun returnToSlotCollection(sessionId: String): MealPlanSnapshot {
+    suspend fun returnToSlotCollection(sessionId: String): MealPlanSnapshot = database.withTransaction {
         val session = requireNotNull(sessionDao.getById(sessionId)) { "Unknown meal-plan session: $sessionId" }
+        if (session.status == MealPlanSessionStatus.CANCELLED.name) {
+            return@withTransaction session.toSnapshot()
+        }
         val updated = session.copy(
             status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS.name,
             activeDayIndex = null,
@@ -173,7 +207,7 @@ class MealPlanSessionRepository @Inject constructor(
             updatedAt = System.currentTimeMillis(),
         )
         sessionDao.update(updated)
-        return updated.toSnapshot()
+        updated.toSnapshot()
     }
 
     suspend fun persistRecipeDraft(
@@ -182,10 +216,10 @@ class MealPlanSessionRepository @Inject constructor(
         recipeDraft: RecipeDraft,
         rawModelJson: String,
         groceries: List<CanonicalGroceryItem>,
-    ): MealPlanSnapshot {
+    ): MealPlanSnapshot = database.withTransaction {
         val session = requireNotNull(sessionDao.getById(sessionId)) { "Unknown meal-plan session: $sessionId" }
         if (session.status == MealPlanSessionStatus.CANCELLED.name) {
-            return session.toSnapshot()
+            return@withTransaction session.toSnapshot()
         }
         val now = System.currentTimeMillis()
         val day = requireNotNull(dayDao.getBySessionAndIndex(sessionId, dayIndex)) {
@@ -236,12 +270,12 @@ class MealPlanSessionRepository @Inject constructor(
                 updatedAt = now,
             ),
         )
-        rebuildRecipeProjection(sessionId, day.id, dayIndex, recipeVersion)
+        rebuildRecipeProjection(session, day.id, dayIndex, recipeVersion)
         rebuildShoppingProjection(sessionId)
 
         val currentSession = requireNotNull(sessionDao.getById(sessionId))
         val nextPending = dayDao.getBySession(sessionId)
-            .firstOrNull { it.status != MealPlanDayStatus.PERSISTED.name }
+            .firstOrNull { it.status != MealPlanDayStatus.PERSISTED.name && it.status != MealPlanDayStatus.FAILED.name }
         val updatedSession = if (nextPending == null) {
             currentSession.copy(
                 status = MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY.name,
@@ -262,7 +296,7 @@ class MealPlanSessionRepository @Inject constructor(
             )
         }
         sessionDao.update(updatedSession)
-        return updatedSession.toSnapshot()
+        updatedSession.toSnapshot()
     }
 
     suspend fun markGenerationFailure(
@@ -270,7 +304,11 @@ class MealPlanSessionRepository @Inject constructor(
         dayIndex: Int?,
         errorCode: String,
         errorMessage: String,
-    ): MealPlanSnapshot {
+    ): MealPlanSnapshot = database.withTransaction {
+        val session = requireNotNull(sessionDao.getById(sessionId))
+        if (session.status == MealPlanSessionStatus.CANCELLED.name) {
+            return@withTransaction session.toSnapshot()
+        }
         val now = System.currentTimeMillis()
         if (dayIndex != null) {
             dayDao.getBySessionAndIndex(sessionId, dayIndex)?.let { day ->
@@ -285,28 +323,32 @@ class MealPlanSessionRepository @Inject constructor(
                 )
             }
         }
-        val session = requireNotNull(sessionDao.getById(sessionId))
         val updated = session.copy(
-            status = MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY.name,
+            status = if (dayIndex == null) {
+                MealPlanSessionStatus.PLAN_REVIEW.name
+            } else {
+                MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY.name
+            },
             activeDayIndex = dayIndex,
-            pendingGenerationKind = if (dayIndex == null) PendingGenerationKind.PLAN.name else PendingGenerationKind.RECIPE.name,
+            pendingGenerationKind = if (dayIndex == null) null else PendingGenerationKind.RECIPE.name,
             pendingGenerationDayIndex = dayIndex,
             pendingGenerationStartedAt = null,
             updatedAt = now,
         )
         sessionDao.update(updated)
-        return updated.toSnapshot()
+        updated.toSnapshot()
     }
 
     suspend fun markPendingGeneration(
         sessionId: String,
         kind: PendingGenerationKind,
         dayIndex: Int? = null,
-    ) {
+    ) = database.withTransaction {
         val session = requireNotNull(sessionDao.getById(sessionId))
         if (session.status == MealPlanSessionStatus.CANCELLED.name) {
-            return
+            return@withTransaction
         }
+        val now = System.currentTimeMillis()
         sessionDao.update(
             session.copy(
                 status = if (kind == PendingGenerationKind.PLAN) {
@@ -317,16 +359,24 @@ class MealPlanSessionRepository @Inject constructor(
                 activeDayIndex = dayIndex,
                 pendingGenerationKind = kind.name,
                 pendingGenerationDayIndex = dayIndex,
-                pendingGenerationStartedAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis(),
+                pendingGenerationStartedAt = now,
+                updatedAt = now,
             ),
         )
     }
 
-    suspend fun clearPendingGeneration(sessionId: String) {
+    suspend fun clearPendingGeneration(sessionId: String) = database.withTransaction {
         val session = requireNotNull(sessionDao.getById(sessionId))
+        if (session.status == MealPlanSessionStatus.CANCELLED.name) {
+            return@withTransaction
+        }
+        val restoringPlanReview =
+            session.pendingGenerationKind == PendingGenerationKind.REPLACEMENT.name &&
+                dayDao.getBySession(sessionId).all { it.status == MealPlanDayStatus.DRAFTED.name }
         sessionDao.update(
             session.copy(
+                status = if (restoringPlanReview) MealPlanSessionStatus.PLAN_REVIEW.name else session.status,
+                activeDayIndex = if (restoringPlanReview) null else session.activeDayIndex,
                 pendingGenerationKind = null,
                 pendingGenerationDayIndex = null,
                 pendingGenerationStartedAt = null,
@@ -335,8 +385,11 @@ class MealPlanSessionRepository @Inject constructor(
         )
     }
 
-    suspend fun markFinalSummaryWritten(sessionId: String) {
+    suspend fun markFinalSummaryWritten(sessionId: String) = database.withTransaction {
         val session = requireNotNull(sessionDao.getById(sessionId))
+        if (session.status == MealPlanSessionStatus.CANCELLED.name) {
+            return@withTransaction
+        }
         sessionDao.update(
             session.copy(
                 finalSummaryWritten = true,
@@ -346,40 +399,56 @@ class MealPlanSessionRepository @Inject constructor(
     }
 
     suspend fun completeSession(sessionId: String): MealPlanSnapshot {
-        val session = requireNotNull(sessionDao.getById(sessionId))
-        val now = System.currentTimeMillis()
-        val updated = session.copy(
-            status = MealPlanSessionStatus.COMPLETED.name,
-            pendingGenerationKind = null,
-            pendingGenerationDayIndex = null,
-            pendingGenerationStartedAt = null,
-            activeDayIndex = null,
-            updatedAt = now,
-            completedAt = now,
-        )
-        sessionDao.update(updated)
-        return updated.toSnapshot()
+        val updated = database.withTransaction {
+            val session = requireNotNull(sessionDao.getById(sessionId))
+            if (session.status == MealPlanSessionStatus.CANCELLED.name) {
+                return@withTransaction session.toSnapshot()
+            }
+            val now = System.currentTimeMillis()
+            val next = session.copy(
+                status = MealPlanSessionStatus.COMPLETED.name,
+                pendingGenerationKind = null,
+                pendingGenerationDayIndex = null,
+                pendingGenerationStartedAt = null,
+                activeDayIndex = null,
+                updatedAt = now,
+                completedAt = now,
+            )
+            sessionDao.update(next)
+            next.toSnapshot()
+        }
+        updated.completedAt?.let { completedAt ->
+            runCatching { pruneTerminalSessions(completedAt) }
+                .onFailure { Log.w("MealPlanSessionRepo", "Failed to prune terminal sessions after completion", it) }
+        }
+        return updated
     }
 
     suspend fun cancelSession(sessionId: String): MealPlanSnapshot {
-        val session = requireNotNull(sessionDao.getById(sessionId))
-        val now = System.currentTimeMillis()
-        deleteActiveProjections(sessionId, supersededAt = now)
-        val updated = session.copy(
-            status = MealPlanSessionStatus.CANCELLED.name,
-            pendingGenerationKind = null,
-            pendingGenerationDayIndex = null,
-            pendingGenerationStartedAt = null,
-            activeDayIndex = null,
-            updatedAt = now,
-            cancelledAt = now,
-        )
-        sessionDao.update(updated)
-        return updated.toSnapshot()
+        val updated = database.withTransaction {
+            val session = requireNotNull(sessionDao.getById(sessionId))
+            val now = System.currentTimeMillis()
+            val next = session.copy(
+                status = MealPlanSessionStatus.CANCELLED.name,
+                pendingGenerationKind = null,
+                pendingGenerationDayIndex = null,
+                pendingGenerationStartedAt = null,
+                activeDayIndex = null,
+                updatedAt = now,
+                cancelledAt = now,
+            )
+            deleteActiveProjections(sessionId, supersededAt = now)
+            sessionDao.update(next)
+            next.toSnapshot()
+        }
+        runCatching { pruneTerminalSessions(requireNotNull(updated.cancelledAt)) }
+            .onFailure { Log.w("MealPlanSessionRepo", "Failed to prune terminal sessions after cancellation", it) }
+        return updated
     }
 
     suspend fun getNextPendingDay(sessionId: String): MealPlanDayEntity? =
-        dayDao.getBySession(sessionId).firstOrNull { it.status != MealPlanDayStatus.PERSISTED.name }
+        dayDao.getBySession(sessionId)
+            .firstOrNull { it.status != MealPlanDayStatus.PERSISTED.name && it.status != MealPlanDayStatus.FAILED.name }
 
     suspend fun buildFinalSummary(sessionId: String): String {
         val snapshot = requireNotNull(getSession(sessionId))
@@ -394,84 +463,106 @@ class MealPlanSessionRepository @Inject constructor(
     private suspend fun rebuildShoppingProjection(sessionId: String) {
         val session = requireNotNull(sessionDao.getById(sessionId))
         val targetName = shoppingListName(session)
-        deleteList(targetName)
-        val now = System.currentTimeMillis()
-        listNameDao.insert(ListNameEntity(name = targetName, createdAt = now, updatedAt = now))
-        val projectedAt = now
-        projectionWriteDao.markSupersededForTarget(sessionId, TARGET_KIND_PLAN_SHOPPING_LIST, projectedAt)
-        // Resolve the list id after insert
-        val listEntity = listNameDao.getByName(targetName) ?: return
-        val listId = listEntity.id
-        val groceries = groceryItemDao.getCurrentForSession(sessionId)
-        groceries.forEach { grocery ->
-            listItemDao.insert(
-                ListItemEntity(listId = listId, text = grocery.displayText, createdAt = now, updatedAt = now),
+        database.withTransaction {
+            val oldTargets = projectionWriteDao.getActiveTargetNamesForTarget(sessionId, TARGET_KIND_PLAN_SHOPPING_LIST)
+            oldTargets.forEach { deleteList(it) }
+            if (targetName !in oldTargets) {
+                deleteList(targetName)
+            }
+            val now = System.currentTimeMillis()
+            val projectedAt = now
+            projectionWriteDao.markSupersededForTarget(sessionId, TARGET_KIND_PLAN_SHOPPING_LIST, projectedAt)
+            val listId = listNameDao.insertAndGet(ListNameEntity(name = targetName, createdAt = now, updatedAt = now))
+                .takeIf { it != -1L }
+                ?: error("Failed to create shopping projection list: $targetName")
+            val groceries = groceryItemDao.getCurrentForSession(sessionId)
+            groceries.forEach { grocery ->
+                listItemDao.insert(
+                    ListItemEntity(listId = listId, text = grocery.displayText, createdAt = now, updatedAt = now),
+                )
+            }
+            projectionWriteDao.insertAll(
+                groceries.map { grocery ->
+                    MealPlanProjectionWriteEntity(
+                        id = UUID.randomUUID().toString(),
+                        mealPlanSessionId = sessionId,
+                        targetKind = TARGET_KIND_PLAN_SHOPPING_LIST,
+                        targetName = targetName,
+                        sourceKey = "day:${grocery.mealPlanDayId}:grocery:${grocery.id}",
+                        sourceVersion = requireNotNull(recipeVersionDao.getById(grocery.recipeVersionId)) {
+                            "Missing recipe version ${grocery.recipeVersionId}"
+                        }.version,
+                        listItemId = null,
+                        projectedAt = projectedAt,
+                        supersededAt = null,
+                    )
+                },
             )
         }
-        projectionWriteDao.insertAll(
-            groceries.map { grocery ->
-                MealPlanProjectionWriteEntity(
-                    id = UUID.randomUUID().toString(),
-                    mealPlanSessionId = sessionId,
-                    targetKind = TARGET_KIND_PLAN_SHOPPING_LIST,
-                    targetName = targetName,
-                    sourceKey = "day:${grocery.mealPlanDayId}:grocery:${grocery.id}",
-                    sourceVersion = recipeVersionDao.getById(grocery.recipeVersionId)?.version ?: 0,
-                    listItemId = null,
-                    projectedAt = projectedAt,
-                    supersededAt = null,
-                )
-            },
-        )
     }
 
     private suspend fun rebuildRecipeProjection(
-        sessionId: String,
+        session: MealPlanSessionEntity,
         dayId: String,
         dayIndex: Int,
         recipeVersion: MealPlanRecipeVersionEntity,
     ) {
         val sourcePrefix = "day:$dayId:%"
-        val oldTargets = projectionWriteDao.getActiveTargetNamesForSourcePrefix(
-            sessionId = sessionId,
-            targetKind = TARGET_KIND_RECIPE_LIST,
-            sourceKeyPrefix = sourcePrefix,
-        )
-        oldTargets.forEach { deleteList(it) }
-        val now = System.currentTimeMillis()
-        val projectedAt = now
-        projectionWriteDao.markSupersededForSourcePrefix(
-            sessionId = sessionId,
-            targetKind = TARGET_KIND_RECIPE_LIST,
-            sourceKeyPrefix = sourcePrefix,
-            timestamp = projectedAt,
-        )
-        val targetName = recipeListName(sessionId, dayIndex, recipeVersion.title)
-        listNameDao.insert(ListNameEntity(name = targetName, createdAt = now, updatedAt = now))
-        // Resolve the list id after insert
-        val listEntity = listNameDao.getByName(targetName) ?: return
-        val listId = listEntity.id
+        val targetName = recipeListName(session, dayIndex, recipeVersion.title)
+        val ingredients = jsonToIngredients(recipeVersion.ingredientsJson)
         val methodSteps = jsonToMethodSteps(recipeVersion.methodStepsJson)
-        methodSteps.forEach { step ->
-            listItemDao.insert(
-                ListItemEntity(listId = listId, text = step.text, createdAt = now, updatedAt = now),
+        val recipeListItems = buildList<Pair<String, String>> {
+            add("day:$dayId:recipe:${recipeVersion.id}:section:ingredients" to "Ingredients")
+            ingredients.forEachIndexed { index, ingredient ->
+                add("day:$dayId:recipe:${recipeVersion.id}:ingredient:$index" to ingredient.originalText)
+            }
+            add("day:$dayId:recipe:${recipeVersion.id}:section:method" to "Method")
+            methodSteps.forEachIndexed { index, step ->
+                add("day:$dayId:recipe:${recipeVersion.id}:step:$index" to "${step.stepNumber}. ${step.text}")
+            }
+        }
+        database.withTransaction {
+            val oldTargets = projectionWriteDao.getActiveTargetNamesForSourcePrefix(
+                sessionId = session.id,
+                targetKind = TARGET_KIND_RECIPE_LIST,
+                sourceKeyPrefix = sourcePrefix,
+            )
+            oldTargets.forEach { deleteList(it) }
+            if (targetName !in oldTargets) {
+                deleteList(targetName)
+            }
+            val now = System.currentTimeMillis()
+            val projectedAt = now
+            projectionWriteDao.markSupersededForSourcePrefix(
+                sessionId = session.id,
+                targetKind = TARGET_KIND_RECIPE_LIST,
+                sourceKeyPrefix = sourcePrefix,
+                timestamp = projectedAt,
+            )
+            val listId = listNameDao.insertAndGet(ListNameEntity(name = targetName, createdAt = now, updatedAt = now))
+                .takeIf { it != -1L }
+                ?: error("Failed to create recipe projection list: $targetName")
+            recipeListItems.forEach { (_, text) ->
+                listItemDao.insert(
+                    ListItemEntity(listId = listId, text = text, createdAt = now, updatedAt = now),
+                )
+            }
+            projectionWriteDao.insertAll(
+                recipeListItems.map { (sourceKey, _) ->
+                    MealPlanProjectionWriteEntity(
+                        id = UUID.randomUUID().toString(),
+                        mealPlanSessionId = session.id,
+                        targetKind = TARGET_KIND_RECIPE_LIST,
+                        targetName = targetName,
+                        sourceKey = sourceKey,
+                        sourceVersion = recipeVersion.version,
+                        listItemId = null,
+                        projectedAt = projectedAt,
+                        supersededAt = null,
+                    )
+                },
             )
         }
-        projectionWriteDao.insertAll(
-            methodSteps.mapIndexed { index, _ ->
-                MealPlanProjectionWriteEntity(
-                    id = UUID.randomUUID().toString(),
-                    mealPlanSessionId = sessionId,
-                    targetKind = TARGET_KIND_RECIPE_LIST,
-                    targetName = targetName,
-                    sourceKey = "day:$dayId:recipe:${recipeVersion.id}:step:$index",
-                    sourceVersion = recipeVersion.version,
-                    listItemId = null,
-                    projectedAt = projectedAt,
-                    supersededAt = null,
-                )
-            },
-        )
     }
 
     private suspend fun deleteList(name: String) {
@@ -488,37 +579,60 @@ class MealPlanSessionRepository @Inject constructor(
         }
     }
 
-    private suspend fun createSession(conversationId: String): MealPlanSessionEntity {
-        val now = System.currentTimeMillis()
-        val entity = MealPlanSessionEntity(
-            id = UUID.randomUUID().toString(),
-            conversationId = conversationId,
-            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS.name,
-            peopleCount = null,
-            daysCount = null,
-            dietaryRestrictionsJson = "[]",
-            proteinPreferencesJson = "[]",
-            optionalSlotsJson = "{}",
-            activeDayIndex = null,
-            pendingGenerationKind = null,
-            pendingGenerationDayIndex = null,
-            pendingGenerationStartedAt = null,
-            planVersion = 0,
-            finalSummaryWritten = false,
-            createdAt = now,
-            updatedAt = now,
-            completedAt = null,
-            cancelledAt = null,
-        )
-        sessionDao.insert(entity)
-        return entity
-    }
+    /**
+     * Conservative planner retention: completed sessions are pruned after 30 days once the
+     * final summary has been written; cancelled sessions are pruned after 7 days. This runs on
+     * planner start/resume and after terminal writes (complete/cancel).
+     */
+    private suspend fun pruneTerminalSessions(now: Long = System.currentTimeMillis()): Int =
+        database.withTransaction {
+            val prunable = sessionDao.getPrunableTerminalSessions(
+                completedBefore = now - COMPLETED_SESSION_RETENTION_MS,
+                completedWithoutSummaryBefore = now - COMPLETED_SESSION_FALLBACK_RETENTION_MS,
+                cancelledBefore = now - CANCELLED_SESSION_RETENTION_MS,
+            )
+            prunable.forEach { session ->
+                projectionWriteDao.getAllTargetNamesForSession(session.id).forEach { deleteList(it) }
+                projectionWriteDao.deleteBySessionId(session.id)
+                sessionDao.deleteById(session.id)
+            }
+            prunable.size
+        }
+
+    private suspend fun createSession(conversationId: String): MealPlanSessionEntity =
+        database.withTransaction {
+            val now = System.currentTimeMillis()
+            val entity = MealPlanSessionEntity(
+                id = UUID.randomUUID().toString(),
+                conversationId = conversationId,
+                status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS.name,
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictionsJson = "[]",
+                proteinPreferencesJson = "[]",
+                optionalSlotsJson = "{}",
+                activeDayIndex = null,
+                pendingGenerationKind = null,
+                pendingGenerationDayIndex = null,
+                pendingGenerationStartedAt = null,
+                displayCode = (sessionDao.getMaxDisplayCode() ?: 0) + 1,
+                planVersion = 0,
+                finalSummaryWritten = false,
+                createdAt = now,
+                updatedAt = now,
+                completedAt = null,
+                cancelledAt = null,
+            )
+            sessionDao.insert(entity)
+            entity
+        }
 
     private suspend fun MealPlanSessionEntity.toSnapshot(): MealPlanSnapshot {
         val days = dayDao.getBySession(id)
         return MealPlanSnapshot(
             sessionId = id,
             conversationId = conversationId,
+            displayName = canonicalDisplayName(this),
             status = MealPlanSessionStatus.valueOf(status),
             peopleCount = peopleCount,
             daysCount = daysCount,
@@ -565,13 +679,18 @@ class MealPlanSessionRepository @Inject constructor(
         )
     }
 
-    private fun shoppingListName(session: MealPlanSessionEntity): String {
+    private fun canonicalDisplayName(session: MealPlanSessionEntity): String {
         val date = SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH).format(Date(session.createdAt))
-        return "Meal Plan $date (${session.id.take(8)}) Shopping List"
+        return "Meal Plan $date (${planCode(session.displayCode)})"
     }
 
-    private fun recipeListName(sessionId: String, dayIndex: Int, title: String): String =
-        "Meal Plan ${sessionId.take(8)} Day ${dayIndex + 1} — $title"
+    private fun planCode(displayCode: Int): String = String.format(Locale.ENGLISH, "MP-%03d", displayCode)
+
+    private fun shoppingListName(session: MealPlanSessionEntity): String =
+        "${canonicalDisplayName(session)} Shopping List"
+
+    private fun recipeListName(session: MealPlanSessionEntity, dayIndex: Int, title: String): String =
+        "${canonicalDisplayName(session)} Day ${dayIndex + 1} — $title"
 
     private fun ingredientsToJson(ingredients: List<RecipeDraftIngredient>): String = JSONArray(
         ingredients.map { ingredient ->
@@ -624,5 +743,9 @@ class MealPlanSessionRepository @Inject constructor(
     private companion object {
         private const val TARGET_KIND_PLAN_SHOPPING_LIST = "PLAN_SHOPPING_LIST"
         private const val TARGET_KIND_RECIPE_LIST = "RECIPE_LIST"
+        private const val DAY_MS = 24L * 60L * 60L * 1000L
+        private const val COMPLETED_SESSION_RETENTION_MS = 30L * DAY_MS
+        private const val COMPLETED_SESSION_FALLBACK_RETENTION_MS = 90L * DAY_MS
+        private const val CANCELLED_SESSION_RETENTION_MS = 7L * DAY_MS
     }
 }

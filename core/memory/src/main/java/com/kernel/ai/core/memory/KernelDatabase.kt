@@ -81,7 +81,7 @@ import java.time.ZoneId
         MealPlanGroceryItemEntity::class,
         MealPlanProjectionWriteEntity::class,
     ],
-    version = 41,
+    version = 42,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -212,6 +212,13 @@ abstract class KernelDatabase : RoomDatabase() {
             }
         }
 
+        /** Creates contact_aliases table for relationship-name to contact mapping (#355). */
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `contact_aliases` (`alias` TEXT NOT NULL, `displayName` TEXT NOT NULL, `contactId` TEXT NOT NULL, `phoneNumber` TEXT NOT NULL, PRIMARY KEY(`alias`))")
+            }
+        }
+
         /** Creates list_items table for add_to_list skill persistence (#315). */
         val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -245,12 +252,6 @@ abstract class KernelDatabase : RoomDatabase() {
             }
         }
 
-        /** Creates contact_aliases table for relationship-name to contact mapping (#355). */
-        val MIGRATION_13_14 = object : Migration(13, 14) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("CREATE TABLE IF NOT EXISTS `contact_aliases` (`alias` TEXT NOT NULL, `displayName` TEXT NOT NULL, `contactId` TEXT NOT NULL, `phoneNumber` TEXT NOT NULL, PRIMARY KEY(`alias`))")
-            }
-        }
 
         /** Adds enabled flag to scheduled_alarms for per-alarm toggle (#479). */
         val MIGRATION_17_18 = object : Migration(17, 18) {
@@ -693,6 +694,26 @@ abstract class KernelDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE important_dates ADD COLUMN notification_hour INTEGER DEFAULT NULL")
                 db.execSQL("ALTER TABLE important_dates ADD COLUMN notification_minute INTEGER DEFAULT NULL")
+            }
+        }
+
+        /** Adds correctGroundedFactsEnabled to model_settings and stable friendly display codes to meal-plan sessions (#913). */
+        val MIGRATION_41_42 = object : Migration(41, 42) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE model_settings ADD COLUMN correctGroundedFactsEnabled INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE meal_plan_sessions ADD COLUMN displayCode INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    """
+                    UPDATE meal_plan_sessions
+                    SET displayCode = (
+                        SELECT COUNT(*)
+                        FROM meal_plan_sessions older
+                        WHERE older.createdAt < meal_plan_sessions.createdAt
+                           OR (older.createdAt = meal_plan_sessions.createdAt AND older.id <= meal_plan_sessions.id)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_meal_plan_sessions_displayCode ON meal_plan_sessions(displayCode)")
             }
         }
     }

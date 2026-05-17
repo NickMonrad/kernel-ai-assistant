@@ -77,13 +77,29 @@ class MealPlannerSlotExtractorTest {
     fun `isGenerateRecipesRequest recognizes approval and resume phrases`() {
         assertTrue(extractor.isGenerateRecipesRequest("generate"))
         assertTrue(extractor.isGenerateRecipesRequest("generate recipes"))
+        assertTrue(extractor.isGenerateRecipesRequest("ok, continue"))
+        assertTrue(extractor.isGenerateRecipesRequest("I'd like to generate recipes"))
         assertTrue(extractor.isGenerateRecipesRequest("resume"))
         assertTrue(extractor.isGenerateRecipesRequest("make recipes"))
         assertTrue(extractor.isGenerateRecipesRequest("create recipes"))
         assertTrue(extractor.isGenerateRecipesRequest("start meal plan"))
         assertFalse(extractor.isGenerateRecipesRequest("make the recipe less spicy"))
+        assertFalse(extractor.isGenerateRecipesRequest("make recipe less spicy"))
         assertFalse(extractor.isGenerateRecipesRequest("create a note"))
+        assertFalse(extractor.isGenerateRecipesRequest("create meal plan later"))
         assertFalse(extractor.isGenerateRecipesRequest("start from scratch"))
+        assertFalse(extractor.isGenerateRecipesRequest("start meal plan tomorrow"))
+    }
+
+    @Test
+    fun `isShowCurrentPlanRequest recognizes inspection phrases`() {
+        assertTrue(extractor.isShowCurrentPlanRequest("show current plan"))
+        assertTrue(extractor.isShowCurrentPlanRequest("show the current plan"))
+        assertTrue(extractor.isShowCurrentPlanRequest("show me the current plan"))
+        assertTrue(extractor.isShowCurrentPlanRequest("what's my current plan"))
+        assertTrue(extractor.isShowCurrentPlanRequest("what is my current plan"))
+        assertTrue(extractor.isShowCurrentPlanRequest("what is the current plan"))
+        assertFalse(extractor.isShowCurrentPlanRequest("show me the shopping list"))
     }
 
     @Test
