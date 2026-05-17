@@ -6,12 +6,11 @@ targetSdk = "36"
 
 # Kotlin & Android
 agp = "8.7.3"
-kotlin = "2.1.0"
-ksp = "2.1.0-1.0.29"
+kotlin = "2.1.20"
+ksp = "2.1.20-1.0.32"
 
 # Compose
-composeBom = "2025.01.01"
-composeCompiler = "2.1.0"
+composeBom = "2026.05.00"
 activityCompose = "1.10.1"
 navigationCompose = "2.8.9"
 
