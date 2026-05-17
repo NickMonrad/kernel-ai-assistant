@@ -1,6 +1,7 @@
 package com.kernel.ai.core.skills.mealplan
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -74,8 +75,15 @@ class MealPlannerSlotExtractorTest {
 
     @Test
     fun `isGenerateRecipesRequest recognizes approval and resume phrases`() {
+        assertTrue(extractor.isGenerateRecipesRequest("generate"))
         assertTrue(extractor.isGenerateRecipesRequest("generate recipes"))
         assertTrue(extractor.isGenerateRecipesRequest("resume"))
+        assertTrue(extractor.isGenerateRecipesRequest("make recipes"))
+        assertTrue(extractor.isGenerateRecipesRequest("create recipes"))
+        assertTrue(extractor.isGenerateRecipesRequest("start meal plan"))
+        assertFalse(extractor.isGenerateRecipesRequest("make the recipe less spicy"))
+        assertFalse(extractor.isGenerateRecipesRequest("create a note"))
+        assertFalse(extractor.isGenerateRecipesRequest("start from scratch"))
     }
 
     @Test

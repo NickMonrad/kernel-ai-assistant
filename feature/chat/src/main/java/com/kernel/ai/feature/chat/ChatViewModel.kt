@@ -640,6 +640,13 @@ class ChatViewModel @Inject constructor(
                 needsHistoryReplay = true
             }
 
+            mealPlannerCoordinator.activeSessionReply(id)?.let { plannerReply ->
+                val latestAssistantContent = _messages.value.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
+                if (plannerReply.content.isNotBlank() && plannerReply.content != latestAssistantContent) {
+                    appendTransientAssistantMessage(plannerReply.content)
+                }
+            }
+
             // Determine whether smart-title generation should still fire on this restored session.
             // A title that looks like a first-message placeholder (ends with '…', ≤43 chars) can
             // still be overwritten if the conversation is long enough for a smart title.
@@ -799,6 +806,19 @@ class ChatViewModel @Inject constructor(
         if (speak) {
             speakAssistantReplyIfNeeded(content, spokenSummary)
         }
+    }
+
+    /**
+     * Adds UI-only assistant guidance that should be visible immediately but must not be
+     * persisted to Room, indexed for RAG, or replayed into LiteRT history.
+     */
+    private fun appendTransientAssistantMessage(content: String) {
+        val msg = ChatMessage(
+            id = UUID.randomUUID().toString(),
+            role = ChatMessage.Role.ASSISTANT,
+            content = content,
+        )
+        _messages.update { it + msg }
     }
 
     /** Like [appendAssistantMessage] but also attaches a [ToolCallInfo] chip so the UI shows
@@ -2219,7 +2239,9 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
-        viewModelScope.launch { inferenceEngine.shutdown() }
+        // InferenceEngine is a process-scoped singleton. Do not shut it down just because this
+        // screen is closing — that can interrupt active meal-plan generation while the user
+        // navigates elsewhere in the app (for example to Lists).
     }
 
     private fun submitVoiceTranscript(rawTranscript: String) {

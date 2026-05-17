@@ -35,6 +35,11 @@ class MealPlannerCoordinator @Inject constructor(
     suspend fun hasAnySession(conversationId: String): Boolean =
         sessionRepository.hasAnySessionForConversation(conversationId)
 
+    suspend fun activeSessionReply(conversationId: String): MealPlannerReply? {
+        val snapshot = sessionRepository.getActiveSession(conversationId) ?: return null
+        return MealPlannerReply(promptForSnapshot(snapshot))
+    }
+
     suspend fun startOrResume(conversationId: String): MealPlannerReply {
         val snapshot = sessionRepository.startOrResume(conversationId)
         return MealPlannerReply(promptForSnapshot(snapshot))
