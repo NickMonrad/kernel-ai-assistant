@@ -135,6 +135,15 @@
             android:name=".alarm.AlarmBroadcastReceiver"
             android:exported="false" />
 
+        <!-- Fires when a list-item due-date notification alarm triggers (#901) -->
+        <receiver
+            android:name=".notification.ListDueNotificationReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kernel.ai.LIST_ITEM_DUE" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name=".alarm.ClockTimerActionReceiver"
             android:exported="false" />

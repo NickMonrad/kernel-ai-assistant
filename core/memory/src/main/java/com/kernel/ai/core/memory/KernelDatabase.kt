@@ -81,7 +81,7 @@ import java.time.ZoneId
         MealPlanGroceryItemEntity::class,
         MealPlanProjectionWriteEntity::class,
     ],
-    version = 36,
+    version = 38,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -656,6 +656,20 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE lists ADD COLUMN displayOrder INTEGER NOT NULL DEFAULT 0")
                 // Initialise existing rows to a stable order (by id)
                 db.execSQL("UPDATE lists SET displayOrder = id")
+            }
+        }
+
+        /** Adds archivedAt to lists for archive feature (#903). */
+        val MIGRATION_36_37 = object : Migration(36, 37) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE lists ADD COLUMN archivedAt INTEGER DEFAULT NULL")
+            }
+        }
+
+        /** Adds notificationTime to list_items for due-date notifications (#901). */
+        val MIGRATION_37_38 = object : Migration(37, 38) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE list_items ADD COLUMN notificationTime INTEGER DEFAULT NULL")
             }
         }
     }
