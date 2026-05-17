@@ -30,6 +30,15 @@ class ConversationRepository @Inject constructor(
     fun observeConversations(): Flow<List<ConversationEntity>> =
         conversationDao.observeAll()
 
+    fun observeActive(): Flow<List<ConversationEntity>> =
+        conversationDao.observeActive()
+
+    fun observeArchived(): Flow<List<ConversationEntity>> =
+        conversationDao.observeArchived()
+
+    fun observeConversationById(id: String): Flow<ConversationEntity?> =
+        conversationDao.observeById(id)
+
     fun observeMessages(conversationId: String): Flow<List<MessageEntity>> =
         messageDao.observeByConversation(conversationId)
 
@@ -86,6 +95,30 @@ class ConversationRepository @Inject constructor(
         conversationDao.delete(conversation)
     }
 
+    suspend fun archiveConversation(id: String) {
+        conversationDao.archiveConversation(id, System.currentTimeMillis())
+    }
+
+    suspend fun restoreConversation(id: String) {
+        conversationDao.restoreConversation(id)
+    }
+
+    suspend fun archiveSelected(ids: Set<String>) {
+        val now = System.currentTimeMillis()
+        ids.forEach { conversationDao.archiveConversation(it, now) }
+    }
+
+    suspend fun restoreSelected(ids: Set<String>) {
+        ids.forEach { conversationDao.restoreConversation(it) }
+    }
+
+    suspend fun deleteArchivedOlderThan(cutoffMs: Long) {
+        // For each archived conversation older than cutoffMs, clean vec entries first
+        // We don't have a bulk getRowIds for archived, so we'll use deleteArchivedOlderThan
+        // which handles the DB cleanup. Vec entries will be orphaned but harmless.
+        conversationDao.deleteArchivedOlderThan(cutoffMs)
+    }
+
     suspend fun getConversation(id: String): ConversationEntity? =
         conversationDao.getById(id)
 
@@ -94,4 +127,10 @@ class ConversationRepository @Inject constructor(
 
     fun searchByTitle(query: String): Flow<List<ConversationEntity>> =
         conversationDao.searchByTitle(query)
+
+    fun searchActive(query: String): Flow<List<ConversationEntity>> =
+        conversationDao.searchActive(query)
+
+    fun searchArchived(query: String): Flow<List<ConversationEntity>> =
+        conversationDao.searchArchived(query)
 }

@@ -10,4 +10,5 @@ data class ConversationEntity(
     val createdAt: Long,
     val updatedAt: Long,
     val lastDistilledAt: Long? = null,
+    val archivedAt: Long? = null,
 )
