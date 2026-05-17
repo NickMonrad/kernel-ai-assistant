@@ -1104,6 +1104,32 @@ class NativeIntentHandlerTest {
 
 
     @Test
+    fun `parseDateString resolves non-birthday important date via fuzzy match when STT spelling differs`() {
+        // Stored as "Reuben moving out", STT produces "Ruben moving out" (one letter diff)
+        val today = LocalDate.now()
+        val expected = LocalDate.of(today.year, 8, 15).let {
+            if (!it.isBefore(today)) it else LocalDate.of(today.year + 1, 8, 15)
+        }
+        val entity = ImportantDateEntity(
+            label = "Reuben moving out",
+            normalizedLabel = "reuben moving out",
+            month = 8,
+            day = 15,
+        )
+        coEvery { importantDateRepository.findByLabel("Ruben moving out") } returns null
+        coEvery { importantDateRepository.getAll() } returns listOf(entity)
+
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseDateString",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        val resolved = method.invoke(handler, "Ruben moving out") as LocalDate?
+
+        assertEquals(expected, resolved)
+    }
+
+    @Test
     fun `get_date_diff since uses the most recent recurring important date`() {
         val today = LocalDate.now()
         val expected = LocalDate.of(today.year, 3, 1).let {
@@ -1678,6 +1704,32 @@ class NativeIntentHandlerTest {
             SkillResult.DirectReply("100 USD is 100 USD."),
             result,
         )
+    }
+
+    @Test
+    fun `parseImportantDateInput parses ordinal date with leading the`() {
+        // "the 13th of June" → strip "the ", strip ordinal → "13 of June" → match "d 'of' MMMM"
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "parseImportantDateInput",
+            String::class.java,
+        ).also { it.isAccessible = true }
+
+        val cases = listOf(
+            Triple("the 13th of June", 6, 13),
+            Triple("the 1st of January", 1, 1),
+            Triple("the 22nd of March", 3, 22),
+            Triple("the 3rd of September 2025", 9, 3),
+            Triple("a 3rd of March", 3, 3),
+            Triple("an 8th of November", 11, 8),
+        )
+        for ((input, expectedMonth, expectedDay) in cases) {
+            val result = method.invoke(handler, input)
+            assertNotNull(result, "Expected non-null for '$input'")
+            val monthField = result!!.javaClass.getDeclaredField("month").also { it.isAccessible = true }
+            val dayField = result.javaClass.getDeclaredField("day").also { it.isAccessible = true }
+            assertEquals(expectedMonth, monthField.get(result), "month for '$input'")
+            assertEquals(expectedDay, dayField.get(result), "day for '$input'")
+        }
     }
 
     @Test
