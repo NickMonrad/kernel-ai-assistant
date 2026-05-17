@@ -119,7 +119,7 @@ User input
 
 - **Jetpack Compose** with Material 3 Dynamic Color, dark default (AMOLED-friendly)
 - **Chat-centric:** conversations list as home, chat screen as primary interaction
-- **Multiple conversations** with Room-persisted history (create/delete/rename)
+- **Multiple conversations** with Room-persisted history (create/delete/rename/archive/pin/drag-to-reorder). `ConversationEntity` carries `archivedAt`, `pinned`, and `sortOrder` fields; `KernelDatabase` is at v44. `observeActive` orders by `pinned DESC, sort_order ASC, updated_at DESC`. Archived conversations are read-only (banner + hidden input bar, no model init). `ArchiveCleanupWorker` runs daily to delete archived conversations past the configurable retention period (`ChatPreferences` DataStore, default 7 days).
 - **Voice:** Push-to-talk and streaming modes with auto-stop on silence. Per-message speaker button (`VolumeUp` icon) on every assistant bubble — plays/stops TTS for that message independently of voice mode. Verbal stop commands ("stop", "cancel", "be quiet", "shut up", "silence") cancel TTS mid-stream and stop mic re-arm. Settings include a pitch slider (Sherpa, 0.5–2.0×), an `autoSpeakEnabled` toggle for chat auto-speak (decoupled from the Quick Actions `spokenResponsesEnabled` toggle), and a max spoken sentences cap — all grouped in a "Chat voice behaviour" section. `truncateForSpeech()` uses `KNOWN_ABBREV` + `INITIALS_REGEX` for abbreviation-aware sentence splitting. Future: wake word detection.
 - **Homescreen widget (issue #617, PR #847):** `androidx.glance` widget in `:feature:widget`. Two interactive elements: a text pill ("Ask Jandal…") that opens `WidgetTextInputActivity` (translucent overlay, `taskAffinity=""`, `excludeFromRecents`), and a mic button that opens `VoiceCommandActivity` (same flags). Both activities call `WidgetNavigator.navigateToActions(isVoice=true/false)`, which fires an explicit intent to `MainActivity` with `quick_action_input` + `quick_action_is_voice` extras. `KernelNavHost` encodes these into `actions?widgetQuery=<text>&widgetVoice=<bool>` nav args. `ActionsScreen` auto-executes with `InputMode.Voice` (TTS reply) or `InputMode.Text` (result card only). A `savedStateHandle` boolean (`widgetQueryConsumed`) prevents re-execution on recompose or process-death restore. `QuickIntentRouter` is not called from widget activities — `ActionsViewModel` owns all routing.
 - **Skill results:** inline rich cards in the conversation stream
@@ -141,7 +141,7 @@ This project uses a **Sonnet-orchestrates, specialists-implement** pattern with 
 
 ### Rules
 - **test-writer works independently** — never sees the implementation agent's prompt; tests based on interfaces and contracts only
-- **code-reviewer runs before every PR merge** — at minimum a quick pass
+- **code-reviewer runs before every PR merge** — at minimum a quick pass; GitHub Copilot PR review comments are optional and do not satisfy this requirement
 - **Agents can run in parallel** when work is independent (e.g., android-developer + test-writer)
 - **Owner reviews and tests on S23 Ultra before merging** — every feature delivery includes manual testing steps and ADB commands
 - If an agent fails twice, escalate or attempt the task directly as a fallback
@@ -154,6 +154,7 @@ This project uses a **Sonnet-orchestrates, specialists-implement** pattern with 
 4. Parallel: spec-writer (update docs if needed)
 5. Sonnet: raise PR with Closes #N
 6. Parallel: code-reviewer reviews the PR + CI runs
+6a. Do not substitute GitHub Copilot PR review for step 6 — the required reviewer is the repository `code-reviewer` agent.
 7. Sonnet: push any fixes from code review to the PR branch
 8. code-reviewer: re-review the fix commits (confirm issues resolved, no regressions introduced)
 9. Owner: manual test on S23 Ultra via ADB once CI passes
@@ -161,6 +162,7 @@ This project uses a **Sonnet-orchestrates, specialists-implement** pattern with 
 ```
 
 **Code review is mandatory before every merge.** The re-review pass (step 8) is scoped to the fix commits only — not a full re-review of the whole PR.
+**GitHub Copilot PR review is optional only.** It can supplement review, but it does not replace the required `code-reviewer` agent pass or scoped re-review.
 
 ## Branching & PR Standards
 
@@ -243,6 +245,7 @@ The script verifies SHA256 hashes after download. Models directory: `models/` (g
 8. Parallel: code-reviewer reviews PR + CI runs Build & Test
 9. Push any code review fixes to the PR branch
 10. code-reviewer: re-review fix commits (scoped — not a full re-review)
+10a. GitHub Copilot PR review, if used, is supplementary only and never replaces the `code-reviewer` re-review.
 11. ./gradlew installDebug                     # Deploy to S23 Ultra
 12. Manual smoke test on device
 13. Owner reviews and merges
