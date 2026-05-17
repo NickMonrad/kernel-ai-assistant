@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -51,9 +53,12 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.TimePickerDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -75,6 +80,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -566,6 +572,15 @@ private fun ListItemRow(
                             else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                         )
+                        if (item.notificationTime != null) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                Icons.Default.Notifications,
+                                contentDescription = "Notification set",
+                                modifier = Modifier.padding(end = 2.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
                 }
                 Text(
@@ -627,7 +642,10 @@ private fun EditItemSheet(
     var text by remember(item.id) { mutableStateOf(item.text) }
     var dueAt by remember(item.id) { mutableStateOf(item.dueAt) }
     var isFavourite by remember(item.id) { mutableStateOf(item.isFavourite) }
+    var notificationTime by remember(item.id) { mutableStateOf(item.notificationTime) }
+    var notifyEnabled by remember(item.id) { mutableStateOf(item.notificationTime != null) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -671,7 +689,11 @@ private fun EditItemSheet(
                             .weight(1f)
                             .clickable { showDatePicker = true },
                     )
-                    IconButton(onClick = { dueAt = null }) {
+                    IconButton(onClick = {
+                        dueAt = null
+                        notificationTime = null
+                        notifyEnabled = false
+                    }) {
                         Icon(Icons.Default.Close, contentDescription = "Clear due date")
                     }
                 } else {
@@ -706,6 +728,68 @@ private fun EditItemSheet(
                 )
             }
 
+            // Notify me row (only when a due date is set)
+            if (dueAt != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (notifyEnabled) Modifier.clickable { showTimePicker = true }
+                            else Modifier
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = if (notifyEnabled) Icons.Default.Notifications
+                        else Icons.Default.NotificationsNone,
+                        contentDescription = null,
+                        tint = if (notifyEnabled) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Notify me",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        if (notifyEnabled && notificationTime != null) {
+                            val notifTime = java.time.Instant.ofEpochMilli(notificationTime!!)
+                                .atZone(java.time.ZoneId.systemDefault())
+                                .toLocalTime()
+                            Text(
+                                text = notifTime.format(
+                                    java.time.format.DateTimeFormatter.ofPattern("HH:mm"),
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = notifyEnabled,
+                        onCheckedChange = { enabled ->
+                            notifyEnabled = enabled
+                            if (enabled) {
+                                // Default: due-date day at 09:00 local
+                                val base = dueAt ?: System.currentTimeMillis()
+                                val localDate = Instant.ofEpochMilli(base)
+                                    .atZone(ZoneId.systemDefault())
+                                    .toLocalDate()
+                                notificationTime = localDate
+                                    .atTime(9, 0)
+                                    .atZone(ZoneId.systemDefault())
+                                    .toInstant()
+                                    .toEpochMilli()
+                                showTimePicker = true
+                            } else {
+                                notificationTime = null
+                            }
+                        },
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Save / Cancel
@@ -717,7 +801,14 @@ private fun EditItemSheet(
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
                     onClick = {
-                        onSave(item.copy(text = text.trim(), dueAt = dueAt, isFavourite = isFavourite))
+                        onSave(
+                            item.copy(
+                                text = text.trim(),
+                                dueAt = dueAt,
+                                isFavourite = isFavourite,
+                                notificationTime = if (notifyEnabled) notificationTime else null,
+                            ),
+                        )
                     },
                     enabled = text.isNotBlank(),
                 ) { Text("Save") }
@@ -763,6 +854,48 @@ private fun EditItemSheet(
         ) {
             DatePicker(state = datePickerState)
         }
+    }
+
+    // Time picker for notification time
+    if (showTimePicker) {
+        val initialTime = notificationTime?.let { epochMs ->
+            Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).toLocalTime()
+        } ?: LocalTime.of(9, 0)
+        val timePickerState = rememberTimePickerState(
+            initialHour = initialTime.hour,
+            initialMinute = initialTime.minute,
+            is24Hour = true,
+        )
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            title = { Text("Set notification time") },
+            text = {
+                TimePicker(state = timePickerState)
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val base = dueAt ?: System.currentTimeMillis()
+                        val localDate = Instant.ofEpochMilli(base)
+                            .atZone(ZoneId.systemDefault())
+                            .toLocalDate()
+                        notificationTime = localDate
+                            .atTime(timePickerState.hour, timePickerState.minute)
+                            .atZone(ZoneId.systemDefault())
+                            .toInstant()
+                            .toEpochMilli()
+                        showTimePicker = false
+                    },
+                ) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    // If toggling on for the first time and dismissed, revert the switch
+                    if (notificationTime == null) notifyEnabled = false
+                    showTimePicker = false
+                }) { Text("Cancel") }
+            },
+        )
     }
 }
 

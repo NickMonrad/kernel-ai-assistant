@@ -18,4 +18,6 @@ data class ListNameEntity(
     val pinned: Boolean = false,
     /** Manual drag-and-drop order within the pinned or unpinned group. */
     @ColumnInfo(name = "displayOrder") val displayOrder: Int = 0,
+    /** Epoch-ms when the list was archived, or null if active. */
+    val archivedAt: Long? = null,
 )

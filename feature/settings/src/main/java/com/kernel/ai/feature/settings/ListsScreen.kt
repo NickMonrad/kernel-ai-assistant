@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -60,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -79,6 +82,8 @@ fun ListsScreen(
 ) {
     val displayedLists by viewModel.displayedLists.collectAsStateWithLifecycle()
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
+    val archivedLists by viewModel.archivedLists.collectAsStateWithLifecycle()
+    val showArchived = viewModel.showArchived
     val itemCounts by viewModel.itemCounts.collectAsStateWithLifecycle()
     val searchQuery by viewModel.listSearchQuery.collectAsStateWithLifecycle()
     val selectedListIds = viewModel.selectedListIds
@@ -90,13 +95,19 @@ fun ListsScreen(
     var pendingRenameEntity by remember { mutableStateOf<ListNameEntity?>(null) }
     var showSortMenu by remember { mutableStateOf(false) }
     var showBulkDeleteDialog by remember { mutableStateOf(false) }
+    var showBulkArchiveDialog by remember { mutableStateOf(false) }
 
-    // Apply search on top of the already sort/filter-applied displayedLists
-    val filtered = if (searchQuery.isBlank()) displayedLists
-    else displayedLists.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    // Active view: apply search on top of already sort/filter-applied displayedLists
+    // Archived view: show archivedLists (no search/sort/filter applied)
+    val filtered = if (showArchived) {
+        archivedLists
+    } else {
+        if (searchQuery.isBlank()) displayedLists
+        else displayedLists.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    }
 
-    val pinnedItems = filtered.filter { it.pinned }
-    val unpinnedItems = filtered.filter { !it.pinned }
+    val pinnedItems = if (showArchived) emptyList() else filtered.filter { it.pinned }
+    val unpinnedItems = if (showArchived) filtered else filtered.filter { !it.pinned }
 
     // ── Drag-and-drop local state ────────────────────────────────────────────────────────────────
     // Maintain local copies for optimistic UI updates during drag; sync from ViewModel when idle.
@@ -149,6 +160,28 @@ fun ListsScreen(
                         }) {
                             Text("Select All")
                         }
+                        if (!showArchived) {
+                            // Archive selected (active view)
+                            IconButton(onClick = { showBulkArchiveDialog = true }) {
+                                Icon(
+                                    Icons.Default.Archive,
+                                    contentDescription = "Archive selected",
+                                )
+                            }
+                        } else {
+                            // Restore selected (archived view)
+                            IconButton(onClick = {
+                                val ids = selectedListIds.toList()
+                                viewModel.exitListMultiSelect()
+                                val now = System.currentTimeMillis()
+                                ids.forEach { viewModel.restoreList(it) }
+                            }) {
+                                Icon(
+                                    Icons.Default.Unarchive,
+                                    contentDescription = "Restore selected",
+                                )
+                            }
+                        }
                         IconButton(onClick = { showBulkDeleteDialog = true }) {
                             Icon(
                                 Icons.Default.Delete,
@@ -160,9 +193,11 @@ fun ListsScreen(
                 )
             } else {
                 TopAppBar(
-                    title = { Text("Lists") },
+                    title = { Text(if (showArchived) "Archived Lists" else "Lists") },
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
+                        IconButton(onClick = {
+                            if (showArchived) viewModel.showArchived = false else onBack()
+                        }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
@@ -173,8 +208,10 @@ fun ListsScreen(
                             }
                             SortFilterMenu(
                                 expanded = showSortMenu,
+                                showArchived = showArchived,
                                 currentSort = viewModel.listSort,
                                 currentFilter = viewModel.listFilter,
+                                onToggleArchived = { viewModel.showArchived = !showArchived; showSortMenu = false },
                                 onSortSelected = { viewModel.listSort = it },
                                 onFilterSelected = { viewModel.listFilter = it },
                                 onDismiss = { showSortMenu = false },
@@ -185,7 +222,8 @@ fun ListsScreen(
             }
         },
         floatingActionButton = {
-            if (!isMultiSelect) {
+            // Hide FAB in archived view and multi-select
+            if (!isMultiSelect && !showArchived) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -209,8 +247,8 @@ fun ListsScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            // Search bar (hidden in multi-select mode to keep UI clean)
-            if (!isMultiSelect) {
+            // Search bar (hidden in multi-select mode and archived view)
+            if (!isMultiSelect && !showArchived) {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = viewModel::setListSearchQuery,
@@ -240,6 +278,7 @@ fun ListsScreen(
                     Spacer(modifier = Modifier.height(32.dp))
                     Text(
                         text = when {
+                            showArchived -> "No archived lists."
                             listEntities.isEmpty() -> "No lists yet."
                             searchQuery.isNotBlank() -> "No lists match \"$searchQuery\"."
                             viewModel.listFilter == ListFilter.PINNED_ONLY -> "No pinned lists."
@@ -248,7 +287,7 @@ fun ListsScreen(
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (listEntities.isEmpty()) {
+                    if (!showArchived && listEntities.isEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "Tap + to create a list, or ask Jandal — e.g. \"Add milk to my shopping list\".",
@@ -279,6 +318,7 @@ fun ListsScreen(
                                         count = itemCounts[entity.id] ?: 0,
                                         isSelected = entity.id in selectedListIds,
                                         isMultiSelectMode = isMultiSelect,
+                                        isArchivedView = false,
                                         dragHandleModifier = if (!isMultiSelect) {
                                             Modifier.draggableHandle(
                                                 onDragStarted = { dragInProgress = true },
@@ -299,13 +339,15 @@ fun ListsScreen(
                                         onPin = { viewModel.togglePin(entity.id) },
                                         onRename = { pendingRenameEntity = entity },
                                         onDelete = { pendingDeleteEntity = entity },
+                                        onArchive = { viewModel.archiveList(entity.id) },
+                                        onRestore = {},
                                     )
                                 }
                             }
                         }
                     }
 
-                    // ── Unpinned section ────────────────────────────────────────────────────
+                    // ── Unpinned / archived section ──────────────────────────────────────────
                     if (localUnpinned.isNotEmpty()) {
                         if (localPinned.isNotEmpty()) {
                             stickyHeader(key = "header_other") {
@@ -324,7 +366,8 @@ fun ListsScreen(
                                         count = itemCounts[entity.id] ?: 0,
                                         isSelected = entity.id in selectedListIds,
                                         isMultiSelectMode = isMultiSelect,
-                                        dragHandleModifier = if (!isMultiSelect) {
+                                        isArchivedView = showArchived,
+                                        dragHandleModifier = if (!isMultiSelect && !showArchived) {
                                             Modifier.draggableHandle(
                                                 onDragStarted = { dragInProgress = true },
                                                 onDragStopped = {
@@ -338,12 +381,14 @@ fun ListsScreen(
                                         } else Modifier,
                                         onOpen = {
                                             if (isMultiSelect) viewModel.toggleListSelection(entity.id)
-                                            else onOpenList(entity.id)
+                                            else if (!showArchived) onOpenList(entity.id)
                                         },
                                         onLongClick = { viewModel.enterListMultiSelect(entity.id) },
                                         onPin = { viewModel.togglePin(entity.id) },
                                         onRename = { pendingRenameEntity = entity },
                                         onDelete = { pendingDeleteEntity = entity },
+                                        onArchive = { viewModel.archiveList(entity.id) },
+                                        onRestore = { viewModel.restoreList(entity.id) },
                                     )
                                 }
                             }
@@ -435,6 +480,27 @@ fun ListsScreen(
             },
         )
     }
+
+    // ── Bulk archive confirmation dialog ──────────────────────────────────────────────────────
+    if (showBulkArchiveDialog) {
+        val count = selectedListIds.size
+        AlertDialog(
+            onDismissRequest = { showBulkArchiveDialog = false },
+            title = { Text("Archive $count list${if (count == 1) "" else "s"}?") },
+            text = { Text("Archived lists can be restored from the ⋮ menu.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.bulkArchiveSelected()
+                        showBulkArchiveDialog = false
+                    },
+                ) { Text("Archive") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBulkArchiveDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 // ── Internal composables ──────────────────────────────────────────────────────────────────────────
@@ -461,18 +527,22 @@ private fun ListOverviewRow(
     count: Int,
     isSelected: Boolean,
     isMultiSelectMode: Boolean,
+    isArchivedView: Boolean,
     dragHandleModifier: Modifier,
     onOpen: () -> Unit,
     onLongClick: () -> Unit,
     onPin: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onArchive: () -> Unit,
+    onRestore: () -> Unit,
 ) {
     var showOverflow by remember { mutableStateOf(false) }
 
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (isArchivedView) Modifier.graphicsLayer { alpha = 0.6f } else Modifier)
             .combinedClickable(
                 onClick = onOpen,
                 onLongClick = onLongClick,
@@ -491,9 +561,10 @@ private fun ListOverviewRow(
                 )
             } else {
                 Icon(
-                    Icons.Default.Checklist,
+                    if (isArchivedView) Icons.Default.Archive else Icons.Default.Checklist,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = if (isArchivedView) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.primary,
                 )
             }
         },
@@ -503,16 +574,18 @@ private fun ListOverviewRow(
                 horizontalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 if (!isMultiSelectMode) {
-                    // Pin toggle
-                    IconButton(onClick = onPin) {
-                        Icon(
-                            if (entity.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
-                            contentDescription = if (entity.pinned) "Unpin" else "Pin",
-                            tint = if (entity.pinned) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    if (!isArchivedView) {
+                        // Pin toggle (active view only)
+                        IconButton(onClick = onPin) {
+                            Icon(
+                                if (entity.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                                contentDescription = if (entity.pinned) "Unpin" else "Pin",
+                                tint = if (entity.pinned) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
-                    // Overflow: Rename / Delete
+                    // Overflow menu
                     Box {
                         IconButton(onClick = { showOverflow = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "More options")
@@ -521,10 +594,21 @@ private fun ListOverviewRow(
                             expanded = showOverflow,
                             onDismissRequest = { showOverflow = false },
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Rename") },
-                                onClick = { showOverflow = false; onRename() },
-                            )
+                            if (!isArchivedView) {
+                                DropdownMenuItem(
+                                    text = { Text("Rename") },
+                                    onClick = { showOverflow = false; onRename() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Archive") },
+                                    onClick = { showOverflow = false; onArchive() },
+                                )
+                            } else {
+                                DropdownMenuItem(
+                                    text = { Text("Restore") },
+                                    onClick = { showOverflow = false; onRestore() },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                                 onClick = { showOverflow = false; onDelete() },
@@ -532,8 +616,8 @@ private fun ListOverviewRow(
                         }
                     }
                 }
-                // Drag handle — always rendered but hidden in multi-select mode
-                if (!isMultiSelectMode) {
+                // Drag handle — only in active view, hidden in archived/multi-select
+                if (!isMultiSelectMode && !isArchivedView) {
                     Icon(
                         Icons.Default.DragHandle,
                         contentDescription = "Drag to reorder",
@@ -557,11 +641,27 @@ private fun SortFilterMenu(
     expanded: Boolean,
     currentSort: ListSort,
     currentFilter: ListFilter,
+    showArchived: Boolean,
     onSortSelected: (ListSort) -> Unit,
     onFilterSelected: (ListFilter) -> Unit,
+    onToggleArchived: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        // ── Archive toggle ──────────────────────────────────────────────────
+        DropdownMenuItem(
+            text = { Text(if (showArchived) "Show Active Lists" else "Show Archived Lists") },
+            leadingIcon = {
+                Icon(
+                    if (showArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                    contentDescription = null,
+                )
+            },
+            onClick = { onToggleArchived(); onDismiss() },
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
         // ── Sort section ────────────────────────────────────────────────────
         DropdownMenuItem(
             text = {

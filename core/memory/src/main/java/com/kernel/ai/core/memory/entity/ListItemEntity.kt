@@ -29,4 +29,6 @@ data class ListItemEntity(
     val checked: Boolean = false,
     val dueAt: Long? = null,
     val isFavourite: Boolean = false,
+    /** Epoch-ms when a notification should fire, or null for no notification. */
+    val notificationTime: Long? = null,
 )
