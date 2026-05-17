@@ -732,7 +732,18 @@ private fun ListItemRow(
                 )
             }
         },
-        trailingContent = if (isMultiSelectMode) null else {
+        trailingContent = if (isMultiSelectMode) {
+            if (item.isFavourite) {
+                {
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = "Favourited",
+                        tint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                }
+            } else null
+        } else {
             {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (showDragHandle) {
