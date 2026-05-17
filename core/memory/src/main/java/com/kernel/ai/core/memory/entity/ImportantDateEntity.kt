@@ -18,4 +18,8 @@ data class ImportantDateEntity(
     val year: Int? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "notification_enabled") val notificationEnabled: Boolean = true,
+    /** Per-event reminder hour (0–23). Null = use the global default from [ImportantDateNotificationPreferences]. */
+    @ColumnInfo(name = "notification_hour") val notificationHour: Int? = null,
+    /** Per-event reminder minute (0–59). Null = use the global default from [ImportantDateNotificationPreferences]. */
+    @ColumnInfo(name = "notification_minute") val notificationMinute: Int? = null,
 )

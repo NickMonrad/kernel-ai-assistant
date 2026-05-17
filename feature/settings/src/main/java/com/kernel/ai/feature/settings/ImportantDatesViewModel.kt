@@ -31,6 +31,10 @@ data class ImportantDateListItem(
     val year: Int?,
     val source: ImportantDateSource,
     val nextOccurrence: LocalDate,
+    /** Per-event reminder hour override. Null = use the global reminder time. */
+    val notificationHour: Int? = null,
+    /** Per-event reminder minute override. Null = use the global reminder time. */
+    val notificationMinute: Int? = null,
 ) {
     val stableKey: String = "${source.name}:$normalizedLabel"
     val isReadOnly: Boolean = source == ImportantDateSource.CALENDAR
@@ -110,6 +114,8 @@ class ImportantDatesViewModel @Inject constructor(
         month: Int,
         day: Int,
         year: Int?,
+        notificationHour: Int? = null,
+        notificationMinute: Int? = null,
     ): Boolean {
         val trimmedLabel = label.trim()
         if (trimmedLabel.isBlank()) {
@@ -132,7 +138,7 @@ class ImportantDatesViewModel @Inject constructor(
         if (existingLabel != null && originalNormalizedLabel != normalizedLabel) {
             repository.deleteByLabel(existingLabel)
         }
-        repository.save(trimmedLabel, month, day, year)
+        repository.save(trimmedLabel, month, day, year, notificationHour, notificationMinute)
         _messages.emit(if (existingLabel == null) "Saved $trimmedLabel." else "Updated $trimmedLabel.")
         return true
     }
@@ -195,6 +201,8 @@ class ImportantDatesViewModel @Inject constructor(
                 year = year,
                 source = ImportantDateSource.TAUGHT,
                 nextOccurrence = nextOccurrence(month, day, today),
+                notificationHour = notificationHour,
+                notificationMinute = notificationMinute,
             )
 
         internal fun CalendarBirthdayLookup.BirthdayEntry.toUiItem(today: LocalDate = LocalDate.now()): ImportantDateListItem =

@@ -681,10 +681,12 @@ abstract class KernelDatabase : RoomDatabase() {
             }
         }
 
-        /** Adds notificationEnabled to important_dates for day-of notifications (#902). */
+        /** Adds notificationEnabled + per-event notification_hour/minute to important_dates (#902). */
         val MIGRATION_39_40 = object : Migration(39, 40) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE important_dates ADD COLUMN notification_enabled INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE important_dates ADD COLUMN notification_hour INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE important_dates ADD COLUMN notification_minute INTEGER DEFAULT NULL")
             }
         }
     }

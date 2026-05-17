@@ -253,7 +253,7 @@ fun ImportantDatesScreen(
         ImportantDateEditorSheet(
             existingItem = null,
             onDismiss = { createRequested = false },
-            onSave = { label, month, day, year ->
+            onSave = { label, month, day, year, notifHour, notifMinute ->
                 coroutineScope.launch {
                     val saved = viewModel.saveTaughtDate(
                         existingLabel = null,
@@ -261,6 +261,8 @@ fun ImportantDatesScreen(
                         month = month,
                         day = day,
                         year = year,
+                        notificationHour = notifHour,
+                        notificationMinute = notifMinute,
                     )
                     if (saved) createRequested = false
                 }
@@ -272,7 +274,7 @@ fun ImportantDatesScreen(
         ImportantDateEditorSheet(
             existingItem = item,
             onDismiss = { editingDate = null },
-            onSave = { label, month, day, year ->
+            onSave = { label, month, day, year, notifHour, notifMinute ->
                 coroutineScope.launch {
                     val saved = viewModel.saveTaughtDate(
                         existingLabel = item.label,
@@ -280,6 +282,8 @@ fun ImportantDatesScreen(
                         month = month,
                         day = day,
                         year = year,
+                        notificationHour = notifHour,
+                        notificationMinute = notifMinute,
                     )
                     if (saved) editingDate = null
                 }
@@ -467,11 +471,18 @@ private fun ImportantDateRow(
         supportingContent = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(dateSummary)
+                val timeNote = if (item.notificationHour != null && item.notificationMinute != null) {
+                    val amPm = if (item.notificationHour < 12) "AM" else "PM"
+                    val h = when (item.notificationHour) { 0 -> 12; in 13..23 -> item.notificationHour - 12; else -> item.notificationHour }
+                    "⏰ %d:%02d %s · ".format(h, item.notificationMinute, amPm)
+                } else {
+                    ""
+                }
                 Text(
                     if (item.isReadOnly) {
-                        "$nextSummary · Synced from Calendar"
+                        "${timeNote}$nextSummary · Synced from Calendar"
                     } else {
-                        "$nextSummary · Taught by you"
+                        "${timeNote}$nextSummary · Taught by you"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -507,7 +518,7 @@ private fun ImportantDateRow(
 private fun ImportantDateEditorSheet(
     existingItem: ImportantDateListItem?,
     onDismiss: () -> Unit,
-    onSave: (label: String, month: Int, day: Int, year: Int?) -> Unit,
+    onSave: (label: String, month: Int, day: Int, year: Int?, notificationHour: Int?, notificationMinute: Int?) -> Unit,
 ) {
     val today = LocalDate.now()
     var label by remember(existingItem) { mutableStateOf(existingItem?.label ?: "") }
@@ -523,6 +534,10 @@ private fun ImportantDateEditorSheet(
     var yearText by remember(existingItem) { mutableStateOf(existingItem?.year?.toString().orEmpty()) }
     var localError by remember(existingItem) { mutableStateOf<String?>(null) }
     var showDatePicker by remember(existingItem) { mutableStateOf(false) }
+    var customTimeEnabled by remember(existingItem) { mutableStateOf(existingItem?.notificationHour != null) }
+    var customHour by remember(existingItem) { mutableStateOf(existingItem?.notificationHour ?: 9) }
+    var customMinute by remember(existingItem) { mutableStateOf(existingItem?.notificationMinute ?: 0) }
+    var showCustomTimePicker by remember(existingItem) { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -569,6 +584,41 @@ private fun ImportantDateEditorSheet(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
             )
+            // Per-event custom reminder time
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Custom reminder time", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (customTimeEnabled) {
+                            val amPm = if (customHour < 12) "AM" else "PM"
+                            val h = when (customHour) { 0 -> 12; in 13..23 -> customHour - 12; else -> customHour }
+                            "Override: %d:%02d %s".format(h, customMinute, amPm)
+                        } else {
+                            "Uses the global reminder time"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = customTimeEnabled,
+                    onCheckedChange = { customTimeEnabled = it },
+                )
+            }
+            if (customTimeEnabled) {
+                OutlinedButton(
+                    onClick = { showCustomTimePicker = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    val amPm = if (customHour < 12) "AM" else "PM"
+                    val h = when (customHour) { 0 -> 12; in 13..23 -> customHour - 12; else -> customHour }
+                    Text("Reminder: %d:%02d %s".format(h, customMinute, amPm))
+                }
+            }
             localError?.let { message ->
                 Text(
                     text = message,
@@ -604,7 +654,14 @@ private fun ImportantDateEditorSheet(
                                 return@Button
                             }
                         }
-                        onSave(label, selectedDate.monthValue, selectedDate.dayOfMonth, parsedYear)
+                        onSave(
+                            label,
+                            selectedDate.monthValue,
+                            selectedDate.dayOfMonth,
+                            parsedYear,
+                            if (customTimeEnabled) customHour else null,
+                            if (customTimeEnabled) customMinute else null,
+                        )
                     },
                     modifier = Modifier.weight(1f),
                 ) {
@@ -643,6 +700,19 @@ private fun ImportantDateEditorSheet(
             DatePicker(state = datePickerState)
         }
     }
+
+    if (showCustomTimePicker) {
+        ImportantDateTimePickerDialog(
+            initialHour = customHour,
+            initialMinute = customMinute,
+            onDismiss = { showCustomTimePicker = false },
+            onConfirm = { h, m ->
+                customHour = h
+                customMinute = m
+                showCustomTimePicker = false
+            },
+        )
+    }
 }
 
 @Composable
@@ -665,7 +735,7 @@ private fun NotificationTimeRow(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         headlineContent = { Text("Reminder time") },
-        supportingContent = { Text("Daily notification time for all important dates") },
+        supportingContent = { Text("Default notification time for all important dates") },
         trailingContent = {
             Text(
                 text = timeLabel,

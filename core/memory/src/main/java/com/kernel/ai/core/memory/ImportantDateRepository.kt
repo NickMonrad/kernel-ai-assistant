@@ -28,6 +28,8 @@ class ImportantDateRepository @Inject constructor(
         month: Int,
         day: Int,
         year: Int?,
+        notificationHour: Int? = null,
+        notificationMinute: Int? = null,
     ) {
         val trimmedLabel = label.trim()
         val normalized = normalizeLabel(trimmedLabel)
@@ -43,17 +45,19 @@ class ImportantDateRepository @Inject constructor(
                 day = day,
                 year = year,
                 notificationEnabled = true,
+                notificationHour = notificationHour,
+                notificationMinute = notificationMinute,
             ),
         )
-        val (hour, minute) = notificationPreferences.getNotificationTime()
+        val (globalHour, globalMinute) = notificationPreferences.getNotificationTime()
         notificationScheduler.schedule(
             dateId = insertedId,
             label = trimmedLabel,
             month = month,
             day = day,
             year = year,
-            notificationHour = hour,
-            notificationMinute = minute,
+            notificationHour = notificationHour ?: globalHour,
+            notificationMinute = notificationMinute ?: globalMinute,
         )
     }
 
@@ -80,8 +84,8 @@ class ImportantDateRepository @Inject constructor(
                 month = date.month,
                 day = date.day,
                 year = date.year,
-                notificationHour = notificationHour,
-                notificationMinute = notificationMinute,
+                notificationHour = date.notificationHour ?: notificationHour,
+                notificationMinute = date.notificationMinute ?: notificationMinute,
             )
         }
     }
