@@ -504,7 +504,7 @@ fun ListItemsScreen(
                                     isSelected = isSelected,
                                     showDragHandle = !isItemMultiSelectMode,
                                     dragHandleModifier = if (!isItemMultiSelectMode) {
-                                        Modifier.draggableHandle(
+                                        Modifier.longPressDraggableHandle(
                                             onDragStarted = { itemDragInProgress = true },
                                             onDragStopped = {
                                                 itemDragInProgress = false
