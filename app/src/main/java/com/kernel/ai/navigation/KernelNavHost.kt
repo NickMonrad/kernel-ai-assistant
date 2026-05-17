@@ -47,6 +47,7 @@ import com.kernel.ai.feature.settings.AboutScreen
 import com.kernel.ai.feature.settings.ContactAliasesScreen
 import com.kernel.ai.feature.settings.ImportantDatesScreen
 import com.kernel.ai.feature.settings.ListItemsScreen
+import com.kernel.ai.feature.settings.ChatPreferencesScreen
 import com.kernel.ai.feature.settings.ListsScreen
 import com.kernel.ai.feature.settings.MemoryScreen
 import com.kernel.ai.feature.settings.ModelManagementScreen
@@ -72,6 +73,7 @@ private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
 private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management?scrollTo={scrollTo}"
 private const val ARG_SCROLL_TO = "scrollTo"
 private const val ROUTE_ABOUT = "settings/about"
+private const val ROUTE_CHAT_PREFERENCES = "settings/chat_preferences"
 private const val ROUTE_CONTACT_ALIASES = "settings/contact_aliases"
 private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
 private const val ROUTE_SIDE_PANEL = "settings/side_panel"
@@ -450,6 +452,9 @@ fun KernelNavHost(
                             val route = "settings/model_management?scrollTo=$preferred"
                             navController.navigate(route)
                         },
+                        onNavigateToChatPreferences = {
+                            navController.navigate(ROUTE_CHAT_PREFERENCES)
+                        },
                         onNavigateToAbout = {
                             navController.navigate(ROUTE_ABOUT)
                         },
@@ -458,6 +463,12 @@ fun KernelNavHost(
 
                 composable(ROUTE_USER_PROFILE) {
                     UserProfileScreen(
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(ROUTE_CHAT_PREFERENCES) {
+                    ChatPreferencesScreen(
                         onBack = { navController.popBackStack() },
                     )
                 }
