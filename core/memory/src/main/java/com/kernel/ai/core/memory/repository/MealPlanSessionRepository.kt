@@ -6,6 +6,7 @@ import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.MealPlanDayDao
+import com.kernel.ai.core.memory.dao.MealPlanFavouriteRecipeDao
 import com.kernel.ai.core.memory.dao.MealPlanGroceryItemDao
 import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
 import com.kernel.ai.core.memory.dao.MealPlanRecipeVersionDao
@@ -13,11 +14,14 @@ import com.kernel.ai.core.memory.dao.MealPlanSessionDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.MealPlanDayEntity
+import com.kernel.ai.core.memory.entity.MealPlanFavouriteRecipeEntity
 import com.kernel.ai.core.memory.entity.MealPlanGroceryItemEntity
 import com.kernel.ai.core.memory.entity.MealPlanProjectionWriteEntity
 import com.kernel.ai.core.memory.entity.MealPlanRecipeVersionEntity
 import com.kernel.ai.core.memory.entity.MealPlanSessionEntity
 import com.kernel.ai.core.memory.mealplan.CanonicalGroceryItem
+import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
+import com.kernel.ai.core.memory.mealplan.FavouriteRecipeSummary
 import com.kernel.ai.core.memory.mealplan.GroceryNormalizationStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanDraftDay
@@ -49,6 +53,7 @@ class MealPlanSessionRepository @Inject constructor(
     private val dayDao: MealPlanDayDao,
     private val recipeVersionDao: MealPlanRecipeVersionDao,
     private val groceryItemDao: MealPlanGroceryItemDao,
+    private val favouriteRecipeDao: MealPlanFavouriteRecipeDao,
     private val projectionWriteDao: MealPlanProjectionWriteDao,
     private val listItemDao: ListItemDao,
     private val listNameDao: ListNameDao,
@@ -79,6 +84,29 @@ class MealPlanSessionRepository @Inject constructor(
     suspend fun getPendingCompletedSummarySessions(limit: Int): List<MealPlanSnapshot> =
         sessionDao.getCompletedWithoutSummary(limit).map { it.toSnapshot() }
 
+    suspend fun getFavouriteRecipes(limit: Int): List<FavouriteRecipeSummary> =
+        favouriteRecipeDao.getRecent(limit).map { favourite ->
+            FavouriteRecipeSummary(
+                recipeKey = favourite.recipeKey,
+                title = favourite.title,
+                summary = favourite.summary,
+                proteinTags = jsonArrayToStringList(favourite.proteinTagsJson),
+            )
+        }
+
+    suspend fun setFavouriteRecipeMode(sessionId: String, mode: FavouriteRecipeMode): MealPlanSnapshot = database.withTransaction {
+        val session = requireNotNull(sessionDao.getById(sessionId)) { "Unknown meal-plan session: $sessionId" }
+        if (session.status == MealPlanSessionStatus.CANCELLED.name) {
+            return@withTransaction session.toSnapshot()
+        }
+        val updated = session.copy(
+            favouriteRecipeMode = mode.name,
+            updatedAt = System.currentTimeMillis(),
+        )
+        sessionDao.update(updated)
+        updated.toSnapshot()
+    }
+
     /**
      * Planner retention pruning runs here before resuming/creating a session so old terminal
      * planner state does not accumulate indefinitely between active planner uses.
@@ -96,6 +124,7 @@ class MealPlanSessionRepository @Inject constructor(
         daysCount: Int? = null,
         dietaryRestrictions: List<String>? = null,
         proteinPreferences: List<String>? = null,
+        favouriteRecipeMode: FavouriteRecipeMode? = null,
     ): MealPlanSnapshot = database.withTransaction {
         val session = requireNotNull(sessionDao.getById(sessionId)) { "Unknown meal-plan session: $sessionId" }
         if (session.status == MealPlanSessionStatus.CANCELLED.name) {
@@ -106,12 +135,49 @@ class MealPlanSessionRepository @Inject constructor(
             daysCount = daysCount ?: session.daysCount,
             dietaryRestrictionsJson = dietaryRestrictions?.distinct()?.toJsonArrayString() ?: session.dietaryRestrictionsJson,
             proteinPreferencesJson = proteinPreferences?.distinct()?.toJsonArrayString() ?: session.proteinPreferencesJson,
+            favouriteRecipeMode = favouriteRecipeMode?.name ?: session.favouriteRecipeMode,
             updatedAt = System.currentTimeMillis(),
         )
         sessionDao.update(updated)
         updated.toSnapshot()
     }
 
+    suspend fun setRecipeFavourite(
+        sessionId: String,
+        dayIndex: Int,
+        favourite: Boolean,
+    ): MealPlanSnapshot = database.withTransaction {
+        val session = requireNotNull(sessionDao.getById(sessionId)) { "Unknown meal-plan session: $sessionId" }
+        if (session.status == MealPlanSessionStatus.CANCELLED.name) {
+            return@withTransaction session.toSnapshot()
+        }
+        val day = requireNotNull(dayDao.getBySessionAndIndex(sessionId, dayIndex)) {
+            "Unknown meal-plan day $dayIndex for session $sessionId"
+        }
+        val recipeVersion = requireNotNull(currentRecipeVersion(day)) {
+            "Day ${dayIndex + 1} does not have a recipe yet."
+        }
+        val recipeKey = resolvedRecipeKey(recipeVersion, jsonArrayToStringList(day.proteinTagsJson))
+        require(recipeKey.isNotBlank()) { "Day ${dayIndex + 1} does not have a stable favourite-recipe key yet." }
+        val now = System.currentTimeMillis()
+        if (favourite) {
+            favouriteRecipeDao.upsert(
+                MealPlanFavouriteRecipeEntity(
+                    recipeKey = recipeKey,
+                    title = recipeVersion.title,
+                    summary = day.summary,
+                    proteinTagsJson = day.proteinTagsJson,
+                    createdAt = favouriteRecipeDao.getByKey(recipeKey)?.createdAt ?: now,
+                    updatedAt = now,
+                ),
+            )
+        } else {
+            favouriteRecipeDao.delete(recipeKey)
+        }
+        val updatedSession = session.copy(updatedAt = now)
+        sessionDao.update(updatedSession)
+        updatedSession.toSnapshot()
+    }
     suspend fun savePlanDraft(
         sessionId: String,
         days: List<MealPlanDraftDay>,
@@ -231,6 +297,7 @@ class MealPlanSessionRepository @Inject constructor(
             mealPlanSessionId = sessionId,
             mealPlanDayId = day.id,
             version = nextVersion,
+            recipeKey = normalizeRecipeKey(recipeDraft.title, jsonArrayToStringList(day.proteinTagsJson)),
             title = recipeDraft.title,
             servings = recipeDraft.servings,
             ingredientsJson = ingredientsToJson(recipeDraft.ingredients),
@@ -630,6 +697,7 @@ class MealPlanSessionRepository @Inject constructor(
                 dietaryRestrictionsJson = "[]",
                 proteinPreferencesJson = "[]",
                 optionalSlotsJson = "{}",
+                favouriteRecipeMode = FavouriteRecipeMode.NONE.name,
                 activeDayIndex = null,
                 pendingGenerationKind = null,
                 pendingGenerationDayIndex = null,
@@ -648,6 +716,19 @@ class MealPlanSessionRepository @Inject constructor(
 
     private suspend fun MealPlanSessionEntity.toSnapshot(): MealPlanSnapshot {
         val days = dayDao.getBySession(id)
+        val dayRecipes = days.associateWith { day -> currentRecipeVersion(day) }
+        val favouriteKeys = dayRecipes.entries
+            .mapNotNull { (day, recipeVersion) ->
+                recipeVersion?.let { current ->
+                    resolvedRecipeKey(current, jsonArrayToStringList(day.proteinTagsJson)).takeIf { it.isNotBlank() }
+                }
+            }
+            .distinct()
+        val favouriteKeySet = if (favouriteKeys.isEmpty()) {
+            emptySet()
+        } else {
+            favouriteRecipeDao.getExistingKeys(favouriteKeys).toSet()
+        }
         return MealPlanSnapshot(
             sessionId = id,
             conversationId = conversationId,
@@ -657,6 +738,7 @@ class MealPlanSessionRepository @Inject constructor(
             daysCount = daysCount,
             dietaryRestrictions = jsonArrayToStringList(dietaryRestrictionsJson),
             proteinPreferences = jsonArrayToStringList(proteinPreferencesJson),
+            favouriteRecipeMode = FavouriteRecipeMode.valueOf(favouriteRecipeMode),
             activeDayIndex = activeDayIndex,
             pendingGenerationKind = pendingGenerationKind?.let(PendingGenerationKind::valueOf),
             pendingGenerationDayIndex = pendingGenerationDayIndex,
@@ -667,19 +749,17 @@ class MealPlanSessionRepository @Inject constructor(
             completedAt = completedAt,
             cancelledAt = cancelledAt,
             days = days.map { day ->
-                val recipe = day.currentRecipeVersion?.let {
-                    recipeVersionDao.getLatestForDay(day.id)?.let { latest ->
-                        if (latest.version == it) {
-                            RecipeDraft(
-                                title = latest.title,
-                                servings = latest.servings,
-                                ingredients = jsonToIngredients(latest.ingredientsJson),
-                                methodSteps = jsonToMethodSteps(latest.methodStepsJson),
-                            )
-                        } else {
-                            null
-                        }
-                    }
+                val currentRecipeVersionEntity = dayRecipes.getValue(day)
+                val recipe = currentRecipeVersionEntity?.let { current ->
+                    RecipeDraft(
+                        title = current.title,
+                        servings = current.servings,
+                        ingredients = jsonToIngredients(current.ingredientsJson),
+                        methodSteps = jsonToMethodSteps(current.methodStepsJson),
+                    )
+                }
+                val recipeKey = currentRecipeVersionEntity?.let { current ->
+                    resolvedRecipeKey(current, jsonArrayToStringList(day.proteinTagsJson)).takeIf { it.isNotBlank() }
                 }
                 MealPlanSnapshotDay(
                     id = day.id,
@@ -693,6 +773,8 @@ class MealPlanSessionRepository @Inject constructor(
                     lastErrorCode = day.lastErrorCode,
                     lastErrorMessage = day.lastErrorMessage,
                     currentRecipe = recipe,
+                    recipeKey = recipeKey,
+                    isFavouriteRecipe = recipeKey != null && recipeKey in favouriteKeySet,
                 )
             },
         )
@@ -710,6 +792,29 @@ class MealPlanSessionRepository @Inject constructor(
 
     private fun recipeListName(session: MealPlanSessionEntity, dayIndex: Int, title: String): String =
         "${canonicalDisplayName(session)} Day ${dayIndex + 1} — $title"
+
+    private suspend fun currentRecipeVersion(day: MealPlanDayEntity): MealPlanRecipeVersionEntity? {
+        val version = day.currentRecipeVersion ?: return null
+        return recipeVersionDao.getLatestForDay(day.id)?.takeIf { it.version == version }
+    }
+
+    private fun resolvedRecipeKey(recipeVersion: MealPlanRecipeVersionEntity, proteinTags: List<String>): String =
+        recipeVersion.recipeKey.takeIf { it.isNotBlank() }
+            ?: normalizeRecipeKey(recipeVersion.title, proteinTags)
+
+    private fun normalizeRecipeKey(title: String, proteinTags: List<String>): String {
+        val normalizedTitle = title.lowercase(Locale.ENGLISH)
+            .replace(NON_ALNUM_REGEX, " ")
+            .replace(MULTISPACE_REGEX, " ")
+            .trim()
+        val normalizedProteins = proteinTags.map { it.lowercase(Locale.ENGLISH).trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+        return listOf(normalizedTitle, normalizedProteins.joinToString("-"))
+            .filter { it.isNotBlank() }
+            .joinToString("|")
+    }
 
     private fun ingredientsToJson(ingredients: List<RecipeDraftIngredient>): String = JSONArray(
         ingredients.map { ingredient ->
@@ -766,5 +871,7 @@ class MealPlanSessionRepository @Inject constructor(
         private const val COMPLETED_SESSION_RETENTION_MS = 30L * DAY_MS
         private const val COMPLETED_SESSION_FALLBACK_RETENTION_MS = 90L * DAY_MS
         private const val CANCELLED_SESSION_RETENTION_MS = 7L * DAY_MS
+        private val NON_ALNUM_REGEX = Regex("[^a-z0-9 ]")
+        private val MULTISPACE_REGEX = Regex("\\s+")
     }
 }

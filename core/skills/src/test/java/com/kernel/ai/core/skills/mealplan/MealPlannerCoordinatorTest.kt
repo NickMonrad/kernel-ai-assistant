@@ -2,6 +2,7 @@ package com.kernel.ai.core.skills.mealplan
 
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanDraftDay
 import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
@@ -26,6 +27,7 @@ class MealPlannerCoordinatorTest {
     private val sessionRepository = mockk<MealPlanSessionRepository>(relaxed = true) {
         coEvery { getRecentMealHistory(any()) } returns emptyList()
         coEvery { getPendingCompletedSummarySessions(any()) } returns emptyList()
+        coEvery { getFavouriteRecipes(any()) } returns emptyList()
     }
     private val slotExtractor = MealPlannerSlotExtractor()
     private val jsonParser = MealPlanJsonParser()
@@ -760,6 +762,62 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `plan review prefer favourites returns to editable preference flow`() = runTest {
+        val planReview = planReviewSnapshot()
+        val editable = planReview.copy(
+            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
+            favouriteRecipeMode = FavouriteRecipeMode.PREFER,
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns planReview
+        coEvery { sessionRepository.returnToSlotCollection("session-1") } returns editable
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = null,
+                proteinPreferences = null,
+                favouriteRecipeMode = FavouriteRecipeMode.PREFER,
+            )
+        } returns editable
+
+        val reply = coordinator.ingestUserMessage("conv", "prefer favourites")
+
+        assertTrue(reply.content.contains("Current plan details", ignoreCase = true))
+        assertTrue(reply.content.contains("saved favourites preferred", ignoreCase = true))
+        coVerify { sessionRepository.returnToSlotCollection("session-1") }
+        coVerify {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = null,
+                proteinPreferences = null,
+                favouriteRecipeMode = FavouriteRecipeMode.PREFER,
+            )
+        }
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `ready plan favourite day marks recipe as favourite`() = runTest {
+        val ready = readyForFinalizeSnapshot(finalSummaryWritten = false)
+        val updated = ready.copy(
+            days = ready.days.mapIndexed { index, day ->
+                if (index == 0) day.copy(isFavouriteRecipe = true) else day
+            },
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns ready
+        coEvery { sessionRepository.setRecipeFavourite("session-1", 0, true) } returns updated
+
+        val reply = coordinator.ingestUserMessage("conv", "favourite day 1")
+
+        assertTrue(reply.content.contains("Saved Day 1 as a favourite recipe", ignoreCase = true))
+        assertTrue(reply.content.contains("★ favourite"))
+        coVerify { sessionRepository.setRecipeFavourite("session-1", 0, true) }
+    }
+
+    @Test
     fun `plan review replacement emits working activity before draft update`() = runTest {
         val planReview = planReviewSnapshot()
         val replaced = planReview.copy(
@@ -1175,7 +1233,7 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("generate recipes", "show current plan", "replace day 1", "change preferences", "help"),
+            listOf("generate recipes", "show current plan", "replace day 1", "prefer favourites", "change preferences", "help"),
             activity?.suggestions?.map { it.command },
         )
     }
@@ -1199,7 +1257,7 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("show current plan", "done meal planning", "regenerate day 1", "replace day 1", "help"),
+            listOf("show current plan", "done meal planning", "regenerate day 1", "replace day 1", "favourite day 1", "prefer favourites", "help"),
             activity?.suggestions?.map { it.command },
         )
     }
@@ -1566,6 +1624,7 @@ class MealPlannerCoordinatorTest {
         daysCount = null,
         dietaryRestrictions = emptyList(),
         proteinPreferences = emptyList(),
+        favouriteRecipeMode = FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,
         pendingGenerationDayIndex = null,
@@ -1587,6 +1646,7 @@ class MealPlannerCoordinatorTest {
         daysCount = 2,
         dietaryRestrictions = listOf("low lactose"),
         proteinPreferences = listOf("chicken"),
+        favouriteRecipeMode = FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,
         pendingGenerationDayIndex = null,
@@ -1617,6 +1677,8 @@ class MealPlannerCoordinatorTest {
                     lastErrorCode = null,
                     lastErrorMessage = null,
                     currentRecipe = null,
+                    recipeKey = null,
+                    isFavouriteRecipe = false,
                 )
             },
         )
@@ -1630,6 +1692,7 @@ class MealPlannerCoordinatorTest {
         daysCount = 2,
         dietaryRestrictions = listOf("low lactose"),
         proteinPreferences = listOf("chicken"),
+        favouriteRecipeMode = FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,
         pendingGenerationDayIndex = null,
@@ -1657,6 +1720,8 @@ class MealPlannerCoordinatorTest {
         lastErrorCode = null,
         lastErrorMessage = null,
         currentRecipe = null,
+        recipeKey = if (status == MealPlanDayStatus.PERSISTED) title.lowercase() else null,
+        isFavouriteRecipe = false,
     )
 
     private fun planJson(
