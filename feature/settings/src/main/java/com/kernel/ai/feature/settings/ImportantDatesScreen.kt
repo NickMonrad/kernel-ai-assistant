@@ -606,7 +606,10 @@ private fun ImportantDateEditorSheet(
                 }
                 Switch(
                     checked = customTimeEnabled,
-                    onCheckedChange = { customTimeEnabled = it },
+                    onCheckedChange = { enabled ->
+                        customTimeEnabled = enabled
+                        if (enabled) showCustomTimePicker = true
+                    },
                 )
             }
             if (customTimeEnabled) {
@@ -757,7 +760,7 @@ private fun ImportantDateTimePickerDialog(
     val state = rememberTimePickerState(
         initialHour = initialHour,
         initialMinute = initialMinute,
-        is24Hour = false,
+        is24Hour = true,
     )
     AlertDialog(
         onDismissRequest = onDismiss,
