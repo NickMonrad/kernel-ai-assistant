@@ -731,8 +731,16 @@ class MealPlanSessionRepositoryAndroidTest {
     }
 
     @Test
-    fun migration41To42_backfillsStableMealPlanDisplayCodes() {
-        migrationHelper.createDatabase(MIGRATION_DB_NAME, 41).apply {
+    fun migration44To45_backfillsStableMealPlanDisplayCodes() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 44).apply {
+            execSQL(
+                """
+                INSERT INTO `model_settings` (
+                    `modelId`, `contextWindowSize`, `temperature`, `topP`, `topK`,
+                    `showThinkingProcess`, `correctGroundedFactsEnabled`, `speculativeDecodingEnabled`, `updatedAt`
+                ) VALUES ('gemma_4_e4b', 4000, 1.0, 0.95, 64, 1, 1, 0, 1000)
+                """.trimIndent(),
+            )
             execSQL(
                 """
                 INSERT INTO `meal_plan_sessions` (
@@ -752,11 +760,15 @@ class MealPlanSessionRepositoryAndroidTest {
 
         val migratedDb = migrationHelper.runMigrationsAndValidate(
             MIGRATION_DB_NAME,
-            42,
+            45,
             true,
-            KernelDatabase.MIGRATION_41_42,
+            KernelDatabase.MIGRATION_44_45,
         )
 
+        migratedDb.query("SELECT correctGroundedFactsEnabled FROM `model_settings` WHERE modelId = 'gemma_4_e4b'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+        }
         migratedDb.query("SELECT id, displayCode FROM `meal_plan_sessions` ORDER BY createdAt ASC, id ASC").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals("session-a", cursor.getString(0))

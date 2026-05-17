@@ -718,10 +718,9 @@ abstract class KernelDatabase : RoomDatabase() {
             }
         }
 
-        /** Adds correctGroundedFactsEnabled to model_settings and stable friendly display codes to meal-plan sessions (#913). */
+        /** Adds stable friendly display codes to meal-plan sessions (#913). */
         val MIGRATION_44_45 = object : Migration(44, 45) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE model_settings ADD COLUMN correctGroundedFactsEnabled INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE meal_plan_sessions ADD COLUMN displayCode INTEGER NOT NULL DEFAULT 0")
                 db.execSQL(
                     """
