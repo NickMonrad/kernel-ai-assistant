@@ -20,6 +20,10 @@ interface ListItemDao {
     @Query("SELECT * FROM list_items WHERE listId = :listId ORDER BY checked ASC, createdAt ASC")
     fun observeByList(listId: Long): Flow<List<ListItemEntity>>
 
+    /** All items for a given list as a one-shot query — active first, then completed, both asc by creation. */
+    @Query("SELECT * FROM list_items WHERE listId = :listId ORDER BY checked ASC, createdAt ASC")
+    suspend fun getAllByList(listId: Long): List<ListItemEntity>
+
     /** All items across all lists, for grouped display. */
     @Query("SELECT * FROM list_items ORDER BY listId ASC, checked ASC, createdAt ASC")
     fun observeAll(): Flow<List<ListItemEntity>>

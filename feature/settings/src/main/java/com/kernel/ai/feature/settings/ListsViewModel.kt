@@ -24,6 +24,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+data class ListItemCounts(val active: Int, val completed: Int) {
+    val total: Int get() = active + completed
+}
+
 enum class ListSort { MANUAL, LAST_MODIFIED, NAME_ASC, NAME_DESC, CREATED_ASC, CREATED_DESC }
 enum class ListFilter { ALL, PINNED_ONLY }
 
@@ -172,10 +176,17 @@ class ListsViewModel @Inject constructor(
             .map { items -> items.groupBy { it.listId } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    /** Item counts keyed by listId — shown in the overview. */
-    val itemCounts: StateFlow<Map<Long, Int>> =
+    /** Item counts keyed by listId — shows active/completed breakdown in the overview. */
+    val itemCounts: StateFlow<Map<Long, ListItemCounts>> =
         dao.observeAll()
-            .map { items -> items.groupBy { it.listId }.mapValues { it.value.size } }
+            .map { items ->
+                items.groupBy { it.listId }.mapValues { (_, listItems) ->
+                    ListItemCounts(
+                        active = listItems.count { !it.checked },
+                        completed = listItems.count { it.checked },
+                    )
+                }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     // ── Search ───────────────────────────────────────────────────────────────────────────────────
@@ -465,6 +476,23 @@ class ListsViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Builds a plain-text representation of the list for sharing/copying.
+     * Active items (unchecked) appear first with "• " prefix; completed with "✓ ".
+     * Both groups are ordered by creation date ascending.
+     */
+    suspend fun buildShareText(listId: Long): String {
+        val listName = listNameDao.getById(listId)?.name?.replaceFirstChar { it.uppercase() } ?: "List"
+        val items = dao.getAllByList(listId)
+        if (items.isEmpty()) return listName
+        val lines = buildList {
+            add(listName)
+            add("")
+            items.forEach { item ->
+                add("${if (item.checked) "✓" else "•"} ${item.text}")
+            }
+        }
+        return lines.joinToString("\n")
+    }
 }
-
-
