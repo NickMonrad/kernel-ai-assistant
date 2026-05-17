@@ -36,6 +36,7 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 💬 **Full markdown rendering** — headings, bold, italic, inline code, code blocks, tables, links, lists
 - 🎯 **Smart chat titles** — auto-generated from conversation content
 - 🗂️ **Multi-conversation** — create, delete, rename, and search conversations by title
+- 📁 **Conversation management** — archive, pin, drag-to-reorder conversations; swipe-to-archive (left) or delete (right) with confirmation; multi-select with bulk archive/restore/delete; auto-delete archived conversations after configurable retention period (default 7 days)
 - 🧠 **Core memories** — add and manage permanent facts the assistant always recalls
 - 📂 **Memory Management screen** — view, add and delete core memories and episodic memory browser
 - ⚙️ **Model selection** — switch between E-2B and E-4B in Settings
