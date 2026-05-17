@@ -19,7 +19,10 @@ interface ImportantDateDao {
     suspend fun findByNormalizedLabel(normalizedLabel: String): ImportantDateEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(date: ImportantDateEntity)
+    suspend fun insert(date: ImportantDateEntity): Long
+
+    @Query("SELECT * FROM important_dates WHERE notification_enabled = 1 ORDER BY label COLLATE NOCASE ASC")
+    suspend fun getAllWithNotificationEnabled(): List<ImportantDateEntity>
 
     @Query("DELETE FROM important_dates WHERE normalized_label = :normalizedLabel")
     suspend fun deleteByNormalizedLabel(normalizedLabel: String): Int

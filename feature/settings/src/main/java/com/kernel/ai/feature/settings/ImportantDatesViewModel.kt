@@ -41,6 +41,8 @@ data class ImportantDatesUiState(
     val laterDates: List<ImportantDateListItem> = emptyList(),
     val calendarPermissionGranted: Boolean = false,
     val isRefreshingCalendarBirthdays: Boolean = false,
+    val notificationHour: Int = 9,
+    val notificationMinute: Int = 0,
 ) {
     val hasAnyDates: Boolean = upcomingDates.isNotEmpty() || laterDates.isNotEmpty()
 }
@@ -64,13 +66,16 @@ class ImportantDatesViewModel @Inject constructor(
         calendarBirthdays,
         calendarPermissionGranted,
         isRefreshingCalendarBirthdays,
-    ) { taughtDates, syncedBirthdays, hasCalendarPermission, isRefreshing ->
+        repository.notificationTime,
+    ) { taughtDates, syncedBirthdays, hasCalendarPermission, isRefreshing, (hour, minute) ->
         buildUiState(
             taughtDates = taughtDates,
             calendarBirthdays = syncedBirthdays,
             hasCalendarPermission = hasCalendarPermission,
             isRefreshing = isRefreshing,
             today = LocalDate.now(),
+            notificationHour = hour,
+            notificationMinute = minute,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -144,6 +149,12 @@ class ImportantDatesViewModel @Inject constructor(
         return deleted > 0
     }
 
+    fun setReminderTime(hour: Int, minute: Int) {
+        viewModelScope.launch {
+            repository.rescheduleAll(hour, minute)
+        }
+    }
+
     companion object {
         internal fun buildUiState(
             taughtDates: List<ImportantDateListItem>,
@@ -151,6 +162,8 @@ class ImportantDatesViewModel @Inject constructor(
             hasCalendarPermission: Boolean,
             isRefreshing: Boolean,
             today: LocalDate,
+            notificationHour: Int = 9,
+            notificationMinute: Int = 0,
         ): ImportantDatesUiState {
             val merged = (taughtDates + calendarBirthdays.filter { calendarBirthday ->
                 taughtDates.none { taughtDate ->
@@ -168,6 +181,8 @@ class ImportantDatesViewModel @Inject constructor(
                 laterDates = merged.filter { it.nextOccurrence.isAfter(upcomingCutoff) },
                 calendarPermissionGranted = hasCalendarPermission,
                 isRefreshingCalendarBirthdays = isRefreshing,
+                notificationHour = notificationHour,
+                notificationMinute = notificationMinute,
             )
         }
 

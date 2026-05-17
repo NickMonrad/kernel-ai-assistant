@@ -81,7 +81,7 @@ import java.time.ZoneId
         MealPlanGroceryItemEntity::class,
         MealPlanProjectionWriteEntity::class,
     ],
-    version = 39,
+    version = 40,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -678,6 +678,13 @@ abstract class KernelDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE list_items ADD COLUMN displayOrder INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("UPDATE list_items SET displayOrder = id")
+            }
+        }
+
+        /** Adds notificationEnabled to important_dates for day-of notifications (#902). */
+        val MIGRATION_39_40 = object : Migration(39, 40) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE important_dates ADD COLUMN notification_enabled INTEGER NOT NULL DEFAULT 1")
             }
         }
     }

@@ -2,6 +2,8 @@ package com.kernel.ai.core.memory
 
 import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.entity.ImportantDateEntity
+import com.kernel.ai.core.memory.notification.ImportantDateNotificationPreferences
+import com.kernel.ai.core.memory.notification.ImportantDateNotificationScheduler
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -9,8 +11,12 @@ import javax.inject.Singleton
 @Singleton
 class ImportantDateRepository @Inject constructor(
     private val dao: ImportantDateDao,
+    private val notificationScheduler: ImportantDateNotificationScheduler,
+    private val notificationPreferences: ImportantDateNotificationPreferences,
 ) {
     fun observeAll(): Flow<List<ImportantDateEntity>> = dao.observeAll()
+
+    val notificationTime: Flow<Pair<Int, Int>> = notificationPreferences.notificationTime
 
     suspend fun getAll(): List<ImportantDateEntity> = dao.getAll()
 
@@ -24,18 +30,56 @@ class ImportantDateRepository @Inject constructor(
         year: Int?,
     ) {
         val trimmedLabel = label.trim()
-        dao.insert(
+        val insertedId = dao.insert(
             ImportantDateEntity(
                 label = trimmedLabel,
                 normalizedLabel = normalizeLabel(trimmedLabel),
                 month = month,
                 day = day,
                 year = year,
+                notificationEnabled = true,
             ),
+        )
+        val (hour, minute) = notificationPreferences.getNotificationTime()
+        notificationScheduler.schedule(
+            dateId = insertedId,
+            label = trimmedLabel,
+            month = month,
+            day = day,
+            year = year,
+            notificationHour = hour,
+            notificationMinute = minute,
         )
     }
 
-    suspend fun deleteByLabel(label: String): Int = dao.deleteByNormalizedLabel(normalizeLabel(label))
+    suspend fun deleteByLabel(label: String): Int {
+        val normalized = normalizeLabel(label)
+        val entity = dao.findByNormalizedLabel(normalized)
+        val result = dao.deleteByNormalizedLabel(normalized)
+        if (result > 0 && entity != null) {
+            notificationScheduler.cancel(entity.id)
+        }
+        return result
+    }
+
+    /**
+     * Updates the stored notification time and reschedules all existing important-date alarms
+     * to use the new time. Called from the settings screen when the user changes the reminder time.
+     */
+    suspend fun rescheduleAll(notificationHour: Int, notificationMinute: Int) {
+        notificationPreferences.setNotificationTime(notificationHour, notificationMinute)
+        dao.getAllWithNotificationEnabled().forEach { date ->
+            notificationScheduler.schedule(
+                dateId = date.id,
+                label = date.label,
+                month = date.month,
+                day = date.day,
+                year = date.year,
+                notificationHour = notificationHour,
+                notificationMinute = notificationMinute,
+            )
+        }
+    }
 
     companion object {
         fun normalizeLabel(raw: String): String = raw
@@ -49,3 +93,4 @@ class ImportantDateRepository @Inject constructor(
             .trim()
     }
 }
+

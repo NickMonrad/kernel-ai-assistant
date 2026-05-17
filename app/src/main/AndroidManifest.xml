@@ -144,6 +144,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- Fires when an important-date day-of notification alarm triggers (#902) -->
+        <receiver
+            android:name=".notification.ImportantDateNotificationReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kernel.ai.IMPORTANT_DATE_REMINDER" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name=".alarm.ClockTimerActionReceiver"
             android:exported="false" />

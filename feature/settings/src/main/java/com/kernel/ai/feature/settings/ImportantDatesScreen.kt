@@ -50,8 +50,10 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -93,6 +95,7 @@ fun ImportantDatesScreen(
     var editingDate by remember { mutableStateOf<ImportantDateListItem?>(null) }
     var pendingDelete by remember { mutableStateOf<ImportantDateListItem?>(null) }
     var createRequested by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
     var showCalendarPermissionRationale by remember { mutableStateOf(false) }
     var showCalendarPermissionSettingsHint by remember { mutableStateOf(false) }
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
@@ -191,6 +194,15 @@ fun ImportantDatesScreen(
                             showCalendarPermissionSettingsHint = true
                         }
                     },
+                )
+                HorizontalDivider()
+            }
+
+            item {
+                NotificationTimeRow(
+                    hour = uiState.notificationHour,
+                    minute = uiState.notificationMinute,
+                    onClick = { showTimePicker = true },
                 )
                 HorizontalDivider()
             }
@@ -297,6 +309,18 @@ fun ImportantDatesScreen(
                 TextButton(onClick = { pendingDelete = null }) {
                     Text("Cancel")
                 }
+            },
+        )
+    }
+
+    if (showTimePicker) {
+        ImportantDateTimePickerDialog(
+            initialHour = uiState.notificationHour,
+            initialMinute = uiState.notificationMinute,
+            onDismiss = { showTimePicker = false },
+            onConfirm = { hour, minute ->
+                showTimePicker = false
+                viewModel.setReminderTime(hour, minute)
             },
         )
     }
@@ -619,6 +643,67 @@ private fun ImportantDateEditorSheet(
             DatePicker(state = datePickerState)
         }
     }
+}
+
+@Composable
+private fun NotificationTimeRow(
+    hour: Int,
+    minute: Int,
+    onClick: () -> Unit,
+) {
+    val timeLabel = remember(hour, minute) {
+        val amPm = if (hour < 12) "AM" else "PM"
+        val displayHour = when (hour) {
+            0 -> 12
+            in 13..23 -> hour - 12
+            else -> hour
+        }
+        "%d:%02d %s".format(displayHour, minute, amPm)
+    }
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        headlineContent = { Text("Reminder time") },
+        supportingContent = { Text("Daily notification time for all important dates") },
+        trailingContent = {
+            Text(
+                text = timeLabel,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ImportantDateTimePickerDialog(
+    initialHour: Int,
+    initialMinute: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (hour: Int, minute: Int) -> Unit,
+) {
+    val state = rememberTimePickerState(
+        initialHour = initialHour,
+        initialMinute = initialMinute,
+        is24Hour = false,
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Reminder time") },
+        text = { TimePicker(state = state) },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(state.hour, state.minute) }) {
+                Text("OK")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 private fun formatStoredDate(month: Int, day: Int, year: Int?): String {

@@ -17,4 +17,5 @@ data class ImportantDateEntity(
     val day: Int,
     val year: Int? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "notification_enabled") val notificationEnabled: Boolean = true,
 )
