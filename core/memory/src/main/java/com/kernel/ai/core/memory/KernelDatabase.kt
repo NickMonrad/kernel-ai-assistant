@@ -81,7 +81,7 @@ import java.time.ZoneId
         MealPlanGroceryItemEntity::class,
         MealPlanProjectionWriteEntity::class,
     ],
-    version = 42,
+    version = 43,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -700,6 +700,13 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_41_42 = object : Migration(41, 42) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE conversations ADD COLUMN archivedAt INTEGER DEFAULT NULL")
+            }
+        }
+
+        /** Adds pinned to conversations for pin feature (#905). */
+        val MIGRATION_42_43 = object : Migration(42, 43) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

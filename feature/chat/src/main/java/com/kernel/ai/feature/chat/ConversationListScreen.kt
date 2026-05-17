@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.AlertDialog
@@ -304,6 +305,7 @@ fun ConversationListScreen(
                             onArchive = { viewModel.archiveConversation(conversation.id) },
                             onRestore = { viewModel.restoreConversation(conversation.id) },
                             onDeleteRequest = { pendingDelete = conversation },
+                            onTogglePin = { viewModel.togglePin(conversation.id) },
                         )
                         // Context menu — only when NOT in selection mode
                         if (!isInSelectionMode) {
@@ -443,6 +445,7 @@ private fun SwipeableConversationRow(
     onArchive: () -> Unit,
     onRestore: () -> Unit,
     onDeleteRequest: () -> Unit,
+    onTogglePin: () -> Unit,
 ) {
     // Track pending delete to show dialog after resetting dismiss state
     var pendingSwipeDelete by remember { mutableStateOf(false) }
@@ -486,8 +489,7 @@ private fun SwipeableConversationRow(
             onOpen = onOpen,
             onLongClick = onLongClick,
         )
-    } else {
-        SwipeToDismissBox(
+    } else {        SwipeToDismissBox(
             state = dismissState,
             backgroundContent = {
                 val direction = dismissState.dismissDirection
@@ -540,6 +542,7 @@ private fun SwipeableConversationRow(
                     showArchived = showArchived,
                     onOpen = onOpen,
                     onLongClick = onLongClick,
+                    onTogglePin = onTogglePin,
                 )
             },
         )
@@ -555,6 +558,7 @@ private fun ConversationListItem(
     showArchived: Boolean,
     onOpen: () -> Unit,
     onLongClick: () -> Unit,
+    onTogglePin: (() -> Unit)? = null,
 ) {
     ListItem(
         headlineContent = {
@@ -586,13 +590,16 @@ private fun ConversationListItem(
         } else {
             null
         },
-        trailingContent = if (!isInSelectionMode) {
+        trailingContent = if (!isInSelectionMode && !showArchived && onTogglePin != null) {
             {
-                Icon(
-                    imageVector = Icons.Default.PushPin,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.outline,
-                )
+                IconButton(onClick = onTogglePin) {
+                    Icon(
+                        imageVector = if (conversation.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = if (conversation.pinned) "Unpin" else "Pin",
+                        tint = if (conversation.pinned) MaterialTheme.colorScheme.primary
+                               else MaterialTheme.colorScheme.outline,
+                    )
+                }
             }
         } else {
             null

@@ -15,7 +15,7 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<ConversationEntity>>
 
-    @Query("SELECT * FROM conversations WHERE archivedAt IS NULL ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM conversations WHERE archivedAt IS NULL ORDER BY pinned DESC, updatedAt DESC")
     fun observeActive(): Flow<List<ConversationEntity>>
 
     @Query("SELECT * FROM conversations WHERE archivedAt IS NOT NULL ORDER BY updatedAt DESC")
@@ -53,6 +53,12 @@ interface ConversationDao {
 
     @Query("SELECT * FROM conversations WHERE archivedAt IS NOT NULL AND (title IS NULL OR title LIKE '%' || :query || '%' ESCAPE '\\') ORDER BY updatedAt DESC")
     fun searchArchived(query: String): Flow<List<ConversationEntity>>
+
+    @Query("UPDATE conversations SET pinned = :pinned WHERE id = :id")
+    suspend fun updatePinned(id: String, pinned: Boolean)
+
+    @Query("SELECT pinned FROM conversations WHERE id = :id")
+    suspend fun getPinned(id: String): Boolean
 
     @Query("UPDATE conversations SET archivedAt = :timestamp WHERE id = :id")
     suspend fun archiveConversation(id: String, timestamp: Long)

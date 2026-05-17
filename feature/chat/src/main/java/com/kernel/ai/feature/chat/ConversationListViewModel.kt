@@ -72,6 +72,12 @@ class ConversationListViewModel @Inject constructor(
         }
     }
 
+    fun togglePin(id: String) {
+        viewModelScope.launch {
+            repository.togglePin(id)
+        }
+    }
+
     fun renameConversation(id: String, title: String) {
         viewModelScope.launch {
             repository.renameConversation(id, title)

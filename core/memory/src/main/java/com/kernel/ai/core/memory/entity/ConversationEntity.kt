@@ -11,4 +11,5 @@ data class ConversationEntity(
     val updatedAt: Long,
     val lastDistilledAt: Long? = null,
     val archivedAt: Long? = null,
+    val pinned: Boolean = false,
 )

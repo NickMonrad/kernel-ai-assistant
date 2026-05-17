@@ -95,6 +95,11 @@ class ConversationRepository @Inject constructor(
         conversationDao.delete(conversation)
     }
 
+    suspend fun togglePin(id: String) {
+        val current = conversationDao.getPinned(id)
+        conversationDao.updatePinned(id, !current)
+    }
+
     suspend fun archiveConversation(id: String) {
         conversationDao.archiveConversation(id, System.currentTimeMillis())
     }
