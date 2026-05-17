@@ -32,5 +32,5 @@ data class ListItemEntity(
     /** Epoch-ms when a notification should fire, or null for no notification. */
     val notificationTime: Long? = null,
     /** Position index for MANUAL sort order; initialised to id on migration 38→39. */
-    val displayOrder: Int = 0,
+    val displayOrder: Long = 0L,
 )

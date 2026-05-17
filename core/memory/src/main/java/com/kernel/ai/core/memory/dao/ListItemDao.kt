@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -75,5 +76,11 @@ interface ListItemDao {
 
     /** Update the displayOrder for manual drag-to-reorder (#917). */
     @Query("UPDATE list_items SET displayOrder = :order, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun updateItemOrder(id: Long, order: Int, updatedAt: Long)
+    suspend fun updateItemOrder(id: Long, order: Long, updatedAt: Long)
+
+    /** Atomically persist a full reorder in one transaction (#917). */
+    @Transaction
+    suspend fun replaceItemOrders(updates: List<Pair<Long, Long>>, now: Long) {
+        updates.forEach { (id, order) -> updateItemOrder(id, order, now) }
+    }
 }

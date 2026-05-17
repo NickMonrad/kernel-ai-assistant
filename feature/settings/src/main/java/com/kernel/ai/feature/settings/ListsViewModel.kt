@@ -360,9 +360,8 @@ class ListsViewModel @Inject constructor(
         val now = System.currentTimeMillis()
         itemReorderJob?.cancel()
         itemReorderJob = viewModelScope.launch(Dispatchers.IO) {
-            orderedIds.forEachIndexed { index, id ->
-                dao.updateItemOrder(id, index, now)
-            }
+            val updates = orderedIds.mapIndexed { index, id -> id to index.toLong() }
+            dao.replaceItemOrders(updates, now)
         }
     }
 

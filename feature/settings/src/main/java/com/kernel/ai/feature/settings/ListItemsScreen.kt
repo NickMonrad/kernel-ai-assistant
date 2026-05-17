@@ -195,6 +195,7 @@ fun ListItemsScreen(
     val selectedItemIds = viewModel.selectedItemIds
     val isItemMultiSelectMode = viewModel.isItemMultiSelectMode
     var showItemBulkDeleteDialog by remember { mutableStateOf(false) }
+    var showSelectAllMenu by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -244,14 +245,6 @@ fun ListItemsScreen(
                         }
                     },
                     actions = {
-                        TextButton(onClick = {
-                            viewModel.selectAllItems(
-                                (filteredActive + if (completedExpanded) filteredCompleted else emptyList())
-                                    .map { it.id }
-                            )
-                        }) {
-                            Text("Select All")
-                        }
                         // Mark selected items complete
                         IconButton(onClick = { viewModel.markSelectedItemsComplete() }) {
                             Icon(
@@ -286,6 +279,27 @@ fun ListItemsScreen(
                                 contentDescription = "Delete selected",
                                 tint = MaterialTheme.colorScheme.error,
                             )
+                        }
+                        // Overflow: Select All
+                        Box {
+                            IconButton(onClick = { showSelectAllMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                            }
+                            DropdownMenu(
+                                expanded = showSelectAllMenu,
+                                onDismissRequest = { showSelectAllMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Select all") },
+                                    onClick = {
+                                        showSelectAllMenu = false
+                                        viewModel.selectAllItems(
+                                            (filteredActive + if (completedExpanded) filteredCompleted else emptyList())
+                                                .map { it.id }
+                                        )
+                                    },
+                                )
+                            }
                         }
                     },
                 )
