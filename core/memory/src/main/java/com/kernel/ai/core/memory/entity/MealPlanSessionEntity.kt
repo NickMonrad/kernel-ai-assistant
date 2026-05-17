@@ -20,6 +20,7 @@ data class MealPlanSessionEntity(
     val dietaryRestrictionsJson: String = "[]",
     val proteinPreferencesJson: String = "[]",
     val optionalSlotsJson: String = "{}",
+    val favouriteRecipeMode: String = "NONE",
     val activeDayIndex: Int? = null,
     val pendingGenerationKind: String? = null,
     val pendingGenerationDayIndex: Int? = null,

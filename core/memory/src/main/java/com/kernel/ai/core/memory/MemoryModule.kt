@@ -15,6 +15,7 @@ import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.MealPlanDayDao
+import com.kernel.ai.core.memory.dao.MealPlanFavouriteRecipeDao
 import com.kernel.ai.core.memory.dao.MealPlanGroceryItemDao
 import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
 import com.kernel.ai.core.memory.dao.MealPlanRecipeVersionDao
@@ -107,6 +108,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_38_39,
                     KernelDatabase.MIGRATION_39_40,
                     KernelDatabase.MIGRATION_40_41,
+                    KernelDatabase.MIGRATION_41_42,
                 )
                 .addCallback(object : RoomDatabase.Callback() {
                     // SQLite disables FK enforcement by default — enable it per-connection
@@ -189,6 +191,9 @@ abstract class MemoryModule {
 
         @Provides
         fun provideMealPlanGroceryItemDao(db: KernelDatabase): MealPlanGroceryItemDao = db.mealPlanGroceryItemDao()
+
+        @Provides
+        fun provideMealPlanFavouriteRecipeDao(db: KernelDatabase): MealPlanFavouriteRecipeDao = db.mealPlanFavouriteRecipeDao()
 
         @Provides
         fun provideMealPlanProjectionWriteDao(db: KernelDatabase): MealPlanProjectionWriteDao = db.mealPlanProjectionWriteDao()

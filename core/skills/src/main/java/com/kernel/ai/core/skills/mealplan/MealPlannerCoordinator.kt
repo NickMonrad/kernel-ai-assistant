@@ -3,6 +3,7 @@ package com.kernel.ai.core.skills.mealplan
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
+import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
 import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanSnapshot
 import com.kernel.ai.core.memory.mealplan.PendingGenerationKind
@@ -16,6 +17,8 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val MAX_FAVOURITE_PROMPT_RECIPES = 6
 
 @Singleton
 class MealPlannerCoordinator @Inject constructor(
@@ -83,12 +86,14 @@ class MealPlannerCoordinator @Inject constructor(
             text,
             allowBareNoPreference = missingBefore == listOf("protein"),
         )
+        val favouriteRecipeMode = slotExtractor.extractFavouriteRecipeMode(text)
         val updated = sessionRepository.updateRequiredSlots(
             sessionId = snapshot.sessionId,
             peopleCount = peopleCount,
             daysCount = daysCount,
             dietaryRestrictions = dietaryRestrictions,
             proteinPreferences = proteinPreferences,
+            favouriteRecipeMode = favouriteRecipeMode,
         )
         val missing = missingSlots(updated)
         if (missing.isNotEmpty()) {
@@ -96,7 +101,11 @@ class MealPlannerCoordinator @Inject constructor(
         }
         val hadAllSlotsBefore = missingSlots(snapshot).isEmpty()
         val hasAnySlotUpdates =
-            peopleCount != null || daysCount != null || dietaryRestrictions != null || proteinPreferences != null
+            peopleCount != null ||
+                daysCount != null ||
+                dietaryRestrictions != null ||
+                proteinPreferences != null ||
+                favouriteRecipeMode != null
         if (hadAllSlotsBefore && !hasAnySlotUpdates) {
             return MealPlannerReply(promptForPreferenceEditing(updated))
         }
@@ -108,6 +117,11 @@ class MealPlannerCoordinator @Inject constructor(
         text: String,
         onPlannerMessage: suspend (String) -> Unit,
     ): MealPlannerReply {
+        val favouriteRecipeMode = slotExtractor.extractFavouriteRecipeMode(text)
+        if (favouriteRecipeMode != null) {
+            val updated = sessionRepository.setFavouriteRecipeMode(snapshot.sessionId, favouriteRecipeMode)
+            return generatePlanForReview(updated)
+        }
         val replaceDayIndex = slotExtractor.extractReplaceDayIndex(text)
         if (replaceDayIndex != null) {
             return try {
@@ -142,6 +156,8 @@ class MealPlannerCoordinator @Inject constructor(
         val pendingDay = snapshot.days.firstOrNull { it.status != MealPlanDayStatus.PERSISTED && it.status != MealPlanDayStatus.FAILED }
         val replaceDayIndex = slotExtractor.extractReplaceDayIndex(text)
         val regenerateDayIndex = slotExtractor.extractRegenerateDayIndex(text)
+        val favouriteDayIndex = slotExtractor.extractFavouriteDayIndex(text)
+        val unfavouriteDayIndex = slotExtractor.extractUnfavouriteDayIndex(text)
         val interruptedReplacementDayIndex = snapshot.pendingGenerationDayIndex?.takeIf {
             snapshot.pendingGenerationKind == PendingGenerationKind.REPLACEMENT && snapshot.days.all { day -> day.status == MealPlanDayStatus.PERSISTED }
         }
@@ -182,6 +198,22 @@ class MealPlannerCoordinator @Inject constructor(
             return MealPlannerReply(resumePrompt(snapshot, pendingDay.dayIndex))
         }
 
+        if (favouriteDayIndex != null) {
+            return try {
+                val updated = sessionRepository.setRecipeFavourite(snapshot.sessionId, favouriteDayIndex, true)
+                MealPlannerReply("Saved Day ${favouriteDayIndex + 1} as a favourite recipe for future meal plans.\n\n${buildPlanSummary(updated)}")
+            } catch (e: IllegalArgumentException) {
+                MealPlannerReply(e.message ?: "I couldn't favourite that recipe yet.")
+            }
+        }
+        if (unfavouriteDayIndex != null) {
+            return try {
+                val updated = sessionRepository.setRecipeFavourite(snapshot.sessionId, unfavouriteDayIndex, false)
+                MealPlannerReply("Removed Day ${unfavouriteDayIndex + 1} from your favourite recipes.\n\n${buildPlanSummary(updated)}")
+            } catch (e: IllegalArgumentException) {
+                MealPlannerReply(e.message ?: "I couldn't remove that favourite yet.")
+            }
+        }
         if (replaceDayIndex != null) {
             return try {
                 val replaced = generateReplacementDay(snapshot, replaceDayIndex)
@@ -204,15 +236,16 @@ class MealPlannerCoordinator @Inject constructor(
             return MealPlannerReply(recoveryPrompt(failedDay.dayIndex))
         }
         return MealPlannerReply(
-            "Your meal plan is ready. Say 'regenerate day 2', 'replace day 1', or 'done meal planning' to finalize it.",
+            "Your meal plan is ready. Say 'favourite day 1', 'regenerate day 2', 'replace day 1', or 'done meal planning' to finalize it.",
         )
     }
 
     private suspend fun generatePlanForReview(snapshot: MealPlanSnapshot): MealPlannerReply =
         withSessionGeneration(snapshot.sessionId) {
             sessionRepository.markPendingGeneration(snapshot.sessionId, PendingGenerationKind.PLAN)
+            val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
             val rawPlan = inferenceEngine.generateOnce(
-                prompt = buildPlanUserPrompt(snapshot),
+                prompt = buildPlanUserPrompt(snapshot, favouriteRecipes),
                 systemPrompt = buildPlanSystemPrompt(),
                 thinkingEnabled = false,
                 stopOnFirstJsonObject = true,
@@ -339,8 +372,9 @@ class MealPlannerCoordinator @Inject constructor(
             require(dayIndex in snapshot.days.indices) { "Invalid day index: $dayIndex" }
             sessionRepository.markPendingGeneration(snapshot.sessionId, PendingGenerationKind.REPLACEMENT, dayIndex)
             try {
+                val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
                 val raw = inferenceEngine.generateOnce(
-                    prompt = buildReplacementDayUserPrompt(snapshot, dayIndex),
+                    prompt = buildReplacementDayUserPrompt(snapshot, dayIndex, favouriteRecipes),
                     systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
                     thinkingEnabled = false,
                     stopOnFirstJsonObject = true,
@@ -456,7 +490,7 @@ class MealPlannerCoordinator @Inject constructor(
         append("Current plan details: ")
         append(buildKnownBits(snapshot).ifEmpty { listOf("no saved details yet") }.joinToString(", "))
         append(".\n\n")
-        append("Reply with any updated people count, days, dietary requirements, or protein preferences.")
+        append("Reply with any updated people count, days, dietary requirements, protein preferences, or favourite recipe preference.")
     }
 
     private fun buildKnownBits(snapshot: MealPlanSnapshot): List<String> = buildList {
@@ -464,6 +498,7 @@ class MealPlannerCoordinator @Inject constructor(
         snapshot.daysCount?.let { add("$it days") }
         if (snapshot.dietaryRestrictions.isNotEmpty()) add(snapshot.dietaryRestrictions.joinToString())
         if (snapshot.proteinPreferences.isNotEmpty()) add(snapshot.proteinPreferences.joinToString())
+        if (snapshot.favouriteRecipeMode != FavouriteRecipeMode.NONE) add(favouriteModeLabel(snapshot.favouriteRecipeMode))
     }
 
     private fun missingSlots(snapshot: MealPlanSnapshot): List<String> = buildList {
@@ -508,9 +543,13 @@ class MealPlannerCoordinator @Inject constructor(
         if (snapshot.dietaryRestrictions.isNotEmpty()) {
             append(" (${snapshot.dietaryRestrictions.joinToString()})")
         }
+        if (snapshot.favouriteRecipeMode != FavouriteRecipeMode.NONE) {
+            append(" with ${favouriteModeLabel(snapshot.favouriteRecipeMode)}")
+        }
         append(":\n")
         snapshot.days.sortedBy { it.dayIndex }.forEach { day ->
             append("- Day ${day.dayIndex + 1}: ${day.title ?: "Meal"}")
+            if (day.isFavouriteRecipe) append(" ★ favourite")
             day.summary?.let { append(" — $it") }
             append('\n')
         }
@@ -550,15 +589,23 @@ Rules:
 - do not include ingredients, quantities, steps, markdown, commentary, or code fences
 """.trimIndent()
 
-    private fun buildPlanUserPrompt(snapshot: MealPlanSnapshot): String {
+    private fun buildPlanUserPrompt(
+        snapshot: MealPlanSnapshot,
+        favouriteRecipes: List<com.kernel.ai.core.memory.mealplan.FavouriteRecipeSummary>,
+    ): String {
         val now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.ENGLISH))
-        return """
-Build a ${snapshot.daysCount}-day dinner meal plan for ${snapshot.peopleCount} people.
-Date: $now
-Dietary requirements: ${snapshot.dietaryRestrictions.ifEmpty { listOf("none provided") }.joinToString()}
-Protein preferences: ${snapshot.proteinPreferences.ifEmpty { listOf("no preference provided") }.joinToString()}
-Use practical weeknight meal ideas suitable for Australia/New Zealand households.
-""".trimIndent()
+        val favouritePromptBlock = buildFavouriteRecipePromptBlock(snapshot.favouriteRecipeMode, favouriteRecipes)
+        return buildString {
+            appendLine("Build a ${snapshot.daysCount}-day dinner meal plan for ${snapshot.peopleCount} people.")
+            appendLine("Date: $now")
+            appendLine("Dietary requirements: ${snapshot.dietaryRestrictions.ifEmpty { listOf("none provided") }.joinToString()}")
+            appendLine("Protein preferences: ${snapshot.proteinPreferences.ifEmpty { listOf("no preference provided") }.joinToString()}")
+            appendLine("Use practical weeknight meal ideas suitable for Australia/New Zealand households.")
+            if (favouritePromptBlock.isNotBlank()) {
+                appendLine()
+                append(favouritePromptBlock)
+            }
+        }.trim()
     }
 
     private fun buildRecipeSystemPrompt(): String = """
@@ -621,15 +668,60 @@ Rules:
 - do not include ingredients, quantities, steps, markdown, commentary, or code fences
 """.trimIndent()
 
-    private fun buildReplacementDayUserPrompt(snapshot: MealPlanSnapshot, dayIndex: Int): String = """
-Replace Day ${dayIndex + 1} in this meal plan.
-Current plan:
-${snapshot.days.joinToString("\n") { "Day ${it.dayIndex + 1}: ${it.title}" }}
-Dietary requirements: ${snapshot.dietaryRestrictions.ifEmpty { listOf("none provided") }.joinToString()}
-Protein preferences: ${snapshot.proteinPreferences.ifEmpty { listOf("no preference provided") }.joinToString()}
-Return one alternative day that fits the plan without duplicating the current Day ${dayIndex + 1} dish.
-Remember: this is user-visible Day ${dayIndex + 1}, but the JSON day_index must be zero-based and equal $dayIndex.
-""".trimIndent()
+    private fun buildReplacementDayUserPrompt(
+        snapshot: MealPlanSnapshot,
+        dayIndex: Int,
+        favouriteRecipes: List<com.kernel.ai.core.memory.mealplan.FavouriteRecipeSummary>,
+    ): String {
+        val favouritePromptBlock = buildFavouriteRecipePromptBlock(snapshot.favouriteRecipeMode, favouriteRecipes)
+        return buildString {
+            appendLine("Replace Day ${dayIndex + 1} in this meal plan.")
+            appendLine("Current plan:")
+            appendLine(snapshot.days.joinToString("\n") { "Day ${it.dayIndex + 1}: ${it.title}" })
+            appendLine("Dietary requirements: ${snapshot.dietaryRestrictions.ifEmpty { listOf("none provided") }.joinToString()}")
+            appendLine("Protein preferences: ${snapshot.proteinPreferences.ifEmpty { listOf("no preference provided") }.joinToString()}")
+            if (favouritePromptBlock.isNotBlank()) {
+                appendLine()
+                appendLine(favouritePromptBlock)
+            }
+            appendLine("Return one alternative day that fits the plan without duplicating the current Day ${dayIndex + 1} dish.")
+            append("Remember: this is user-visible Day ${dayIndex + 1}, but the JSON day_index must be zero-based and equal $dayIndex.")
+        }.trim()
+    }
+
+    private fun buildFavouriteRecipePromptBlock(
+        mode: FavouriteRecipeMode,
+        favouriteRecipes: List<com.kernel.ai.core.memory.mealplan.FavouriteRecipeSummary>,
+    ): String {
+        if (mode == FavouriteRecipeMode.NONE) return ""
+        if (favouriteRecipes.isEmpty()) {
+            return when (mode) {
+                FavouriteRecipeMode.INCLUDE -> "The user asked to include favourites, but no favourite recipes are saved yet. Build a fresh plan."
+                FavouriteRecipeMode.PREFER -> "The user asked to prefer favourites, but no favourite recipes are saved yet. Build a fresh plan and avoid pretending favourites exist."
+                FavouriteRecipeMode.AVOID -> "Avoid leaning on saved favourites; keep this plan fresh."
+                FavouriteRecipeMode.NONE -> ""
+            }
+        }
+        val favouritesText = favouriteRecipes.joinToString("; ") { favourite ->
+            buildString {
+                append(favourite.title)
+                favourite.summary?.takeIf { it.isNotBlank() }?.let { append(" — $it") }
+            }
+        }
+        return when (mode) {
+            FavouriteRecipeMode.INCLUDE -> "Include 1-2 saved favourite meals if they fit naturally: $favouritesText"
+            FavouriteRecipeMode.PREFER -> "Bias the plan toward these saved favourite meals when they fit naturally: $favouritesText"
+            FavouriteRecipeMode.AVOID -> "Avoid these saved favourite meals for this plan: $favouritesText"
+            FavouriteRecipeMode.NONE -> ""
+        }
+    }
+
+    private fun favouriteModeLabel(mode: FavouriteRecipeMode): String = when (mode) {
+        FavouriteRecipeMode.NONE -> "no favourite recipe bias"
+        FavouriteRecipeMode.INCLUDE -> "some saved favourites mixed in"
+        FavouriteRecipeMode.PREFER -> "saved favourites preferred"
+        FavouriteRecipeMode.AVOID -> "saved favourites avoided"
+    }
 
     private fun isFinalizeRequest(text: String): Boolean =
         Regex(

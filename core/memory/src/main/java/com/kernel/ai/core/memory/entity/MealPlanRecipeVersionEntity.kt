@@ -22,6 +22,7 @@ data class MealPlanRecipeVersionEntity(
     val mealPlanSessionId: String,
     val mealPlanDayId: String,
     val version: Int,
+    val recipeKey: String,
     val title: String,
     val servings: Int,
     val ingredientsJson: String,

@@ -1,5 +1,6 @@
 package com.kernel.ai.core.skills.mealplan
 
+import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -63,6 +64,24 @@ class MealPlannerSlotExtractor @Inject constructor() {
     fun isChangePreferencesRequest(text: String): Boolean =
         Regex("\\b(?:change|edit|update|revise)\\s+(?:preferences?|details?|requirements?)\\b", RegexOption.IGNORE_CASE)
             .containsMatchIn(text)
+
+    fun extractFavouriteDayIndex(text: String): Int? =
+        Regex("\\b(?:favo(?:u)?rite|star|save)\\s+(?:recipe\\s+for\\s+)?day\\s+(\\d+)\\b", RegexOption.IGNORE_CASE)
+            .find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.minus(1)
+
+    fun extractUnfavouriteDayIndex(text: String): Int? =
+        Regex("\\b(?:unfavo(?:u)?rite|remove\\s+favo(?:u)?rite\\s+from|unstar)\\s+(?:recipe\\s+for\\s+)?day\\s+(\\d+)\\b", RegexOption.IGNORE_CASE)
+            .find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.minus(1)
+
+    fun extractFavouriteRecipeMode(text: String): FavouriteRecipeMode? {
+        val normalized = normalizeWords(text)
+        return when {
+            Regex("\\b(?:prefer|use|bring\\s+back|plan\\s+with)\\s+(?:my\\s+)?favo(?:u)?rites?\\b", RegexOption.IGNORE_CASE).containsMatchIn(normalized) -> FavouriteRecipeMode.PREFER
+            Regex("\\b(?:include|mix\\s+in|add)\\s+(?:my\\s+)?favo(?:u)?rites?\\b", RegexOption.IGNORE_CASE).containsMatchIn(normalized) -> FavouriteRecipeMode.INCLUDE
+            Regex("\\b(?:avoid|skip|no)\\s+(?:my\\s+)?favo(?:u)?rites?(?:\\s+(?:for\\s+(?:this\\s+)?plan|this\\s+week|for\\s+now))?\\b", RegexOption.IGNORE_CASE).containsMatchIn(normalized) -> FavouriteRecipeMode.AVOID
+            else -> null
+        }
+    }
 
 
     private fun normalizeWords(text: String): String {
