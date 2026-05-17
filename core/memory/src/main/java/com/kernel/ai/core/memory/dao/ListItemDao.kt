@@ -37,6 +37,18 @@ interface ListItemDao {
     @Query("UPDATE list_items SET text = :text, dueAt = :dueAt, isFavourite = :isFavourite, notificationTime = :notificationTime, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateItem(id: Long, text: String, dueAt: Long?, isFavourite: Boolean, notificationTime: Long?, updatedAt: Long)
 
+    /** Checked items with a pending notification — used by clearChecked() to cancel alarms first. */
+    @Query("SELECT * FROM list_items WHERE listId = :listId AND checked = 1 AND notificationTime IS NOT NULL")
+    suspend fun getCheckedWithNotification(listId: Long): List<ListItemEntity>
+
+    /** All items in a list (any checked state) that have a scheduled notification. */
+    @Query("SELECT * FROM list_items WHERE listId = :listId AND notificationTime IS NOT NULL")
+    suspend fun getAllWithNotification(listId: Long): List<ListItemEntity>
+
+    /** All unchecked items across all lists with a scheduled notification — used on device reboot. */
+    @Query("SELECT * FROM list_items WHERE notificationTime IS NOT NULL AND checked = 0")
+    suspend fun getAllActiveWithNotification(): List<ListItemEntity>
+
     /** Remove all checked items from a list. */
     @Query("DELETE FROM list_items WHERE listId = :listId AND checked = 1")
     suspend fun deleteChecked(listId: Long)

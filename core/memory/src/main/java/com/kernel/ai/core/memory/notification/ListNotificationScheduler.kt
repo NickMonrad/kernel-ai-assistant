@@ -67,7 +67,7 @@ class ListNotificationScheduler @Inject constructor(
         flags: Int,
     ): PendingIntent? = PendingIntent.getBroadcast(
         context,
-        itemId.toInt(),
+        itemId.toNotificationId(),
         Intent(ACTION).apply {
             setPackage(context.packageName)
             putExtra(EXTRA_ITEM_ID, itemId)
@@ -86,3 +86,10 @@ class ListNotificationScheduler @Inject constructor(
         const val EXTRA_LIST_NAME = "list_name"
     }
 }
+
+/**
+ * Folds a Long item ID into an Int notification/request-code without silent wrap-around.
+ * XOR-folds the upper 32 bits into the lower 32, so IDs differing only in the upper half
+ * still produce distinct Int values within the realistic Room ID range.
+ */
+fun Long.toNotificationId(): Int = (this xor (this ushr 32)).toInt()

@@ -237,7 +237,10 @@ class ListsViewModel @Inject constructor(
         val ids = selectedListIds.toList()
         selectedListIds = emptySet()
         viewModelScope.launch(Dispatchers.IO) {
-            ids.forEach { listNameDao.deleteById(it) }
+            ids.forEach { listId ->
+                dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
+                listNameDao.deleteById(listId)
+            }
         }
     }
 
@@ -384,7 +387,7 @@ class ListsViewModel @Inject constructor(
 
     fun clearChecked(listId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            dao.getByList(listId).forEach { scheduler.cancel(it.id) }
+            dao.getCheckedWithNotification(listId).forEach { scheduler.cancel(it.id) }
             dao.deleteChecked(listId)
         }
     }
@@ -392,7 +395,7 @@ class ListsViewModel @Inject constructor(
     /** Deletes a list by ID; cascade FK removes all child items automatically. */
     fun deleteList(listId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            dao.getByList(listId).forEach { scheduler.cancel(it.id) }
+            dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
             listNameDao.deleteById(listId)
         }
     }

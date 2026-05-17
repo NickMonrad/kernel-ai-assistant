@@ -9,6 +9,7 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.kernel.ai.MainActivity
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
+import com.kernel.ai.core.memory.notification.toNotificationId
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
@@ -42,7 +43,7 @@ class ListDueNotificationReceiver : BroadcastReceiver() {
             .setContentIntent(buildOpenAppPendingIntent(context))
             .build()
 
-        notificationManager.notify(itemId.toInt(), notification)
+        notificationManager.notify(itemId.toNotificationId(), notification)
     }
 
     private fun ensureChannel(notificationManager: NotificationManager) {

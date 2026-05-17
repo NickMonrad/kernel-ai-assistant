@@ -31,6 +31,9 @@ abstract class ListNameDao {
     @Query("SELECT * FROM lists ORDER BY pinned DESC, createdAt ASC")
     abstract suspend fun getAll(): List<ListNameEntity>
 
+    @Query("SELECT * FROM lists WHERE id = :id LIMIT 1")
+    abstract suspend fun getById(id: Long): ListNameEntity?
+
     /** Resolve a list by display name — used by NativeIntentHandler at the skill boundary. */
     @Query("SELECT * FROM lists WHERE name = :name LIMIT 1")
     abstract suspend fun getByName(name: String): ListNameEntity?
