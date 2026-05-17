@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-05-13 (PR #834 spec sync: documented 18 completed roadmap items — voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, important dates, world clock, colloquial weather QIR; prior: PR #848 currency #831; PR #847 widget #617; PR #845 aye fix #843)
+> **Last updated:** 2026-05-13 (PR #924 spec sync: conversation management — archive, pin, drag-to-reorder, swipe gestures, multi-select, ArchiveCleanupWorker, KernelDatabase v44; prior: PR #834 — voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, important dates, world clock, colloquial weather QIR; PR #848 currency #831; PR #847 widget #617; PR #845 aye fix #843)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -814,6 +814,47 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 - **Actions tab:** History list, FAB (⚡) for new commands, bottom sheet input, Room-persisted history
 - **Voice:** Quick Actions push-to-talk with offline STT, spoken QIR responses, and streaming spoken chat replies; wake word remains future work
 - **Conversation search (#151, PR #156):** A search bar on the conversations list screen filters by conversation title. The query applies a `LIKE` wildcard match against the title column; a `NULL` guard prevents crashes for conversations that have not yet been auto-titled. Wildcard characters in the search input are escaped to avoid accidental SQL injection via the LIKE pattern.
+
+### 6.0 Conversation Management (#905, PR #924)
+
+Full lifecycle management for conversations. `KernelDatabase` is at **v44** (migrations 41→42, 42→43, 43→44).
+
+#### Data layer
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `archivedAt` | `Long?` | Epoch ms when archived; `null` = active |
+| `pinned` | `Boolean` | Sticky ordering above unpinned rows |
+| `sortOrder` | `Int` | Manual drag position within the active list |
+
+`ConversationDao.observeActive` orders by `pinned DESC, sort_order ASC, updated_at DESC`.
+
+`ConversationRepository` exposes archive/restore/pin/reorder/bulk methods. On bulk delete, `sqlite-vec` embedding entries are cleaned up first to avoid orphaned RAG vectors.
+
+`ChatPreferences` (DataStore) stores `archiveRetentionDays` (default 7, −1 = Never). `ArchiveCleanupWorker` is a `@HiltWorker` `CoroutineWorker` scheduled daily (battery-not-low constraint) that deletes archived conversations past the retention cutoff, cleaning sqlite-vec entries before the bulk DELETE.
+
+#### Conversation list UI
+
+| Gesture / Element | Behaviour |
+|-------------------|-----------|
+| Trailing `IconButton` (pushpin) | Filled = pinned; outline = unpinned. Pinned conversations appear in a sticky section above unpinned ones. |
+| Swipe left | Swipe-to-archive with green background + archive icon. Snap-back on cancel; confirmation dialog before commit. |
+| Swipe right | Swipe-to-delete with confirmation dialog. |
+| Long-press | Enters multi-select mode. Dedicated `TopAppBar` with Archive/Restore + Delete icon buttons. |
+| ⋮ icon per row | Context menu (Archive/Restore, Rename, Delete) — consistent with Lists UX. |
+| Drag handle | Drag-to-reorder via `sh.calvin.reorderable:2.4.3`; new `sortOrder` persisted on drop. |
+| Overflow menu (top-right) | "Show Archived" / "Show Active" toggle. |
+
+#### Archived chat screen behaviour
+
+- **"Archived · Read-only" banner** shown at top when `isArchived = true`.
+- **Input bar fully hidden** — no text entry, no send button.
+- `.navigationBarsPadding()` applied to content column (Scaffold uses `contentWindowInsets = WindowInsets(0)` for archived chats).
+- `initEngineWhenReady()` and eviction re-init skipped — no wasteful Gemma-4 E4B load for read-only history.
+
+#### Settings
+
+New **Chat Preferences** screen (Settings → Chat Preferences) with an archive retention picker: 1 day / 3 days / 7 days (default) / 14 days / 30 days / Never.
 
 **Chat TTS speech normalisation (`ChatTextUtils.normalizeChatTextForSpeech`):** Before TTS
 input, the text passes through a chain of `SpeechPronunciationRule` entries that rewrite

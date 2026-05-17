@@ -9,7 +9,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -23,16 +25,40 @@ class ConversationListViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    val conversations: StateFlow<List<ConversationEntity>> = _searchQuery
-        .flatMapLatest { query ->
-            if (query.isBlank()) repository.observeConversations()
-            else repository.searchByTitle(query.escapeLikeWildcards())
-        }
+    private val _showArchived = MutableStateFlow(false)
+    val showArchived: StateFlow<Boolean> = _showArchived.asStateFlow()
+
+    val conversations: StateFlow<List<ConversationEntity>> =
+        combine(_searchQuery, _showArchived) { q, archived -> q to archived }
+            .flatMapLatest { (query, archived) ->
+                if (archived) {
+                    if (query.isBlank()) repository.observeArchived()
+                    else repository.searchArchived(query.escapeLikeWildcards())
+                } else {
+                    if (query.isBlank()) repository.observeActive()
+                    else repository.searchActive(query.escapeLikeWildcards())
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val pinnedConversations: StateFlow<List<ConversationEntity>> = conversations
+        .map { it.filter { c -> c.pinned } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val unpinnedConversations: StateFlow<List<ConversationEntity>> = conversations
+        .map { it.filter { c -> !c.pinned } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun onSearchQueryChanged(query: String) { _searchQuery.value = query }
 
     fun clearSearch() { _searchQuery.value = "" }
+
+    fun toggleShowArchived() {
+        _showArchived.value = !_showArchived.value
+        // Reset search and selection when toggling views
+        _searchQuery.value = ""
+        clearSelection()
+    }
 
     private fun String.escapeLikeWildcards(): String =
         replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -40,6 +66,24 @@ class ConversationListViewModel @Inject constructor(
     fun deleteConversation(conversation: ConversationEntity) {
         viewModelScope.launch {
             repository.deleteConversation(conversation)
+        }
+    }
+
+    fun archiveConversation(id: String) {
+        viewModelScope.launch {
+            repository.archiveConversation(id)
+        }
+    }
+
+    fun restoreConversation(id: String) {
+        viewModelScope.launch {
+            repository.restoreConversation(id)
+        }
+    }
+
+    fun togglePin(id: String) {
+        viewModelScope.launch {
+            repository.togglePin(id)
         }
     }
 
@@ -107,5 +151,34 @@ class ConversationListViewModel @Inject constructor(
             }
         }
     }
-}
 
+    fun archiveSelected() {
+        val ids = _selectedConversationIds.value.toSet()
+        viewModelScope.launch {
+            try {
+                repository.archiveSelected(ids)
+            } finally {
+                _isInSelectionMode.value = false
+                _selectedConversationIds.value = emptySet()
+            }
+        }
+    }
+
+    fun restoreSelected() {
+        val ids = _selectedConversationIds.value.toSet()
+        viewModelScope.launch {
+            try {
+                repository.restoreSelected(ids)
+            } finally {
+                _isInSelectionMode.value = false
+                _selectedConversationIds.value = emptySet()
+            }
+        }
+    }
+
+    fun onConversationsReordered(pinnedIds: List<String>, unpinnedIds: List<String>) {
+        viewModelScope.launch {
+            repository.reorderConversations(pinnedIds, unpinnedIds)
+        }
+    }
+}

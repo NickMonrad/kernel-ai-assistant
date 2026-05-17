@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
@@ -58,6 +59,7 @@ fun SettingsScreen(
     onNavigateToVoice: () -> Unit = {},
     onNavigateToModelSettings: () -> Unit = {},
     onNavigateToModelManagement: (preferred: Boolean) -> Unit = {},
+    onNavigateToChatPreferences: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -212,6 +214,17 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
+
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToChatPreferences() },
+                headlineContent = { Text("Chat Preferences") },
+                supportingContent = { Text("Auto-delete archived conversations") },
+                leadingContent = { Icon(Icons.Default.Forum, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
 
             ListItem(
                 modifier = Modifier

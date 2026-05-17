@@ -5,15 +5,21 @@ import android.content.ComponentCallbacks2
 import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.kernel.ai.alarm.ClockStopwatchNotificationCoordinator
 import com.kernel.ai.alarm.ClockTimerNotificationCoordinator
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.memory.worker.ArchiveCleanupWorker
 import com.kernel.ai.core.memory.worker.MemoryEmbeddingWorker
+import com.kernel.ai.core.memory.worker.WORK_NAME_ARCHIVE_CLEANUP
 import com.kernel.ai.core.memory.worker.WORK_NAME_BACKFILL
 import dagger.hilt.android.HiltAndroidApp
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -44,6 +50,17 @@ class KernelAIApplication : Application(), Configuration.Provider {
             WORK_NAME_BACKFILL,
             ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<MemoryEmbeddingWorker>().build(),
+        )
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            WORK_NAME_ARCHIVE_CLEANUP,
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<ArchiveCleanupWorker>(1, TimeUnit.DAYS)
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiresBatteryNotLow(true)
+                        .build()
+                )
+                .build(),
         )
     }
 

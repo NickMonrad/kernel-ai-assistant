@@ -217,6 +217,7 @@ fun ChatScreen(
             val context = LocalContext.current
             val isSeeding by viewModel.isSeeding.collectAsState()
             val speakingMessageId by viewModel.speakingMessageId.collectAsStateWithLifecycle()
+            val isArchived by viewModel.isArchived.collectAsStateWithLifecycle()
 
             // Track which voice action is pending while we await the permission result.
             var pendingVoiceAction by rememberSaveable { mutableStateOf<String?>(null) }
@@ -266,6 +267,7 @@ fun ChatScreen(
             ChatContent(
                 state = state,
                 isSeeding = isSeeding,
+                isArchived = isArchived,
                 onInputChanged = viewModel::onInputChanged,
                 onSend = viewModel::sendMessage,
                 onCancel = viewModel::cancelGeneration,
@@ -309,6 +311,7 @@ fun ChatScreen(
 private fun ChatContent(
     state: ChatUiState.Ready,
     isSeeding: Boolean,
+    isArchived: Boolean = false,
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit,
@@ -399,8 +402,24 @@ private fun ChatContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .imePadding(),
+                .imePadding()
+                // InputBar handles nav bar padding when visible; add it here for archived (read-only) view.
+                .then(if (isArchived) Modifier.navigationBarsPadding() else Modifier),
         ) {
+            if (isArchived) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        text = "Archived · Read-only",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+            }
             if (state.messages.isEmpty()) {
                 EmptyConversationHint(modifier = Modifier.weight(1f))
             } else {
@@ -541,21 +560,23 @@ private fun ChatContent(
                 }
             }
 
-            InputBar(
-                text = state.inputText,
-                isGenerating = state.isGenerating,
-                voiceCaptureState = voiceCaptureState,
-                voicePlaybackState = voicePlaybackState,
-                voiceMode = voiceMode,
-                onTextChanged = onInputChanged,
-                onSend = onSend,
-                onCancel = onCancel,
-                onStartVoiceInput = onStartVoiceInput,
-                onStartBackAndForthVoiceInput = onStartBackAndForthVoiceInput,
-                onStopVoiceInput = onStopVoiceInput,
-                onStopVoiceOutput = onStopVoiceOutput,
-                modifier = Modifier.navigationBarsPadding(),
-            )
+            if (!isArchived) {
+                InputBar(
+                    text = state.inputText,
+                    isGenerating = state.isGenerating,
+                    voiceCaptureState = voiceCaptureState,
+                    voicePlaybackState = voicePlaybackState,
+                    voiceMode = voiceMode,
+                    onTextChanged = onInputChanged,
+                    onSend = onSend,
+                    onCancel = onCancel,
+                    onStartVoiceInput = onStartVoiceInput,
+                    onStartBackAndForthVoiceInput = onStartBackAndForthVoiceInput,
+                    onStopVoiceInput = onStopVoiceInput,
+                    onStopVoiceOutput = onStopVoiceOutput,
+                    modifier = Modifier.navigationBarsPadding(),
+                )
+            }
         }
     }
 

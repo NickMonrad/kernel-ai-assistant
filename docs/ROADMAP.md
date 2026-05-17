@@ -357,6 +357,28 @@ Deterministic multi-turn quick actions — slot filling and confirmation baselin
 | [#521](https://github.com/NickMonrad/kernel-ai-assistant/issues/521) | Add media control intents: pause, stop, skip, previous | ✅ Done | 🟡 Medium |
 
 
+### 3J: Conversation Management — Archive, Pin & Drag-to-Reorder ([#905](https://github.com/NickMonrad/kernel-ai-assistant/issues/905))
+
+Full lifecycle management for conversations: archive/restore, pinning with sticky ordering, drag-to-reorder, and configurable auto-delete. DB bumped 41 → 44 (migrations 41→42, 42→43, 43→44).
+
+| Sub-Issue | Title | Status | Priority |
+|-----------|-------|--------|----------|
+| [#905](https://github.com/NickMonrad/kernel-ai-assistant/issues/905) | Conversation archive, pin, and drag-to-reorder | ✅ Done — PR #924 | 🔴 High |
+
+**Shipped scope (PR #924, branch `feature/905-chat-archive`):**
+
+- `ConversationEntity` — added `archivedAt: Long?`, `pinned: Boolean`, `sortOrder: Int`
+- `KernelDatabase` bumped to **v44** (migrations 41→42, 42→43, 43→44)
+- `ConversationDao` — archive/restore/pin/sortOrder queries; `observeActive` orders by `pinned DESC, sort_order ASC, updated_at DESC`
+- `ConversationRepository` — archive/restore/pin/reorder/bulk operations; sqlite-vec cleanup on delete
+- `ChatPreferences` — DataStore-backed `archiveRetentionDays` (default 7, −1 = Never)
+- `ArchiveCleanupWorker` — `@HiltWorker` `CoroutineWorker`, runs daily (battery-not-low), cleans sqlite-vec entries before bulk DELETE to prevent orphaned RAG embeddings
+- Conversation list UI: pin/unpin toggle (pushpin icon), swipe-left archive + confirmation, swipe-right delete + confirmation, drag-to-reorder (`sh.calvin.reorderable:2.4.3`), multi-select (long-press) with bulk archive/restore/delete, ⋮ context menu per row, overflow "Show Archived / Show Active" toggle
+- Chat screen: "Archived · Read-only" banner; input bar hidden; `initEngineWhenReady()` and eviction re-init skipped for archived conversations
+- Settings: new "Chat Preferences" screen with archive retention picker (1d / 3d / 7d / 14d / 30d / Never)
+
+---
+
 ### 3I: Meal Planning Roadmap ([#826](https://github.com/NickMonrad/kernel-ai-assistant/issues/826))
 
 Deterministic meal planning now has its v1 foundation merged. The next phases are deliberately split so UX/resiliency work, durable artifact expansion, and recipe grounding can evolve independently without reopening the prompt-heavy architecture that #859 replaced.
@@ -609,6 +631,7 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#821](https://github.com/NickMonrad/kernel-ai-assistant/issues/821) | Sherpa-ONNX / Sherpa-ncnn STT + VAD evaluation | Phase 3F | ⬜ Pending |
 | [#675](https://github.com/NickMonrad/kernel-ai-assistant/issues/675) | Comprehensive Quick Actions + weather voice QA matrix | Phase 3F | 🔴 Closed |
 | [#588](https://github.com/NickMonrad/kernel-ai-assistant/issues/588) | VoiceSession architecture for slot-fill + follow-on assistant mode | Phase 3F | ⬜ Pending |
+| [#905](https://github.com/NickMonrad/kernel-ai-assistant/issues/905) | Conversation archive, pin, and drag-to-reorder | Phase 3J | ✅ Done — PR #924 |
 
 ---
 
