@@ -13,6 +13,8 @@ import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import androidx.annotation.VisibleForTesting
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,6 +50,9 @@ class AboutViewModel @Inject constructor(
     @Named("about") private val dataStore: DataStore<Preferences>,
     private val voiceOutputPreferences: VoiceOutputPreferences,
 ) : ViewModel() {
+
+    @VisibleForTesting
+    internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 
     private companion object {
         val KEY_VERBOSE_LOGGING = booleanPreferencesKey("verbose_logging")
@@ -98,7 +103,7 @@ class AboutViewModel @Inject constructor(
         _uiState.update { it.copy(exportState = ExportState.Loading) }
         viewModelScope.launch {
             try {
-                val shareIntent = withContext(Dispatchers.IO) {
+                val shareIntent = withContext(ioDispatcher) {
                     val pid = android.os.Process.myPid()
                     val process = Runtime.getRuntime().exec(
                         arrayOf("logcat", "-d", "-v", "threadtime", "--pid=$pid", "-t", "500"),
