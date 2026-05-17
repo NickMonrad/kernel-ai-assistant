@@ -345,6 +345,18 @@ class ListsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Removes favourite from all currently selected list items.
+     */
+    fun unfavouriteSelectedItems() {
+        val ids = selectedItemIds.toList()
+        selectedItemIds = emptySet()
+        val now = System.currentTimeMillis()
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.forEach { dao.setFavourite(it, false, now) }
+        }
+    }
+
     // ── Item drag-to-reorder (#917) ───────────────────────────────────────────────────────────────
 
     private var itemReorderJob: Job? = null

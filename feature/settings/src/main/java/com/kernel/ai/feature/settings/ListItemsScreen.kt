@@ -261,11 +261,20 @@ fun ListItemsScreen(
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
-                        // Bulk-favourite selected items
-                        IconButton(onClick = { viewModel.favouriteSelectedItems() }) {
+                        // Bulk-favourite / unfavourite selected items
+                        val allSelectedFavourited = selectedItemIds.isNotEmpty() &&
+                            selectedItemIds.all { id ->
+                                allItems.firstOrNull { it.id == id }?.isFavourite == true
+                            }
+                        IconButton(
+                            onClick = {
+                                if (allSelectedFavourited) viewModel.unfavouriteSelectedItems()
+                                else viewModel.favouriteSelectedItems()
+                            },
+                        ) {
                             Icon(
-                                Icons.Default.Star,
-                                contentDescription = "Add to favourites",
+                                if (allSelectedFavourited) Icons.Default.StarBorder else Icons.Default.Star,
+                                contentDescription = if (allSelectedFavourited) "Remove from favourites" else "Add to favourites",
                                 tint = MaterialTheme.colorScheme.tertiary,
                             )
                         }
