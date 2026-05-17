@@ -1,6 +1,8 @@
 package com.kernel.ai.core.memory.repository
 
 import android.util.Log
+import androidx.room.withTransaction
+import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.dao.ConversationDao
 import com.kernel.ai.core.memory.dao.MessageDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
@@ -16,6 +18,7 @@ import javax.inject.Singleton
 
 @Singleton
 class ConversationRepository @Inject constructor(
+    private val db: KernelDatabase,
     private val conversationDao: ConversationDao,
     private val messageDao: MessageDao,
     private val embeddingDao: MessageEmbeddingDao,
@@ -96,8 +99,7 @@ class ConversationRepository @Inject constructor(
     }
 
     suspend fun togglePin(id: String) {
-        val current = conversationDao.getPinned(id)
-        conversationDao.updatePinned(id, !current)
+        conversationDao.togglePin(id)
     }
 
     suspend fun archiveConversation(id: String) {
@@ -131,8 +133,10 @@ class ConversationRepository @Inject constructor(
     }
 
     suspend fun reorderConversations(pinnedIds: List<String>, unpinnedIds: List<String>) {
-        pinnedIds.forEachIndexed { index, id -> conversationDao.updateSortOrder(id, index) }
-        unpinnedIds.forEachIndexed { index, id -> conversationDao.updateSortOrder(id, index) }
+        db.withTransaction {
+            pinnedIds.forEachIndexed { index, id -> conversationDao.updateSortOrder(id, index) }
+            unpinnedIds.forEachIndexed { index, id -> conversationDao.updateSortOrder(id, index) }
+        }
     }
 
     suspend fun getConversation(id: String): ConversationEntity? =

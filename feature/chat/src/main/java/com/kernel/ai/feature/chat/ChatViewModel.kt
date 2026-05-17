@@ -303,7 +303,8 @@ class ChatViewModel @Inject constructor(
         downloadManager.downloadStates,
         inputState,
         _showThinkingProcess,
-    ) { engine, downloadStates, input, showThinking ->
+        isArchived,
+    ) { engine, downloadStates, input, showThinking, archived ->
         val allDownloaded = downloadManager.areRequiredModelsDownloaded()
         val tier = downloadManager.deviceTier
         val displayModels: List<KernelModel> = if (tier == HardwareTier.FLAGSHIP) {
@@ -326,7 +327,9 @@ class ChatViewModel @Inject constructor(
                 }
                 ChatUiState.ModelsNotReady(isDownloading = anyDownloading, modelProgress = progress)
             }
-            !engine.isReady || !engine.conversationInitialized -> ChatUiState.Loading
+            // Archived conversations are read-only — no engine needed. Skip the isReady gate.
+            !archived && (!engine.isReady || !engine.conversationInitialized) -> ChatUiState.Loading
+            !engine.conversationInitialized -> ChatUiState.Loading
             else -> ChatUiState.Ready(
                 conversationId = conversationId ?: "",
                 conversationTitle = input.conversationTitle,
