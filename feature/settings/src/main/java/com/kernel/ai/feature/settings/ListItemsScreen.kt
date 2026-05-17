@@ -732,7 +732,12 @@ private fun EditItemSheet(
             if (dueAt != null) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (notifyEnabled) Modifier.clickable { showTimePicker = true }
+                            else Modifier
+                        ),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -758,7 +763,6 @@ private fun EditItemSheet(
                                 ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.clickable { showTimePicker = true },
                             )
                         }
                     }
