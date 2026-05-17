@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -50,6 +51,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,6 +68,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -73,6 +77,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -84,6 +91,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 // ── Date / timestamp helpers ─────────────────────────────────────────────────────────────────────
 
@@ -177,6 +185,11 @@ fun ListItemsScreen(
     val selectedItemIds = viewModel.selectedItemIds
     val isItemMultiSelectMode = viewModel.isItemMultiSelectMode
     var showItemBulkDeleteDialog by remember { mutableStateOf(false) }
+
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
         snapshotFlow { viewModel.itemFilter }
@@ -312,6 +325,34 @@ fun ListItemsScreen(
                                         } else null,
                                     )
                                 }
+                                HorizontalDivider()
+                                // ── Share / Copy section ──────────────────────────────────
+                                DropdownMenuItem(
+                                    text = { Text("Share") },
+                                    onClick = {
+                                        showSortMenu = false
+                                        coroutineScope.launch {
+                                            val text = viewModel.buildShareText(listId)
+                                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_TEXT, text)
+                                                putExtra(Intent.EXTRA_TITLE, displayName.replaceFirstChar { it.uppercase() })
+                                            }
+                                            context.startActivity(Intent.createChooser(intent, "Share list"))
+                                        }
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Copy to clipboard") },
+                                    onClick = {
+                                        showSortMenu = false
+                                        coroutineScope.launch {
+                                            val text = viewModel.buildShareText(listId)
+                                            clipboardManager.setText(AnnotatedString(text))
+                                            snackbarHostState.showSnackbar("List copied to clipboard")
+                                        }
+                                    },
+                                )
                             }
                         }
                     },
@@ -335,6 +376,7 @@ fun ListItemsScreen(
                 }
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Column(
             modifier = Modifier

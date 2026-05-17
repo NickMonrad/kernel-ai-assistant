@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import android.content.Intent
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -45,6 +46,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,6 +67,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -89,6 +95,9 @@ fun ListsScreen(
     val selectedListIds = viewModel.selectedListIds
     val isMultiSelect = viewModel.isListMultiSelectMode
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingDeleteEntity by remember { mutableStateOf<ListNameEntity?>(null) }
@@ -241,6 +250,7 @@ fun ListsScreen(
                 }
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -315,7 +325,7 @@ fun ListsScreen(
                                 Surface(shadowElevation = elevation) {
                                     ListOverviewRow(
                                         entity = entity,
-                                        count = itemCounts[entity.id] ?: 0,
+                                        counts = itemCounts[entity.id] ?: ListItemCounts(0, 0),
                                         isSelected = entity.id in selectedListIds,
                                         isMultiSelectMode = isMultiSelect,
                                         isArchivedView = false,
@@ -341,6 +351,24 @@ fun ListsScreen(
                                         onDelete = { pendingDeleteEntity = entity },
                                         onArchive = { viewModel.archiveList(entity.id) },
                                         onRestore = {},
+                                        onShare = {
+                                            scope.launch {
+                                                val text = viewModel.buildShareText(entity.id)
+                                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                                    type = "text/plain"
+                                                    putExtra(Intent.EXTRA_TEXT, text)
+                                                    putExtra(Intent.EXTRA_TITLE, entity.name.replaceFirstChar { it.uppercase() })
+                                                }
+                                                context.startActivity(Intent.createChooser(intent, "Share list"))
+                                            }
+                                        },
+                                        onCopy = {
+                                            scope.launch {
+                                                val text = viewModel.buildShareText(entity.id)
+                                                clipboardManager.setText(AnnotatedString(text))
+                                                snackbarHostState.showSnackbar("List copied to clipboard")
+                                            }
+                                        },
                                     )
                                 }
                             }
@@ -363,7 +391,7 @@ fun ListsScreen(
                                 Surface(shadowElevation = elevation) {
                                     ListOverviewRow(
                                         entity = entity,
-                                        count = itemCounts[entity.id] ?: 0,
+                                        counts = itemCounts[entity.id] ?: ListItemCounts(0, 0),
                                         isSelected = entity.id in selectedListIds,
                                         isMultiSelectMode = isMultiSelect,
                                         isArchivedView = showArchived,
@@ -389,6 +417,24 @@ fun ListsScreen(
                                         onDelete = { pendingDeleteEntity = entity },
                                         onArchive = { viewModel.archiveList(entity.id) },
                                         onRestore = { viewModel.restoreList(entity.id) },
+                                        onShare = {
+                                            scope.launch {
+                                                val text = viewModel.buildShareText(entity.id)
+                                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                                    type = "text/plain"
+                                                    putExtra(Intent.EXTRA_TEXT, text)
+                                                    putExtra(Intent.EXTRA_TITLE, entity.name.replaceFirstChar { it.uppercase() })
+                                                }
+                                                context.startActivity(Intent.createChooser(intent, "Share list"))
+                                            }
+                                        },
+                                        onCopy = {
+                                            scope.launch {
+                                                val text = viewModel.buildShareText(entity.id)
+                                                clipboardManager.setText(AnnotatedString(text))
+                                                snackbarHostState.showSnackbar("List copied to clipboard")
+                                            }
+                                        },
                                     )
                                 }
                             }
@@ -436,12 +482,12 @@ fun ListsScreen(
 
     // ── Single-list delete confirmation dialog ────────────────────────────────────────────────
     pendingDeleteEntity?.let { entity ->
-        val count = itemCounts[entity.id] ?: 0
+        val counts = itemCounts[entity.id] ?: ListItemCounts(0, 0)
         AlertDialog(
             onDismissRequest = { pendingDeleteEntity = null },
             title = { Text("Delete \"${entity.name.replaceFirstChar { it.uppercase() }}\"?") },
             text = {
-                if (count > 0) Text("This will permanently delete $count item${if (count == 1) "" else "s"}.")
+                if (counts.total > 0) Text("This will permanently delete ${counts.total} item${if (counts.total == 1) "" else "s"}.")
                 else Text("The list is empty and will be deleted.")
             },
             confirmButton = {
@@ -524,7 +570,7 @@ private fun ListSectionHeader(label: String) {
 @Composable
 private fun ListOverviewRow(
     entity: ListNameEntity,
-    count: Int,
+    counts: ListItemCounts,
     isSelected: Boolean,
     isMultiSelectMode: Boolean,
     isArchivedView: Boolean,
@@ -536,6 +582,8 @@ private fun ListOverviewRow(
     onDelete: () -> Unit,
     onArchive: () -> Unit,
     onRestore: () -> Unit,
+    onShare: () -> Unit,
+    onCopy: () -> Unit,
 ) {
     var showOverflow by remember { mutableStateOf(false) }
 
@@ -551,7 +599,13 @@ private fun ListOverviewRow(
             Text(entity.name.replaceFirstChar { it.uppercase() })
         },
         supportingContent = {
-            Text("$count item${if (count == 1) "" else "s"}")
+            val label = when {
+                counts.total == 0 -> "empty"
+                counts.active == 0 -> "all done"
+                counts.completed == 0 -> "${counts.active} active"
+                else -> "${counts.active} active · ${counts.completed} done"
+            }
+            Text(label)
         },
         leadingContent = {
             if (isMultiSelectMode) {
@@ -609,6 +663,14 @@ private fun ListOverviewRow(
                                     onClick = { showOverflow = false; onRestore() },
                                 )
                             }
+                            DropdownMenuItem(
+                                text = { Text("Share") },
+                                onClick = { showOverflow = false; onShare() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Copy to clipboard") },
+                                onClick = { showOverflow = false; onCopy() },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                                 onClick = { showOverflow = false; onDelete() },
