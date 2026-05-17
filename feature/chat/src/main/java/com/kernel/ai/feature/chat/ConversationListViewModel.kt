@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -39,6 +40,14 @@ class ConversationListViewModel @Inject constructor(
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val pinnedConversations: StateFlow<List<ConversationEntity>> = conversations
+        .map { it.filter { c -> c.pinned } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val unpinnedConversations: StateFlow<List<ConversationEntity>> = conversations
+        .map { it.filter { c -> !c.pinned } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun onSearchQueryChanged(query: String) { _searchQuery.value = query }
 
@@ -164,6 +173,12 @@ class ConversationListViewModel @Inject constructor(
                 _isInSelectionMode.value = false
                 _selectedConversationIds.value = emptySet()
             }
+        }
+    }
+
+    fun onConversationsReordered(pinnedIds: List<String>, unpinnedIds: List<String>) {
+        viewModelScope.launch {
+            repository.reorderConversations(pinnedIds, unpinnedIds)
         }
     }
 }

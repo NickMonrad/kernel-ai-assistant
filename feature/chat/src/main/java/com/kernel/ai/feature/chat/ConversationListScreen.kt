@@ -2,9 +2,11 @@ package com.kernel.ai.feature.chat
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,26 +15,27 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -46,6 +49,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -62,6 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -70,6 +75,8 @@ import com.kernel.ai.core.memory.entity.ConversationEntity
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -82,6 +89,8 @@ fun ConversationListScreen(
     viewModel: ConversationListViewModel = hiltViewModel(),
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+    val pinnedConversations by viewModel.pinnedConversations.collectAsStateWithLifecycle()
+    val unpinnedConversations by viewModel.unpinnedConversations.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val isInSelectionMode by viewModel.isInSelectionMode.collectAsStateWithLifecycle()
     val selectedConversationIds by viewModel.selectedConversationIds.collectAsStateWithLifecycle()
@@ -89,10 +98,36 @@ fun ConversationListScreen(
     val showArchived by viewModel.showArchived.collectAsStateWithLifecycle()
 
     var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
+    var pendingArchive by remember { mutableStateOf<ConversationEntity?>(null) }
     var pendingRenameId by rememberSaveable { mutableStateOf<String?>(null) }
     val pendingRename = pendingRenameId?.let { id -> conversations.find { it.id == id } }
     var contextMenuTarget by remember { mutableStateOf<ConversationEntity?>(null) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+
+    // ── Drag-and-drop local state (optimistic UI) ──────────────────────────
+    var localPinned by remember { mutableStateOf(pinnedConversations) }
+    var localUnpinned by remember { mutableStateOf(unpinnedConversations) }
+    var dragInProgress by remember { mutableStateOf(false) }
+    LaunchedEffect(pinnedConversations) { if (!dragInProgress) localPinned = pinnedConversations }
+    LaunchedEffect(unpinnedConversations) { if (!dragInProgress) localUnpinned = unpinnedConversations }
+
+    val lazyListState = rememberLazyListState()
+    val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        val fromKey = from.key as? String ?: return@rememberReorderableLazyListState
+        val toKey = to.key as? String ?: return@rememberReorderableLazyListState
+        val fromInPinned = localPinned.any { it.id == fromKey }
+        val toInPinned = localPinned.any { it.id == toKey }
+        if (fromInPinned != toInPinned) return@rememberReorderableLazyListState
+        if (fromInPinned) {
+            val fi = localPinned.indexOfFirst { it.id == fromKey }
+            val ti = localPinned.indexOfFirst { it.id == toKey }
+            localPinned = localPinned.toMutableList().apply { add(ti, removeAt(fi)) }
+        } else {
+            val fi = localUnpinned.indexOfFirst { it.id == fromKey }
+            val ti = localUnpinned.indexOfFirst { it.id == toKey }
+            localUnpinned = localUnpinned.toMutableList().apply { add(ti, removeAt(fi)) }
+        }
+    }
 
     // Exit selection mode on system back instead of popping the screen
     BackHandler(enabled = isInSelectionMode) {
@@ -101,70 +136,49 @@ fun ConversationListScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    if (isInSelectionMode) {
-                        Text("${selectedConversationIds.size} / ${conversations.size} selected")
-                    } else if (showArchived) {
-                        Text("Archived")
-                    } else {
-                        Text("Jandal")
-                    }
-                },
-                navigationIcon = {
-                    if (!isInSelectionMode) {
-                        IconButton(onClick = onOpenDrawer) {
-                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+            if (isInSelectionMode) {
+                // ── Contextual multi-select TopAppBar ──────────────────────
+                TopAppBar(
+                    title = { Text("${selectedConversationIds.size} selected") },
+                    navigationIcon = {
+                        IconButton(onClick = viewModel::clearSelection) {
+                            Icon(Icons.Default.Close, contentDescription = "Exit selection")
                         }
-                    }
-                },
-                actions = {
-                    if (isInSelectionMode) {
+                    },
+                    actions = {
                         TextButton(onClick = { viewModel.selectAll(conversations.map { it.id }) }) {
                             Text("Select All")
                         }
                         if (showArchived) {
-                            // Archived view: Restore + Delete
-                            Button(
-                                onClick = viewModel::restoreSelected,
-                                enabled = selectedConversationIds.isNotEmpty(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                                ),
-                            ) {
-                                Text("Restore (${selectedConversationIds.size})")
+                            IconButton(onClick = viewModel::restoreSelected) {
+                                Icon(Icons.Default.Unarchive, contentDescription = "Restore selected")
                             }
-                            Spacer(modifier = Modifier.width(4.dp))
                         } else {
-                            // Active view: Archive + Delete
-                            Button(
-                                onClick = viewModel::archiveSelected,
-                                enabled = selectedConversationIds.isNotEmpty(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                                ),
-                            ) {
-                                Text("Archive (${selectedConversationIds.size})")
+                            IconButton(onClick = viewModel::archiveSelected) {
+                                Icon(Icons.Default.Archive, contentDescription = "Archive selected")
                             }
-                            Spacer(modifier = Modifier.width(4.dp))
                         }
-                        Button(
-                            onClick = viewModel::requestBulkDelete,
-                            enabled = selectedConversationIds.isNotEmpty(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer,
-                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                            ),
-                        ) {
-                            Text("Delete (${selectedConversationIds.size})")
+                        IconButton(onClick = viewModel::requestBulkDelete) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete selected",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
                         }
-                        TextButton(onClick = viewModel::clearSelection) {
-                            Text("Cancel")
+                    },
+                )
+            } else {
+                // ── Normal TopAppBar ────────────────────────────────────────
+                TopAppBar(
+                    title = {
+                        if (showArchived) Text("Archived") else Text("Jandal")
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onOpenDrawer) {
+                            Icon(Icons.Default.Menu, contentDescription = "Menu")
                         }
-                    } else {
-                        // ⋮ overflow menu
+                    },
+                    actions = {
                         Box {
                             IconButton(onClick = { showOverflowMenu = true }) {
                                 Icon(Icons.Default.MoreVert, contentDescription = "More options")
@@ -174,7 +188,18 @@ fun ConversationListScreen(
                                 onDismissRequest = { showOverflowMenu = false },
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text(if (showArchived) "Show Active" else "Show Archived") },
+                                    text = {
+                                        Text(
+                                            if (showArchived) "Show active conversations"
+                                            else "Show archived conversations",
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            if (showArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                                            contentDescription = null,
+                                        )
+                                    },
                                     onClick = {
                                         showOverflowMenu = false
                                         viewModel.toggleShowArchived()
@@ -182,9 +207,9 @@ fun ConversationListScreen(
                                 )
                             }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            }
         },
         floatingActionButton = {
             if (!isInSelectionMode && !showArchived) {
@@ -286,78 +311,231 @@ fun ConversationListScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
+                    state = lazyListState,
                     contentPadding = PaddingValues(bottom = innerPadding.calculateBottomPadding()),
                 ) {
-                    items(conversations, key = { it.id }) { conversation ->
-                        SwipeableConversationRow(
-                            conversation = conversation,
-                            isInSelectionMode = isInSelectionMode,
-                            isSelected = conversation.id in selectedConversationIds,
-                            showArchived = showArchived,
-                            onOpen = {
-                                if (isInSelectionMode) viewModel.toggleSelection(conversation.id)
-                                else onOpenConversation(conversation.id)
-                            },
-                            onLongClick = {
-                                if (!isInSelectionMode) contextMenuTarget = conversation
-                            },
-                            onToggleSelect = { viewModel.toggleSelection(conversation.id) },
-                            onArchive = { viewModel.archiveConversation(conversation.id) },
-                            onRestore = { viewModel.restoreConversation(conversation.id) },
-                            onDeleteRequest = { pendingDelete = conversation },
-                            onTogglePin = { viewModel.togglePin(conversation.id) },
-                        )
-                        // Context menu — only when NOT in selection mode
-                        if (!isInSelectionMode) {
-                            DropdownMenu(
-                                expanded = contextMenuTarget?.id == conversation.id,
-                                onDismissRequest = { contextMenuTarget = null },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Select") },
-                                    onClick = {
-                                        contextMenuTarget = null
-                                        viewModel.enterSelectionMode(conversation.id)
-                                    },
+                    // ── Pinned section (active view only) ───────────────────
+                    if (!showArchived && localPinned.isNotEmpty()) {
+                        stickyHeader(key = "header_pinned") {
+                            ConversationSectionHeader(label = "Pinned")
+                        }
+                        items(localPinned, key = { it.id }) { conversation ->
+                            ReorderableItem(reorderState, key = conversation.id) { isDragging ->
+                                val elevation by animateDpAsState(
+                                    if (isDragging) 6.dp else 0.dp,
+                                    label = "drag_elevation_pinned",
                                 )
-                                if (showArchived) {
-                                    DropdownMenuItem(
-                                        text = { Text("Restore") },
-                                        onClick = {
-                                            viewModel.restoreConversation(conversation.id)
-                                            contextMenuTarget = null
+                                Surface(shadowElevation = elevation) {
+                                    SwipeableConversationRow(
+                                        conversation = conversation,
+                                        isInSelectionMode = isInSelectionMode,
+                                        isSelected = conversation.id in selectedConversationIds,
+                                        showArchived = false,
+                                        dragHandleModifier = if (!isInSelectionMode) {
+                                            Modifier.draggableHandle(
+                                                onDragStarted = { dragInProgress = true },
+                                                onDragStopped = {
+                                                    dragInProgress = false
+                                                    viewModel.onConversationsReordered(
+                                                        localPinned.map { it.id },
+                                                        localUnpinned.map { it.id },
+                                                    )
+                                                },
+                                            )
+                                        } else Modifier,
+                                        onOpen = {
+                                            if (isInSelectionMode) viewModel.toggleSelection(conversation.id)
+                                            else onOpenConversation(conversation.id)
                                         },
+                                        onLongClick = {
+                                            if (!isInSelectionMode) contextMenuTarget = conversation
+                                        },
+                                        onToggleSelect = { viewModel.toggleSelection(conversation.id) },
+                                        onArchiveRequest = { pendingArchive = conversation },
+                                        onRestore = { viewModel.restoreConversation(conversation.id) },
+                                        onDeleteRequest = { pendingDelete = conversation },
+                                        onTogglePin = { viewModel.togglePin(conversation.id) },
                                     )
-                                } else {
-                                    DropdownMenuItem(
-                                        text = { Text("Rename") },
-                                        onClick = {
+                                }
+                            }
+                            if (!isInSelectionMode) {
+                                DropdownMenu(
+                                    expanded = contextMenuTarget?.id == conversation.id,
+                                    onDismissRequest = { contextMenuTarget = null },
+                                ) {
+                                    ConversationContextMenuItems(
+                                        showArchived = false,
+                                        onSelect = {
+                                            contextMenuTarget = null
+                                            viewModel.enterSelectionMode(conversation.id)
+                                        },
+                                        onRename = {
                                             pendingRenameId = conversation.id
                                             contextMenuTarget = null
                                         },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Archive") },
-                                        onClick = {
-                                            viewModel.archiveConversation(conversation.id)
+                                        onArchiveRequest = {
+                                            pendingArchive = conversation
+                                            contextMenuTarget = null
+                                        },
+                                        onRestore = {},
+                                        onDelete = {
+                                            pendingDelete = conversation
                                             contextMenuTarget = null
                                         },
                                     )
                                 }
-                                DropdownMenuItem(
-                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                    onClick = {
-                                        pendingDelete = conversation
-                                        contextMenuTarget = null
-                                    },
-                                )
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+
+                    // ── Unpinned section (active view only) ─────────────────
+                    if (!showArchived) {
+                        if (localPinned.isNotEmpty() && localUnpinned.isNotEmpty()) {
+                            stickyHeader(key = "header_other") {
+                                ConversationSectionHeader(label = "Other")
                             }
                         }
-                        HorizontalDivider()
+                        items(localUnpinned, key = { it.id }) { conversation ->
+                            ReorderableItem(reorderState, key = conversation.id) { isDragging ->
+                                val elevation by animateDpAsState(
+                                    if (isDragging) 6.dp else 0.dp,
+                                    label = "drag_elevation_unpinned",
+                                )
+                                Surface(shadowElevation = elevation) {
+                                    SwipeableConversationRow(
+                                        conversation = conversation,
+                                        isInSelectionMode = isInSelectionMode,
+                                        isSelected = conversation.id in selectedConversationIds,
+                                        showArchived = false,
+                                        dragHandleModifier = if (!isInSelectionMode) {
+                                            Modifier.draggableHandle(
+                                                onDragStarted = { dragInProgress = true },
+                                                onDragStopped = {
+                                                    dragInProgress = false
+                                                    viewModel.onConversationsReordered(
+                                                        localPinned.map { it.id },
+                                                        localUnpinned.map { it.id },
+                                                    )
+                                                },
+                                            )
+                                        } else Modifier,
+                                        onOpen = {
+                                            if (isInSelectionMode) viewModel.toggleSelection(conversation.id)
+                                            else onOpenConversation(conversation.id)
+                                        },
+                                        onLongClick = {
+                                            if (!isInSelectionMode) contextMenuTarget = conversation
+                                        },
+                                        onToggleSelect = { viewModel.toggleSelection(conversation.id) },
+                                        onArchiveRequest = { pendingArchive = conversation },
+                                        onRestore = { viewModel.restoreConversation(conversation.id) },
+                                        onDeleteRequest = { pendingDelete = conversation },
+                                        onTogglePin = { viewModel.togglePin(conversation.id) },
+                                    )
+                                }
+                            }
+                            if (!isInSelectionMode) {
+                                DropdownMenu(
+                                    expanded = contextMenuTarget?.id == conversation.id,
+                                    onDismissRequest = { contextMenuTarget = null },
+                                ) {
+                                    ConversationContextMenuItems(
+                                        showArchived = false,
+                                        onSelect = {
+                                            contextMenuTarget = null
+                                            viewModel.enterSelectionMode(conversation.id)
+                                        },
+                                        onRename = {
+                                            pendingRenameId = conversation.id
+                                            contextMenuTarget = null
+                                        },
+                                        onArchiveRequest = {
+                                            pendingArchive = conversation
+                                            contextMenuTarget = null
+                                        },
+                                        onRestore = {},
+                                        onDelete = {
+                                            pendingDelete = conversation
+                                            contextMenuTarget = null
+                                        },
+                                    )
+                                }
+                            }
+                            HorizontalDivider()
+                        }
                     }
+
+                    // ── Archived section ──────────────────────────────────────
+                    if (showArchived) {
+                        items(conversations, key = { it.id }) { conversation ->
+                            ConversationListItem(
+                                conversation = conversation,
+                                isInSelectionMode = isInSelectionMode,
+                                isSelected = conversation.id in selectedConversationIds,
+                                showArchived = true,
+                                onOpen = {
+                                    if (isInSelectionMode) viewModel.toggleSelection(conversation.id)
+                                    else onOpenConversation(conversation.id)
+                                },
+                                onLongClick = {
+                                    if (!isInSelectionMode) contextMenuTarget = conversation
+                                },
+                            )
+                            if (!isInSelectionMode) {
+                                DropdownMenu(
+                                    expanded = contextMenuTarget?.id == conversation.id,
+                                    onDismissRequest = { contextMenuTarget = null },
+                                ) {
+                                    ConversationContextMenuItems(
+                                        showArchived = true,
+                                        onSelect = {
+                                            contextMenuTarget = null
+                                            viewModel.enterSelectionMode(conversation.id)
+                                        },
+                                        onRename = {},
+                                        onArchiveRequest = {},
+                                        onRestore = {
+                                            viewModel.restoreConversation(conversation.id)
+                                            contextMenuTarget = null
+                                        },
+                                        onDelete = {
+                                            pendingDelete = conversation
+                                            contextMenuTarget = null
+                                        },
+                                    )
+                                }
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+
+                    item { Spacer(modifier = Modifier.height(88.dp)) }
                 }
             }
         } // end Column
+    }
+
+    // Archive confirmation dialog
+    pendingArchive?.let { conversation ->
+        AlertDialog(
+            onDismissRequest = { pendingArchive = null },
+            title = { Text("Archive conversation?") },
+            text = {
+                Text("\"${conversation.title ?: "New conversation"}\" will be moved to archive.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.archiveConversation(conversation.id)
+                        pendingArchive = null
+                    }
+                ) { Text("Archive") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingArchive = null }) { Text("Cancel") }
+            },
+        )
     }
 
     // Delete confirmation dialog
@@ -432,6 +610,32 @@ fun ConversationListScreen(
     }
 }
 
+// ── Shared context menu items ────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun ConversationContextMenuItems(
+    showArchived: Boolean,
+    onSelect: () -> Unit,
+    onRename: () -> Unit,
+    onArchiveRequest: () -> Unit,
+    onRestore: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    DropdownMenuItem(text = { Text("Select") }, onClick = onSelect)
+    if (showArchived) {
+        DropdownMenuItem(text = { Text("Restore") }, onClick = onRestore)
+    } else {
+        DropdownMenuItem(text = { Text("Rename") }, onClick = onRename)
+        DropdownMenuItem(text = { Text("Archive") }, onClick = onArchiveRequest)
+    }
+    DropdownMenuItem(
+        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+        onClick = onDelete,
+    )
+}
+
+// ── SwipeableConversationRow ─────────────────────────────────────────────────────────────────────
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun SwipeableConversationRow(
@@ -439,39 +643,34 @@ private fun SwipeableConversationRow(
     isInSelectionMode: Boolean,
     isSelected: Boolean,
     showArchived: Boolean,
+    dragHandleModifier: Modifier = Modifier,
     onOpen: () -> Unit,
     onLongClick: () -> Unit,
     onToggleSelect: () -> Unit,
-    onArchive: () -> Unit,
+    onArchiveRequest: () -> Unit,
     onRestore: () -> Unit,
     onDeleteRequest: () -> Unit,
     onTogglePin: () -> Unit,
 ) {
-    // Track pending delete to show dialog after resetting dismiss state
     var pendingSwipeDelete by remember { mutableStateOf(false) }
+    var pendingSwipeArchive by remember { mutableStateOf(false) }
 
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.EndToStart -> {
-                    // Swipe left: archive (active) or restore (archived)
-                    if (showArchived) onRestore() else onArchive()
-                    false // Don't dismiss the item, just trigger action & snap back
+                    if (showArchived) onRestore() else { pendingSwipeArchive = true }
+                    false
                 }
                 SwipeToDismissBoxValue.StartToEnd -> {
-                    // Swipe right: request delete (show dialog via LaunchedEffect)
                     pendingSwipeDelete = true
-                    false // Don't dismiss — dialog will handle it
+                    false
                 }
                 SwipeToDismissBoxValue.Settled -> false
             }
-        }
+        },
     )
 
-    // Snap-back is automatic: confirmValueChange always returns false,
-    // so AnchoredDraggable refuses the transition and animates back to Settled.
-
-    // When a swipe-right delete is pending, trigger the delete dialog
     LaunchedEffect(pendingSwipeDelete) {
         if (pendingSwipeDelete) {
             pendingSwipeDelete = false
@@ -479,8 +678,14 @@ private fun SwipeableConversationRow(
         }
     }
 
+    LaunchedEffect(pendingSwipeArchive) {
+        if (pendingSwipeArchive) {
+            pendingSwipeArchive = false
+            onArchiveRequest()
+        }
+    }
+
     if (isInSelectionMode) {
-        // In selection mode, skip swipe — just show the list item
         ConversationListItem(
             conversation = conversation,
             isInSelectionMode = true,
@@ -489,7 +694,8 @@ private fun SwipeableConversationRow(
             onOpen = onOpen,
             onLongClick = onLongClick,
         )
-    } else {        SwipeToDismissBox(
+    } else {
+        SwipeToDismissBox(
             state = dismissState,
             backgroundContent = {
                 val direction = dismissState.dismissDirection
@@ -500,7 +706,7 @@ private fun SwipeableConversationRow(
                     targetValue = when {
                         isStartToEnd -> MaterialTheme.colorScheme.errorContainer
                         isEndToStart -> if (showArchived) MaterialTheme.colorScheme.secondaryContainer
-                                        else MaterialTheme.colorScheme.tertiaryContainer
+                                        else Color(0xFF2E7D32)
                         else -> Color.Transparent
                     },
                     label = "swipe_bg",
@@ -527,19 +733,20 @@ private fun SwipeableConversationRow(
                         isEndToStart -> Icon(
                             Icons.Default.Archive,
                             contentDescription = "Archive",
-                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                            tint = Color.White,
                         )
                     }
                 }
             },
-            enableDismissFromStartToEnd = !isInSelectionMode,
-            enableDismissFromEndToStart = !isInSelectionMode,
+            enableDismissFromStartToEnd = true,
+            enableDismissFromEndToStart = true,
             content = {
                 ConversationListItem(
                     conversation = conversation,
                     isInSelectionMode = false,
                     isSelected = false,
                     showArchived = showArchived,
+                    dragHandleModifier = dragHandleModifier,
                     onOpen = onOpen,
                     onLongClick = onLongClick,
                     onTogglePin = onTogglePin,
@@ -549,6 +756,8 @@ private fun SwipeableConversationRow(
     }
 }
 
+// ── ConversationListItem ─────────────────────────────────────────────────────────────────────────
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ConversationListItem(
@@ -556,6 +765,7 @@ private fun ConversationListItem(
     isInSelectionMode: Boolean,
     isSelected: Boolean,
     showArchived: Boolean,
+    dragHandleModifier: Modifier = Modifier,
     onOpen: () -> Unit,
     onLongClick: () -> Unit,
     onTogglePin: (() -> Unit)? = null,
@@ -590,14 +800,28 @@ private fun ConversationListItem(
         } else {
             null
         },
-        trailingContent = if (!isInSelectionMode && !showArchived && onTogglePin != null) {
+        trailingContent = if (!isInSelectionMode && !showArchived) {
             {
-                IconButton(onClick = onTogglePin) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onTogglePin != null) {
+                        IconButton(onClick = onTogglePin) {
+                            Icon(
+                                imageVector = if (conversation.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                                contentDescription = if (conversation.pinned) "Unpin" else "Pin",
+                                tint = if (conversation.pinned) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.outline,
+                            )
+                        }
+                    }
                     Icon(
-                        imageVector = if (conversation.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
-                        contentDescription = if (conversation.pinned) "Unpin" else "Pin",
-                        tint = if (conversation.pinned) MaterialTheme.colorScheme.primary
-                               else MaterialTheme.colorScheme.outline,
+                        Icons.Default.DragHandle,
+                        contentDescription = "Drag to reorder",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = dragHandleModifier
+                            .pointerInput(Unit) {
+                                detectTapGestures(onLongPress = { /* absorb — prevent combinedClickable from firing */ })
+                            }
+                            .padding(horizontal = 4.dp),
                     )
                 }
             }
@@ -610,6 +834,20 @@ private fun ConversationListItem(
                 onClick = onOpen,
                 onLongClick = onLongClick,
             ),
+    )
+}
+
+/** Sticky section header — surface background so it occludes scrolled-under rows. */
+@Composable
+private fun ConversationSectionHeader(label: String) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
     )
 }
 

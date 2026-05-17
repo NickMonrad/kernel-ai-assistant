@@ -130,6 +130,11 @@ class ConversationRepository @Inject constructor(
         conversationDao.deleteArchivedOlderThan(cutoffMs)
     }
 
+    suspend fun reorderConversations(pinnedIds: List<String>, unpinnedIds: List<String>) {
+        pinnedIds.forEachIndexed { index, id -> conversationDao.updateSortOrder(id, index) }
+        unpinnedIds.forEachIndexed { index, id -> conversationDao.updateSortOrder(id, index) }
+    }
+
     suspend fun getConversation(id: String): ConversationEntity? =
         conversationDao.getById(id)
 
