@@ -1,12 +1,12 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 42,
-    "identityHash": "fe782593e6b17a224d0d9ddb485e6d4e",
+    "version": 45,
+    "identityHash": "688b2c408a1e4416f2f2dcc1a8a36828",
     "entities": [
       {
         "tableName": "conversations",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `lastDistilledAt` INTEGER, `archivedAt` INTEGER, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `lastDistilledAt` INTEGER, `archivedAt` INTEGER, `pinned` INTEGER NOT NULL, `sort_order` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -40,6 +40,18 @@
             "fieldPath": "archivedAt",
             "columnName": "archivedAt",
             "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "pinned",
+            "columnName": "pinned",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sort_order",
+            "affinity": "INTEGER",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -1286,7 +1298,7 @@
       },
       {
         "tableName": "meal_plan_sessions",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `conversationId` TEXT NOT NULL, `status` TEXT NOT NULL, `peopleCount` INTEGER, `daysCount` INTEGER, `dietaryRestrictionsJson` TEXT NOT NULL, `proteinPreferencesJson` TEXT NOT NULL, `optionalSlotsJson` TEXT NOT NULL, `activeDayIndex` INTEGER, `pendingGenerationKind` TEXT, `pendingGenerationDayIndex` INTEGER, `pendingGenerationStartedAt` INTEGER, `planVersion` INTEGER NOT NULL, `finalSummaryWritten` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `completedAt` INTEGER, `cancelledAt` INTEGER, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `conversationId` TEXT NOT NULL, `status` TEXT NOT NULL, `peopleCount` INTEGER, `daysCount` INTEGER, `dietaryRestrictionsJson` TEXT NOT NULL, `proteinPreferencesJson` TEXT NOT NULL, `optionalSlotsJson` TEXT NOT NULL, `activeDayIndex` INTEGER, `pendingGenerationKind` TEXT, `pendingGenerationDayIndex` INTEGER, `pendingGenerationStartedAt` INTEGER, `displayCode` INTEGER NOT NULL, `planVersion` INTEGER NOT NULL, `finalSummaryWritten` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `completedAt` INTEGER, `cancelledAt` INTEGER, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -1355,6 +1367,12 @@
             "affinity": "INTEGER"
           },
           {
+            "fieldPath": "displayCode",
+            "columnName": "displayCode",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
             "fieldPath": "planVersion",
             "columnName": "planVersion",
             "affinity": "INTEGER",
@@ -1413,6 +1431,15 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_meal_plan_sessions_status` ON `${TABLE_NAME}` (`status`)"
+          },
+          {
+            "name": "index_meal_plan_sessions_displayCode",
+            "unique": true,
+            "columnNames": [
+              "displayCode"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_plan_sessions_displayCode` ON `${TABLE_NAME}` (`displayCode`)"
           }
         ]
       },
@@ -1835,7 +1862,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'fe782593e6b17a224d0d9ddb485e6d4e')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '688b2c408a1e4416f2f2dcc1a8a36828')"
     ]
   }
 }

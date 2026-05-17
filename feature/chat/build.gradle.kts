@@ -73,4 +73,6 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
     testImplementation("org.json:json:20240303")
+
+    implementation("sh.calvin.reorderable:reorderable:2.4.3")
 }

@@ -79,6 +79,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -256,6 +258,11 @@ class ChatViewModel @Inject constructor(
      * need the model; [sendMessage] handles model loading internally for LLM-routed queries.
      */
     val isConversationReady: StateFlow<Boolean> = _conversationInitialized.asStateFlow()
+
+    val isArchived: StateFlow<Boolean> = conversationRepository.observeConversationById(navConversationId ?: "")
+        .map { it?.archivedAt != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     private val _showThinkingProcess = MutableStateFlow(true)
     private val _correctGroundedFactsEnabled = MutableStateFlow(false)
 
@@ -300,7 +307,8 @@ class ChatViewModel @Inject constructor(
         downloadManager.downloadStates,
         inputState,
         _showThinkingProcess,
-    ) { engine, downloadStates, input, showThinking ->
+        isArchived,
+    ) { engine, downloadStates, input, showThinking, archived ->
         val allDownloaded = downloadManager.areRequiredModelsDownloaded()
         val tier = downloadManager.deviceTier
         val displayModels: List<KernelModel> = if (tier == HardwareTier.FLAGSHIP) {
@@ -323,7 +331,9 @@ class ChatViewModel @Inject constructor(
                 }
                 ChatUiState.ModelsNotReady(isDownloading = anyDownloading, modelProgress = progress)
             }
-            !engine.isReady || !engine.conversationInitialized -> ChatUiState.Loading
+            // Archived conversations are read-only — no engine needed. Skip the isReady gate.
+            !archived && (!engine.isReady || !engine.conversationInitialized) -> ChatUiState.Loading
+            !engine.conversationInitialized -> ChatUiState.Loading
             else -> ChatUiState.Ready(
                 conversationId = conversationId ?: "",
                 conversationTitle = input.conversationTitle,
@@ -453,10 +463,16 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch { initializeConversation() }
         nzTruthSeedingService.seedIfNeeded()
         viewModelScope.launch {
-            // E4B first — GPU compilation needs every byte of headroom.
-            // FG's 289MB on CPU is enough to tip OOM during GPU init.
-            // Once E4B is stable, FG loads in ~0.4s with no memory pressure.
-            initEngineWhenReady()
+            // Don't load the model for archived conversations — they are read-only and need no inference.
+            // Read directly from the repository (not the StateFlow, which defaults to false) so we get
+            // the real archived state before deciding.
+            val archived = conversationRepository.observeConversationById(navConversationId ?: "")
+                .map { it?.archivedAt != null }
+                .firstOrNull() ?: false
+            if (!archived) {
+                // E4B first — GPU compilation needs every byte of headroom.
+                initEngineWhenReady()
+            }
         }
         viewModelScope.launch {
             // Re-initialize automatically when Android evicts the engine under memory pressure
@@ -467,6 +483,8 @@ class ChatViewModel @Inject constructor(
             // - waitForScreenInteractive() in initialize() is a safety net if screen goes off
             //   mid-init, but the real gate should be app-in-foreground
             inferenceEngine.evictionEvents.collect {
+                // Don't re-init for archived conversations.
+                if (isArchived.value) return@collect
                 Log.i("ChatViewModel", "Engine evicted — waiting for app to open before re-init (#609)")
                 withContext(Dispatchers.Main) {
                     suspendCancellableCoroutine { cont ->

@@ -81,7 +81,7 @@ import java.time.ZoneId
         MealPlanGroceryItemEntity::class,
         MealPlanProjectionWriteEntity::class,
     ],
-    version = 42,
+    version = 45,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -697,8 +697,29 @@ abstract class KernelDatabase : RoomDatabase() {
             }
         }
 
-        /** Adds correctGroundedFactsEnabled to model_settings and stable friendly display codes to meal-plan sessions (#913). */
+        /** Adds archivedAt to conversations for archive feature (#905). */
         val MIGRATION_41_42 = object : Migration(41, 42) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversations ADD COLUMN archivedAt INTEGER DEFAULT NULL")
+            }
+        }
+
+        /** Adds pinned to conversations for pin feature (#905). */
+        val MIGRATION_42_43 = object : Migration(42, 43) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /** Adds sort_order to conversations for drag-to-reorder (#905). */
+        val MIGRATION_43_44 = object : Migration(43, 44) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversations ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /** Adds correctGroundedFactsEnabled to model_settings and stable friendly display codes to meal-plan sessions (#913). */
+        val MIGRATION_44_45 = object : Migration(44, 45) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE model_settings ADD COLUMN correctGroundedFactsEnabled INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE meal_plan_sessions ADD COLUMN displayCode INTEGER NOT NULL DEFAULT 0")
