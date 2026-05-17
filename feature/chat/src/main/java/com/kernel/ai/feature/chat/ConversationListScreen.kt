@@ -348,13 +348,14 @@ fun ConversationListScreen(
                                             else onOpenConversation(conversation.id)
                                         },
                                         onLongClick = {
-                                            if (!isInSelectionMode) contextMenuTarget = conversation
+                                            if (!isInSelectionMode) viewModel.enterSelectionMode(conversation.id)
                                         },
                                         onToggleSelect = { viewModel.toggleSelection(conversation.id) },
                                         onArchiveRequest = { pendingArchive = conversation },
                                         onRestore = { viewModel.restoreConversation(conversation.id) },
                                         onDeleteRequest = { pendingDelete = conversation },
                                         onTogglePin = { viewModel.togglePin(conversation.id) },
+                                        onMoreClick = { contextMenuTarget = conversation },
                                     )
                                 }
                             }
@@ -365,10 +366,6 @@ fun ConversationListScreen(
                                 ) {
                                     ConversationContextMenuItems(
                                         showArchived = false,
-                                        onSelect = {
-                                            contextMenuTarget = null
-                                            viewModel.enterSelectionMode(conversation.id)
-                                        },
                                         onRename = {
                                             pendingRenameId = conversation.id
                                             contextMenuTarget = null
@@ -425,13 +422,14 @@ fun ConversationListScreen(
                                             else onOpenConversation(conversation.id)
                                         },
                                         onLongClick = {
-                                            if (!isInSelectionMode) contextMenuTarget = conversation
+                                            if (!isInSelectionMode) viewModel.enterSelectionMode(conversation.id)
                                         },
                                         onToggleSelect = { viewModel.toggleSelection(conversation.id) },
                                         onArchiveRequest = { pendingArchive = conversation },
                                         onRestore = { viewModel.restoreConversation(conversation.id) },
                                         onDeleteRequest = { pendingDelete = conversation },
                                         onTogglePin = { viewModel.togglePin(conversation.id) },
+                                        onMoreClick = { contextMenuTarget = conversation },
                                     )
                                 }
                             }
@@ -442,10 +440,6 @@ fun ConversationListScreen(
                                 ) {
                                     ConversationContextMenuItems(
                                         showArchived = false,
-                                        onSelect = {
-                                            contextMenuTarget = null
-                                            viewModel.enterSelectionMode(conversation.id)
-                                        },
                                         onRename = {
                                             pendingRenameId = conversation.id
                                             contextMenuTarget = null
@@ -479,8 +473,9 @@ fun ConversationListScreen(
                                     else onOpenConversation(conversation.id)
                                 },
                                 onLongClick = {
-                                    if (!isInSelectionMode) contextMenuTarget = conversation
+                                    if (!isInSelectionMode) viewModel.enterSelectionMode(conversation.id)
                                 },
+                                onMoreClick = { contextMenuTarget = conversation },
                             )
                             if (!isInSelectionMode) {
                                 DropdownMenu(
@@ -489,10 +484,6 @@ fun ConversationListScreen(
                                 ) {
                                     ConversationContextMenuItems(
                                         showArchived = true,
-                                        onSelect = {
-                                            contextMenuTarget = null
-                                            viewModel.enterSelectionMode(conversation.id)
-                                        },
                                         onRename = {},
                                         onArchiveRequest = {},
                                         onRestore = {
@@ -615,13 +606,11 @@ fun ConversationListScreen(
 @Composable
 private fun ConversationContextMenuItems(
     showArchived: Boolean,
-    onSelect: () -> Unit,
     onRename: () -> Unit,
     onArchiveRequest: () -> Unit,
     onRestore: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    DropdownMenuItem(text = { Text("Select") }, onClick = onSelect)
     if (showArchived) {
         DropdownMenuItem(text = { Text("Restore") }, onClick = onRestore)
     } else {
@@ -651,6 +640,7 @@ private fun SwipeableConversationRow(
     onRestore: () -> Unit,
     onDeleteRequest: () -> Unit,
     onTogglePin: () -> Unit,
+    onMoreClick: () -> Unit,
 ) {
     var pendingSwipeDelete by remember { mutableStateOf(false) }
     var pendingSwipeArchive by remember { mutableStateOf(false) }
@@ -750,6 +740,7 @@ private fun SwipeableConversationRow(
                     onOpen = onOpen,
                     onLongClick = onLongClick,
                     onTogglePin = onTogglePin,
+                    onMoreClick = onMoreClick,
                 )
             },
         )
@@ -769,6 +760,7 @@ private fun ConversationListItem(
     onOpen: () -> Unit,
     onLongClick: () -> Unit,
     onTogglePin: (() -> Unit)? = null,
+    onMoreClick: (() -> Unit)? = null,
 ) {
     ListItem(
         headlineContent = {
@@ -800,10 +792,10 @@ private fun ConversationListItem(
         } else {
             null
         },
-        trailingContent = if (!isInSelectionMode && !showArchived) {
+        trailingContent = if (!isInSelectionMode) {
             {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (onTogglePin != null) {
+                    if (!showArchived && onTogglePin != null) {
                         IconButton(onClick = onTogglePin) {
                             Icon(
                                 imageVector = if (conversation.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
@@ -813,16 +805,27 @@ private fun ConversationListItem(
                             )
                         }
                     }
-                    Icon(
-                        Icons.Default.DragHandle,
-                        contentDescription = "Drag to reorder",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = dragHandleModifier
-                            .pointerInput(Unit) {
-                                detectTapGestures(onLongPress = { /* absorb — prevent combinedClickable from firing */ })
-                            }
-                            .padding(horizontal = 4.dp),
-                    )
+                    if (!showArchived) {
+                        Icon(
+                            Icons.Default.DragHandle,
+                            contentDescription = "Drag to reorder",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = dragHandleModifier
+                                .pointerInput(Unit) {
+                                    detectTapGestures(onLongPress = { /* absorb — prevent combinedClickable from firing */ })
+                                }
+                                .padding(horizontal = 4.dp),
+                        )
+                    }
+                    if (onMoreClick != null) {
+                        IconButton(onClick = onMoreClick) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "More options",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             }
         } else {

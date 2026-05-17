@@ -402,7 +402,9 @@ private fun ChatContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .imePadding(),
+                .imePadding()
+                // InputBar handles nav bar padding when visible; add it here for archived (read-only) view.
+                .then(if (isArchived) Modifier.navigationBarsPadding() else Modifier),
         ) {
             if (isArchived) {
                 Box(
