@@ -434,10 +434,22 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    /** Restores an archived list back to the active view. */
+    /** Restores an archived list back to the active view, re-scheduling any future alarms. */
     fun restoreList(id: Long) {
         viewModelScope.launch(Dispatchers.IO) {
             listNameDao.restoreList(id = id, updatedAt = System.currentTimeMillis())
+            val listName = listNameDao.getById(id)?.name ?: return@launch
+            val now = System.currentTimeMillis()
+            dao.getAllWithNotification(id).forEach { item ->
+                    val triggerAtMs = item.notificationTime?.takeIf { it > now } ?: return@forEach
+                    scheduler.schedule(
+                        itemId = item.id,
+                        itemText = item.text,
+                        listId = id,
+                        listName = listName,
+                        triggerAtMs = triggerAtMs,
+                    )
+                }
         }
     }
 
