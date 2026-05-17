@@ -52,8 +52,10 @@ class MealPlannerSlotExtractor @Inject constructor() {
             .find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.minus(1)
 
     fun isGenerateRecipesRequest(text: String): Boolean =
-        Regex("\\b(?:generate|make|create|start)\\b.*\\b(?:recipes?|meal plan)\\b|\\b(?:continue|resume|keep going)\\b", RegexOption.IGNORE_CASE)
-            .containsMatchIn(text)
+        Regex(
+            "\\b(?:generate(?:\\s+recipes?)?|make(?:\\s+(?:recipes?|meal plan))|create(?:\\s+(?:recipes?|meal plan))|start(?:\\s+(?:recipes?|meal plan))|continue|resume|keep going)\\b",
+            RegexOption.IGNORE_CASE,
+        ).containsMatchIn(text)
 
     fun isRetryRequest(text: String): Boolean =
         Regex("\\b(?:retry|try again)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)

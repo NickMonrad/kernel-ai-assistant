@@ -272,6 +272,42 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `plan review bare generate emits progress and recipes sequentially`() = runTest {
+        val planReview = planReviewSnapshot()
+        val afterDay1 = planReview.copy(
+            status = MealPlanSessionStatus.RECIPES_IN_PROGRESS,
+            activeDayIndex = 1,
+            pendingGenerationKind = PendingGenerationKind.RECIPE,
+            pendingGenerationDayIndex = 1,
+            days = listOf(
+                draftDay(dayIndex = 0, title = "Lemon chicken", status = MealPlanDayStatus.PERSISTED),
+                draftDay(dayIndex = 1, title = "Beef bowls", status = MealPlanDayStatus.DRAFTED),
+            ),
+        )
+        val completed = readyForFinalizeSnapshot(finalSummaryWritten = false)
+        val emitted = mutableListOf<String>()
+
+        coEvery { sessionRepository.getActiveSession("conv") } returns planReview
+        coEvery { sessionRepository.getSession("session-1") } returns planReview
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(recipeJson("Lemon chicken"), recipeJson("Beef bowls"))
+        coEvery { sessionRepository.persistRecipeDraft("session-1", 0, any(), any(), any()) } returns afterDay1
+        coEvery { sessionRepository.persistRecipeDraft("session-1", 1, any(), any(), any()) } returns completed
+
+        val reply = coordinator.ingestUserMessage("conv", "generate") { emitted += it }
+
+        assertEquals(
+            listOf(
+                "Generating recipe 1 of 2…",
+                expectedRecipeSection(0, "Lemon chicken"),
+                "Generating recipe 2 of 2…",
+                expectedRecipeSection(1, "Beef bowls"),
+            ),
+            emitted,
+        )
+        assertTrue(reply.content.contains("done meal planning", ignoreCase = true))
+    }
+
+    @Test
     fun `plan review change preferences returns to editable slot collection`() = runTest {
         val planReview = planReviewSnapshot()
         val editable = planReview.copy(status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS)
