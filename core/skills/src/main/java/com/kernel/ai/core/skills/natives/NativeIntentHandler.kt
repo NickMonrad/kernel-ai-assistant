@@ -2280,6 +2280,7 @@ class NativeIntentHandler @Inject constructor(
         val sanitized = correctMonthSpelling(input).trim()
             .replace(Regex("""\b(\d{1,2})(st|nd|rd|th)\b""", RegexOption.IGNORE_CASE), "$1")
             .replace(",", "")
+            .replace(Regex("""^(the|a|an)\s+""", RegexOption.IGNORE_CASE), "")
         val fullDateFormatters = listOf(
             DateTimeFormatter.ISO_LOCAL_DATE,
             DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH),
@@ -2327,6 +2328,14 @@ class NativeIntentHandler @Inject constructor(
         runBlocking { importantDateRepository.findByLabel(s) }?.let { stored ->
             return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
         }
+        // Fuzzy fallback for all important dates (handles STT spelling variations, e.g. "Ruben" → "Reuben")
+        val normalizedS = ImportantDateRepository.normalizeLabel(s)
+        runBlocking { importantDateRepository.getAll() }
+            .filter { CalendarBirthdayLookup.labelsPotentiallyMatch(it.label, normalizedS) }
+            .maxByOrNull { importantDateMatchScore(it.label, normalizedS) }
+            ?.let { stored ->
+                return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
+            }
         if (s.contains("birthday", ignoreCase = true)) {
             // Strip "birthday" / "'s birthday" suffix and try Room DB by name only.
             // Handles "Freya's birthday" when the stored label is "Freya".
@@ -2339,7 +2348,8 @@ class NativeIntentHandler @Inject constructor(
                 }
                 // Fuzzy Room DB match: handles spelling variations (e.g. "Freya" query → "Freyja" stored label)
                 runBlocking { importantDateRepository.getAll() }
-                    .singleOrNull { CalendarBirthdayLookup.labelsPotentiallyMatch(it.label, namePart) }
+                    .filter { CalendarBirthdayLookup.labelsPotentiallyMatch(it.label, namePart) }
+                    .maxByOrNull { importantDateMatchScore(it.label, namePart) }
                     ?.let { stored ->
                         return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
                     }
@@ -2421,6 +2431,13 @@ class NativeIntentHandler @Inject constructor(
             }
         }
         return null
+    }
+
+    /** Counts shared tokens between two already-normalized labels for use as a tie-breaker in fuzzy date lookup. */
+    private fun importantDateMatchScore(storedLabel: String, queryLabel: String): Int {
+        val storedTokens = storedLabel.split(Regex("\\s+")).toSet()
+        val queryTokens = queryLabel.split(Regex("\\s+")).toSet()
+        return storedTokens.intersect(queryTokens).size
     }
 
     // ── Get System Info ───────────────────────────────────────────────────────
