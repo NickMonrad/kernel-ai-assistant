@@ -1719,6 +1719,8 @@ class NativeIntentHandlerTest {
             Triple("the 1st of January", 1, 1),
             Triple("the 22nd of March", 3, 22),
             Triple("the 3rd of September 2025", 9, 3),
+            Triple("a 3rd of March", 3, 3),
+            Triple("an 8th of November", 11, 8),
         )
         for ((input, expectedMonth, expectedDay) in cases) {
             val result = method.invoke(handler, input)
