@@ -429,6 +429,7 @@ class ListsViewModel @Inject constructor(
         selectedListIds = selectedListIds - id
         val now = System.currentTimeMillis()
         viewModelScope.launch(Dispatchers.IO) {
+            dao.getAllWithNotification(id).forEach { scheduler.cancel(it.id) }
             listNameDao.archiveList(id = id, archivedAt = now, updatedAt = now)
         }
     }
@@ -446,7 +447,10 @@ class ListsViewModel @Inject constructor(
         selectedListIds = emptySet()
         val now = System.currentTimeMillis()
         viewModelScope.launch(Dispatchers.IO) {
-            ids.forEach { listNameDao.archiveList(id = it, archivedAt = now, updatedAt = now) }
+            ids.forEach { listId ->
+                dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
+                listNameDao.archiveList(id = listId, archivedAt = now, updatedAt = now)
+            }
         }
     }
 }
