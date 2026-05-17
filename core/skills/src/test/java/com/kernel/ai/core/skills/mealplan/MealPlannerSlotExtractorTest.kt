@@ -96,4 +96,23 @@ class MealPlannerSlotExtractorTest {
     fun `isChangePreferencesRequest recognizes edit request`() {
         assertTrue(extractor.isChangePreferencesRequest("change preferences"))
     }
+
+    @Test
+    fun `extractFavouriteDayIndex parses favourite commands`() {
+        assertEquals(0, extractor.extractFavouriteDayIndex("favourite day 1"))
+        assertEquals(1, extractor.extractFavouriteDayIndex("save recipe for day 2"))
+    }
+
+    @Test
+    fun `extractUnfavouriteDayIndex parses unfavourite commands`() {
+        assertEquals(0, extractor.extractUnfavouriteDayIndex("unfavourite day 1"))
+        assertEquals(2, extractor.extractUnfavouriteDayIndex("remove favourite from day 3"))
+    }
+
+    @Test
+    fun `extractFavouriteRecipeMode recognizes include prefer and avoid phrases`() {
+        assertEquals(com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode.INCLUDE, extractor.extractFavouriteRecipeMode("include favourites"))
+        assertEquals(com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode.PREFER, extractor.extractFavouriteRecipeMode("prefer my favourites"))
+        assertEquals(com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode.AVOID, extractor.extractFavouriteRecipeMode("avoid favourites for this plan"))
+    }
 }

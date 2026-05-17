@@ -57,6 +57,7 @@ class MealPlanSessionRepositoryAndroidTest {
             dayDao = database.mealPlanDayDao(),
             recipeVersionDao = database.mealPlanRecipeVersionDao(),
             groceryItemDao = database.mealPlanGroceryItemDao(),
+            favouriteRecipeDao = database.mealPlanFavouriteRecipeDao(),
             projectionWriteDao = database.mealPlanProjectionWriteDao(),
             listItemDao = database.listItemDao(),
             listNameDao = database.listNameDao(),
@@ -232,6 +233,39 @@ class MealPlanSessionRepositoryAndroidTest {
     }
 
     @Test
+    fun setRecipeFavourite_persistsFavouriteRecipesAndSupportsUndo() = runBlocking {
+        val session = repository.startOrResume("conv-favourites")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(
+                    dayIndex = 0,
+                    title = "Chicken Stir Fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                ),
+            ),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(title = "Chicken Stir Fry", method = listOf("Prep vegetables.", "Stir-fry chicken.")),
+            rawModelJson = "{}",
+            groceries = listOf(grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh")),
+        )
+
+        val favourited = repository.setRecipeFavourite(session.sessionId, 0, true)
+
+        assertTrue(favourited.days.single().isFavouriteRecipe)
+        assertEquals("Chicken Stir Fry", repository.getFavouriteRecipes(5).single().title)
+
+        val unfavourited = repository.setRecipeFavourite(session.sessionId, 0, false)
+
+        assertFalse(unfavourited.days.single().isFavouriteRecipe)
+        assertTrue(repository.getFavouriteRecipes(5).isEmpty())
+    }
+
+    @Test
     fun migration33To34_preservesExistingListsAndCreatesMealPlannerTables() {
         migrationHelper.createDatabase(MIGRATION_DB_NAME, 33).apply {
             execSQL("INSERT INTO `lists` (`id`, `name`, `createdAt`) VALUES (1, 'Existing list', 1234)")
@@ -331,7 +365,7 @@ class MealPlanSessionRepositoryAndroidTest {
         migratedDb.query("SELECT name, updatedAt, pinned FROM `lists` WHERE id = 1").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals("My List", cursor.getString(0))
-            assertEquals(1000L, cursor.getLong(1)) // updatedAt defaults to createdAt
+            assertEquals(0L, cursor.getLong(1))    // updatedAt defaults to 0 in SQLite ALTER TABLE
             assertEquals(0, cursor.getInt(2))      // pinned defaults to 0 (false)
         }
         // list_items now has listId FK and text column
@@ -339,6 +373,66 @@ class MealPlanSessionRepositoryAndroidTest {
             assertTrue(cursor.moveToFirst())
             assertEquals(1L, cursor.getLong(0)) // listId resolved from name join
             assertEquals("apple", cursor.getString(1)) // text (was item)
+        }
+        migratedDb.close()
+    }
+
+    @Test
+    fun migration41To42_addsFavouriteRecipeSupport() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 41).apply {
+            execSQL(
+                """
+                INSERT INTO `meal_plan_sessions` (
+                    `id`, `conversationId`, `status`, `peopleCount`, `daysCount`,
+                    `dietaryRestrictionsJson`, `proteinPreferencesJson`, `optionalSlotsJson`,
+                    `activeDayIndex`, `pendingGenerationKind`, `pendingGenerationDayIndex`,
+                    `pendingGenerationStartedAt`, `planVersion`, `finalSummaryWritten`,
+                    `createdAt`, `updatedAt`, `completedAt`, `cancelledAt`
+                ) VALUES (
+                    'session-a', 'conv-a', 'PLAN_REVIEW', 2, 3, '[]', '[]', '{}', NULL, NULL, NULL, NULL, 1, 0, 1000, 1000, NULL, NULL
+                )
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO `meal_plan_days` (
+                    `id`, `mealPlanSessionId`, `dayIndex`, `title`, `summary`, `proteinTagsJson`,
+                    `status`, `currentRecipeVersion`, `attemptCount`, `lastErrorCode`, `lastErrorMessage`,
+                    `createdAt`, `updatedAt`
+                ) VALUES (
+                    'day-a', 'session-a', 0, 'Chicken Stir Fry', 'Quick bowl', '["chicken"]',
+                    'PERSISTED', 1, 1, NULL, NULL, 1000, 1000
+                )
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO `meal_plan_recipe_versions` (
+                    `id`, `mealPlanSessionId`, `mealPlanDayId`, `version`, `title`, `servings`,
+                    `ingredientsJson`, `methodStepsJson`, `rawModelJson`, `createdAt`
+                ) VALUES (
+                    'recipe-a', 'session-a', 'day-a', 1, 'Chicken Stir Fry', 4, '[]', '[]', '{}', 1000
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            MIGRATION_DB_NAME,
+            42,
+            true,
+            KernelDatabase.MIGRATION_41_42,
+        )
+
+        assertTrue(tableExists(migratedDb, "meal_plan_favourite_recipes"))
+        migratedDb.query("SELECT favouriteRecipeMode FROM `meal_plan_sessions` WHERE id = 'session-a'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("NONE", cursor.getString(0))
+        }
+        migratedDb.query("SELECT recipeKey FROM `meal_plan_recipe_versions` WHERE id = 'recipe-a'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("", cursor.getString(0))
         }
         migratedDb.close()
     }

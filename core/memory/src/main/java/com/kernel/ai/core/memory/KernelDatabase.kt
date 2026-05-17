@@ -16,6 +16,7 @@ import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.MealPlanDayDao
+import com.kernel.ai.core.memory.dao.MealPlanFavouriteRecipeDao
 import com.kernel.ai.core.memory.dao.MealPlanGroceryItemDao
 import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
 import com.kernel.ai.core.memory.dao.MealPlanRecipeVersionDao
@@ -40,6 +41,7 @@ import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.MealPlanDayEntity
 import com.kernel.ai.core.memory.entity.MealPlanGroceryItemEntity
+import com.kernel.ai.core.memory.entity.MealPlanFavouriteRecipeEntity
 import com.kernel.ai.core.memory.entity.MealPlanProjectionWriteEntity
 import com.kernel.ai.core.memory.entity.MealPlanRecipeVersionEntity
 import com.kernel.ai.core.memory.entity.MealPlanSessionEntity
@@ -79,9 +81,10 @@ import java.time.ZoneId
         MealPlanDayEntity::class,
         MealPlanRecipeVersionEntity::class,
         MealPlanGroceryItemEntity::class,
+        MealPlanFavouriteRecipeEntity::class,
         MealPlanProjectionWriteEntity::class,
     ],
-    version = 41,
+    version = 42,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -110,6 +113,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun mealPlanDayDao(): MealPlanDayDao
     abstract fun mealPlanRecipeVersionDao(): MealPlanRecipeVersionDao
     abstract fun mealPlanGroceryItemDao(): MealPlanGroceryItemDao
+    abstract fun mealPlanFavouriteRecipeDao(): MealPlanFavouriteRecipeDao
     abstract fun mealPlanProjectionWriteDao(): MealPlanProjectionWriteDao
 
     companion object {
@@ -693,6 +697,27 @@ abstract class KernelDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE important_dates ADD COLUMN notification_hour INTEGER DEFAULT NULL")
                 db.execSQL("ALTER TABLE important_dates ADD COLUMN notification_minute INTEGER DEFAULT NULL")
+            }
+        }
+
+        /** Adds favourite recipe support for meal planning (#882). */
+        val MIGRATION_41_42 = object : Migration(41, 42) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE meal_plan_sessions ADD COLUMN favouriteRecipeMode TEXT NOT NULL DEFAULT 'NONE'")
+                db.execSQL("ALTER TABLE meal_plan_recipe_versions ADD COLUMN recipeKey TEXT NOT NULL DEFAULT ''")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `meal_plan_favourite_recipes` (
+                        `recipeKey` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `summary` TEXT,
+                        `proteinTagsJson` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`recipeKey`)
+                    )
+                    """.trimIndent(),
+                )
             }
         }
     }

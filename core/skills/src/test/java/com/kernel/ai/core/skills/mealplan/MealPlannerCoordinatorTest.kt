@@ -21,7 +21,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class MealPlannerCoordinatorTest {
-    private val sessionRepository = mockk<MealPlanSessionRepository>(relaxed = true)
+    private val sessionRepository = mockk<MealPlanSessionRepository>(relaxed = true) {
+        coEvery { getFavouriteRecipes(any()) } returns emptyList()
+    }
     private val slotExtractor = MealPlannerSlotExtractor()
     private val jsonParser = MealPlanJsonParser()
     private val quantityValidator = MealPlanQuantityValidator()
@@ -322,6 +324,51 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `plan review prefer favourites rebuilds plan with saved favourite prompt`() = runTest {
+        val planReview = planReviewSnapshot()
+        val updatedMode = planReview.copy(favouriteRecipeMode = com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode.PREFER)
+        val rebuilt = updatedMode
+        val promptSlot = io.mockk.slot<String>()
+        coEvery { sessionRepository.getActiveSession("conv") } returns planReview
+        coEvery { sessionRepository.setFavouriteRecipeMode("session-1", com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode.PREFER) } returns updatedMode
+        coEvery { sessionRepository.getFavouriteRecipes(any()) } returns listOf(
+            com.kernel.ai.core.memory.mealplan.FavouriteRecipeSummary(
+                recipeKey = "fav-pasta|chicken",
+                title = "Favourite Pasta",
+                summary = "Creamy chicken pasta",
+                proteinTags = listOf("chicken"),
+            ),
+        )
+        coEvery { inferenceEngine.generateOnce(capture(promptSlot), any(), false, true) } returns planJson()
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns rebuilt
+
+        val reply = coordinator.ingestUserMessage("conv", "prefer favourites")
+
+        assertTrue(promptSlot.captured.contains("Favourite Pasta"))
+        assertTrue(promptSlot.captured.contains("Bias the plan toward these saved favourite meals"))
+        coVerify { sessionRepository.setFavouriteRecipeMode("session-1", com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode.PREFER) }
+        coVerify { sessionRepository.savePlanDraft("session-1", any()) }
+    }
+
+    @Test
+    fun `ready plan favourite day marks recipe as favourite`() = runTest {
+        val ready = readyForFinalizeSnapshot(finalSummaryWritten = false)
+        val updated = ready.copy(
+            days = ready.days.mapIndexed { index, day ->
+                if (index == 0) day.copy(isFavouriteRecipe = true) else day
+            },
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns ready
+        coEvery { sessionRepository.setRecipeFavourite("session-1", 0, true) } returns updated
+
+        val reply = coordinator.ingestUserMessage("conv", "favourite day 1")
+
+        assertTrue(reply.content.contains("Saved Day 1 as a favourite recipe", ignoreCase = true))
+        assertTrue(reply.content.contains("★ favourite"))
+        coVerify { sessionRepository.setRecipeFavourite("session-1", 0, true) }
+    }
+
+    @Test
     fun `interrupted recipe generation requires explicit resume`() = runTest {
         val inProgress = planReviewSnapshot().copy(
             status = MealPlanSessionStatus.RECIPES_IN_PROGRESS,
@@ -557,6 +604,7 @@ class MealPlannerCoordinatorTest {
         daysCount = null,
         dietaryRestrictions = emptyList(),
         proteinPreferences = emptyList(),
+        favouriteRecipeMode = com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,
         pendingGenerationDayIndex = null,
@@ -577,6 +625,7 @@ class MealPlannerCoordinatorTest {
         daysCount = 2,
         dietaryRestrictions = listOf("low lactose"),
         proteinPreferences = listOf("chicken"),
+        favouriteRecipeMode = com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,
         pendingGenerationDayIndex = null,
@@ -600,6 +649,7 @@ class MealPlannerCoordinatorTest {
         daysCount = 2,
         dietaryRestrictions = listOf("low lactose"),
         proteinPreferences = listOf("chicken"),
+        favouriteRecipeMode = com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,
         pendingGenerationDayIndex = null,
@@ -627,6 +677,8 @@ class MealPlannerCoordinatorTest {
         lastErrorCode = null,
         lastErrorMessage = null,
         currentRecipe = null,
+        recipeKey = if (status == MealPlanDayStatus.PERSISTED) title.lowercase() else null,
+        isFavouriteRecipe = false,
     )
 
     private fun planJson(): String = """
