@@ -32,6 +32,7 @@ enum class ListSort { MANUAL, LAST_MODIFIED, NAME_ASC, NAME_DESC, CREATED_ASC, C
 enum class ListFilter { ALL, PINNED_ONLY }
 
 enum class ItemSort {
+    MANUAL,
     CREATED_NEWEST,
     CREATED_OLDEST,
     UPDATED_NEWEST,
@@ -134,6 +135,7 @@ class ListsViewModel @Inject constructor(
                 val active = filtered.filter { !it.checked }
                 val completed = filtered.filter { it.checked }
                 val comparator: Comparator<ListItemEntity> = when (sort) {
+                    ItemSort.MANUAL -> compareBy { it.displayOrder }
                     ItemSort.CREATED_NEWEST -> compareByDescending { it.createdAt }
                     ItemSort.CREATED_OLDEST -> compareBy { it.createdAt }
                     ItemSort.UPDATED_NEWEST -> compareByDescending { it.updatedAt }
@@ -154,7 +156,11 @@ class ListsViewModel @Inject constructor(
                         compareByDescending<ListItemEntity> { it.isFavourite }
                             .thenByDescending { it.createdAt }
                 }
-                Pair(active.sortedWith(comparator), completed.sortedWith(comparator))
+                // Completed items: in MANUAL mode sort by updatedAt DESC (recently completed first)
+                // so the completed section doesn't use displayOrder (only active items are reorderable).
+                val completedComparator: Comparator<ListItemEntity> =
+                    if (sort == ItemSort.MANUAL) compareByDescending { it.updatedAt } else comparator
+                Pair(active.sortedWith(comparator), completed.sortedWith(completedComparator))
             }.stateIn(
                 viewModelScope,
                 SharingStarted.WhileSubscribed(5_000),
@@ -293,6 +299,70 @@ class ListsViewModel @Inject constructor(
         ids.forEach { scheduler.cancel(it) }
         viewModelScope.launch(Dispatchers.IO) {
             ids.forEach { dao.setChecked(it, true, now) }
+        }
+    }
+
+    /**
+     * Unmarks all currently selected list items (sets checked=false).
+     * Re-schedules any future notification alarms that were cancelled when the item was completed.
+     */
+    fun unmarkSelectedItemsComplete() {
+        val ids = selectedItemIds.toList()
+        selectedItemIds = emptySet()
+        val now = System.currentTimeMillis()
+        val allItems = groupedItems.value.values.flatten()
+        val listNames = listEntities.value.associateBy { it.id }
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.forEach { id -> dao.setChecked(id, false, now) }
+            // Re-schedule any future notifications that were cancelled on completion
+            ids.forEach { id ->
+                val item = allItems.firstOrNull { it.id == id } ?: return@forEach
+                val nt = item.notificationTime ?: return@forEach
+                if (nt > now) {
+                    val listName = listNames[item.listId]?.name ?: return@forEach
+                    scheduler.schedule(
+                        itemId = id,
+                        itemText = item.text,
+                        listId = item.listId,
+                        listName = listName,
+                        triggerAtMs = nt,
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Marks all currently selected list items as favourite.
+     * Uses [ListItemDao.setFavourite] to set isFavourite=true atomically.
+     */
+    fun favouriteSelectedItems() {
+        val ids = selectedItemIds.toList()
+        selectedItemIds = emptySet()
+        val now = System.currentTimeMillis()
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.forEach { dao.setFavourite(it, true, now) }
+        }
+    }
+
+    // ── Item drag-to-reorder (#917) ───────────────────────────────────────────────────────────────
+
+    private var itemReorderJob: Job? = null
+
+    /**
+     * Persists a new manual display order for active list items after a drag-to-reorder gesture.
+     * Cancels any in-flight reorder job and switches [itemSort] to [ItemSort.MANUAL].
+     *
+     * @param orderedIds  Ordered list of active item IDs after the drag (active section only).
+     */
+    fun reorderItems(orderedIds: List<Long>) {
+        itemSort = ItemSort.MANUAL
+        val now = System.currentTimeMillis()
+        itemReorderJob?.cancel()
+        itemReorderJob = viewModelScope.launch(Dispatchers.IO) {
+            orderedIds.forEachIndexed { index, id ->
+                dao.updateItemOrder(id, index, now)
+            }
         }
     }
 

@@ -68,4 +68,12 @@ interface ListItemDao {
     /** Atomically flip isFavourite and bump updatedAt — avoids TOCTOU on rapid taps. */
     @Query("UPDATE list_items SET isFavourite = NOT isFavourite, updatedAt = :updatedAt WHERE id = :id")
     suspend fun toggleFavourite(id: Long, updatedAt: Long)
+
+    /** Set isFavourite to an explicit value and bump updatedAt — used by bulk-favourite (#917). */
+    @Query("UPDATE list_items SET isFavourite = :fav, updatedAt = :now WHERE id = :id")
+    suspend fun setFavourite(id: Long, fav: Boolean, now: Long)
+
+    /** Update the displayOrder for manual drag-to-reorder (#917). */
+    @Query("UPDATE list_items SET displayOrder = :order, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateItemOrder(id: Long, order: Int, updatedAt: Long)
 }
