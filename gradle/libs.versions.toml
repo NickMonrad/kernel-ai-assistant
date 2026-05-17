@@ -6,8 +6,8 @@ targetSdk = "36"
 
 # Kotlin & Android
 agp = "8.7.3"
-kotlin = "2.1.20"
-ksp = "2.1.20-1.0.32"
+kotlin = "2.2.21"
+ksp = "2.2.21-2.0.5"
 
 # Compose
 composeBom = "2026.05.00"
@@ -21,7 +21,7 @@ room = "2.7.1"
 datastore = "1.1.4"
 
 # Hilt
-hilt = "2.54"
+hilt = "2.58"
 hiltNavigationCompose = "1.2.0"
 
 # Testing
