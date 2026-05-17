@@ -60,6 +60,15 @@ interface ConversationDao {
     @Query("UPDATE conversations SET archivedAt = NULL WHERE id = :id")
     suspend fun restoreConversation(id: String)
 
+    @Query("UPDATE conversations SET archivedAt = :timestamp WHERE id IN (:ids)")
+    suspend fun archiveConversations(ids: Collection<String>, timestamp: Long)
+
+    @Query("UPDATE conversations SET archivedAt = NULL WHERE id IN (:ids)")
+    suspend fun restoreConversations(ids: Collection<String>)
+
+    @Query("SELECT id FROM conversations WHERE archivedAt IS NOT NULL AND archivedAt < :cutoffMs")
+    suspend fun getArchivedIdsBefore(cutoffMs: Long): List<String>
+
     @Query("DELETE FROM conversations WHERE archivedAt IS NOT NULL AND archivedAt < :cutoffMs")
     suspend fun deleteArchivedOlderThan(cutoffMs: Long)
 }

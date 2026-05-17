@@ -465,12 +465,8 @@ private fun SwipeableConversationRow(
         }
     )
 
-    // Reset state after the action is triggered so the item snaps back
-    LaunchedEffect(dismissState.currentValue) {
-        if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
-            dismissState.reset()
-        }
-    }
+    // Snap-back is automatic: confirmValueChange always returns false,
+    // so AnchoredDraggable refuses the transition and animates back to Settled.
 
     // When a swipe-right delete is pending, trigger the delete dialog
     LaunchedEffect(pendingSwipeDelete) {

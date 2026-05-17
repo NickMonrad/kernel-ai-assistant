@@ -104,18 +104,24 @@ class ConversationRepository @Inject constructor(
     }
 
     suspend fun archiveSelected(ids: Set<String>) {
-        val now = System.currentTimeMillis()
-        ids.forEach { conversationDao.archiveConversation(it, now) }
+        conversationDao.archiveConversations(ids, System.currentTimeMillis())
     }
 
     suspend fun restoreSelected(ids: Set<String>) {
-        ids.forEach { conversationDao.restoreConversation(it) }
+        conversationDao.restoreConversations(ids)
     }
 
     suspend fun deleteArchivedOlderThan(cutoffMs: Long) {
-        // For each archived conversation older than cutoffMs, clean vec entries first
-        // We don't have a bulk getRowIds for archived, so we'll use deleteArchivedOlderThan
-        // which handles the DB cleanup. Vec entries will be orphaned but harmless.
+        val ids = conversationDao.getArchivedIdsBefore(cutoffMs)
+        withContext(Dispatchers.IO) {
+            ids.forEach { id ->
+                val rowIds = embeddingDao.getRowIdsForConversation(id)
+                rowIds.forEach { rowId ->
+                    runCatching { vectorStore.delete(MESSAGE_VEC_TABLE, rowId) }
+                        .onFailure { Log.w(TAG, "Failed to delete vec entry rowId=$rowId: ${it.message}") }
+                }
+            }
+        }
         conversationDao.deleteArchivedOlderThan(cutoffMs)
     }
 
