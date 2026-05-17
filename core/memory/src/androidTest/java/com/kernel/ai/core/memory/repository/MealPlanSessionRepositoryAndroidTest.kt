@@ -11,6 +11,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.mealplan.CanonicalGroceryItem
 import com.kernel.ai.core.memory.mealplan.GroceryNormalizationStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanDraftDay
@@ -51,6 +52,7 @@ class MealPlanSessionRepositoryAndroidTest {
             .allowMainThreadQueries()
             .build()
         repository = MealPlanSessionRepository(
+            database = database,
             sessionDao = database.mealPlanSessionDao(),
             dayDao = database.mealPlanDayDao(),
             recipeVersionDao = database.mealPlanRecipeVersionDao(),
@@ -185,6 +187,48 @@ class MealPlanSessionRepositoryAndroidTest {
         assertEquals(2, projectionCount(regenerated.sessionId, "PLAN_SHOPPING_LIST", superseded = true))
         assertEquals(1, projectionCount(regenerated.sessionId, "RECIPE_LIST", superseded = false))
         assertEquals(2, projectionCount(regenerated.sessionId, "RECIPE_LIST", superseded = true))
+    }
+
+    @Test
+    fun cancelSession_deletesPlannerOwnedListsAndSupersedesProjections() = runBlocking {
+        val session = repository.startOrResume("conv-3")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(
+                    dayIndex = 0,
+                    title = "Chicken Stir Fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                ),
+            ),
+        )
+
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(
+                title = "Chicken Stir Fry",
+                method = listOf("Prep vegetables.", "Stir-fry chicken."),
+            ),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh"),
+                grocery(displayText = "2 onions", ingredientName = "onions", normalizationStatus = GroceryNormalizationStatus.OPAQUE),
+            ),
+        )
+
+        val keepListName = "My Groceries"
+        listNameDao.insert(ListNameEntity(name = keepListName, createdAt = 1L, updatedAt = 1L))
+
+        val cancelled = repository.cancelSession(session.sessionId)
+
+        assertEquals(MealPlanSessionStatus.CANCELLED, cancelled.status)
+        assertEquals(listOf(keepListName), listNameDao.getAll().map { it.name })
+        assertEquals(2, projectionCount(session.sessionId, "PLAN_SHOPPING_LIST", superseded = true))
+        assertEquals(2, projectionCount(session.sessionId, "RECIPE_LIST", superseded = true))
+        assertEquals(0, projectionCount(session.sessionId, "PLAN_SHOPPING_LIST", superseded = false))
+        assertEquals(0, projectionCount(session.sessionId, "RECIPE_LIST", superseded = false))
     }
 
     @Test
