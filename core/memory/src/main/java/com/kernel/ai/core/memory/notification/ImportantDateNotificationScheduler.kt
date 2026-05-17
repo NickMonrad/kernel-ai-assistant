@@ -5,7 +5,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.util.Calendar
+import java.time.Instant
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -126,6 +129,8 @@ class ImportantDateNotificationScheduler @Inject constructor(
  * For recurring dates ([year] == null): uses the current year's occurrence if it has not yet
  * passed, otherwise advances to next year.
  * For one-off dates ([year] != null): uses the specific year; returns null if already past.
+ *
+ * Feb 29 in a non-leap year is clamped to Feb 28 rather than rolling to March 1.
  */
 internal fun nextTriggerMs(
     month: Int,
@@ -134,28 +139,23 @@ internal fun nextTriggerMs(
     notificationHour: Int,
     notificationMinute: Int,
 ): Long? {
-    val now = System.currentTimeMillis()
-    val trigger = Calendar.getInstance()
-    val targetYear = if (year != null) {
-        year
-    } else {
-        // Find this year's occurrence; if it's already passed, use next year.
-        val thisYearMs = Calendar.getInstance().apply {
-            set(Calendar.MONTH, month - 1)
-            set(Calendar.DAY_OF_MONTH, day)
-            set(Calendar.HOUR_OF_DAY, notificationHour)
-            set(Calendar.MINUTE, notificationMinute)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
-        if (thisYearMs > now) trigger.get(Calendar.YEAR) else trigger.get(Calendar.YEAR) + 1
+    val now = Instant.now()
+    val zone = ZoneId.systemDefault()
+    val todayYear = LocalDate.now(zone).year
+
+    fun triggerInstantFor(y: Int): Instant {
+        val clampedDay = minOf(day, YearMonth.of(y, month).lengthOfMonth())
+        return LocalDate.of(y, month, clampedDay)
+            .atTime(notificationHour, notificationMinute)
+            .atZone(zone)
+            .toInstant()
     }
-    trigger.set(Calendar.YEAR, targetYear)
-    trigger.set(Calendar.MONTH, month - 1)
-    trigger.set(Calendar.DAY_OF_MONTH, day)
-    trigger.set(Calendar.HOUR_OF_DAY, notificationHour)
-    trigger.set(Calendar.MINUTE, notificationMinute)
-    trigger.set(Calendar.SECOND, 0)
-    trigger.set(Calendar.MILLISECOND, 0)
-    return trigger.timeInMillis.takeIf { it > now }
+
+    return if (year != null) {
+        triggerInstantFor(year).takeIf { it.isAfter(now) }?.toEpochMilli()
+    } else {
+        val thisYear = triggerInstantFor(todayYear)
+        val candidate = if (thisYear.isAfter(now)) thisYear else triggerInstantFor(todayYear + 1)
+        candidate.takeIf { it.isAfter(now) }?.toEpochMilli()
+    }
 }

@@ -30,10 +30,15 @@ class ImportantDateRepository @Inject constructor(
         year: Int?,
     ) {
         val trimmedLabel = label.trim()
+        val normalized = normalizeLabel(trimmedLabel)
+        // Cancel any existing alarm before @Insert(REPLACE) deletes the old row and its ID.
+        dao.findByNormalizedLabel(normalized)?.let { existing ->
+            notificationScheduler.cancel(existing.id)
+        }
         val insertedId = dao.insert(
             ImportantDateEntity(
                 label = trimmedLabel,
-                normalizedLabel = normalizeLabel(trimmedLabel),
+                normalizedLabel = normalized,
                 month = month,
                 day = day,
                 year = year,

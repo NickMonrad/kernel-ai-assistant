@@ -13,6 +13,7 @@ import com.kernel.ai.core.memory.notification.ImportantDateNotificationScheduler
 import com.kernel.ai.core.memory.notification.toNotificationId
 import dagger.hilt.android.AndroidEntryPoint
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
@@ -82,7 +83,9 @@ class ImportantDateNotificationReceiver : BroadcastReceiver() {
         }
 
     private fun buildDateText(month: Int, day: Int): String {
-        val date = LocalDate.of(LocalDate.now().year, month, day)
+        val year = LocalDate.now().year
+        val clampedDay = minOf(day, YearMonth.of(year, month).lengthOfMonth())
+        val date = LocalDate.of(year, month, clampedDay)
         return date.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.ENGLISH))
     }
 
