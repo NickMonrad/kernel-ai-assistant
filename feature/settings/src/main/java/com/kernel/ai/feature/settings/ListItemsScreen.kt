@@ -735,12 +735,13 @@ private fun ListItemRow(
         trailingContent = if (isMultiSelectMode) {
             if (item.isFavourite) {
                 {
-                    Icon(
-                        Icons.Default.Star,
-                        contentDescription = "Favourited",
-                        tint = MaterialTheme.colorScheme.tertiary,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
+                    IconButton(onClick = {}) {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = "Favourited",
+                            tint = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
                 }
             } else null
         } else {
