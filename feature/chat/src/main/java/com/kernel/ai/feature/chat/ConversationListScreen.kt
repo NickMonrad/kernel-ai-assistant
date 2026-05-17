@@ -9,6 +9,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -356,28 +357,25 @@ fun ConversationListScreen(
                                         onDeleteRequest = { pendingDelete = conversation },
                                         onTogglePin = { viewModel.togglePin(conversation.id) },
                                         onMoreClick = { contextMenuTarget = conversation },
-                                    )
-                                }
-                            }
-                            if (!isInSelectionMode) {
-                                DropdownMenu(
-                                    expanded = contextMenuTarget?.id == conversation.id,
-                                    onDismissRequest = { contextMenuTarget = null },
-                                ) {
-                                    ConversationContextMenuItems(
-                                        showArchived = false,
-                                        onRename = {
-                                            pendingRenameId = conversation.id
-                                            contextMenuTarget = null
-                                        },
-                                        onArchiveRequest = {
-                                            pendingArchive = conversation
-                                            contextMenuTarget = null
-                                        },
-                                        onRestore = {},
-                                        onDelete = {
-                                            pendingDelete = conversation
-                                            contextMenuTarget = null
+                                        menuExpanded = !isInSelectionMode && contextMenuTarget?.id == conversation.id,
+                                        onMenuDismiss = { contextMenuTarget = null },
+                                        menuContent = {
+                                            ConversationContextMenuItems(
+                                                showArchived = false,
+                                                onRename = {
+                                                    pendingRenameId = conversation.id
+                                                    contextMenuTarget = null
+                                                },
+                                                onArchiveRequest = {
+                                                    pendingArchive = conversation
+                                                    contextMenuTarget = null
+                                                },
+                                                onRestore = {},
+                                                onDelete = {
+                                                    pendingDelete = conversation
+                                                    contextMenuTarget = null
+                                                },
+                                            )
                                         },
                                     )
                                 }
@@ -430,28 +428,25 @@ fun ConversationListScreen(
                                         onDeleteRequest = { pendingDelete = conversation },
                                         onTogglePin = { viewModel.togglePin(conversation.id) },
                                         onMoreClick = { contextMenuTarget = conversation },
-                                    )
-                                }
-                            }
-                            if (!isInSelectionMode) {
-                                DropdownMenu(
-                                    expanded = contextMenuTarget?.id == conversation.id,
-                                    onDismissRequest = { contextMenuTarget = null },
-                                ) {
-                                    ConversationContextMenuItems(
-                                        showArchived = false,
-                                        onRename = {
-                                            pendingRenameId = conversation.id
-                                            contextMenuTarget = null
-                                        },
-                                        onArchiveRequest = {
-                                            pendingArchive = conversation
-                                            contextMenuTarget = null
-                                        },
-                                        onRestore = {},
-                                        onDelete = {
-                                            pendingDelete = conversation
-                                            contextMenuTarget = null
+                                        menuExpanded = !isInSelectionMode && contextMenuTarget?.id == conversation.id,
+                                        onMenuDismiss = { contextMenuTarget = null },
+                                        menuContent = {
+                                            ConversationContextMenuItems(
+                                                showArchived = false,
+                                                onRename = {
+                                                    pendingRenameId = conversation.id
+                                                    contextMenuTarget = null
+                                                },
+                                                onArchiveRequest = {
+                                                    pendingArchive = conversation
+                                                    contextMenuTarget = null
+                                                },
+                                                onRestore = {},
+                                                onDelete = {
+                                                    pendingDelete = conversation
+                                                    contextMenuTarget = null
+                                                },
+                                            )
                                         },
                                     )
                                 }
@@ -476,12 +471,9 @@ fun ConversationListScreen(
                                     if (!isInSelectionMode) viewModel.enterSelectionMode(conversation.id)
                                 },
                                 onMoreClick = { contextMenuTarget = conversation },
-                            )
-                            if (!isInSelectionMode) {
-                                DropdownMenu(
-                                    expanded = contextMenuTarget?.id == conversation.id,
-                                    onDismissRequest = { contextMenuTarget = null },
-                                ) {
+                                menuExpanded = !isInSelectionMode && contextMenuTarget?.id == conversation.id,
+                                onMenuDismiss = { contextMenuTarget = null },
+                                menuContent = {
                                     ConversationContextMenuItems(
                                         showArchived = true,
                                         onRename = {},
@@ -495,8 +487,8 @@ fun ConversationListScreen(
                                             contextMenuTarget = null
                                         },
                                     )
-                                }
-                            }
+                                },
+                            )
                             HorizontalDivider()
                         }
                     }
@@ -641,6 +633,9 @@ private fun SwipeableConversationRow(
     onDeleteRequest: () -> Unit,
     onTogglePin: () -> Unit,
     onMoreClick: () -> Unit,
+    menuExpanded: Boolean = false,
+    onMenuDismiss: () -> Unit = {},
+    menuContent: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     var pendingSwipeDelete by remember { mutableStateOf(false) }
     var pendingSwipeArchive by remember { mutableStateOf(false) }
@@ -741,6 +736,9 @@ private fun SwipeableConversationRow(
                     onLongClick = onLongClick,
                     onTogglePin = onTogglePin,
                     onMoreClick = onMoreClick,
+                    menuExpanded = menuExpanded,
+                    onMenuDismiss = onMenuDismiss,
+                    menuContent = menuContent,
                 )
             },
         )
@@ -761,6 +759,9 @@ private fun ConversationListItem(
     onLongClick: () -> Unit,
     onTogglePin: (() -> Unit)? = null,
     onMoreClick: (() -> Unit)? = null,
+    menuExpanded: Boolean = false,
+    onMenuDismiss: () -> Unit = {},
+    menuContent: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     ListItem(
         headlineContent = {
@@ -818,12 +819,21 @@ private fun ConversationListItem(
                         )
                     }
                     if (onMoreClick != null) {
-                        IconButton(onClick = onMoreClick) {
-                            Icon(
-                                Icons.Default.MoreVert,
-                                contentDescription = "More options",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        Box {
+                            IconButton(onClick = onMoreClick) {
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = "More options",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (menuContent != null) {
+                                DropdownMenu(
+                                    expanded = menuExpanded,
+                                    onDismissRequest = onMenuDismiss,
+                                    content = menuContent,
+                                )
+                            }
                         }
                     }
                 }
