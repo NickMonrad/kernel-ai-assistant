@@ -344,18 +344,20 @@ fun ListItemsScreen(
                                     onClick = {},
                                     enabled = false,
                                 )
-                                ItemSort.entries.forEach { sort ->
-                                    DropdownMenuItem(
-                                        text = { Text(sort.label()) },
-                                        onClick = {
-                                            viewModel.itemSort = sort
-                                            showSortMenu = false
-                                        },
-                                        trailingIcon = if (viewModel.itemSort == sort) {
-                                            { Icon(Icons.Default.Check, contentDescription = null) }
-                                        } else null,
-                                    )
-                                }
+                                ItemSort.entries
+                                    .filter { it != ItemSort.MANUAL }
+                                    .forEach { sort ->
+                                        DropdownMenuItem(
+                                            text = { Text(sort.label()) },
+                                            onClick = {
+                                                viewModel.itemSort = sort
+                                                showSortMenu = false
+                                            },
+                                            trailingIcon = if (viewModel.itemSort == sort) {
+                                                { Icon(Icons.Default.Check, contentDescription = null) }
+                                            } else null,
+                                        )
+                                    }
                                 HorizontalDivider()
                                 // ── Filter section ────────────────────────────────────────
                                 DropdownMenuItem(
@@ -481,7 +483,6 @@ fun ListItemsScreen(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize(), state = lazyListState) {
                     // Active items — wrapped in ReorderableItem for drag-to-reorder (#917)
-                    val isManualSort = viewModel.itemSort == ItemSort.MANUAL
                     items(localActiveItems, key = { it.id }) { item ->
                         ReorderableItem(reorderState, key = item.id) { isDragging ->
                             val elevation by animateDpAsState(
@@ -494,8 +495,8 @@ fun ListItemsScreen(
                                     item = item,
                                     isMultiSelectMode = isItemMultiSelectMode,
                                     isSelected = isSelected,
-                                    showDragHandle = isManualSort && !isItemMultiSelectMode,
-                                    dragHandleModifier = if (isManualSort && !isItemMultiSelectMode) {
+                                    showDragHandle = !isItemMultiSelectMode,
+                                    dragHandleModifier = if (!isItemMultiSelectMode) {
                                         Modifier.draggableHandle(
                                             onDragStarted = { itemDragInProgress = true },
                                             onDragStopped = {
