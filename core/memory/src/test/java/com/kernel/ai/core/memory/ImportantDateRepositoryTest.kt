@@ -2,6 +2,10 @@ package com.kernel.ai.core.memory
 
 import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.entity.ImportantDateEntity
+import com.kernel.ai.core.memory.notification.ImportantDateNotificationPreferences
+import com.kernel.ai.core.memory.notification.ImportantDateNotificationScheduler
+import io.mockk.coEvery
+import io.mockk.mockk
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -19,7 +23,10 @@ class ImportantDateRepositoryTest {
     @Test
     fun `save find and delete round trip through dao`() = runTest {
         val dao = FakeImportantDateDao()
-        val repository = ImportantDateRepository(dao)
+        val scheduler = mockk<ImportantDateNotificationScheduler>(relaxed = true)
+        val preferences = mockk<ImportantDateNotificationPreferences>(relaxed = true)
+        coEvery { preferences.getNotificationTime() } returns Pair(9, 0)
+        val repository = ImportantDateRepository(dao, scheduler, preferences)
 
         repository.save(label = "My Mum's birthday", month = 3, day = 15, year = null)
         repository.save(label = "Our anniversary", month = 6, day = 22, year = 2018)
@@ -50,10 +57,15 @@ class ImportantDateRepositoryTest {
 
         override suspend fun getAll(): List<ImportantDateEntity> = rows.values.toList()
 
+        override suspend fun getAllWithNotificationEnabled(): List<ImportantDateEntity> =
+            rows.values.filter { it.notificationEnabled }
+
         override suspend fun findByNormalizedLabel(normalizedLabel: String): ImportantDateEntity? = rows[normalizedLabel]
 
-        override suspend fun insert(date: ImportantDateEntity) {
-            rows[date.normalizedLabel] = date.copy(id = nextId++)
+        override suspend fun insert(date: ImportantDateEntity): Long {
+            val id = nextId++
+            rows[date.normalizedLabel] = date.copy(id = id)
+            return id
         }
 
         override suspend fun deleteByNormalizedLabel(normalizedLabel: String): Int =

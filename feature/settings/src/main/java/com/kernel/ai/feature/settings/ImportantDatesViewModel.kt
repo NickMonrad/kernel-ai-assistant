@@ -31,6 +31,10 @@ data class ImportantDateListItem(
     val year: Int?,
     val source: ImportantDateSource,
     val nextOccurrence: LocalDate,
+    /** Per-event reminder hour override. Null = use the global reminder time. */
+    val notificationHour: Int? = null,
+    /** Per-event reminder minute override. Null = use the global reminder time. */
+    val notificationMinute: Int? = null,
 ) {
     val stableKey: String = "${source.name}:$normalizedLabel"
     val isReadOnly: Boolean = source == ImportantDateSource.CALENDAR
@@ -41,6 +45,8 @@ data class ImportantDatesUiState(
     val laterDates: List<ImportantDateListItem> = emptyList(),
     val calendarPermissionGranted: Boolean = false,
     val isRefreshingCalendarBirthdays: Boolean = false,
+    val notificationHour: Int = 9,
+    val notificationMinute: Int = 0,
 ) {
     val hasAnyDates: Boolean = upcomingDates.isNotEmpty() || laterDates.isNotEmpty()
 }
@@ -64,13 +70,16 @@ class ImportantDatesViewModel @Inject constructor(
         calendarBirthdays,
         calendarPermissionGranted,
         isRefreshingCalendarBirthdays,
-    ) { taughtDates, syncedBirthdays, hasCalendarPermission, isRefreshing ->
+        repository.notificationTime,
+    ) { taughtDates, syncedBirthdays, hasCalendarPermission, isRefreshing, (hour, minute) ->
         buildUiState(
             taughtDates = taughtDates,
             calendarBirthdays = syncedBirthdays,
             hasCalendarPermission = hasCalendarPermission,
             isRefreshing = isRefreshing,
             today = LocalDate.now(),
+            notificationHour = hour,
+            notificationMinute = minute,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -105,6 +114,8 @@ class ImportantDatesViewModel @Inject constructor(
         month: Int,
         day: Int,
         year: Int?,
+        notificationHour: Int? = null,
+        notificationMinute: Int? = null,
     ): Boolean {
         val trimmedLabel = label.trim()
         if (trimmedLabel.isBlank()) {
@@ -127,7 +138,7 @@ class ImportantDatesViewModel @Inject constructor(
         if (existingLabel != null && originalNormalizedLabel != normalizedLabel) {
             repository.deleteByLabel(existingLabel)
         }
-        repository.save(trimmedLabel, month, day, year)
+        repository.save(trimmedLabel, month, day, year, notificationHour, notificationMinute)
         _messages.emit(if (existingLabel == null) "Saved $trimmedLabel." else "Updated $trimmedLabel.")
         return true
     }
@@ -144,6 +155,12 @@ class ImportantDatesViewModel @Inject constructor(
         return deleted > 0
     }
 
+    fun setReminderTime(hour: Int, minute: Int) {
+        viewModelScope.launch {
+            repository.rescheduleAll(hour, minute)
+        }
+    }
+
     companion object {
         internal fun buildUiState(
             taughtDates: List<ImportantDateListItem>,
@@ -151,6 +168,8 @@ class ImportantDatesViewModel @Inject constructor(
             hasCalendarPermission: Boolean,
             isRefreshing: Boolean,
             today: LocalDate,
+            notificationHour: Int = 9,
+            notificationMinute: Int = 0,
         ): ImportantDatesUiState {
             val merged = (taughtDates + calendarBirthdays.filter { calendarBirthday ->
                 taughtDates.none { taughtDate ->
@@ -168,6 +187,8 @@ class ImportantDatesViewModel @Inject constructor(
                 laterDates = merged.filter { it.nextOccurrence.isAfter(upcomingCutoff) },
                 calendarPermissionGranted = hasCalendarPermission,
                 isRefreshingCalendarBirthdays = isRefreshing,
+                notificationHour = notificationHour,
+                notificationMinute = notificationMinute,
             )
         }
 
@@ -180,6 +201,8 @@ class ImportantDatesViewModel @Inject constructor(
                 year = year,
                 source = ImportantDateSource.TAUGHT,
                 nextOccurrence = nextOccurrence(month, day, today),
+                notificationHour = notificationHour,
+                notificationMinute = notificationMinute,
             )
 
         internal fun CalendarBirthdayLookup.BirthdayEntry.toUiItem(today: LocalDate = LocalDate.now()): ImportantDateListItem =
