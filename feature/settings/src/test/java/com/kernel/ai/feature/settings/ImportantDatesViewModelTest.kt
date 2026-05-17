@@ -34,6 +34,7 @@ class ImportantDatesViewModelTest {
     fun setUp() {
         Dispatchers.setMain(dispatcher)
         every { repository.observeAll() } returns flowOf(emptyList())
+        every { repository.notificationTime } returns flowOf(Pair(9, 0))
         every { calendarBirthdayLookup.hasPermission() } returns false
         every { calendarBirthdayLookup.getAllBirthdays() } returns emptyList()
         every { calendarBirthdayLookup.invalidateCache() } returns Unit
