@@ -257,7 +257,7 @@ private val MIXED_NUMBER_FRACTION_RULES: List<Pair<Regex, String>> = listOf(
 
 // Negative lookahead to prevent matching date-format strings (e.g. "2/3 May", "1/2/2024").
 // Rejects: followed by "/" (full date like 2/3/2024) or a digit, or a space + month name.
-private val DATE_GUARD = """(?![/\d]|\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b)"""
+private val DATE_GUARD = """(?![/\d]|\s+(?i:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b)"""
 
 private val SIMPLE_FRACTION_RULES: List<Pair<Regex, String>> = listOf(
     Regex("""\b1/2${DATE_GUARD}""") to "half",

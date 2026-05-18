@@ -279,6 +279,18 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `fraction before lowercase month name is not converted — date guard`() {
+            val result = normalizeChatTextForSpeech("meeting on 2/3 may")
+            assertFalse(result.contains("two thirds"), "should not convert date fraction, got: $result")
+        }
+
+        @Test
+        fun `fraction before lowercase full month is not converted — date guard`() {
+            val result = normalizeChatTextForSpeech("deadline 1/2 january")
+            assertFalse(result.contains("half"), "should not convert date fraction, got: $result")
+        }
+
+        @Test
         fun `fraction in dd-mm-yyyy format is not converted — date guard`() {
             val result = normalizeChatTextForSpeech("deadline 2/3/2024")
             assertFalse(result.contains("two thirds"), "should not convert date fraction, got: $result")
