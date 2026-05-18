@@ -19,6 +19,12 @@ class MealPlannerSlotExtractorTest {
     }
 
     @Test
+    fun `extractProteinPreferences recognizes turkey replies`() {
+        assertEquals(listOf("turkey"), extractor.extractProteinPreferences("Turkey"))
+        assertEquals(listOf("turkey"), extractor.extractProteinPreferences("Turkey only"))
+    }
+
+    @Test
     fun `negative dietary and protein answers normalize to concrete markers`() {
         assertEquals(
             listOf("no dietary requirements"),

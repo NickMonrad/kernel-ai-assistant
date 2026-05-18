@@ -117,6 +117,7 @@ class MealPlannerSlotExtractor @Inject constructor() {
             "chicken" to "chicken",
             "beef mince" to "beef mince",
             "beef" to "beef",
+            "turkey" to "turkey",
             "pork" to "pork",
             "lamb" to "lamb",
             "fish" to "fish",

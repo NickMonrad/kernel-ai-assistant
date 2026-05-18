@@ -357,13 +357,16 @@ class MealPlannerCoordinator @Inject constructor(
     ): MealPlanDraft {
         val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
         var workingDays = draft.days.sortedBy { it.dayIndex }
-        repeat(MAX_PLAN_VARIETY_REPAIR_PASSES) {
+        for (pass in 0 until MAX_PLAN_VARIETY_REPAIR_PASSES) {
             val conflicts = detectPlanVarietyConflicts(
                 days = workingDays,
                 recentHistory = recentHistory,
                 enforceRecentPatternDiversity = enforceRecentPatternDiversity,
             ).distinctBy { it.dayIndex }
             if (conflicts.isEmpty()) {
+                return MealPlanDraft(workingDays)
+            }
+            if (pass > 0 && conflicts.none(PlanVarietyConflict::isBlocking)) {
                 return MealPlanDraft(workingDays)
             }
             conflicts.forEach { conflict ->
@@ -383,9 +386,10 @@ class MealPlannerCoordinator @Inject constructor(
             recentHistory = recentHistory,
             enforceRecentPatternDiversity = enforceRecentPatternDiversity,
         ).distinctBy { it.dayIndex }
-        if (remaining.isNotEmpty()) {
+        val blocking = remaining.filter(PlanVarietyConflict::isBlocking)
+        if (blocking.isNotEmpty()) {
             throw MealPlanValidationException(
-                remaining.joinToString(
+                blocking.joinToString(
                     prefix = "Plan repeated recent meals too closely: ",
                     separator = "; ",
                     postfix = ".",
@@ -423,12 +427,12 @@ class MealPlannerCoordinator @Inject constructor(
                     days = candidateDays,
                     recentHistory = recentHistory,
                     enforceRecentPatternDiversity = enforceRecentPatternDiversity,
-                ).none { it.dayIndex == dayIndex }
+                ).none { it.dayIndex == dayIndex && it.isBlocking }
             ) {
                 return replacement
             }
         }
-        throw MealPlanValidationException("I couldn't make Day ${dayIndex + 1} distinct enough from recent meal history.")
+        throw MealPlanValidationException("I couldn't make Day ${dayIndex + 1} distinct enough from the rest of the plan.")
     }
 
     private fun detectPlanVarietyConflicts(
@@ -453,16 +457,16 @@ class MealPlannerCoordinator @Inject constructor(
                 val patternKey = repeatPatternKey(day.title, day.summary, day.proteinTags)
                 when {
                     titleKey.isNotBlank() && titleKey in historyTitles -> add(
-                        PlanVarietyConflict(day.dayIndex, "repeats a recent meal title"),
+                        PlanVarietyConflict(day.dayIndex, "repeats a recent meal title", isBlocking = true),
                     )
                     titleKey.isNotBlank() && titleKey in seenTitles -> add(
-                        PlanVarietyConflict(day.dayIndex, "duplicates another day in the same plan"),
+                        PlanVarietyConflict(day.dayIndex, "duplicates another day in the same plan", isBlocking = true),
                     )
                     patternKey != null && patternKey in historyPatterns -> add(
-                        PlanVarietyConflict(day.dayIndex, "matches a recent protein and cooking style too closely"),
+                        PlanVarietyConflict(day.dayIndex, "matches a recent protein and cooking style too closely", isBlocking = false),
                     )
                     patternKey != null && patternKey in seenPatterns -> add(
-                        PlanVarietyConflict(day.dayIndex, "uses the same protein and cooking style as another day in the plan"),
+                        PlanVarietyConflict(day.dayIndex, "uses the same protein and cooking style as another day in the plan", isBlocking = true),
                     )
                 }
                 if (titleKey.isNotBlank()) {
@@ -561,6 +565,7 @@ class MealPlannerCoordinator @Inject constructor(
     private data class PlanVarietyConflict(
         val dayIndex: Int,
         val reason: String,
+        val isBlocking: Boolean,
     )
 
     private suspend fun generatePendingRecipesFrom(
@@ -843,9 +848,9 @@ class MealPlannerCoordinator @Inject constructor(
                     days = candidateDays,
                     recentHistory = recentHistory,
                     enforceRecentPatternDiversity = enforceRecentPatternDiversity,
-                ).any { it.dayIndex == dayIndex }
+                ).any { it.dayIndex == dayIndex && it.isBlocking }
             ) {
-                throw MealPlanValidationException("Replacement day still matched a recent meal too closely.")
+                throw MealPlanValidationException("Replacement day still duplicated another planned meal too closely.")
             }
             return sessionRepository.replaceDayDraft(
                 sessionId = snapshot.sessionId,
@@ -960,7 +965,7 @@ class MealPlannerCoordinator @Inject constructor(
                 title = "Meal planner needs details",
                 subtitle = "Still need: ${missing.joinToString(", ") { humanizeSlot(it) }}.",
                 state = MealPlannerActivityState.WAITING,
-                suggestions = listOf(suggestion("Cancel plan", "cancel plan")),
+                suggestions = collectingSuggestions(missing),
             )
         }
     }
@@ -1437,6 +1442,43 @@ Rules:
         add(suggestion("Change preferences", "change preferences"))
     }
 
+    private fun collectingSuggestions(missing: List<String>): List<MealPlannerSuggestion> {
+        val proteinOnlyMissing = missing == listOf("protein")
+        val dietaryOnlyMissing = missing == listOf("dietary")
+        return buildList {
+            if ("people" in missing) {
+                add(suggestion("2 people", "2 people"))
+                if (missing.size == 1) {
+                    add(suggestion("4 people", "4 people"))
+                }
+            }
+            if ("days" in missing) {
+                add(suggestion("4 days", "4 days"))
+                if (missing.size == 1) {
+                    add(suggestion("7 days", "7 days"))
+                }
+            }
+            if ("dietary" in missing) {
+                add(suggestion("No dietary requirements", "no dietary requirements"))
+                if (dietaryOnlyMissing) {
+                    add(suggestion("Gluten-free", "gluten-free"))
+                    add(suggestion("Dairy-free", "dairy-free"))
+                    add(suggestion("Vegetarian", "vegetarian"))
+                }
+            }
+            if ("protein" in missing) {
+                val proteinSuggestions = if (proteinOnlyMissing) {
+                    listOf("chicken", "beef", "turkey", "pork", "fish", "tofu", "lentils", "eggs", "no protein preference")
+                } else {
+                    listOf("chicken")
+                }
+                proteinSuggestions.forEach { protein ->
+                    add(suggestion(protein.replaceFirstChar { ch -> ch.titlecase() }, protein))
+                }
+            }
+            add(suggestion("Cancel plan", "cancel plan"))
+        }.distinctBy(MealPlannerSuggestion::command)
+    }
     private fun finalizeSuggestions(snapshot: MealPlanSnapshot): List<MealPlannerSuggestion> = buildList {
         add(suggestion("Show current plan", "show current plan"))
         add(suggestion("Done meal planning", "done meal planning"))

@@ -289,6 +289,64 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `collecting final slots keeps plan when only recent history protein and style overlaps remain`() = runTest {
+        val ready = collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 2,
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken", "beef"),
+        )
+        var savedDays = emptyList<MealPlanDraftDay>()
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 2,
+            dietaryRestrictions = listOf("low lactose"),
+        )
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = null,
+                proteinPreferences = listOf("chicken", "beef"),
+            )
+        } returns ready
+        coEvery { sessionRepository.getRecentMealHistory(any()) } returns listOf(
+            RecentMealHistoryEntry(
+                title = "Creamy chicken skillet",
+                summary = "Quick stovetop dinner",
+                proteinTags = listOf("chicken"),
+            ),
+            RecentMealHistoryEntry(
+                title = "Beef rice bowl",
+                summary = "Weeknight bowl dinner",
+                proteinTags = listOf("beef"),
+            ),
+        )
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+            planJson(
+                day0Title = "Garlic chicken skillet",
+                day0Summary = "Fast stovetop dinner",
+                day0Protein = "chicken",
+                day1Title = "Ginger beef bowl",
+                day1Summary = "Weeknight bowl dinner",
+                day1Protein = "beef",
+            ),
+            replacementJson(dayIndex = 0, title = "Garlic chicken skillet", proteinTag = "chicken"),
+            replacementJson(dayIndex = 1, title = "Ginger beef bowl", proteinTag = "beef"),
+        )
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } answers {
+            savedDays = secondArg<List<MealPlanDraftDay>>()
+            planReviewSnapshotFor(savedDays)
+        }
+
+        val reply = coordinator.ingestUserMessage("conv", "chicken and beef")
+
+        assertEquals(listOf("Garlic chicken skillet", "Ginger beef bowl"), savedDays.map { it.title })
+        assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
+    }
+
+    @Test
     fun `collecting final slots repairs duplicate protein and style within one plan`() = runTest {
         val ready = collectingSnapshot().copy(
             peopleCount = 4,
@@ -760,6 +818,18 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `collecting activity exposes starter preference smart replies`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot()
+
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertEquals(
+            listOf("2 people", "4 days", "no dietary requirements", "chicken", "cancel plan"),
+            activity?.suggestions?.map { it.command },
+        )
+    }
+
+    @Test
     fun `ready activity exposes finalize smart replies`() = runTest {
         coEvery { sessionRepository.getActiveSession("conv") } returns readyForFinalizeSnapshot(finalSummaryWritten = false)
 
@@ -767,6 +837,33 @@ class MealPlannerCoordinatorTest {
 
         assertEquals(
             listOf("show current plan", "done meal planning", "regenerate day 1", "replace day 1"),
+            activity?.suggestions?.map { it.command },
+        )
+    }
+
+    @Test
+    fun `collecting activity exposes protein examples when only protein is missing`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 4,
+            dietaryRestrictions = listOf("low lactose"),
+        )
+
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertEquals(
+            listOf(
+                "chicken",
+                "beef",
+                "turkey",
+                "pork",
+                "fish",
+                "tofu",
+                "lentils",
+                "eggs",
+                "no protein preference",
+                "cancel plan",
+            ),
             activity?.suggestions?.map { it.command },
         )
     }
