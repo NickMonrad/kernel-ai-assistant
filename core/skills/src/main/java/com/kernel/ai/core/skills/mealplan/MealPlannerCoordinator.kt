@@ -134,13 +134,22 @@ class MealPlannerCoordinator @Inject constructor(
             text,
             allowBareNoPreference = missingBefore == listOf("protein"),
         )
+        val mergedDietaryRestrictions = dietaryRestrictions ?: snapshot.dietaryRestrictions
+        val mergedProteinPreferences = proteinPreferences ?: snapshot.proteinPreferences
+        val shouldClearProteinPreferences =
+            (dietaryRestrictions != null || proteinPreferences != null) &&
+                detectProteinPreferenceConflicts(mergedDietaryRestrictions, mergedProteinPreferences).isNotEmpty()
         val updated = sessionRepository.updateRequiredSlots(
             sessionId = snapshot.sessionId,
             peopleCount = peopleCount,
             daysCount = daysCount,
             dietaryRestrictions = dietaryRestrictions,
-            proteinPreferences = proteinPreferences,
+            proteinPreferences = if (shouldClearProteinPreferences) emptyList() else proteinPreferences,
         )
+        if (shouldClearProteinPreferences) {
+            val conflicts = detectProteinPreferenceConflicts(updated.dietaryRestrictions, mergedProteinPreferences)
+            return MealPlannerReply(proteinCompatibilityPrompt(updated, conflicts))
+        }
         val missing = missingSlots(updated)
         if (missing.isNotEmpty()) {
             return MealPlannerReply(promptForMissingSlots(updated, missing))
@@ -477,6 +486,72 @@ class MealPlannerCoordinator @Inject constructor(
         }
     }
 
+    private fun detectProteinPreferenceConflicts(
+        dietaryRestrictions: List<String>,
+        proteinPreferences: List<String>,
+    ): List<String> {
+        val normalizedRestrictions = dietaryRestrictions.map(::normalizeLooseText).toSet()
+        return proteinPreferences
+            .map(::normalizeProteinTag)
+            .filter { it.isNotBlank() && it != "no protein preference" }
+            .distinct()
+            .filterNot { proteinAllowedForDietaryRestrictions(it, normalizedRestrictions) }
+    }
+
+    private fun proteinAllowedForDietaryRestrictions(protein: String, restrictions: Set<String>): Boolean {
+        if (protein == "no protein preference") {
+            return true
+        }
+        if ("vegan" in restrictions) {
+            return protein in setOf("tofu", "lentils", "beans", "chickpeas")
+        }
+        if ("vegetarian" in restrictions) {
+            return protein in setOf("tofu", "lentils", "beans", "chickpeas", "eggs", "halloumi")
+        }
+        if ("pescatarian" in restrictions && protein in setOf("chicken", "beef", "turkey", "pork", "lamb")) {
+            return false
+        }
+        if ("dairy free" in restrictions && protein == "halloumi") {
+            return false
+        }
+        if (("lactose free" in restrictions || "lactose intolerant" in restrictions) && protein == "halloumi") {
+            return false
+        }
+        if ("egg free" in restrictions && protein == "eggs") {
+            return false
+        }
+        if ("soy free" in restrictions && protein == "tofu") {
+            return false
+        }
+        if ("fish free" in restrictions && protein == "fish") {
+            return false
+        }
+        if ("shellfish free" in restrictions && protein == "prawns") {
+            return false
+        }
+        if ("halal" in restrictions && protein == "pork") {
+            return false
+        }
+        if ("paleo" in restrictions && protein in setOf("tofu", "lentils", "beans", "chickpeas", "halloumi")) {
+            return false
+        }
+        if ("keto" in restrictions && protein in setOf("lentils", "beans", "chickpeas")) {
+            return false
+        }
+        return restrictions
+            .filter { it.startsWith("no ") }
+            .none { exclusion -> proteinMatchesExclusion(protein, exclusion.removePrefix("no ").trim()) }
+    }
+
+    private fun proteinMatchesExclusion(protein: String, excluded: String): Boolean {
+        val normalizedExcluded = normalizeProteinTag(excluded)
+        return when (protein) {
+            "beef" -> normalizedExcluded == "beef" || excluded.contains("beef mince")
+            "fish" -> normalizedExcluded == "fish" || excluded in setOf("salmon", "tuna", "snapper")
+            "prawns" -> normalizedExcluded == "prawns" || excluded in setOf("prawn", "shrimp", "shellfish")
+            else -> normalizedExcluded == protein
+        }
+    }
     private fun shouldEnforceRecentPatternDiversity(snapshot: MealPlanSnapshot): Boolean {
         val preferredProteins = snapshot.proteinPreferences
             .map(::normalizeProteinTag)
@@ -965,7 +1040,7 @@ class MealPlannerCoordinator @Inject constructor(
                 title = "Meal planner needs details",
                 subtitle = "Still need: ${missing.joinToString(", ") { humanizeSlot(it) }}.",
                 state = MealPlannerActivityState.WAITING,
-                suggestions = collectingSuggestions(missing),
+                suggestions = collectingSuggestions(snapshot, missing),
             )
         }
     }
@@ -1090,7 +1165,7 @@ class MealPlannerCoordinator @Inject constructor(
         append("Current plan details: ")
         append(buildKnownBits(snapshot).ifEmpty { listOf("no saved details yet") }.joinToString(", "))
         append(".\n\n")
-        append("Reply with any updated people count, days, dietary requirements, or protein preferences.")
+        append("Reply with any updated people count, days, dietary requirements, allergens, ingredients to avoid, or protein preferences.")
     }
 
     private fun buildKnownBits(snapshot: MealPlanSnapshot): List<String> = buildList {
@@ -1110,7 +1185,7 @@ class MealPlannerCoordinator @Inject constructor(
     private fun missingSlotPrompt(slot: String): String = when (slot) {
         "people" -> "- How many people are you cooking for?"
         "days" -> "- How many days do you want to plan for?"
-        "dietary" -> "- Any dietary requirements?"
+        "dietary" -> "- Any dietary requirements, allergens, or ingredients to avoid?"
         "protein" -> "- What protein preferences should I use?"
         else -> "- $slot"
     }
@@ -1241,6 +1316,7 @@ Rules:
 - day_index values must be contiguous starting at 0
 - titles must be realistic family dinner dish names
 - summaries must be short and plain
+- treat dietary requirements, allergens, and ingredient exclusions as strict requirements
 - prefer novelty by default across recent meal plans and within the current draft
 - avoid exact repeats and obvious same-protein same-cooking-style repeats unless the user explicitly asks for familiar meals
 - do not include ingredients, quantities, steps, markdown, commentary, or code fences
@@ -1288,6 +1364,7 @@ Rules:
 - use metric-friendly units when certain
 - every ingredient line must be a single concise string
 - every method step must be a single concise string with the action only
+- treat dietary requirements, allergens, and ingredient exclusions as strict requirements
 - never emit absurd magnitudes such as thousands of kilograms, litres, or spoonfuls
 - do not emit markdown, commentary, or code fences
 """.trimIndent()
@@ -1323,6 +1400,7 @@ Rules:
 - day_index is zero-based, so user-visible Day ${dayIndex + 1} must use day_index $dayIndex
 - do not repeat the existing day title verbatim if you can avoid it
 - avoid obvious near-duplicates with the same protein and cooking style
+- treat dietary requirements, allergens, and ingredient exclusions as strict requirements
 - do not include ingredients, quantities, steps, markdown, commentary, or code fences
 """.trimIndent()
 
@@ -1442,7 +1520,7 @@ Rules:
         add(suggestion("Change preferences", "change preferences"))
     }
 
-    private fun collectingSuggestions(missing: List<String>): List<MealPlannerSuggestion> {
+    private fun collectingSuggestions(snapshot: MealPlanSnapshot, missing: List<String>): List<MealPlannerSuggestion> {
         val proteinOnlyMissing = missing == listOf("protein")
         val dietaryOnlyMissing = missing == listOf("dietary")
         return buildList {
@@ -1459,35 +1537,37 @@ Rules:
                 }
             }
             if ("dietary" in missing) {
-                add(suggestion("No dietary requirements", "no dietary requirements"))
-                if (dietaryOnlyMissing) {
-                    add(suggestion("Gluten-free", "gluten-free"))
-                    add(suggestion("Dairy-free", "dairy-free"))
-                    add(suggestion("Vegetarian", "vegetarian"))
+                val dietarySuggestions = if (dietaryOnlyMissing) {
+                    listOf(
+                        "no dietary requirements",
+                        "kid friendly",
+                        "gluten free",
+                        "celiac safe",
+                        "dairy free",
+                        "egg free",
+                        "peanut free",
+                        "nut free",
+                        "soy free",
+                        "fish free",
+                        "shellfish free",
+                        "sesame free",
+                        "vegetarian",
+                        "vegan",
+                        "pescatarian",
+                        "paleo",
+                        "keto",
+                        "halal",
+                    )
+                } else {
+                    listOf("no dietary requirements", "kid friendly", "gluten free", "nut free")
+                }
+                dietarySuggestions.forEach { dietary ->
+                    add(suggestion(dietary.replaceFirstChar { ch -> ch.titlecase() }, dietary))
                 }
             }
             if ("protein" in missing) {
                 val proteinSuggestions = if (proteinOnlyMissing) {
-                    listOf(
-                        "chicken",
-                        "beef mince",
-                        "beef",
-                        "turkey",
-                        "pork",
-                        "lamb",
-                        "fish",
-                        "salmon",
-                        "tuna",
-                        "tofu",
-                        "lentils",
-                        "beans",
-                        "eggs",
-                        "no protein preference",
-                        "snapper",
-                        "prawns",
-                        "chickpeas",
-                        "halloumi",
-                    )
+                    compatibleProteinSuggestions(snapshot.dietaryRestrictions)
                 } else {
                     listOf("chicken")
                 }
@@ -1497,6 +1577,46 @@ Rules:
             }
             add(suggestion("Cancel plan", "cancel plan"))
         }.distinctBy(MealPlannerSuggestion::command)
+    }
+    private fun compatibleProteinSuggestions(dietaryRestrictions: List<String>): List<String> {
+        val allOptions = listOf(
+            "chicken",
+            "beef mince",
+            "beef",
+            "turkey",
+            "pork",
+            "lamb",
+            "fish",
+            "salmon",
+            "tuna",
+            "tofu",
+            "lentils",
+            "beans",
+            "eggs",
+            "no protein preference",
+            "snapper",
+            "prawns",
+            "chickpeas",
+            "halloumi",
+        )
+        return allOptions.filter { protein ->
+            protein == "no protein preference" ||
+                detectProteinPreferenceConflicts(dietaryRestrictions, listOf(protein)).isEmpty()
+        }
+    }
+
+    private fun proteinCompatibilityPrompt(snapshot: MealPlanSnapshot, conflicts: List<String>): String {
+        val compatibleExamples = compatibleProteinSuggestions(snapshot.dietaryRestrictions)
+            .filter { it != "no protein preference" }
+            .take(5)
+        return buildString {
+            append("Those protein preferences don't fit ${snapshot.dietaryRestrictions.joinToString()}: ${conflicts.joinToString()}. ")
+            append("Pick a compatible protein")
+            if (compatibleExamples.isNotEmpty()) {
+                append(" like ${compatibleExamples.joinToString()}")
+            }
+            append(" or say 'no protein preference'.")
+        }
     }
     private fun finalizeSuggestions(snapshot: MealPlanSnapshot): List<MealPlannerSuggestion> = buildList {
         add(suggestion("Show current plan", "show current plan"))

@@ -23,9 +23,44 @@ class MealPlannerSlotExtractor @Inject constructor() {
         if (Regex("\\b(?:none|no\\s+(?:(?:dietary(?:\\s+(?:requirements?|restrictions?))?)|requirements?|restrictions?)|anything is fine)\\b").containsMatchIn(normalized)) {
             return listOf(NO_DIETARY_REQUIREMENTS)
         }
-        val matches = DIETARY_KEYWORDS.filter { normalized.contains(it.first) }.map { it.second }.distinct()
+        val matches = buildList {
+            DIETARY_PATTERNS.forEach { (pattern, canonical) ->
+                if (pattern.containsMatchIn(normalized)) {
+                    add(canonical)
+                }
+            }
+            extractIngredientExclusions(normalized).forEach { exclusion ->
+                if (exclusion !in this) {
+                    add(exclusion)
+                }
+            }
+        }
         return matches.takeIf { it.isNotEmpty() }
     }
+
+    private fun extractIngredientExclusions(normalized: String): List<String> =
+        EXCLUSION_PATTERN.findAll(normalized)
+            .flatMap { match -> splitExclusionTerms(match.groupValues[1]).asSequence() }
+            .mapNotNull { rawTerm ->
+                val cleaned = rawTerm
+                    .trim()
+                    .removePrefix("no ")
+                    .removePrefix("the ")
+                    .removePrefix("any ")
+                    .trim()
+                if (cleaned.isBlank() || cleaned in EXCLUSION_STOP_WORDS) {
+                    null
+                } else {
+                    "no $cleaned"
+                }
+            }
+            .distinct()
+            .toList()
+
+    private fun splitExclusionTerms(raw: String): List<String> =
+        raw.split(EXCLUSION_SEPARATOR)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
 
     fun extractProteinPreferences(text: String, allowBareNoPreference: Boolean = false): List<String>? {
         val normalized = normalizeWords(text)
@@ -99,19 +134,65 @@ class MealPlannerSlotExtractor @Inject constructor() {
         const val NO_DIETARY_REQUIREMENTS = "no dietary requirements"
         const val NO_PROTEIN_PREFERENCE = "no protein preference"
 
-        val DIETARY_KEYWORDS = listOf(
-            "low lactose" to "low lactose",
-            "lactose intolerant" to "lactose intolerant",
-            "lactose free" to "lactose free",
-            "vegetarian" to "vegetarian",
-            "vegan" to "vegan",
-            "gluten free" to "gluten free",
-            "dairy free" to "dairy free",
-            "nut free" to "nut free",
-            "halal" to "halal",
-            "keto" to "keto",
-            "pescatarian" to "pescatarian",
-            "pescetarian" to "pescetarian",
+        val DIETARY_PATTERNS = listOf(
+            Regex("\\b(?:kid friendly|kid-friendly|family friendly|family-friendly)\\b") to "kid friendly",
+            Regex("\\blow lactose\\b") to "low lactose",
+            Regex("\\blactose intolerant\\b") to "lactose intolerant",
+            Regex("\\b(?:lactose free|lactose-free|no lactose)\\b") to "lactose free",
+            Regex("\\bvegetarian\\b") to "vegetarian",
+            Regex("\\bvegan\\b") to "vegan",
+            Regex("\\b(?:gluten free|gluten-free|no gluten)\\b") to "gluten free",
+            Regex("\\b(?:celiac|coeliac|celiac safe|coeliac safe)\\b") to "celiac safe",
+            Regex("\\b(?:wheat free|wheat-free|no wheat)\\b") to "wheat free",
+            Regex("\\b(?:dairy free|dairy-free|milk free|milk-free|no dairy|dairy allergy|milk allergy)\\b") to "dairy free",
+            Regex("\\b(?:egg free|egg-free|no eggs?|egg allergy)\\b") to "egg free",
+            Regex("\\b(?:peanut free|peanut-free|no peanuts?|peanut allergy)\\b") to "peanut free",
+            Regex("\\b(?:tree nut free|tree-nut free|tree nut allergy|tree nuts allergy|nut free|nut-free|no nuts?|nut allergy)\\b") to "nut free",
+            Regex("\\b(?:soy free|soy-free|no soy|soy allergy)\\b") to "soy free",
+            Regex("\\b(?:fish free|fish-free|no fish|fish allergy)\\b") to "fish free",
+            Regex("\\b(?:shellfish free|shellfish-free|shellfish allergy|crustacean allergy|mollusc allergy|mollusk allergy|no shellfish|no prawns?|no shrimp|no crab|no lobster|no mussels?|no oysters?)\\b") to "shellfish free",
+            Regex("\\b(?:sesame free|sesame-free|no sesame|sesame allergy)\\b") to "sesame free",
+            Regex("\\bhalal\\b") to "halal",
+            Regex("\\bpaleo\\b") to "paleo",
+            Regex("\\b(?:keto|ketogenic)\\b") to "keto",
+            Regex("\\b(?:pescatarian|pescetarian)\\b") to "pescatarian",
+        )
+        val EXCLUSION_PATTERN = Regex("(?:\\bno\\b|\\bwithout\\b|\\bexclude\\b|\\bexcluding\\b|\\bavoid\\b)\\s+([a-z][a-z\\s-]{1,40})(?=$|[,.;&])")
+        val EXCLUSION_SEPARATOR = Regex("\\s*(?:,|/|\\band\\b|\\bor\\b)\\s*")
+        val EXCLUSION_STOP_WORDS = setOf(
+            "dietary",
+            "dietary requirement",
+            "dietary requirements",
+            "dietary restriction",
+            "dietary restrictions",
+            "requirement",
+            "requirements",
+            "restriction",
+            "restrictions",
+            "preference",
+            "preferences",
+            "protein",
+            "protein preference",
+            "protein preferences",
+            "kid friendly",
+            "family friendly",
+            "lactose",
+            "gluten",
+            "wheat",
+            "dairy",
+            "milk",
+            "egg",
+            "eggs",
+            "peanut",
+            "peanuts",
+            "nut",
+            "nuts",
+            "tree nut",
+            "tree nuts",
+            "soy",
+            "fish",
+            "shellfish",
+            "sesame",
         )
         val PROTEIN_KEYWORDS = listOf(
             "chicken" to "chicken",

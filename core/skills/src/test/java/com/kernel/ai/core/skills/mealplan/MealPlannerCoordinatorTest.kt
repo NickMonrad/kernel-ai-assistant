@@ -543,6 +543,38 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `collecting incompatible dietary and protein combination clears protein slot`() = runTest {
+        val updated = collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 2,
+            dietaryRestrictions = listOf("vegetarian"),
+            proteinPreferences = emptyList(),
+        )
+        coEvery {
+            sessionRepository.getActiveSession("conv")
+        } returns collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 2,
+            proteinPreferences = listOf("chicken"),
+        )
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("vegetarian"),
+                proteinPreferences = emptyList(),
+            )
+        } returns updated
+
+        val reply = coordinator.ingestUserMessage("conv", "vegetarian")
+
+        assertTrue(reply.content.contains("don't fit vegetarian", ignoreCase = true))
+        assertTrue(reply.content.contains("no protein preference", ignoreCase = true))
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), false, true) }
+    }
+
+    @Test
     fun `plan review generate recipes emits progress and recipes sequentially`() = runTest {
         val planReview = planReviewSnapshot()
         val afterDay1 = planReview.copy(
@@ -824,7 +856,7 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("2 people", "4 days", "no dietary requirements", "chicken", "cancel plan"),
+            listOf("2 people", "4 days", "no dietary requirements", "kid friendly", "gluten free", "nut free", "chicken", "cancel plan"),
             activity?.suggestions?.map { it.command },
         )
     }
@@ -869,6 +901,67 @@ class MealPlannerCoordinatorTest {
                 "no protein preference",
                 "snapper",
                 "prawns",
+                "chickpeas",
+                "halloumi",
+                "cancel plan",
+            ),
+            activity?.suggestions?.map { it.command },
+        )
+    }
+
+    @Test
+    fun `collecting activity exposes expanded dietary smart replies`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 4,
+            proteinPreferences = listOf("chicken"),
+        )
+
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertEquals(
+            listOf(
+                "no dietary requirements",
+                "kid friendly",
+                "gluten free",
+                "celiac safe",
+                "dairy free",
+                "egg free",
+                "peanut free",
+                "nut free",
+                "soy free",
+                "fish free",
+                "shellfish free",
+                "sesame free",
+                "vegetarian",
+                "vegan",
+                "pescatarian",
+                "paleo",
+                "keto",
+                "halal",
+                "cancel plan",
+            ),
+            activity?.suggestions?.map { it.command },
+        )
+    }
+
+    @Test
+    fun `collecting activity filters protein smart replies for vegetarian plans`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 4,
+            dietaryRestrictions = listOf("vegetarian"),
+        )
+
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertEquals(
+            listOf(
+                "tofu",
+                "lentils",
+                "beans",
+                "eggs",
+                "no protein preference",
                 "chickpeas",
                 "halloumi",
                 "cancel plan",

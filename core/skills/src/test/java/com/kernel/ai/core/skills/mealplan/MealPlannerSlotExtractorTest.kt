@@ -69,6 +69,24 @@ class MealPlannerSlotExtractorTest {
     }
 
     @Test
+    fun `extractDietaryRestrictions recognizes allergens lifestyles and ingredient exclusions`() {
+        assertEquals(
+            listOf(
+                "kid friendly",
+                "peanut free",
+                "nut free",
+                "sesame free",
+                "pescatarian",
+                "no aubergines",
+                "no coriander",
+            ),
+            extractor.extractDietaryRestrictions(
+                "Kid-friendly, nut allergy, peanut allergy, sesame allergy, pescatarian, no aubergines, without coriander",
+            ),
+        )
+    }
+
+    @Test
     fun `extractReplaceDayIndex parses one based day number`() {
         assertEquals(1, extractor.extractReplaceDayIndex("replace day 2"))
     }
