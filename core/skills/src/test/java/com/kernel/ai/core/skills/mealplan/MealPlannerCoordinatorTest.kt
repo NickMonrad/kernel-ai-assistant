@@ -204,7 +204,7 @@ class MealPlannerCoordinatorTest {
             peopleCount = 4,
             daysCount = 2,
             dietaryRestrictions = listOf("low lactose"),
-            proteinPreferences = listOf("chicken"),
+            proteinPreferences = listOf("chicken", "beef"),
         )
         var savedDays = emptyList<MealPlanDraftDay>()
         coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
@@ -214,7 +214,7 @@ class MealPlannerCoordinatorTest {
                 peopleCount = null,
                 daysCount = null,
                 dietaryRestrictions = listOf("low lactose"),
-                proteinPreferences = listOf("chicken"),
+                proteinPreferences = listOf("chicken", "beef"),
             )
         } returns ready
         coEvery { sessionRepository.getRecentMealHistory(any()) } returns listOf(
@@ -237,9 +237,55 @@ class MealPlannerCoordinatorTest {
             planReviewSnapshotFor(savedDays)
         }
 
-        coordinator.ingestUserMessage("conv", "low lactose, chicken")
+        coordinator.ingestUserMessage("conv", "low lactose, chicken or beef")
 
         assertEquals(listOf("Chicken tray bake", "Beef bowls"), savedDays.map { it.title })
+    }
+
+    @Test
+    fun `collecting final slots allows recent protein and style overlap when protein preference is constrained`() = runTest {
+        val ready = collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 2,
+            dietaryRestrictions = listOf("no dietary requirements"),
+            proteinPreferences = listOf("chicken"),
+        )
+        var savedDays = emptyList<MealPlanDraftDay>()
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(peopleCount = 3, daysCount = 2)
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("no dietary requirements"),
+                proteinPreferences = listOf("chicken"),
+            )
+        } returns ready
+        coEvery { sessionRepository.getRecentMealHistory(any()) } returns listOf(
+            RecentMealHistoryEntry(
+                title = "Chicken stir fry",
+                summary = "Quick dinner",
+                proteinTags = listOf("chicken"),
+            ),
+        )
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson(
+            day0Title = "Garlic chicken stir fry",
+            day0Summary = "Fast skillet dinner",
+            day0Protein = "chicken",
+            day1Title = "Lemon chicken tray bake",
+            day1Summary = "Oven roasted chicken dinner",
+            day1Protein = "chicken",
+        )
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } answers {
+            savedDays = secondArg<List<MealPlanDraftDay>>()
+            planReviewSnapshotFor(savedDays)
+        }
+
+        val reply = coordinator.ingestUserMessage("conv", "none, chicken")
+
+        assertEquals(listOf("Garlic chicken stir fry", "Lemon chicken tray bake"), savedDays.take(2).map { it.title })
+        assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
+        coVerify(exactly = 1) { inferenceEngine.generateOnce(any(), any(), false, true) }
     }
 
     @Test

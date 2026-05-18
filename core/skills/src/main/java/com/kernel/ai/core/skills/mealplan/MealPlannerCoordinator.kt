@@ -355,10 +355,14 @@ class MealPlannerCoordinator @Inject constructor(
         draft: MealPlanDraft,
         recentHistory: List<RecentMealHistoryEntry>,
     ): MealPlanDraft {
+        val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
         var workingDays = draft.days.sortedBy { it.dayIndex }
         repeat(MAX_PLAN_VARIETY_REPAIR_PASSES) {
-            val conflicts = detectPlanVarietyConflicts(workingDays, recentHistory)
-                .distinctBy { it.dayIndex }
+            val conflicts = detectPlanVarietyConflicts(
+                days = workingDays,
+                recentHistory = recentHistory,
+                enforceRecentPatternDiversity = enforceRecentPatternDiversity,
+            ).distinctBy { it.dayIndex }
             if (conflicts.isEmpty()) {
                 return MealPlanDraft(workingDays)
             }
@@ -374,8 +378,11 @@ class MealPlannerCoordinator @Inject constructor(
                 }
             }
         }
-        val remaining = detectPlanVarietyConflicts(workingDays, recentHistory)
-            .distinctBy { it.dayIndex }
+        val remaining = detectPlanVarietyConflicts(
+            days = workingDays,
+            recentHistory = recentHistory,
+            enforceRecentPatternDiversity = enforceRecentPatternDiversity,
+        ).distinctBy { it.dayIndex }
         if (remaining.isNotEmpty()) {
             throw MealPlanValidationException(
                 remaining.joinToString(
@@ -394,6 +401,7 @@ class MealPlannerCoordinator @Inject constructor(
         dayIndex: Int,
         recentHistory: List<RecentMealHistoryEntry>,
     ): MealPlanDraftDay {
+        val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
         repeat(MAX_DAY_VARIETY_REPAIR_ATTEMPTS) {
             val raw = inferenceEngine.generateOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, currentDays, dayIndex, recentHistory),
@@ -410,7 +418,13 @@ class MealPlannerCoordinator @Inject constructor(
             val candidateDays = currentDays.toMutableList().also { days ->
                 days[dayIndex] = replacement
             }
-            if (detectPlanVarietyConflicts(candidateDays, recentHistory).none { it.dayIndex == dayIndex }) {
+            if (
+                detectPlanVarietyConflicts(
+                    days = candidateDays,
+                    recentHistory = recentHistory,
+                    enforceRecentPatternDiversity = enforceRecentPatternDiversity,
+                ).none { it.dayIndex == dayIndex }
+            ) {
                 return replacement
             }
         }
@@ -420,12 +434,17 @@ class MealPlannerCoordinator @Inject constructor(
     private fun detectPlanVarietyConflicts(
         days: List<MealPlanDraftDay>,
         recentHistory: List<RecentMealHistoryEntry>,
+        enforceRecentPatternDiversity: Boolean,
     ): List<PlanVarietyConflict> {
         val historyTitles = recentHistory.map { normalizeMealTitle(it.title) }
             .filter { it.isNotBlank() }
             .toSet()
-        val historyPatterns = recentHistory.mapNotNull { repeatPatternKey(it.title, it.summary, it.proteinTags) }
-            .toSet()
+        val historyPatterns = if (enforceRecentPatternDiversity) {
+            recentHistory.mapNotNull { repeatPatternKey(it.title, it.summary, it.proteinTags) }
+                .toSet()
+        } else {
+            emptySet()
+        }
         val seenTitles = mutableSetOf<String>()
         val seenPatterns = mutableSetOf<String>()
         return buildList {
@@ -452,6 +471,14 @@ class MealPlannerCoordinator @Inject constructor(
                 patternKey?.let(seenPatterns::add)
             }
         }
+    }
+
+    private fun shouldEnforceRecentPatternDiversity(snapshot: MealPlanSnapshot): Boolean {
+        val preferredProteins = snapshot.proteinPreferences
+            .map(::normalizeProteinTag)
+            .filter { it.isNotBlank() && it != "no protein preference" }
+            .toSet()
+        return preferredProteins.size != 1
     }
 
     private fun repeatPatternKey(title: String, summary: String?, proteinTags: List<String>): String? {
@@ -790,6 +817,7 @@ class MealPlannerCoordinator @Inject constructor(
         }
         try {
             val recentHistory = sessionRepository.getRecentMealHistory(RECENT_MEAL_HISTORY_LIMIT)
+            val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
             val raw = inferenceEngine.generateOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, dayIndex, recentHistory),
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
@@ -810,7 +838,13 @@ class MealPlannerCoordinator @Inject constructor(
             }.toMutableList().also { days ->
                 days[dayIndex] = replacement
             }
-            if (detectPlanVarietyConflicts(candidateDays, recentHistory).any { it.dayIndex == dayIndex }) {
+            if (
+                detectPlanVarietyConflicts(
+                    days = candidateDays,
+                    recentHistory = recentHistory,
+                    enforceRecentPatternDiversity = enforceRecentPatternDiversity,
+                ).any { it.dayIndex == dayIndex }
+            ) {
                 throw MealPlanValidationException("Replacement day still matched a recent meal too closely.")
             }
             return sessionRepository.replaceDayDraft(
