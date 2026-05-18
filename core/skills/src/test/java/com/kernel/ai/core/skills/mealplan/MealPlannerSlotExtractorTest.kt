@@ -19,9 +19,13 @@ class MealPlannerSlotExtractorTest {
     }
 
     @Test
-    fun `extractProteinPreferences recognizes turkey replies`() {
+    fun `extractProteinPreferences recognizes turkey and heuristic proteins`() {
         assertEquals(listOf("turkey"), extractor.extractProteinPreferences("Turkey"))
         assertEquals(listOf("turkey"), extractor.extractProteinPreferences("Turkey only"))
+        assertEquals(listOf("snapper"), extractor.extractProteinPreferences("Snapper"))
+        assertEquals(listOf("prawns"), extractor.extractProteinPreferences("Shrimp"))
+        assertEquals(listOf("chickpeas"), extractor.extractProteinPreferences("Chickpeas"))
+        assertEquals(listOf("halloumi"), extractor.extractProteinPreferences("Halloumi"))
     }
 
     @Test

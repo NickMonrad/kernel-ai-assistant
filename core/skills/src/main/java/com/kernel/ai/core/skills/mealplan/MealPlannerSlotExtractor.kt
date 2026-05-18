@@ -127,6 +127,11 @@ class MealPlannerSlotExtractor @Inject constructor() {
             "lentils" to "lentils",
             "beans" to "beans",
             "egg" to "eggs",
+            "snapper" to "snapper",
+            "prawn" to "prawns",
+            "shrimp" to "prawns",
+            "chickpea" to "chickpeas",
+            "halloumi" to "halloumi",
         )
     }
 }

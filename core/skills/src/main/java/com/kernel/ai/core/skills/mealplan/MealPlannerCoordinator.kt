@@ -1468,7 +1468,26 @@ Rules:
             }
             if ("protein" in missing) {
                 val proteinSuggestions = if (proteinOnlyMissing) {
-                    listOf("chicken", "beef", "turkey", "pork", "fish", "tofu", "lentils", "eggs", "no protein preference")
+                    listOf(
+                        "chicken",
+                        "beef mince",
+                        "beef",
+                        "turkey",
+                        "pork",
+                        "lamb",
+                        "fish",
+                        "salmon",
+                        "tuna",
+                        "tofu",
+                        "lentils",
+                        "beans",
+                        "eggs",
+                        "no protein preference",
+                        "snapper",
+                        "prawns",
+                        "chickpeas",
+                        "halloumi",
+                    )
                 } else {
                     listOf("chicken")
                 }
