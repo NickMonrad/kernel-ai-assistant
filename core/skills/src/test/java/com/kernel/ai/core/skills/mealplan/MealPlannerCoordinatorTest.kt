@@ -727,6 +727,37 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `collecting state can remove a single dietary restriction while preserving others`() = runTest {
+        val collecting = planReviewSnapshot().copy(
+            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
+            dietaryRestrictions = listOf("kid friendly", "gluten free"),
+            proteinPreferences = listOf("beef", "pork"),
+        )
+        val reviewed = planReviewSnapshot().copy(
+            dietaryRestrictions = listOf("kid friendly"),
+            proteinPreferences = listOf("beef", "pork"),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("kid friendly"),
+                proteinPreferences = null,
+            )
+        } returns reviewed
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
+
+        val reply = coordinator.ingestUserMessage("conv", "Remove gluten free")
+
+        assertTrue(reply.content.contains("kid friendly", ignoreCase = true))
+        assertFalse(reply.content.contains("(kid friendly, gluten free)", ignoreCase = true))
+        coVerify(exactly = 1) { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) }
+    }
+
+    @Test
     fun `collecting state show current plan keeps saved draft visible`() = runTest {
         val collecting = planReviewSnapshot().copy(status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS)
         coEvery { sessionRepository.getActiveSession("conv") } returns collecting

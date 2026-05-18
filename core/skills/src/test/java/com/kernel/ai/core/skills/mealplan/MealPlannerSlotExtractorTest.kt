@@ -95,6 +95,12 @@ class MealPlannerSlotExtractorTest {
     }
 
     @Test
+    fun `extract removal commands for dietary and protein preferences`() {
+        assertEquals(listOf("kid friendly", "gluten free"), extractor.extractRemovedDietaryRestrictions("remove gluten free and kid friendly"))
+        assertEquals(listOf("beef", "pork"), extractor.extractRemovedProteinPreferences("please remove beef and pork"))
+    }
+
+    @Test
     fun `extractReplaceDayIndex parses one based day number`() {
         assertEquals(1, extractor.extractReplaceDayIndex("replace day 2"))
     }

@@ -20,6 +20,16 @@ class MealPlannerSlotExtractor @Inject constructor() {
 
     fun extractDietaryRestrictions(text: String): List<String>? {
         val normalized = normalizeWords(text)
+        return extractDietaryRestrictionsFromNormalized(normalized)
+    }
+
+    fun extractRemovedDietaryRestrictions(text: String): List<String>? {
+        val normalized = normalizeWords(text)
+        val removalPayload = extractRemovalPayload(normalized) ?: return null
+        return extractDietaryRestrictionsFromNormalized(removalPayload)
+    }
+
+    private fun extractDietaryRestrictionsFromNormalized(normalized: String): List<String>? {
         if (Regex("\\b(?:none|no\\s+(?:(?:dietary(?:\\s+(?:requirements?|restrictions?))?)|requirements?|restrictions?)|anything is fine)\\b").containsMatchIn(normalized)) {
             return listOf(NO_DIETARY_REQUIREMENTS)
         }
@@ -64,6 +74,19 @@ class MealPlannerSlotExtractor @Inject constructor() {
 
     fun extractProteinPreferences(text: String, allowBareNoPreference: Boolean = false): List<String>? {
         val normalized = normalizeWords(text)
+        return extractProteinPreferencesFromNormalized(normalized, allowBareNoPreference)
+    }
+
+    fun extractRemovedProteinPreferences(text: String): List<String>? {
+        val normalized = normalizeWords(text)
+        val removalPayload = extractRemovalPayload(normalized) ?: return null
+        return extractProteinPreferencesFromNormalized(removalPayload, allowBareNoPreference = false)
+    }
+
+    private fun extractProteinPreferencesFromNormalized(
+        normalized: String,
+        allowBareNoPreference: Boolean,
+    ): List<String>? {
         if (
             Regex("\\b(?:any\\s+protein(?:\\s+is\\s+fine)?|surprise me|no\\s+preferences?|no\\s+protein\\s+preferences?)\\b").containsMatchIn(normalized) ||
                 (allowBareNoPreference && normalized.matches(Regex("^\\s*(?:none|any)\\s*[.!?]*$")))
@@ -93,6 +116,9 @@ class MealPlannerSlotExtractor @Inject constructor() {
             Regex("\\b$token(?:\\s+|-)free\\b").containsMatchIn(window) ||
             Regex("\\b$token\\s+allergy\\b").containsMatchIn(window)
     }
+
+    private fun extractRemovalPayload(normalized: String): String? =
+        REMOVE_PREFIX.find(normalized)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
 
     private fun proteinExcludedByRestrictions(protein: String, exclusions: List<String>): Boolean =
         exclusions.any { exclusion -> proteinMatchesExclusion(protein, exclusion) }
@@ -193,6 +219,7 @@ class MealPlannerSlotExtractor @Inject constructor() {
         )
         val EXCLUSION_PATTERN = Regex("(?:\\bno\\b|\\bwithout\\b|\\bexclude\\b|\\bexcluding\\b|\\bavoid\\b)\\s+([a-z][a-z\\s-]{1,40})(?=$|[,.;&])")
         val EXCLUSION_SEPARATOR = Regex("\\s*(?:,|/|\\band\\b|\\bor\\b)\\s*")
+        val REMOVE_PREFIX = Regex("^\\s*(?:please\\s+)?(?:remove|drop|delete|clear)\\s+(.+?)\\s*[.!?]*$")
         val EXCLUSION_STOP_WORDS = setOf(
             "dietary",
             "dietary requirement",

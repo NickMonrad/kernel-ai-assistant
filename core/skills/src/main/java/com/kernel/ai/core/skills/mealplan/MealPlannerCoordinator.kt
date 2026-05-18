@@ -129,22 +129,34 @@ class MealPlannerCoordinator @Inject constructor(
         val missingBefore = missingSlots(snapshot)
         val peopleCount = slotExtractor.extractPeopleCount(text)
         val daysCount = slotExtractor.extractDaysCount(text)
+        val removedDietaryRestrictions = slotExtractor.extractRemovedDietaryRestrictions(text).orEmpty()
         val dietaryRestrictions = slotExtractor.extractDietaryRestrictions(text)
+        val updatedDietaryRestrictions = mergeUpdatedDietaryRestrictions(
+            current = snapshot.dietaryRestrictions,
+            added = dietaryRestrictions,
+            removed = removedDietaryRestrictions,
+        )
+        val removedProteinPreferences = slotExtractor.extractRemovedProteinPreferences(text).orEmpty()
         val proteinPreferences = slotExtractor.extractProteinPreferences(
             text,
             allowBareNoPreference = missingBefore == listOf("protein"),
         )
-        val mergedDietaryRestrictions = dietaryRestrictions ?: snapshot.dietaryRestrictions
-        val mergedProteinPreferences = proteinPreferences ?: snapshot.proteinPreferences
+        val updatedProteinPreferences = mergeUpdatedProteinPreferences(
+            current = snapshot.proteinPreferences,
+            added = proteinPreferences,
+            removed = removedProteinPreferences,
+        )
+        val mergedDietaryRestrictions = updatedDietaryRestrictions ?: snapshot.dietaryRestrictions
+        val mergedProteinPreferences = updatedProteinPreferences ?: snapshot.proteinPreferences
         val shouldClearProteinPreferences =
-            (dietaryRestrictions != null || proteinPreferences != null) &&
+            (updatedDietaryRestrictions != null || updatedProteinPreferences != null) &&
                 detectProteinPreferenceConflicts(mergedDietaryRestrictions, mergedProteinPreferences).isNotEmpty()
         val updated = sessionRepository.updateRequiredSlots(
             sessionId = snapshot.sessionId,
             peopleCount = peopleCount,
             daysCount = daysCount,
-            dietaryRestrictions = dietaryRestrictions,
-            proteinPreferences = if (shouldClearProteinPreferences) emptyList() else proteinPreferences,
+            dietaryRestrictions = updatedDietaryRestrictions,
+            proteinPreferences = if (shouldClearProteinPreferences) emptyList() else updatedProteinPreferences,
         )
         if (shouldClearProteinPreferences) {
             val conflicts = detectProteinPreferenceConflicts(updated.dietaryRestrictions, mergedProteinPreferences)
@@ -156,7 +168,10 @@ class MealPlannerCoordinator @Inject constructor(
         }
         val hadAllSlotsBefore = missingSlots(snapshot).isEmpty()
         val hasAnySlotUpdates =
-            peopleCount != null || daysCount != null || dietaryRestrictions != null || proteinPreferences != null
+            peopleCount != null ||
+                daysCount != null ||
+                updatedDietaryRestrictions != null ||
+                updatedProteinPreferences != null
         if (hadAllSlotsBefore && !hasAnySlotUpdates) {
             if (slotExtractor.isGenerateRecipesRequest(text)) {
                 return generatePlanForReview(updated, onPlannerActivityChanged)
@@ -551,6 +566,50 @@ class MealPlannerCoordinator @Inject constructor(
             "prawns" -> normalizedExcluded == "prawns" || excluded in setOf("prawn", "shrimp", "shellfish")
             else -> normalizedExcluded == protein
         }
+    }
+
+    private fun mergeUpdatedDietaryRestrictions(
+        current: List<String>,
+        added: List<String>?,
+        removed: List<String>,
+    ): List<String>? {
+        if (added == null && removed.isEmpty()) return null
+        if (added?.contains("no dietary requirements") == true) {
+            return listOf("no dietary requirements")
+        }
+        val updated = current
+            .filterNot { it == "no dietary requirements" || it in removed }
+            .toMutableList()
+        added.orEmpty()
+            .filterNot { it == "no dietary requirements" || it in removed }
+            .forEach { restriction ->
+                if (restriction !in updated) {
+                    updated += restriction
+                }
+            }
+        return updated
+    }
+
+    private fun mergeUpdatedProteinPreferences(
+        current: List<String>,
+        added: List<String>?,
+        removed: List<String>,
+    ): List<String>? {
+        if (added == null && removed.isEmpty()) return null
+        if (added?.contains("no protein preference") == true) {
+            return listOf("no protein preference")
+        }
+        val updated = current
+            .filterNot { it == "no protein preference" || it in removed }
+            .toMutableList()
+        added.orEmpty()
+            .filterNot { it == "no protein preference" || it in removed }
+            .forEach { protein ->
+                if (protein !in updated) {
+                    updated += protein
+                }
+            }
+        return updated
     }
     private fun shouldEnforceRecentPatternDiversity(snapshot: MealPlanSnapshot): Boolean {
         val preferredProteins = snapshot.proteinPreferences
