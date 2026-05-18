@@ -87,6 +87,14 @@ class MealPlannerSlotExtractorTest {
     }
 
     @Test
+    fun `extractProteinPreferences ignores negated allergen and exclusion phrases`() {
+        assertEquals(null, extractor.extractProteinPreferences("No egg"))
+        assertEquals(null, extractor.extractProteinPreferences("egg free"))
+        assertEquals(listOf("chicken"), extractor.extractProteinPreferences("egg free, chicken"))
+        assertEquals(null, extractor.extractProteinPreferences("without chicken or beef"))
+    }
+
+    @Test
     fun `extractReplaceDayIndex parses one based day number`() {
         assertEquals(1, extractor.extractReplaceDayIndex("replace day 2"))
     }

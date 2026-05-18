@@ -575,6 +575,38 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `collecting allergen restriction does not invent conflicting protein`() = runTest {
+        val updated = collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 4,
+            dietaryRestrictions = listOf("egg free"),
+            proteinPreferences = emptyList(),
+        )
+        coEvery {
+            sessionRepository.getActiveSession("conv")
+        } returns collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 4,
+        )
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("egg free"),
+                proteinPreferences = null,
+            )
+        } returns updated
+
+        val reply = coordinator.ingestUserMessage("conv", "No egg")
+
+        assertTrue(reply.content.contains("egg free", ignoreCase = true))
+        assertTrue(reply.content.contains("What protein preferences should I use?", ignoreCase = true))
+        assertFalse(reply.content.contains("don't fit egg free", ignoreCase = true))
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), false, true) }
+    }
+
+    @Test
     fun `plan review generate recipes emits progress and recipes sequentially`() = runTest {
         val planReview = planReviewSnapshot()
         val afterDay1 = planReview.copy(

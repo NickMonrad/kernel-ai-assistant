@@ -70,9 +70,43 @@ class MealPlannerSlotExtractor @Inject constructor() {
         ) {
             return listOf(NO_PROTEIN_PREFERENCE)
         }
-        val matches = PROTEIN_KEYWORDS.filter { normalized.contains(it.first) }.map { it.second }.distinct().toMutableList()
+        val exclusions = extractIngredientExclusions(normalized).map { it.removePrefix("no ").trim() }
+        val matches = PROTEIN_KEYWORDS
+            .filter { keyword ->
+                keyword.pattern.findAll(normalized).any { match ->
+                    !isNegatedProteinMention(normalized, match) && !proteinExcludedByRestrictions(keyword.canonical, exclusions)
+                }
+            }
+            .map { it.canonical }
+            .distinct()
+            .toMutableList()
         if ("beef mince" in matches) matches.remove("beef")
         return matches.takeIf { it.isNotEmpty() }
+    }
+
+    private fun isNegatedProteinMention(normalized: String, match: MatchResult): Boolean {
+        val windowStart = maxOf(0, match.range.first - 20)
+        val windowEnd = minOf(normalized.length, match.range.last + 21)
+        val window = normalized.substring(windowStart, windowEnd)
+        val token = Regex.escape(match.value)
+        return Regex("\\b(?:no|without|avoid|avoiding|exclude|excluding)\\s+$token\\b").containsMatchIn(window) ||
+            Regex("\\b$token(?:\\s+|-)free\\b").containsMatchIn(window) ||
+            Regex("\\b$token\\s+allergy\\b").containsMatchIn(window)
+    }
+
+    private fun proteinExcludedByRestrictions(protein: String, exclusions: List<String>): Boolean =
+        exclusions.any { exclusion -> proteinMatchesExclusion(protein, exclusion) }
+
+    private fun proteinMatchesExclusion(protein: String, excluded: String): Boolean {
+        val normalizedExcluded = excluded.trim().lowercase()
+        return when (protein) {
+            "beef" -> normalizedExcluded == "beef" || normalizedExcluded == "beef mince"
+            "fish" -> normalizedExcluded in setOf("fish", "salmon", "tuna", "snapper")
+            "prawns" -> normalizedExcluded in setOf("prawn", "prawns", "shrimp", "shellfish")
+            "eggs" -> normalizedExcluded in setOf("egg", "eggs")
+            "chickpeas" -> normalizedExcluded in setOf("chickpea", "chickpeas")
+            else -> normalizedExcluded == protein
+        }
     }
 
     fun isCancelRequest(text: String): Boolean =
@@ -195,24 +229,28 @@ class MealPlannerSlotExtractor @Inject constructor() {
             "sesame",
         )
         val PROTEIN_KEYWORDS = listOf(
-            "chicken" to "chicken",
-            "beef mince" to "beef mince",
-            "beef" to "beef",
-            "turkey" to "turkey",
-            "pork" to "pork",
-            "lamb" to "lamb",
-            "fish" to "fish",
-            "salmon" to "salmon",
-            "tuna" to "tuna",
-            "tofu" to "tofu",
-            "lentils" to "lentils",
-            "beans" to "beans",
-            "egg" to "eggs",
-            "snapper" to "snapper",
-            "prawn" to "prawns",
-            "shrimp" to "prawns",
-            "chickpea" to "chickpeas",
-            "halloumi" to "halloumi",
+            ProteinKeyword("chicken", Regex("\\bchicken\\b")),
+            ProteinKeyword("beef mince", Regex("\\bbeef mince\\b")),
+            ProteinKeyword("beef", Regex("\\bbeef\\b")),
+            ProteinKeyword("turkey", Regex("\\bturkey\\b")),
+            ProteinKeyword("pork", Regex("\\bpork\\b")),
+            ProteinKeyword("lamb", Regex("\\blamb\\b")),
+            ProteinKeyword("fish", Regex("\\bfish\\b")),
+            ProteinKeyword("salmon", Regex("\\bsalmon\\b")),
+            ProteinKeyword("tuna", Regex("\\btuna\\b")),
+            ProteinKeyword("tofu", Regex("\\btofu\\b")),
+            ProteinKeyword("lentils", Regex("\\blentils?\\b")),
+            ProteinKeyword("beans", Regex("\\bbeans?\\b")),
+            ProteinKeyword("eggs", Regex("\\beggs?\\b")),
+            ProteinKeyword("snapper", Regex("\\bsnapper\\b")),
+            ProteinKeyword("prawns", Regex("\\bprawns?\\b|\\bshrimp\\b")),
+            ProteinKeyword("chickpeas", Regex("\\bchickpeas?\\b")),
+            ProteinKeyword("halloumi", Regex("\\bhalloumi\\b")),
+        )
+
+        data class ProteinKeyword(
+            val canonical: String,
+            val pattern: Regex,
         )
     }
 }
