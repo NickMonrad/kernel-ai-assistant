@@ -87,6 +87,12 @@ class MealPlannerSlotExtractorTest {
     }
 
     @Test
+    fun `extractDietaryRestrictions keeps mixed exclusions and dietary phrases consistent`() {
+        assertEquals(listOf("gluten free", "egg free"), extractor.extractDietaryRestrictions("No eggs and gluten free"))
+        assertEquals(listOf("egg free", "dairy free"), extractor.extractDietaryRestrictions("No eggs and dairy"))
+    }
+
+    @Test
     fun `extractProteinPreferences ignores negated allergen and exclusion phrases`() {
         assertEquals(null, extractor.extractProteinPreferences("No egg"))
         assertEquals(null, extractor.extractProteinPreferences("egg free"))

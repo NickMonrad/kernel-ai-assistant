@@ -58,10 +58,12 @@ class MealPlannerSlotExtractor @Inject constructor() {
                     .removePrefix("the ")
                     .removePrefix("any ")
                     .trim()
-                if (cleaned.isBlank() || cleaned in EXCLUSION_STOP_WORDS) {
-                    null
-                } else {
-                    "no $cleaned"
+                val canonicalRestriction = canonicalDietaryRestrictionFromExcludedTerm(cleaned)
+                when {
+                    cleaned.isBlank() -> null
+                    canonicalRestriction != null -> canonicalRestriction
+                    cleaned in EXCLUSION_STOP_WORDS -> null
+                    else -> "no $cleaned"
                 }
             }
             .distinct()
@@ -119,6 +121,12 @@ class MealPlannerSlotExtractor @Inject constructor() {
 
     private fun extractRemovalPayload(normalized: String): String? =
         REMOVE_PREFIX.find(normalized)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+
+    private fun canonicalDietaryRestrictionFromExcludedTerm(cleaned: String): String? {
+        val normalized = cleaned.trim().lowercase()
+        return EXCLUSION_CANONICAL_RESTRICTIONS[normalized]
+            ?: DIETARY_PATTERNS.firstOrNull { (pattern, _) -> pattern.containsMatchIn(normalized) }?.second
+    }
 
     private fun proteinExcludedByRestrictions(protein: String, exclusions: List<String>): Boolean =
         exclusions.any { exclusion -> proteinMatchesExclusion(protein, exclusion) }
@@ -220,6 +228,27 @@ class MealPlannerSlotExtractor @Inject constructor() {
         val EXCLUSION_PATTERN = Regex("(?:\\bno\\b|\\bwithout\\b|\\bexclude\\b|\\bexcluding\\b|\\bavoid\\b)\\s+([a-z][a-z\\s-]{1,40})(?=$|[,.;&])")
         val EXCLUSION_SEPARATOR = Regex("\\s*(?:,|/|\\band\\b|\\bor\\b)\\s*")
         val REMOVE_PREFIX = Regex("^\\s*(?:please\\s+)?(?:remove|drop|delete|clear)\\s+(.+?)\\s*[.!?]*$")
+        val EXCLUSION_CANONICAL_RESTRICTIONS = mapOf(
+            "kid friendly" to "kid friendly",
+            "family friendly" to "kid friendly",
+            "lactose" to "lactose free",
+            "gluten" to "gluten free",
+            "wheat" to "wheat free",
+            "dairy" to "dairy free",
+            "milk" to "dairy free",
+            "egg" to "egg free",
+            "eggs" to "egg free",
+            "peanut" to "peanut free",
+            "peanuts" to "peanut free",
+            "nut" to "nut free",
+            "nuts" to "nut free",
+            "tree nut" to "nut free",
+            "tree nuts" to "nut free",
+            "soy" to "soy free",
+            "fish" to "fish free",
+            "shellfish" to "shellfish free",
+            "sesame" to "sesame free",
+        )
         val EXCLUSION_STOP_WORDS = setOf(
             "dietary",
             "dietary requirement",
