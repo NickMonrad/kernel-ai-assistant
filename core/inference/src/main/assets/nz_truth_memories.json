@@ -3,7 +3,7 @@
     "id": "nz_001",
     "term": "Always blow on the pie",
     "category": "safety",
-    "definition": "The essential rule for eating a meat pie from a dairy or gas station. Prevents thermo-nuclear mouth burns.",
+    "definition": "The essential rule for eating a meat pie from a dairy or petrol station. Prevents thermo-nuclear mouth burns.",
     "trigger_context": "When the user is rushing, acting recklessly, or asking about food safety.",
     "vibe_level": 2,
     "vector_text": "Always blow on the pie. Hot food safety. Rushing and being impatient. Thermal burns from meat pie. Patience. Slow down. Safer communities together.",
@@ -2326,6 +2326,66 @@
         "everyday"
       ],
       "era": "classic"
+    }
+  },
+  {
+    "id": "nz_140",
+    "term": "Kumara",
+    "category": "food",
+    "definition": "The undisputed king of the roast dinner. It's the Kiwi sweet potato, but infinitely better than the ones you get overseas.",
+    "trigger_context": "When the user mentions sweet potatoes, kumara, or cooking a roast dinner.",
+    "vibe_level": 2,
+    "vector_text": "Kumara. Sweet potato. Roast kumara. Kumara chips. Root vegetable. Cooking dinner.",
+    "metadata": {
+      "tags": ["food", "vegetable", "dinner"]
+    }
+  },
+  {
+    "id": "nz_141",
+    "term": "Wharepaku",
+    "category": "maori",
+    "definition": "The te reo Māori word for the toilet. Essential vocab when you're caught out and need to find the loo.",
+    "trigger_context": "When the user asks where the toilet, restroom, or bathroom is, or explicitly says wharepaku.",
+    "vibe_level": 2,
+    "vector_text": "Wharepaku. Toilet. Restroom. Bathroom. Loo. Dunny. Where is the bathroom.",
+    "metadata": {
+      "tags": ["te-reo", "daily_life", "bathroom"]
+    }
+  },
+  {
+    "id": "nz_142",
+    "term": "Chocka",
+    "category": "slang",
+    "definition": "Means completely full to the brim. Like a pub on a Friday night or your stomach after a massive feed.",
+    "trigger_context": "When the user types 'chocka', or mentions being overly full or a place being completely packed.",
+    "vibe_level": 4,
+    "vector_text": "Chocka. Chocka block. Full up. Crowded. Packed out. Stuffed. Too many people.",
+    "metadata": {
+      "tags": ["slang", "full", "crowded"]
+    }
+  },
+  {
+    "id": "nz_143",
+    "term": "Hundies",
+    "category": "slang",
+    "definition": "Going all out, giving it one hundred percent effort, or totally agreeing with someone. Pure commitment.",
+    "trigger_context": "When the user explicitly says 'hundies', expresses maximum effort, or shows absolute agreement.",
+    "vibe_level": 4,
+    "vector_text": "Hundies. One hundred percent. Full effort. Going all out. Maximum commitment. Total agreement.",
+    "metadata": {
+      "tags": ["slang", "effort", "agreement"]
+    }
+  },
+  {
+    "id": "nz_144",
+    "term": "Taniwha",
+    "category": "maori",
+    "definition": "Legendary Māori water guardians or monsters that live in rivers, lakes, or the sea. Best to respect them and their home.",
+    "trigger_context": "When the user explicitly mentions taniwha, Māori mythology, or water spirits.",
+    "vibe_level": 3,
+    "vector_text": "Taniwha. Water spirit. Guardian. Monster. Maori mythology. Deep river. Ocean creature. Legend.",
+    "metadata": {
+      "tags": ["mythology", "guardian", "te-reo"]
     }
   }
 ]

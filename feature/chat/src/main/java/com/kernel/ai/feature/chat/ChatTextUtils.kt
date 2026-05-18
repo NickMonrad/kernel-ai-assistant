@@ -55,6 +55,7 @@ internal fun normalizeChatTextForSpeech(text: String): String =
         .replace(Regex("""(?m)^\s*\d+\.\s+"""), "")      // strip leading numbered marker at start
         .replace(Regex("""(?m)^\s*[-*•]\s*"""), "")       // strip bullet markers at line start (lone * has no trailing ws)
         .replace(Regex("""[•‣◦∙⋅·]\s*"""), "")           // strip any remaining inline bullet chars
+        .let(::normalizeFractionsForSpeech)               // expand fractions/units before pronunciation overrides
         .replace(Regex("""(?<!\d):(?!\d)(?!//)\s*"""), ". ")   // non-numeric colons → sentence break (preserves ://)
         .replace(Regex("""[—–]\s*"""), ", ")              // em/en dashes → natural comma pause
         .replace(Regex("""\s*(?:\r?\n){2,}\s*"""), ". ")
@@ -228,6 +229,78 @@ private fun findSpeechChunkBoundary(
     }
 
     return null
+}
+
+/**
+ * Expands common cooking fractions and unit abbreviations to spoken words so TTS does not
+ * read "1/4 tsp" as "one slash four tee ess pee".
+ *
+ * Order of substitutions:
+ * 1. Unicode fraction characters (½ ¼ ¾ ⅓ ⅔ ⅛)
+ * 2. Mixed numbers — must run BEFORE simple fractions so "1 1/2" → "one and a half",
+ *    not "1 half" via two separate replacements.
+ * 3. Simple ASCII fractions (1/2, 1/4, 3/4, 1/3, 2/3, 1/8, 3/8, 1/16)
+ * 4. Cooking unit abbreviations (tsp, tbsp) — whole-word, case-insensitive.
+ *
+ * Unknown fractions (e.g. 5/7, dates written as 15/3) are left untouched to avoid
+ * false positives.
+ */
+private val MIXED_NUMBER_FRACTION_RULES: List<Pair<Regex, String>> = listOf(
+    Regex("""\b(\d+)\s+1/2\b""") to "$1 and a half",
+    Regex("""\b(\d+)\s+1/4\b""") to "$1 and a quarter",
+    Regex("""\b(\d+)\s+3/4\b""") to "$1 and three quarters",
+    Regex("""\b(\d+)\s+1/3\b""") to "$1 and one third",
+    Regex("""\b(\d+)\s+2/3\b""") to "$1 and two thirds",
+    Regex("""\b(\d+)\s+1/8\b""") to "$1 and one eighth",
+    Regex("""\b(\d+)\s+3/8\b""") to "$1 and three eighths",
+)
+
+// Negative lookahead to prevent matching date-format strings (e.g. "2/3 May", "1/2/2024").
+// Rejects: followed by "/" (full date like 2/3/2024) or a digit, or a space + month name.
+private val DATE_GUARD = """(?![/\d]|\s+(?i:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b)"""
+
+private val SIMPLE_FRACTION_RULES: List<Pair<Regex, String>> = listOf(
+    Regex("""\b1/2${DATE_GUARD}""") to "half",
+    Regex("""\b1/4${DATE_GUARD}""") to "quarter",
+    Regex("""\b3/4${DATE_GUARD}""") to "three quarters",
+    Regex("""\b1/3${DATE_GUARD}""") to "one third",
+    Regex("""\b2/3${DATE_GUARD}""") to "two thirds",
+    Regex("""\b1/8${DATE_GUARD}""") to "one eighth",
+    Regex("""\b3/8${DATE_GUARD}""") to "three eighths",
+    Regex("""\b1/16${DATE_GUARD}""") to "one sixteenth",
+)
+
+private val UNIT_ABBREV_RULES: List<Pair<Regex, String>> = listOf(
+    Regex("""\b[Tt]bsp\b""") to "tablespoon",
+    Regex("""\b[Tt]sp\b""") to "teaspoon",
+)
+
+private fun normalizeFractionsForSpeech(text: String): String {
+    // Step 1: Unicode fraction characters
+    var result = text
+        .replace("½", "half")
+        .replace("¼", "quarter")
+        .replace("¾", "three quarters")
+        .replace("⅓", "one third")
+        .replace("⅔", "two thirds")
+        .replace("⅛", "one eighth")
+
+    // Step 2: Mixed numbers (must precede simple fractions)
+    result = MIXED_NUMBER_FRACTION_RULES.fold(result) { current, (pattern, replacement) ->
+        pattern.replace(current, replacement)
+    }
+
+    // Step 3: Simple ASCII fractions
+    result = SIMPLE_FRACTION_RULES.fold(result) { current, (pattern, replacement) ->
+        pattern.replace(current, replacement)
+    }
+
+    // Step 4: Unit abbreviations
+    result = UNIT_ABBREV_RULES.fold(result) { current, (pattern, replacement) ->
+        pattern.replace(current, replacement)
+    }
+
+    return result
 }
 
 private fun applySpeechPronunciationOverrides(text: String): String =
