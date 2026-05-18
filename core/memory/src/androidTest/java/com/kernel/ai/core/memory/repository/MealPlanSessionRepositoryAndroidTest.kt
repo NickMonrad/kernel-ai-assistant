@@ -311,6 +311,51 @@ class MealPlanSessionRepositoryAndroidTest {
     }
 
     @Test
+    fun completeSession_rebuilds_missing_deleted_projection_lists_from_canonical_state() = runBlocking {
+        val session = repository.startOrResume("conv-complete-heal")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(dayIndex = 0, title = "Chicken Stir Fry", summary = "Quick bowl", proteinTags = listOf("chicken")),
+                MealPlanDraftDay(dayIndex = 1, title = "Tofu Curry", summary = "Weeknight curry", proteinTags = listOf("tofu")),
+            ),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(title = "Chicken Stir Fry", method = listOf("Prep vegetables.")),
+            rawModelJson = "{}",
+            groceries = listOf(grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh")),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 1,
+            recipeDraft = recipeDraft(title = "Tofu Curry", method = listOf("Simmer the curry.")),
+            rawModelJson = "{}",
+            groceries = listOf(grocery(displayText = "1 block tofu", ingredientName = "tofu", normalizationStatus = GroceryNormalizationStatus.OPAQUE)),
+        )
+
+        val existingLists = listNameDao.getAll()
+        val shoppingListName = existingLists.single { it.name.endsWith("Shopping List") }.name
+        val firstRecipeListName = existingLists.single { it.name.contains("Day 1 — Chicken Stir Fry") }.name
+        listNameDao.deleteById(existingLists.single { it.name == shoppingListName }.id)
+        listNameDao.deleteById(existingLists.single { it.name == firstRecipeListName }.id)
+
+        val completed = repository.completeSession(session.sessionId)
+
+        assertEquals(MealPlanSessionStatus.COMPLETED, completed.status)
+        val rebuiltLists = listNameDao.getAll()
+        val rebuiltNames = rebuiltLists.map { it.name }
+        assertTrue(rebuiltNames.contains(shoppingListName))
+        assertTrue(rebuiltNames.contains(firstRecipeListName))
+        assertTrue(rebuiltNames.any { it.contains("Day 2 — Tofu Curry") })
+        val restoredShoppingListId = rebuiltLists.single { it.name == shoppingListName }.id
+        val restoredRecipeListId = rebuiltLists.single { it.name == firstRecipeListName }.id
+        assertEquals(listOf("500 g chicken thigh", "1 block tofu"), listItemDao.getByList(restoredShoppingListId).map { it.text })
+        assertEquals(listOf("Ingredients", "placeholder ingredient", "Method", "1. Prep vegetables."), listItemDao.getByList(restoredRecipeListId).map { it.text })
+    }
+
+    @Test
     fun markGenerationFailure_does_not_revive_cancelled_session() = runBlocking {
         val session = repository.startOrResume("conv-cancelled-failure")
         repository.savePlanDraft(

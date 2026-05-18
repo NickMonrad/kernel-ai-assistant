@@ -16,4 +16,7 @@ interface MealPlanRecipeVersionDao {
 
     @Query("SELECT * FROM meal_plan_recipe_versions WHERE id = :recipeVersionId LIMIT 1")
     suspend fun getById(recipeVersionId: String): MealPlanRecipeVersionEntity?
+
+    @Query("SELECT * FROM meal_plan_recipe_versions WHERE mealPlanDayId = :dayId AND version = :version LIMIT 1")
+    suspend fun getByDayAndVersion(dayId: String, version: Int): MealPlanRecipeVersionEntity?
 }

@@ -415,6 +415,7 @@ class MealPlanSessionRepository @Inject constructor(
                 completedAt = now,
             )
             sessionDao.update(next)
+            reconcileCanonicalProjections(next)
             next.toSnapshot()
         }
         updated.completedAt?.let { completedAt ->
@@ -577,6 +578,24 @@ class MealPlanSessionRepository @Inject constructor(
             }
             projectionWriteDao.markSupersededForSession(sessionId, supersededAt)
         }
+    }
+
+    private suspend fun reconcileCanonicalProjections(session: MealPlanSessionEntity) {
+        val persistedDays = dayDao.getBySession(session.id)
+            .filter { day -> day.status == MealPlanDayStatus.PERSISTED.name && day.currentRecipeVersion != null }
+            .sortedBy { it.dayIndex }
+        deleteActiveProjections(session.id, supersededAt = System.currentTimeMillis())
+        if (persistedDays.isEmpty()) {
+            return
+        }
+        persistedDays.forEach { day ->
+            val recipeVersionNumber = requireNotNull(day.currentRecipeVersion)
+            val recipeVersion = requireNotNull(recipeVersionDao.getByDayAndVersion(day.id, recipeVersionNumber)) {
+                "Missing canonical recipe version $recipeVersionNumber for meal-plan day ${day.id}"
+            }
+            rebuildRecipeProjection(session, day.id, day.dayIndex, recipeVersion)
+        }
+        rebuildShoppingProjection(session.id)
     }
 
     /**
