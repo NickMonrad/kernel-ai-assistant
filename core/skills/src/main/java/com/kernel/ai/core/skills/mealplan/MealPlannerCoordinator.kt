@@ -1362,6 +1362,7 @@ Rules:
 - keep the recipe compact: 6-8 ingredients and 3-5 method steps
 - keep ingredient quantities realistic for a household recipe
 - use metric-friendly units when certain
+- never use length units such as inches, inch, in, cm, or mm for ingredients; use grams, ml, tsp, tbsp, cloves, or whole-item counts instead
 - every ingredient line must be a single concise string
 - every method step must be a single concise string with the action only
 - treat dietary requirements, allergens, and ingredient exclusions as strict requirements

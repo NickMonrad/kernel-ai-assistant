@@ -64,6 +64,35 @@ class MealPlanQuantityValidatorTest {
     }
 
     @Test
+    fun `validateAndNormalize rejects length units for ingredient quantities`() {
+        val recipe = RecipeDraft(
+            title = "Chickpea dahl",
+            servings = 4,
+            ingredients = listOf(
+                RecipeDraftIngredient(
+                    originalText = "1 inch ginger, grated",
+                    amount = "1",
+                    unit = "inch",
+                    item = "ginger",
+                    note = "grated",
+                ),
+            ),
+            methodSteps = listOf(
+                RecipeDraftMethodStep(1, "Cook the aromatics."),
+            ),
+        )
+
+        val error = assertThrows(MealPlanValidationException::class.java) {
+            validator.validateAndNormalize(recipe)
+        }
+
+        assertEquals(
+            "Ingredient '1 inch ginger, grated' used an unsupported length unit 'inch'. Use grams, ml, spoon units, cloves, or whole-item counts instead.",
+            error.message,
+        )
+    }
+
+    @Test
     fun `validateAndNormalize keeps ambiguous plausible lines opaque`() {
         val recipe = RecipeDraft(
             title = "Chicken stir-fry",
