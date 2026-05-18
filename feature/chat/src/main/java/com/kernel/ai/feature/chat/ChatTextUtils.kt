@@ -255,20 +255,24 @@ private val MIXED_NUMBER_FRACTION_RULES: List<Pair<Regex, String>> = listOf(
     Regex("""\b(\d+)\s+3/8\b""") to "$1 and three eighths",
 )
 
+// Negative lookahead to prevent matching date-format strings (e.g. "2/3 May", "1/2/2024").
+// Rejects: followed by "/" (full date like 2/3/2024) or a digit, or a space + month name.
+private val DATE_GUARD = """(?![/\d]|\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b)"""
+
 private val SIMPLE_FRACTION_RULES: List<Pair<Regex, String>> = listOf(
-    Regex("""\b1/2\b""") to "half",
-    Regex("""\b1/4\b""") to "quarter",
-    Regex("""\b3/4\b""") to "three quarters",
-    Regex("""\b1/3\b""") to "one third",
-    Regex("""\b2/3\b""") to "two thirds",
-    Regex("""\b1/8\b""") to "one eighth",
-    Regex("""\b3/8\b""") to "three eighths",
-    Regex("""\b1/16\b""") to "one sixteenth",
+    Regex("""\b1/2${DATE_GUARD}""") to "half",
+    Regex("""\b1/4${DATE_GUARD}""") to "quarter",
+    Regex("""\b3/4${DATE_GUARD}""") to "three quarters",
+    Regex("""\b1/3${DATE_GUARD}""") to "one third",
+    Regex("""\b2/3${DATE_GUARD}""") to "two thirds",
+    Regex("""\b1/8${DATE_GUARD}""") to "one eighth",
+    Regex("""\b3/8${DATE_GUARD}""") to "three eighths",
+    Regex("""\b1/16${DATE_GUARD}""") to "one sixteenth",
 )
 
 private val UNIT_ABBREV_RULES: List<Pair<Regex, String>> = listOf(
-    Regex("""\btbsp\b""", RegexOption.IGNORE_CASE) to "tablespoon",
-    Regex("""\btsp\b""", RegexOption.IGNORE_CASE) to "teaspoon",
+    Regex("""\b[Tt]bsp\b""") to "tablespoon",
+    Regex("""\b[Tt]sp\b""") to "teaspoon",
 )
 
 private fun normalizeFractionsForSpeech(text: String): String {

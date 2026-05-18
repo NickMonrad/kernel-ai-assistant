@@ -883,7 +883,7 @@ class ActionsViewModel @Inject constructor(
         if (inputMode != InputMode.Voice) return
         if (!spokenResponsesEnabled) return
         val rawSummary = spokenOverride?.takeIf { it.isNotBlank() } ?: toSpokenSummary(text)
-        val summary = if (spokenOverride.isNullOrBlank()) normalisePronounsForTts(rawSummary) else rawSummary
+        val summary = normalisePronounsForTts(rawSummary)
         if (summary.isBlank()) return
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()

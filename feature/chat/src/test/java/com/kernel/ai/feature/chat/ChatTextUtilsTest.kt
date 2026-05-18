@@ -271,6 +271,24 @@ class ChatTextUtilsTest {
             val result = normalizeChatTextForSpeech("½ cup")
             assertTrue(result.contains("half"), "should contain 'half', got: $result")
         }
+
+        @Test
+        fun `fraction before month name is not converted — date guard`() {
+            val result = normalizeChatTextForSpeech("meeting on 2/3 May")
+            assertFalse(result.contains("two thirds"), "should not convert date fraction, got: $result")
+        }
+
+        @Test
+        fun `fraction in dd-mm-yyyy format is not converted — date guard`() {
+            val result = normalizeChatTextForSpeech("deadline 2/3/2024")
+            assertFalse(result.contains("two thirds"), "should not convert date fraction, got: $result")
+        }
+
+        @Test
+        fun `TSP all-caps acronym is not converted to teaspoon`() {
+            val result = normalizeChatTextForSpeech("TSP contribution limits")
+            assertFalse(result.contains("teaspoon"), "should not convert acronym TSP, got: $result")
+        }
     }
 
     @Nested
