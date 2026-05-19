@@ -140,6 +140,7 @@ class MealPlannerCoordinatorTest {
 
         assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
         assertTrue(reply.content.contains("change preferences", ignoreCase = true))
+        assertTrue(reply.content.contains("help", ignoreCase = true))
         coVerify(exactly = 1) { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) }
         coVerify(exactly = 0) { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.RECIPE, any()) }
     }
@@ -759,6 +760,21 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `collecting help lists dietary options when dietary slot is missing`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 4,
+            proteinPreferences = listOf("chicken"),
+        )
+
+        val reply = coordinator.ingestUserMessage("conv", "help")
+
+        assertTrue(reply.content.contains("kid friendly", ignoreCase = true))
+        assertTrue(reply.content.contains("gluten free", ignoreCase = true))
+        assertTrue(reply.content.contains("no coriander", ignoreCase = true))
+    }
+
+    @Test
     fun `collecting state can remove a single dietary restriction while preserving others`() = runTest {
         val collecting = planReviewSnapshot().copy(
             status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
@@ -839,7 +855,7 @@ class MealPlannerCoordinatorTest {
                 peopleCount = null,
                 daysCount = null,
                 dietaryRestrictions = listOf("egg free"),
-                proteinPreferences = listOf("beef"),
+                proteinPreferences = null,
             )
         } returns reviewed
         coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
@@ -853,10 +869,47 @@ class MealPlannerCoordinatorTest {
                 peopleCount = null,
                 daysCount = null,
                 dietaryRestrictions = listOf("egg free"),
-                proteinPreferences = listOf("beef"),
+                proteinPreferences = null,
             )
         }
         coVerify(exactly = 1) { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) }
+    }
+
+    @Test
+    fun `collecting state keeps protein preferences when removing raw exclusion with matching protein name`() = runTest {
+        val collecting = planReviewSnapshot().copy(
+            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
+            dietaryRestrictions = listOf("no chicken"),
+            proteinPreferences = listOf("chicken"),
+        )
+        val reviewed = planReviewSnapshot().copy(
+            dietaryRestrictions = emptyList(),
+            proteinPreferences = listOf("chicken"),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = emptyList(),
+                proteinPreferences = null,
+            )
+        } returns reviewed
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
+
+        coordinator.ingestUserMessage("conv", "Remove no chicken")
+
+        coVerify(exactly = 1) {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = emptyList(),
+                proteinPreferences = null,
+            )
+        }
     }
 
     @Test
@@ -1073,7 +1126,7 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("generate recipes", "show current plan", "replace day 1", "change preferences"),
+            listOf("generate recipes", "show current plan", "replace day 1", "change preferences", "help"),
             activity?.suggestions?.map { it.command },
         )
     }
@@ -1085,7 +1138,7 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("2 people", "4 days", "no dietary requirements", "kid friendly", "gluten free", "nut free", "chicken", "cancel plan"),
+            listOf("2 people", "4 days", "no dietary requirements", "kid friendly", "gluten free", "nut free", "chicken", "help", "cancel plan"),
             activity?.suggestions?.map { it.command },
         )
     }
@@ -1097,7 +1150,7 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("show current plan", "done meal planning", "regenerate day 1", "replace day 1"),
+            listOf("show current plan", "done meal planning", "regenerate day 1", "replace day 1", "help"),
             activity?.suggestions?.map { it.command },
         )
     }
@@ -1132,6 +1185,7 @@ class MealPlannerCoordinatorTest {
                 "prawns",
                 "chickpeas",
                 "halloumi",
+                "help",
                 "cancel plan",
             ),
             activity?.suggestions?.map { it.command },
@@ -1168,6 +1222,7 @@ class MealPlannerCoordinatorTest {
                 "paleo",
                 "keto",
                 "halal",
+                "help",
                 "cancel plan",
             ),
             activity?.suggestions?.map { it.command },
@@ -1193,6 +1248,7 @@ class MealPlannerCoordinatorTest {
                 "no protein preference",
                 "chickpeas",
                 "halloumi",
+                "help",
                 "cancel plan",
             ),
             activity?.suggestions?.map { it.command },
@@ -1211,7 +1267,7 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("retry", "replace day 2", "show current plan", "cancel plan"),
+            listOf("retry", "replace day 2", "show current plan", "help", "cancel plan"),
             activity?.suggestions?.map { it.command },
         )
     }

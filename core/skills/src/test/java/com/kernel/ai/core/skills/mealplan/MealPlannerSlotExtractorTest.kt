@@ -113,6 +113,7 @@ class MealPlannerSlotExtractorTest {
         assertEquals(null, extractor.extractDietaryRestrictions("remove no gluten free"))
         assertEquals(listOf("no gluten free"), extractor.extractRemovedDietaryRestrictions("remove no gluten free"))
         assertEquals(listOf("no chicken"), extractor.extractRemovedDietaryRestrictions("remove no chicken"))
+        assertEquals(null, extractor.extractRemovedProteinPreferences("remove no chicken"))
         assertEquals(listOf("salmon"), extractor.extractProteinPreferences("remove beef and add salmon"))
         assertEquals(listOf("beef"), extractor.extractRemovedProteinPreferences("remove beef and add salmon"))
     }
@@ -136,6 +137,14 @@ class MealPlannerSlotExtractorTest {
     @Test
     fun `isCancelRequest recognizes meal planning cancellation`() {
         assertTrue(extractor.isCancelRequest("cancel the meal plan"))
+    }
+
+    @Test
+    fun `isHelpRequest recognizes meal planner help phrases`() {
+        assertTrue(extractor.isHelpRequest("help"))
+        assertTrue(extractor.isHelpRequest("show options"))
+        assertTrue(extractor.isHelpRequest("can you help me"))
+        assertFalse(extractor.isHelpRequest("help me avoid gluten"))
     }
 
     @Test

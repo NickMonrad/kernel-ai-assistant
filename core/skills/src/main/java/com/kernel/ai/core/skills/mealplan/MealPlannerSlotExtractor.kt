@@ -184,11 +184,10 @@ class MealPlannerSlotExtractor @Inject constructor() {
         if (cleaned == NO_PROTEIN_PREFERENCE) {
             return listOf(cleaned)
         }
-        val normalized = cleaned.removePrefix("no ").trim()
-        if (normalized.isBlank()) {
+        if (cleaned.startsWith("no ")) {
             return emptyList()
         }
-        return extractProteinPreferencesFromNormalized(normalized, allowBareNoPreference = false).orEmpty()
+        return extractProteinPreferencesFromNormalized(cleaned, allowBareNoPreference = false).orEmpty()
     }
 
     private fun cleanPreferenceTerm(rawTerm: String): String? =
@@ -229,6 +228,12 @@ class MealPlannerSlotExtractor @Inject constructor() {
 
     fun isCancelRequest(text: String): Boolean =
         Regex("\\b(?:cancel|nevermind|never mind|forget it|abort)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
+
+    fun isHelpRequest(text: String): Boolean =
+        Regex(
+            "^\\s*(?:(?:please|can you|could you|i need)\\s+)*(?:help(?:\\s+me)?|what can i say|what are my options|show help|show options|meal planner help)\\s*[.!?]*$",
+            RegexOption.IGNORE_CASE,
+        ).matches(text.trim())
 
     fun extractReplaceDayIndex(text: String): Int? =
         Regex("\\b(?:replace|swap|change)\\s+day\\s+(\\d+)\\b", RegexOption.IGNORE_CASE)
