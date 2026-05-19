@@ -3,10 +3,12 @@ package com.kernel.ai.core.skills.mealplan
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
+import com.kernel.ai.core.memory.mealplan.MealPlanDraftDay
 import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanSnapshot
 import com.kernel.ai.core.memory.mealplan.MealPlanSnapshotDay
 import com.kernel.ai.core.memory.mealplan.PendingGenerationKind
+import com.kernel.ai.core.memory.mealplan.RecentMealHistoryEntry
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import io.mockk.coEvery
@@ -21,13 +23,18 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class MealPlannerCoordinatorTest {
-    private val sessionRepository = mockk<MealPlanSessionRepository>(relaxed = true)
+    private val sessionRepository = mockk<MealPlanSessionRepository>(relaxed = true) {
+        coEvery { getRecentMealHistory(any()) } returns emptyList()
+        coEvery { getPendingCompletedSummarySessions(any()) } returns emptyList()
+    }
     private val slotExtractor = MealPlannerSlotExtractor()
     private val jsonParser = MealPlanJsonParser()
     private val quantityValidator = MealPlanQuantityValidator()
     private val inferenceEngine = mockk<InferenceEngine>()
     private val embeddingEngine = mockk<EmbeddingEngine>()
-    private val memoryRepository = mockk<MemoryRepository>(relaxed = true)
+    private val memoryRepository = mockk<MemoryRepository>(relaxed = true) {
+        coEvery { hasEpisodicMemory(any(), any()) } returns false
+    }
 
     private val coordinator = MealPlannerCoordinator(
         sessionRepository = sessionRepository,
@@ -40,6 +47,25 @@ class MealPlannerCoordinatorTest {
     )
 
     @Test
+    fun `activeSessionReply suppresses duplicate resume prompt for unchanged session state`() = runTest {
+        val active = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
+            status = MealPlanSessionStatus.RECIPES_IN_PROGRESS,
+            activeDayIndex = 1,
+            days = listOf(
+                draftDay(dayIndex = 0, title = "Chicken stir-fry", status = MealPlanDayStatus.PERSISTED),
+                draftDay(dayIndex = 1, title = "Chicken curry", status = MealPlanDayStatus.DRAFTED),
+            ),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns active
+
+        val first = coordinator.activeSessionReply("conv")
+        val second = coordinator.activeSessionReply("conv")
+
+        assertTrue(first?.content?.contains("generate recipes", ignoreCase = true) == true)
+        assertEquals(null, second)
+    }
+
+    @Test
     fun `startOrResume prompts for missing slots`() = runTest {
         coEvery { sessionRepository.startOrResume("conv") } returns collectingSnapshot()
 
@@ -47,6 +73,45 @@ class MealPlannerCoordinatorTest {
 
         assertTrue(reply.content.contains("How many people"))
         assertTrue(reply.content.contains("How many days"))
+    }
+
+    @Test
+    fun `startOrResume backfills unfinished completed summaries before starting planner`() = runTest {
+        val completedWithoutSummary = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
+            status = MealPlanSessionStatus.COMPLETED,
+            completedAt = 1234L,
+        )
+        coEvery { sessionRepository.getPendingCompletedSummarySessions(any()) } returns listOf(completedWithoutSummary)
+        coEvery { sessionRepository.startOrResume("conv") } returns collectingSnapshot()
+        coEvery { sessionRepository.buildFinalSummary("session-1") } returns "Created a 2-day meal plan."
+        coEvery { embeddingEngine.embed("Created a 2-day meal plan.") } returns floatArrayOf(1f, 2f)
+        coEvery { sessionRepository.markFinalSummaryWritten("session-1") } returns Unit
+
+        coordinator.startOrResume("conv")
+
+        coVerify { sessionRepository.buildFinalSummary("session-1") }
+        coVerify { sessionRepository.markFinalSummaryWritten("session-1") }
+        coVerify(exactly = 1) { memoryRepository.addEpisodicMemory("conv", "Created a 2-day meal plan.", any()) }
+        coVerify { sessionRepository.startOrResume("conv") }
+    }
+
+    @Test
+    fun `startOrResume marks existing completed summary as written without duplicating memory`() = runTest {
+        val completedWithoutSummary = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
+            status = MealPlanSessionStatus.COMPLETED,
+            completedAt = 1234L,
+        )
+        coEvery { sessionRepository.getPendingCompletedSummarySessions(any()) } returns listOf(completedWithoutSummary)
+        coEvery { sessionRepository.startOrResume("conv") } returns collectingSnapshot()
+        coEvery { sessionRepository.buildFinalSummary("session-1") } returns "Created a 2-day meal plan."
+        coEvery { memoryRepository.hasEpisodicMemory("conv", "Created a 2-day meal plan.") } returns true
+        coEvery { sessionRepository.markFinalSummaryWritten("session-1") } returns Unit
+
+        coordinator.startOrResume("conv")
+
+        coVerify(exactly = 0) { embeddingEngine.embed(any()) }
+        coVerify(exactly = 0) { memoryRepository.addEpisodicMemory(any(), any(), any()) }
+        coVerify { sessionRepository.markFinalSummaryWritten("session-1") }
     }
 
     @Test
@@ -77,6 +142,248 @@ class MealPlannerCoordinatorTest {
         assertTrue(reply.content.contains("change preferences", ignoreCase = true))
         coVerify(exactly = 1) { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) }
         coVerify(exactly = 0) { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.RECIPE, any()) }
+    }
+
+    @Test
+    fun `collecting final slots repairs recent exact repeat before plan review`() = runTest {
+        val ready = collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 2,
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken"),
+        )
+        var savedDays = emptyList<MealPlanDraftDay>()
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("low lactose"),
+                proteinPreferences = listOf("chicken"),
+            )
+        } returns ready
+        coEvery { sessionRepository.getRecentMealHistory(any()) } returns listOf(
+            RecentMealHistoryEntry(
+                title = "Lemon chicken",
+                summary = "Quick dinner",
+                proteinTags = listOf("chicken"),
+            ),
+        )
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+            planJson(),
+            "{}",
+            replacementJson(dayIndex = 0, title = "Chicken schnitzel", proteinTag = "chicken"),
+        )
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } answers {
+            savedDays = secondArg<List<MealPlanDraftDay>>()
+            planReviewSnapshotFor(savedDays)
+        }
+
+        val reply = coordinator.ingestUserMessage("conv", "low lactose, chicken")
+
+        assertEquals(listOf("Chicken schnitzel", "Beef bowls"), savedDays.map { it.title })
+        assertTrue(reply.content.contains("Chicken schnitzel", ignoreCase = true))
+        coVerify(exactly = 3) { inferenceEngine.generateOnce(any(), any(), false, true) }
+        coVerify {
+            inferenceEngine.generateOnce(
+                match {
+                    it.contains("Recent meals to avoid repeating", ignoreCase = true) &&
+                        it.contains("Lemon chicken", ignoreCase = true)
+                },
+                any(),
+                false,
+                true,
+            )
+        }
+    }
+
+    @Test
+    fun `collecting final slots repairs recent protein and style duplicate before plan review`() = runTest {
+        val ready = collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 2,
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken", "beef"),
+        )
+        var savedDays = emptyList<MealPlanDraftDay>()
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("low lactose"),
+                proteinPreferences = listOf("chicken", "beef"),
+            )
+        } returns ready
+        coEvery { sessionRepository.getRecentMealHistory(any()) } returns listOf(
+            RecentMealHistoryEntry(
+                title = "Chicken stir fry",
+                summary = "Quick dinner",
+                proteinTags = listOf("chicken"),
+            ),
+        )
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+            planJson(
+                day0Title = "Garlic chicken stir fry",
+                day0Summary = "Fast skillet dinner",
+                day0Protein = "chicken",
+            ),
+            replacementJson(dayIndex = 0, title = "Chicken tray bake", proteinTag = "chicken"),
+        )
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } answers {
+            savedDays = secondArg<List<MealPlanDraftDay>>()
+            planReviewSnapshotFor(savedDays)
+        }
+
+        coordinator.ingestUserMessage("conv", "low lactose, chicken or beef")
+
+        assertEquals(listOf("Chicken tray bake", "Beef bowls"), savedDays.map { it.title })
+    }
+
+    @Test
+    fun `collecting final slots allows recent protein and style overlap when protein preference is constrained`() = runTest {
+        val ready = collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 2,
+            dietaryRestrictions = listOf("no dietary requirements"),
+            proteinPreferences = listOf("chicken"),
+        )
+        var savedDays = emptyList<MealPlanDraftDay>()
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(peopleCount = 3, daysCount = 2)
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("no dietary requirements"),
+                proteinPreferences = listOf("chicken"),
+            )
+        } returns ready
+        coEvery { sessionRepository.getRecentMealHistory(any()) } returns listOf(
+            RecentMealHistoryEntry(
+                title = "Chicken stir fry",
+                summary = "Quick dinner",
+                proteinTags = listOf("chicken"),
+            ),
+        )
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson(
+            day0Title = "Garlic chicken stir fry",
+            day0Summary = "Fast skillet dinner",
+            day0Protein = "chicken",
+            day1Title = "Lemon chicken tray bake",
+            day1Summary = "Oven roasted chicken dinner",
+            day1Protein = "chicken",
+        )
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } answers {
+            savedDays = secondArg<List<MealPlanDraftDay>>()
+            planReviewSnapshotFor(savedDays)
+        }
+
+        val reply = coordinator.ingestUserMessage("conv", "none, chicken")
+
+        assertEquals(listOf("Garlic chicken stir fry", "Lemon chicken tray bake"), savedDays.take(2).map { it.title })
+        assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
+        coVerify(exactly = 1) { inferenceEngine.generateOnce(any(), any(), false, true) }
+    }
+
+    @Test
+    fun `collecting final slots keeps plan when only recent history protein and style overlaps remain`() = runTest {
+        val ready = collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 2,
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken", "beef"),
+        )
+        var savedDays = emptyList<MealPlanDraftDay>()
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 2,
+            dietaryRestrictions = listOf("low lactose"),
+        )
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = null,
+                proteinPreferences = listOf("chicken", "beef"),
+            )
+        } returns ready
+        coEvery { sessionRepository.getRecentMealHistory(any()) } returns listOf(
+            RecentMealHistoryEntry(
+                title = "Creamy chicken skillet",
+                summary = "Quick stovetop dinner",
+                proteinTags = listOf("chicken"),
+            ),
+            RecentMealHistoryEntry(
+                title = "Beef rice bowl",
+                summary = "Weeknight bowl dinner",
+                proteinTags = listOf("beef"),
+            ),
+        )
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+            planJson(
+                day0Title = "Garlic chicken skillet",
+                day0Summary = "Fast stovetop dinner",
+                day0Protein = "chicken",
+                day1Title = "Ginger beef bowl",
+                day1Summary = "Weeknight bowl dinner",
+                day1Protein = "beef",
+            ),
+            replacementJson(dayIndex = 0, title = "Garlic chicken skillet", proteinTag = "chicken"),
+            replacementJson(dayIndex = 1, title = "Ginger beef bowl", proteinTag = "beef"),
+        )
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } answers {
+            savedDays = secondArg<List<MealPlanDraftDay>>()
+            planReviewSnapshotFor(savedDays)
+        }
+
+        val reply = coordinator.ingestUserMessage("conv", "chicken and beef")
+
+        assertEquals(listOf("Garlic chicken skillet", "Ginger beef bowl"), savedDays.map { it.title })
+        assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
+    }
+
+    @Test
+    fun `collecting final slots repairs duplicate protein and style within one plan`() = runTest {
+        val ready = collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 2,
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken", "beef"),
+        )
+        var savedDays = emptyList<MealPlanDraftDay>()
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("low lactose"),
+                proteinPreferences = listOf("chicken", "beef"),
+            )
+        } returns ready
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+            planJson(
+                day0Title = "Chicken stir fry",
+                day0Summary = "Quick dinner",
+                day0Protein = "chicken",
+                day1Title = "Honey chicken stir fry",
+                day1Summary = "Sweet weeknight stir fry",
+                day1Protein = "chicken",
+            ),
+            replacementJson(dayIndex = 1, title = "Beef tacos", proteinTag = "beef"),
+        )
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } answers {
+            savedDays = secondArg<List<MealPlanDraftDay>>()
+            planReviewSnapshotFor(savedDays)
+        }
+
+        coordinator.ingestUserMessage("conv", "low lactose, chicken or beef")
+
+        assertEquals(listOf("Chicken stir fry", "Beef tacos"), savedDays.map { it.title })
     }
 
     @Test
@@ -236,6 +543,102 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `collecting incompatible dietary and protein combination clears protein slot`() = runTest {
+        val updated = collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 2,
+            dietaryRestrictions = listOf("vegetarian"),
+            proteinPreferences = emptyList(),
+        )
+        coEvery {
+            sessionRepository.getActiveSession("conv")
+        } returns collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 2,
+            proteinPreferences = listOf("chicken"),
+        )
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("vegetarian"),
+                proteinPreferences = emptyList(),
+            )
+        } returns updated
+
+        val reply = coordinator.ingestUserMessage("conv", "vegetarian")
+
+        assertTrue(reply.content.contains("don't fit vegetarian", ignoreCase = true))
+        assertTrue(reply.content.contains("no protein preference", ignoreCase = true))
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), false, true) }
+    }
+
+    @Test
+    fun `collecting allergen restriction does not invent conflicting protein`() = runTest {
+        val updated = collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 4,
+            dietaryRestrictions = listOf("egg free"),
+            proteinPreferences = emptyList(),
+        )
+        coEvery {
+            sessionRepository.getActiveSession("conv")
+        } returns collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 4,
+        )
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("egg free"),
+                proteinPreferences = null,
+            )
+        } returns updated
+
+        val reply = coordinator.ingestUserMessage("conv", "No egg")
+
+        assertTrue(reply.content.contains("egg free", ignoreCase = true))
+        assertTrue(reply.content.contains("What protein preferences should I use?", ignoreCase = true))
+        assertFalse(reply.content.contains("don't fit egg free", ignoreCase = true))
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), false, true) }
+    }
+
+    @Test
+    fun `collecting mixed allergen and dietary phrasing does not invent negated restrictions`() = runTest {
+        val updated = collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 5,
+            dietaryRestrictions = listOf("gluten free", "egg free"),
+            proteinPreferences = emptyList(),
+        )
+        coEvery {
+            sessionRepository.getActiveSession("conv")
+        } returns collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 5,
+        )
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("gluten free", "egg free"),
+                proteinPreferences = null,
+            )
+        } returns updated
+
+        val reply = coordinator.ingestUserMessage("conv", "No eggs and gluten free")
+
+        assertTrue(reply.content.contains("gluten free", ignoreCase = true))
+        assertTrue(reply.content.contains("egg free", ignoreCase = true))
+        assertFalse(reply.content.contains("no gluten free", ignoreCase = true))
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), false, true) }
+    }
+
+    @Test
     fun `plan review generate recipes emits progress and recipes sequentially`() = runTest {
         val planReview = planReviewSnapshot()
         val afterDay1 = planReview.copy(
@@ -257,7 +660,7 @@ class MealPlannerCoordinatorTest {
         coEvery { sessionRepository.persistRecipeDraft("session-1", 0, any(), any(), any()) } returns afterDay1
         coEvery { sessionRepository.persistRecipeDraft("session-1", 1, any(), any(), any()) } returns completed
 
-        val reply = coordinator.ingestUserMessage("conv", "generate recipes") { emitted += it }
+        val reply = coordinator.ingestUserMessage("conv", "generate recipes", onPlannerMessage = { emitted += it })
 
         assertEquals(
             listOf(
@@ -269,6 +672,23 @@ class MealPlannerCoordinatorTest {
             emitted,
         )
         assertTrue(reply.content.contains("done meal planning", ignoreCase = true))
+    }
+
+    @Test
+    fun `plan review generate recipes stops cleanly when session is cancelled mid run`() = runTest {
+        val planReview = planReviewSnapshot()
+        val cancelled = planReview.copy(status = MealPlanSessionStatus.CANCELLED)
+        val emitted = mutableListOf<String>()
+
+        coEvery { sessionRepository.getActiveSession("conv") } returns planReview
+        coEvery { sessionRepository.getSession("session-1") } returns planReview
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns recipeJson("Lemon chicken")
+        coEvery { sessionRepository.persistRecipeDraft("session-1", 0, any(), any(), any()) } returns cancelled
+
+        val reply = coordinator.ingestUserMessage("conv", "generate recipes", onPlannerMessage = { emitted += it })
+
+        assertTrue(reply.content.contains("cancelled this meal plan session", ignoreCase = true))
+        assertEquals(listOf("Generating recipe 1 of 2…"), emitted)
     }
 
     @Test
@@ -293,7 +713,7 @@ class MealPlannerCoordinatorTest {
         coEvery { sessionRepository.persistRecipeDraft("session-1", 0, any(), any(), any()) } returns afterDay1
         coEvery { sessionRepository.persistRecipeDraft("session-1", 1, any(), any(), any()) } returns completed
 
-        val reply = coordinator.ingestUserMessage("conv", "generate") { emitted += it }
+        val reply = coordinator.ingestUserMessage("conv", "generate", onPlannerMessage = { emitted += it })
 
         assertEquals(
             listOf(
@@ -308,6 +728,23 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `plan review show current plan returns latest snapshot without generation`() = runTest {
+        val planReview = planReviewSnapshot().copy(
+            days = listOf(
+                draftDay(dayIndex = 0, title = "Lemon chicken", status = MealPlanDayStatus.DRAFTED),
+                draftDay(dayIndex = 1, title = "Turkey bowls", status = MealPlanDayStatus.DRAFTED),
+            ),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns planReview
+
+        val reply = coordinator.ingestUserMessage("conv", "what's my current plan")
+
+        assertTrue(reply.content.contains("Day 1: Lemon chicken", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 2: Turkey bowls", ignoreCase = true))
+        assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+    }
+    @Test
     fun `plan review change preferences returns to editable slot collection`() = runTest {
         val planReview = planReviewSnapshot()
         val editable = planReview.copy(status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS)
@@ -321,6 +758,211 @@ class MealPlannerCoordinatorTest {
         coVerify { sessionRepository.returnToSlotCollection("session-1") }
     }
 
+    @Test
+    fun `collecting state can remove a single dietary restriction while preserving others`() = runTest {
+        val collecting = planReviewSnapshot().copy(
+            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
+            dietaryRestrictions = listOf("kid friendly", "gluten free"),
+            proteinPreferences = listOf("beef", "pork"),
+        )
+        val reviewed = planReviewSnapshot().copy(
+            dietaryRestrictions = listOf("kid friendly"),
+            proteinPreferences = listOf("beef", "pork"),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("kid friendly"),
+                proteinPreferences = null,
+            )
+        } returns reviewed
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
+
+        val reply = coordinator.ingestUserMessage("conv", "Remove gluten free")
+
+        assertTrue(reply.content.contains("kid friendly", ignoreCase = true))
+        assertFalse(reply.content.contains("(kid friendly, gluten free)", ignoreCase = true))
+        coVerify(exactly = 1) { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) }
+    }
+
+    @Test
+    fun `collecting state can remove synthetic no free restriction without dropping canonical restriction`() = runTest {
+        val collecting = planReviewSnapshot().copy(
+            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
+            dietaryRestrictions = listOf("gluten free", "egg free", "no gluten free"),
+            proteinPreferences = listOf("beef", "chicken"),
+        )
+        val reviewed = planReviewSnapshot().copy(
+            dietaryRestrictions = listOf("gluten free", "egg free"),
+            proteinPreferences = listOf("beef", "chicken"),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("gluten free", "egg free"),
+                proteinPreferences = null,
+            )
+        } returns reviewed
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
+
+        val reply = coordinator.ingestUserMessage("conv", "Remove no gluten free")
+
+        assertTrue(reply.content.contains("gluten free", ignoreCase = true))
+        assertTrue(reply.content.contains("egg free", ignoreCase = true))
+        assertFalse(reply.content.contains("no gluten free", ignoreCase = true))
+        coVerify(exactly = 1) { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) }
+    }
+
+    @Test
+    fun `collecting state can remove stored raw ingredient exclusions`() = runTest {
+        val collecting = planReviewSnapshot().copy(
+            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
+            dietaryRestrictions = listOf("egg free", "no chicken"),
+            proteinPreferences = listOf("beef"),
+        )
+        val reviewed = planReviewSnapshot().copy(
+            dietaryRestrictions = listOf("egg free"),
+            proteinPreferences = listOf("beef"),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("egg free"),
+                proteinPreferences = listOf("beef"),
+            )
+        } returns reviewed
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
+
+        coordinator.ingestUserMessage("conv", "Remove no chicken")
+
+        coVerify(exactly = 1) {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("egg free"),
+                proteinPreferences = listOf("beef"),
+            )
+        }
+        coVerify(exactly = 1) { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) }
+    }
+
+    @Test
+    fun `collecting state can remove no dietary requirements marker`() = runTest {
+        val collecting = collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 5,
+            dietaryRestrictions = listOf("no dietary requirements"),
+            proteinPreferences = listOf("chicken"),
+        )
+        val updated = collecting.copy(dietaryRestrictions = emptyList())
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = emptyList(),
+                proteinPreferences = null,
+            )
+        } returns updated
+
+        val reply = coordinator.ingestUserMessage("conv", "Remove no dietary requirements")
+
+        assertTrue(reply.content.contains("dietary requirements", ignoreCase = true))
+        assertFalse(reply.content.contains("no dietary requirements", ignoreCase = true))
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), false, true) }
+    }
+
+    @Test
+    fun `collecting state can replace a protein in one message`() = runTest {
+        val collecting = planReviewSnapshot().copy(
+            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
+            dietaryRestrictions = listOf("egg free"),
+            proteinPreferences = listOf("beef"),
+        )
+        val reviewed = planReviewSnapshot().copy(
+            dietaryRestrictions = listOf("egg free"),
+            proteinPreferences = listOf("salmon"),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = null,
+                proteinPreferences = listOf("salmon"),
+            )
+        } returns reviewed
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
+
+        coordinator.ingestUserMessage("conv", "remove beef and add salmon")
+
+        coVerify(exactly = 1) {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = null,
+                proteinPreferences = listOf("salmon"),
+            )
+        }
+    }
+
+    @Test
+    fun `collecting state show current plan keeps saved draft visible`() = runTest {
+        val collecting = planReviewSnapshot().copy(status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS)
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+
+        val reply = coordinator.ingestUserMessage("conv", "show current plan")
+
+        assertTrue(reply.content.contains("Day 1: Lemon chicken", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 2: Beef bowls", ignoreCase = true))
+        assertTrue(reply.content.contains("Reply with any updated people count", ignoreCase = true))
+        coVerify(exactly = 0) { sessionRepository.updateRequiredSlots(any(), any(), any(), any(), any()) }
+    }
+    @Test
+    fun `collecting state generate rebuilds plan instead of looping edit prompt`() = runTest {
+        val collecting = planReviewSnapshot().copy(status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS)
+        val reviewed = planReviewSnapshot().copy(
+            days = listOf(
+                draftDay(dayIndex = 0, title = "Lemon chicken", status = MealPlanDayStatus.DRAFTED),
+                draftDay(dayIndex = 1, title = "Beef bowls", status = MealPlanDayStatus.DRAFTED),
+            ),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = null,
+                proteinPreferences = null,
+            )
+        } returns collecting
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
+
+        val reply = coordinator.ingestUserMessage("conv", "generate")
+
+        assertTrue(reply.content.contains("Day 1: Lemon chicken", ignoreCase = true))
+        assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
+        coVerify(exactly = 1) { inferenceEngine.generateOnce(any(), any(), false, true) }
+    }
     @Test
     fun `interrupted recipe generation requires explicit resume`() = runTest {
         val inProgress = planReviewSnapshot().copy(
@@ -358,6 +1000,34 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `retry resumes interrupted plan review replacement without generating recipes`() = runTest {
+        val interrupted = planReviewSnapshot().copy(
+            status = MealPlanSessionStatus.RECIPES_IN_PROGRESS,
+            pendingGenerationKind = PendingGenerationKind.REPLACEMENT,
+            pendingGenerationDayIndex = 0,
+            activeDayIndex = 0,
+        )
+        val replaced = interrupted.copy(
+            status = MealPlanSessionStatus.PLAN_REVIEW,
+            pendingGenerationKind = null,
+            pendingGenerationDayIndex = null,
+            activeDayIndex = null,
+            days = listOf(
+                draftDay(dayIndex = 0, title = "Pan-Seared Chicken", status = MealPlanDayStatus.DRAFTED),
+                draftDay(dayIndex = 1, title = "Beef bowls", status = MealPlanDayStatus.DRAFTED),
+            ),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns interrupted
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns replacementJson(dayIndex = 1, title = "Pan-Seared Chicken")
+        coEvery { sessionRepository.replaceDayDraft("session-1", 0, "Pan-Seared Chicken", any(), any(), false) } returns replaced
+
+        val reply = coordinator.ingestUserMessage("conv", "retry")
+
+        assertTrue(reply.content.contains("Updated plan: Day 1 changed from Lemon chicken to Pan-Seared Chicken.", ignoreCase = true))
+        coVerify(exactly = 0) { sessionRepository.persistRecipeDraft(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `retry resumes interrupted replacement generation`() = runTest {
         val interrupted = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
             status = MealPlanSessionStatus.RECIPES_IN_PROGRESS,
@@ -386,7 +1056,7 @@ class MealPlannerCoordinatorTest {
             replacementJson(dayIndex = 1, title = "Pan-Seared Chicken"),
             recipeJson("Pan-Seared Chicken"),
         )
-        coEvery { sessionRepository.replaceDayDraft("session-1", 0, "Pan-Seared Chicken", any(), any()) } returns replaced
+        coEvery { sessionRepository.replaceDayDraft("session-1", 0, "Pan-Seared Chicken", any(), any(), true) } returns replaced
         coEvery { sessionRepository.persistRecipeDraft("session-1", 0, any(), any(), any()) } returns completed
 
         val reply = coordinator.ingestUserMessage("conv", "Retry")
@@ -396,6 +1066,168 @@ class MealPlannerCoordinatorTest {
         coVerify { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.REPLACEMENT, 0) }
     }
 
+    @Test
+    fun `plan review activity exposes planner smart replies`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns planReviewSnapshot()
+
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertEquals(
+            listOf("generate recipes", "show current plan", "replace day 1", "change preferences"),
+            activity?.suggestions?.map { it.command },
+        )
+    }
+
+    @Test
+    fun `collecting activity exposes starter preference smart replies`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot()
+
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertEquals(
+            listOf("2 people", "4 days", "no dietary requirements", "kid friendly", "gluten free", "nut free", "chicken", "cancel plan"),
+            activity?.suggestions?.map { it.command },
+        )
+    }
+
+    @Test
+    fun `ready activity exposes finalize smart replies`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns readyForFinalizeSnapshot(finalSummaryWritten = false)
+
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertEquals(
+            listOf("show current plan", "done meal planning", "regenerate day 1", "replace day 1"),
+            activity?.suggestions?.map { it.command },
+        )
+    }
+
+    @Test
+    fun `collecting activity exposes protein examples when only protein is missing`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 4,
+            dietaryRestrictions = listOf("low lactose"),
+        )
+
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertEquals(
+            listOf(
+                "chicken",
+                "beef mince",
+                "beef",
+                "turkey",
+                "pork",
+                "lamb",
+                "fish",
+                "salmon",
+                "tuna",
+                "tofu",
+                "lentils",
+                "beans",
+                "eggs",
+                "no protein preference",
+                "snapper",
+                "prawns",
+                "chickpeas",
+                "halloumi",
+                "cancel plan",
+            ),
+            activity?.suggestions?.map { it.command },
+        )
+    }
+
+    @Test
+    fun `collecting activity exposes expanded dietary smart replies`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 4,
+            proteinPreferences = listOf("chicken"),
+        )
+
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertEquals(
+            listOf(
+                "no dietary requirements",
+                "kid friendly",
+                "gluten free",
+                "celiac safe",
+                "dairy free",
+                "egg free",
+                "peanut free",
+                "nut free",
+                "soy free",
+                "fish free",
+                "shellfish free",
+                "sesame free",
+                "vegetarian",
+                "vegan",
+                "pescatarian",
+                "paleo",
+                "keto",
+                "halal",
+                "cancel plan",
+            ),
+            activity?.suggestions?.map { it.command },
+        )
+    }
+
+    @Test
+    fun `collecting activity filters protein smart replies for vegetarian plans`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(
+            peopleCount = 3,
+            daysCount = 4,
+            dietaryRestrictions = listOf("vegetarian"),
+        )
+
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertEquals(
+            listOf(
+                "tofu",
+                "lentils",
+                "beans",
+                "eggs",
+                "no protein preference",
+                "chickpeas",
+                "halloumi",
+                "cancel plan",
+            ),
+            activity?.suggestions?.map { it.command },
+        )
+    }
+
+    @Test
+    fun `interrupted replacement activity exposes retry smart replies`() = runTest {
+        val interrupted = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
+            status = MealPlanSessionStatus.RECIPES_IN_PROGRESS,
+            pendingGenerationKind = PendingGenerationKind.REPLACEMENT,
+            pendingGenerationDayIndex = 1,
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns interrupted
+
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertEquals(
+            listOf("retry", "replace day 2", "show current plan", "cancel plan"),
+            activity?.suggestions?.map { it.command },
+        )
+    }
+
+    @Test
+    fun `active session show current plan returns latest persisted snapshot`() = runTest {
+        val active = readyForFinalizeSnapshot(finalSummaryWritten = false)
+        coEvery { sessionRepository.getActiveSession("conv") } returns active
+
+        val reply = coordinator.ingestUserMessage("conv", "show current plan")
+
+        assertTrue(reply.content.contains("Day 1: Chicken stir-fry", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 2: Chicken curry", ignoreCase = true))
+        assertTrue(reply.content.contains("done meal planning", ignoreCase = true))
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+    }
     @Test
     fun `interrupted regenerate day prompts for retry`() = runTest {
         val interrupted = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
@@ -432,16 +1264,39 @@ class MealPlannerCoordinatorTest {
             replacementJson(dayIndex = 2, title = "Turkey skillet"),
             recipeJson("Turkey skillet"),
         )
-        coEvery { sessionRepository.replaceDayDraft("session-1", 1, "Turkey skillet", any(), any()) } returns replaced
+        coEvery { sessionRepository.replaceDayDraft("session-1", 1, "Turkey skillet", any(), any(), true) } returns replaced
         coEvery { sessionRepository.persistRecipeDraft("session-1", 1, any(), any(), any()) } returns persisted
 
         val reply = coordinator.ingestUserMessage("conv", "replace day 2")
+        assertTrue(reply.content.contains("Updated plan: Day 2 changed from Chicken curry to Turkey skillet.", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 1: Chicken stir-fry", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 2: Turkey skillet", ignoreCase = true))
 
         assertTrue(reply.content.contains("I replaced Day 2", ignoreCase = true))
         assertTrue(reply.content.contains("Turkey skillet", ignoreCase = true))
-        coVerify { sessionRepository.replaceDayDraft("session-1", 1, "Turkey skillet", any(), any()) }
+        coVerify { sessionRepository.replaceDayDraft("session-1", 1, "Turkey skillet", any(), any(), true) }
     }
 
+    @Test
+    fun `regenerate day repeats meal title and shows current plan snapshot`() = runTest {
+        val active = readyForFinalizeSnapshot(finalSummaryWritten = false)
+        val persisted = active.copy(
+            days = listOf(
+                draftDay(dayIndex = 0, title = "Chicken stir-fry", status = MealPlanDayStatus.PERSISTED),
+                draftDay(dayIndex = 1, title = "Chicken curry", status = MealPlanDayStatus.PERSISTED),
+            ),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns active
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns recipeJson("Chicken curry")
+        coEvery { sessionRepository.persistRecipeDraft("session-1", 1, any(), any(), any()) } returns persisted
+
+        val reply = coordinator.ingestUserMessage("conv", "regenerate day 2")
+
+        assertTrue(reply.content.contains("I regenerated Day 2", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 2 recipe regenerated; the meal choice stayed the same: Chicken curry.", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 1: Chicken stir-fry", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 2: Chicken curry", ignoreCase = true))
+    }
     @Test
     fun `ingestUserMessage waits while generation is already running`() = runTest {
         val ready = collectingSnapshot().copy(
@@ -512,6 +1367,41 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `plan generation failure with empty draft stays recoverable and cannot finalize`() = runTest {
+        val collecting = collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
+        val ready = collecting.copy(
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken"),
+        )
+        val failedPlan = planReviewSnapshot().copy(
+            days = emptyList(),
+            pendingGenerationKind = null,
+            pendingGenerationDayIndex = null,
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returnsMany listOf(collecting, failedPlan, failedPlan)
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("low lactose"),
+                proteinPreferences = listOf("chicken"),
+            )
+        } returns ready
+        coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns failedPlan
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns ""
+
+        val first = coordinator.ingestUserMessage("conv", "low lactose, chicken")
+        val second = coordinator.ingestUserMessage("conv", "hello")
+        val third = coordinator.ingestUserMessage("conv", "done meal planning")
+
+        assertTrue(first.content.contains("didn't return one", ignoreCase = true))
+        assertTrue(second.content.contains("rebuild your meal plan draft", ignoreCase = true))
+        assertTrue(third.content.contains("rebuild your meal plan draft", ignoreCase = true))
+        coVerify(exactly = 0) { sessionRepository.completeSession(any()) }
+    }
+
+    @Test
     fun `ingestUserMessage finalizes completed meal plan and writes summary memory`() = runTest {
         val active = readyForFinalizeSnapshot(finalSummaryWritten = false)
         val completed = active.copy(status = MealPlanSessionStatus.COMPLETED, completedAt = 1234L)
@@ -527,7 +1417,7 @@ class MealPlannerCoordinatorTest {
         coVerify { sessionRepository.completeSession("session-1") }
         coVerify { sessionRepository.buildFinalSummary("session-1") }
         coVerify { sessionRepository.markFinalSummaryWritten("session-1") }
-        coVerify { memoryRepository.addEpisodicMemory("conv", "Created a 2-day meal plan.", any()) }
+        coVerify(exactly = 1) { memoryRepository.addEpisodicMemory("conv", "Created a 2-day meal plan.", any()) }
     }
 
     @Test
@@ -546,12 +1436,13 @@ class MealPlannerCoordinatorTest {
         coVerify { sessionRepository.completeSession("session-1") }
         coVerify { sessionRepository.buildFinalSummary("session-1") }
         coVerify { sessionRepository.markFinalSummaryWritten("session-1") }
-        coVerify { memoryRepository.addEpisodicMemory("conv", "Created a 2-day meal plan.", any()) }
+        coVerify(exactly = 1) { memoryRepository.addEpisodicMemory("conv", "Created a 2-day meal plan.", any()) }
     }
 
     private fun collectingSnapshot(): MealPlanSnapshot = MealPlanSnapshot(
         sessionId = "session-1",
         conversationId = "conv",
+        displayName = "Meal Plan 2026-05-17 (MP-001)",
         status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
         peopleCount = null,
         daysCount = null,
@@ -572,6 +1463,7 @@ class MealPlannerCoordinatorTest {
     private fun planReviewSnapshot(): MealPlanSnapshot = MealPlanSnapshot(
         sessionId = "session-1",
         conversationId = "conv",
+        displayName = "Meal Plan 2026-05-17 (MP-001)",
         status = MealPlanSessionStatus.PLAN_REVIEW,
         peopleCount = 4,
         daysCount = 2,
@@ -592,9 +1484,29 @@ class MealPlannerCoordinatorTest {
         ),
     )
 
+    private fun planReviewSnapshotFor(days: List<MealPlanDraftDay>): MealPlanSnapshot =
+        planReviewSnapshot().copy(
+            days = days.map { day ->
+                MealPlanSnapshotDay(
+                    id = "day-${day.dayIndex + 1}",
+                    dayIndex = day.dayIndex,
+                    title = day.title,
+                    summary = day.summary,
+                    proteinTags = day.proteinTags,
+                    status = MealPlanDayStatus.DRAFTED,
+                    currentRecipeVersion = null,
+                    attemptCount = 0,
+                    lastErrorCode = null,
+                    lastErrorMessage = null,
+                    currentRecipe = null,
+                )
+            },
+        )
+
     private fun readyForFinalizeSnapshot(finalSummaryWritten: Boolean): MealPlanSnapshot = MealPlanSnapshot(
         sessionId = "session-1",
         conversationId = "conv",
+        displayName = "Meal Plan 2026-05-17 (MP-001)",
         status = MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY,
         peopleCount = 4,
         daysCount = 2,
@@ -629,19 +1541,30 @@ class MealPlannerCoordinatorTest {
         currentRecipe = null,
     )
 
-    private fun planJson(): String = """
+    private fun planJson(
+        day0Title: String = "Lemon chicken",
+        day0Summary: String = "Quick dinner",
+        day0Protein: String = "chicken",
+        day1Title: String = "Beef bowls",
+        day1Summary: String = "Weeknight bowl",
+        day1Protein: String = "beef",
+    ): String = """
         {
           "days": [
-            {"day_index": 0, "title": "Lemon chicken", "summary": "Quick dinner", "protein_tags": ["chicken"]},
-            {"day_index": 1, "title": "Beef bowls", "summary": "Weeknight bowl", "protein_tags": ["beef"]}
+            {"day_index": 0, "title": "$day0Title", "summary": "$day0Summary", "protein_tags": ["$day0Protein"]},
+            {"day_index": 1, "title": "$day1Title", "summary": "$day1Summary", "protein_tags": ["$day1Protein"]}
           ]
         }
     """.trimIndent()
 
-    private fun replacementJson(dayIndex: Int, title: String): String = """
+    private fun replacementJson(
+        dayIndex: Int,
+        title: String,
+        proteinTag: String = "turkey",
+    ): String = """
         {
           "days": [
-            {"day_index": $dayIndex, "title": "$title", "summary": "Quick dinner", "protein_tags": ["turkey"]}
+            {"day_index": $dayIndex, "title": "$title", "summary": "Quick dinner", "protein_tags": ["$proteinTag"]}
           ]
         }
     """.trimIndent()

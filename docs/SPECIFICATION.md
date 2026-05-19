@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-05-13 (PR #924 spec sync: conversation management — archive, pin, drag-to-reorder, swipe gestures, multi-select, ArchiveCleanupWorker, KernelDatabase v44; prior: PR #834 — voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, important dates, world clock, colloquial weather QIR; PR #848 currency #831; PR #847 widget #617; PR #845 aye fix #843)
+> **Last updated:** 2026-05-18 (PR #925 spec sync: deterministic meal planner architecture, planner status surface, friendly meal-plan IDs, conversation title sync, Room v45; prior: PR #924 conversation management — archive, pin, drag-to-reorder, swipe gestures, multi-select, ArchiveCleanupWorker; PR #834 voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, important dates, world clock, colloquial weather QIR; PR #848 currency #831; PR #847 widget #617; PR #845 aye fix #843)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -723,6 +723,7 @@ and awaits the result with a 15s timeout.
 | `get_weather_gps` / `get_weather` | Weather retrieval with GPS, explicit locations, and indirect-location resolution | ✅ |
 | `important_dates` | Taught dates + calendar birthday integration via Calendar Provider | ✅ — PR #797 |
 | `world_clock` | Timezone lookup and world clock display | ✅ — PR #743 |
+| `meal_planner` | Multi-stage meal planning with deterministic slot collection, bounded JSON generation, and Room-backed persistence/projections | ✅ — PR #864, expanded PR #925 |
 
 > **`important_dates` skill (#631, PR #797):** Manages user-taught important dates (birthdays, anniversaries, custom events) and integrates with the Android Calendar Provider to surface calendar birthdays. Operations: `save` (store a date with label and type), `list` (show all saved dates), `remove` (delete by label), `lookup` (check what's coming up or what happened on a date). Calendar birthday integration queries `CalendarContract.Events` via `ContentResolver`. The `QuickIntentRouter` routes "important dates", "important day", "upcoming dates", and related phrases (including #871 synonym additions) to this skill path.
 
@@ -752,6 +753,7 @@ The following skills are all shipped and registered in `SkillRegistry` / `Native
 | `important_dates` | `run_intent` → `ContentResolver` | Taught dates + Calendar Provider birthdays; #631, PR #797 |
 | `world_clock` | `run_intent` → `ZonedDateTime` | Timezone lookup; #677, PR #743 |
 | `multi-day weather forecast` | `getWeather(forecastDays)` | Day-by-day with WMO emoji, min/max temps; #697, PR #710 |
+| `meal_planner` | `MealPlannerSkill` → `MealPlannerCoordinator` | Deterministic slot collection, app-owned session/day/recipe tables, shopping/recipe projections, pinned chat status surface; #859, #879, #880, #883, #910, #913, PR #864 / #925 |
 
 > **save_memory trigger:** Works reliably when the user explicitly says "remember", "save",
 > "don't forget", "can you remember", or "make a note of". Does not activate proactively from
@@ -779,6 +781,83 @@ The following skills are all shipped and registered in `SkillRegistry` / `Native
 > update `looksLikeToolQuery(...)` and/or `QuickIntentRouter` best-guess coverage so the per-turn
 > `[Tool Use]` block is injected for those requests.
 
+### 4.3 Deterministic Meal Planner
+
+The meal planner is an **app-owned state machine**, not an open-ended agent loop. `QuickIntentRouter` routes direct meal-planning requests to `start_meal_planner`, the Actions surface hands that off into Chat, and `MealPlannerSkill` / `MealPlannerCoordinator` own the rest of the flow.
+
+This keeps orchestration deterministic while still using Gemma-4 for the bounded generation steps:
+- **Deterministic collection:** required slots are gathered by `MealPlannerSlotExtractor` and persisted on the active session
+- **Bounded plan generation:** Gemma-4 produces a strict high-level day plan JSON payload
+- **Bounded recipe generation:** Gemma-4 generates one day at a time into strict recipe JSON
+- **App-side validation and persistence:** Kotlin validates quantities, normalizes grocery items, writes canonical Room rows, and rebuilds user-facing list projections
+
+#### 4.3.1 Session and day state model
+
+Canonical state lives in Room and survives process death.
+
+| Scope | States | Meaning |
+|---|---|---|
+| Session | `COLLECTING_REQUIRED_SLOTS`, `PLAN_REVIEW`, `RECIPES_IN_PROGRESS`, `AWAITING_USER_EDIT_OR_RECOVERY`, `COMPLETED`, `CANCELLED` | Slot filling, plan approval, active generation, recovery/editing, finalized, abandoned |
+| Day | `PENDING`, `DRAFTED`, `PERSISTED`, `FAILED` | Awaiting recipe work, draft saved, final recipe persisted, generation failed and needs explicit recovery |
+| Pending generation kind | `PLAN`, `RECIPE`, `REPLACEMENT` | Distinguishes the current long-running planner operation for resume/status handling |
+
+Planner writes that transition state are wrapped in `database.withTransaction`, and repository transition methods defensively refuse to mutate cancelled sessions. This keeps multi-step save/cancel flows consistent on interruption or concurrent failure.
+
+#### 4.3.2 Persistence model and naming
+
+The planner's canonical data does **not** live in generic list tables or RAG memory.
+
+Primary Room tables:
+- `meal_plan_sessions` — one planner session per active conversation handoff, with counts, dietary restrictions, protein preferences, optional slots, pending-generation metadata, and a stable `displayCode`
+- `meal_plan_days` — one row per day in the plan, tracking title, summary, protein tags, attempts, and per-day status
+- `meal_plan_recipe_versions` — immutable-ish recipe versions per day with structured ingredients and method steps
+- `meal_plan_grocery_items` — canonical grocery rows plus normalization metadata
+- `meal_plan_projection_writes` — planner-owned bookkeeping for rebuilding/removing derived shopping and recipe list projections safely
+
+User-facing names are generated from the session's stable `displayCode`, yielding titles like `Meal Plan 2026-05-18 (MP-001)`. `ChatViewModel` syncs the conversation title to the canonical meal-plan name unless the user has already manually renamed that conversation.
+
+#### 4.3.3 Inputs, constraints, and compatibility rules
+
+Required slots today:
+- people count
+- day count
+- dietary restrictions
+- protein preferences
+
+Supported preference handling includes:
+- explicit dietary/lifestyle values such as vegetarian, vegan, pescatarian, halal, paleo, keto, low lactose, gluten free, celiac safe, and kid friendly
+- allergen-style constraints such as dairy free, egg free, peanut free, nut free, soy free, fish free, shellfish free, and sesame free
+- freeform ingredient exclusions captured from phrases like `no aubergines` or `without coriander`
+
+Dietary requirements, allergens, and ingredient exclusions are treated as **strict requirements** in both plan-generation and recipe-generation prompts. Protein selections are checked against the active dietary rules; incompatible protein choices are cleared and the user is prompted for a compatible replacement instead of silently generating an invalid plan.
+
+#### 4.3.4 Generation guardrails and projections
+
+The LLM is used only for bounded structured output. Kotlin owns enforcement:
+- JSON-first parsing for plan days and recipes, with fenced-block fallback only when needed
+- quantity sanity checks and cooking-measure normalization so absurd amounts are rejected instead of being projected into lists
+- deterministic grocery normalization and merge-key generation before shopping projection writes
+- recent-plan history retrieval and bounded self-repair loops to reduce exact repeats and obvious same-protein/same-shape duplication without making soft variety preferences block generation entirely
+
+Recipe projections now write lightweight cooking checklists: each recipe list contains an `Ingredients` section followed by a `Method` section with numbered steps. Shopping and recipe lists are derived artifacts only; the planner can rebuild or delete them from canonical planner rows.
+
+#### 4.3.5 Chat UX and status surface
+
+Chat is the primary meal-planner UI. `MealPlannerCoordinator.activeSessionActivity()` exposes a user-facing activity model, and `ChatViewModel` binds that into the `InputBar` as a pinned status surface.
+
+Two activity tones exist:
+- `WORKING` — e.g. `Generating meal plan`, `Generating recipe 2 of 5`, `Updating Day 3`
+- `WAITING` — e.g. `Review your meal plan`, `Meal planner paused`, `Meal plan ready`
+
+That surface also publishes planner-smart-reply commands such as:
+- `generate recipes`
+- `show current plan`
+- `replace day N`
+- `regenerate day N`
+- `change preferences`
+- `done meal planning`
+
+`shouldKeepChatScreenAwake(...)` treats planner `WORKING` activity the same as active generation so the device does not sleep mid-run while the planner is doing foreground-visible work.
 ### 4.4 Extensible Skills (WebAssembly — Phase 5)
 
 Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime, v1.0+).
@@ -817,7 +896,7 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 
 ### 6.0 Conversation Management (#905, PR #924)
 
-Full lifecycle management for conversations. `KernelDatabase` is at **v44** (migrations 41→42, 42→43, 43→44).
+Full lifecycle management for conversations. `KernelDatabase` is at **v45** (migrations 41→42, 42→43, 43→44, 44→45).
 
 #### Data layer
 

@@ -85,6 +85,9 @@ class MemoryRepositoryImpl @Inject constructor(
         return id
     }
 
+    override suspend fun hasEpisodicMemory(conversationId: String, content: String): Boolean =
+        episodicDao.existsByConversationAndContent(conversationId, content)
+
     override suspend fun addCoreMemory(
         content: String,
         source: String,

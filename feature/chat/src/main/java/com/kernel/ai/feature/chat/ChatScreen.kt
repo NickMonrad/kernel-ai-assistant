@@ -15,6 +15,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +60,7 @@ import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -128,6 +131,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.feature.chat.R
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
+import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
@@ -138,12 +144,14 @@ internal fun shouldKeepChatScreenAwake(
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
     voiceMode: ChatViewModel.VoiceMode?,
+    plannerActivity: MealPlannerActivity? = null,
 ): Boolean = when (uiState) {
     ChatUiState.Loading -> true
     is ChatUiState.ModelsNotReady -> false
     is ChatUiState.Ready ->
         uiState.isLoadingModel ||
             uiState.isGenerating ||
+            plannerActivity?.state == MealPlannerActivityState.WORKING ||
             voiceMode == ChatViewModel.VoiceMode.BackAndForth ||
             voiceCaptureState != ChatViewModel.VoiceCaptureState.Idle ||
             voicePlaybackState != ChatViewModel.VoicePlaybackState.Idle
@@ -171,6 +179,7 @@ fun ChatScreen(
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val voiceMode by viewModel.voiceMode.collectAsStateWithLifecycle()
+    val mealPlannerActivity by viewModel.mealPlannerActivity.collectAsStateWithLifecycle()
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -180,6 +189,7 @@ fun ChatScreen(
         voiceCaptureState = voiceCaptureState,
         voicePlaybackState = voicePlaybackState,
         voiceMode = voiceMode,
+        plannerActivity = mealPlannerActivity,
     )
 
     DisposableEffect(view, keepScreenAwake) {
@@ -281,6 +291,8 @@ fun ChatScreen(
                 voiceCaptureState = voiceCaptureState,
                 voicePlaybackState = voicePlaybackState,
                 voiceMode = voiceMode,
+                mealPlannerActivity = mealPlannerActivity,
+                onPlannerSmartReplySelected = viewModel::onSmartReplySelected,
                 onStartVoiceInput = onStartVoiceInput,
                 onStartBackAndForthVoiceInput = onStartBackAndForthVoiceInput,
                 onStopVoiceInput = viewModel::stopVoiceInput,
@@ -322,6 +334,8 @@ private fun ChatContent(
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
     voiceMode: ChatViewModel.VoiceMode?,
+    mealPlannerActivity: MealPlannerActivity?,
+    onPlannerSmartReplySelected: (String) -> Unit,
     onStartVoiceInput: () -> Unit,
     onStartBackAndForthVoiceInput: () -> Unit,
     onStopVoiceInput: () -> Unit,
@@ -567,7 +581,9 @@ private fun ChatContent(
                     voiceCaptureState = voiceCaptureState,
                     voicePlaybackState = voicePlaybackState,
                     voiceMode = voiceMode,
+                    mealPlannerActivity = mealPlannerActivity,
                     onTextChanged = onInputChanged,
+                    onSmartReplySelected = onPlannerSmartReplySelected,
                     onSend = onSend,
                     onCancel = onCancel,
                     onStartVoiceInput = onStartVoiceInput,
@@ -828,7 +844,9 @@ private fun InputBar(
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
     voiceMode: ChatViewModel.VoiceMode?,
+    mealPlannerActivity: MealPlannerActivity?,
     onTextChanged: (String) -> Unit,
+    onSmartReplySelected: (String) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit,
     onStartVoiceInput: () -> Unit,
@@ -837,11 +855,26 @@ private fun InputBar(
     onStopVoiceOutput: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val voiceStatus = remember(voiceCaptureState, voicePlaybackState, voiceMode) {
+    val status = remember(voiceCaptureState, voicePlaybackState, voiceMode, mealPlannerActivity) {
         when (voiceCaptureState) {
             ChatViewModel.VoiceCaptureState.Idle -> when (voicePlaybackState) {
-                ChatViewModel.VoicePlaybackState.Idle -> null
-                is ChatViewModel.VoicePlaybackState.Speaking -> VoiceStatusUiModel(
+                ChatViewModel.VoicePlaybackState.Idle -> mealPlannerActivity?.let { activity ->
+                    InputBarStatusUiModel(
+                        title = activity.title,
+                        subtitle = activity.subtitle,
+                        icon = if (activity.state == MealPlannerActivityState.WORKING) {
+                            Icons.Outlined.Bolt
+                        } else {
+                            Icons.Outlined.CheckCircle
+                        },
+                        tone = if (activity.state == MealPlannerActivityState.WORKING) {
+                            InputBarStatusTone.WORKING
+                        } else {
+                            InputBarStatusTone.WAITING
+                        },
+                    )
+                }
+                is ChatViewModel.VoicePlaybackState.Speaking -> InputBarStatusUiModel(
                     title = "Speaking reply",
                     subtitle = if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
                         "Listening again when done…"
@@ -849,9 +882,10 @@ private fun InputBar(
                         voicePlaybackState.text
                     },
                     icon = Icons.Outlined.CheckCircle,
+                    tone = InputBarStatusTone.VOICE,
                 )
             }
-            ChatViewModel.VoiceCaptureState.Preparing -> VoiceStatusUiModel(
+            ChatViewModel.VoiceCaptureState.Preparing -> InputBarStatusUiModel(
                 title = "Starting voice input",
                 subtitle = if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
                     "Back-and-forth mode"
@@ -859,8 +893,9 @@ private fun InputBar(
                     "One-shot push-to-talk"
                 },
                 icon = Icons.Default.Mic,
+                tone = InputBarStatusTone.VOICE,
             )
-            is ChatViewModel.VoiceCaptureState.Listening -> VoiceStatusUiModel(
+            is ChatViewModel.VoiceCaptureState.Listening -> InputBarStatusUiModel(
                 title = "Listening",
                 subtitle = voiceCaptureState.transcript.ifBlank {
                     if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
@@ -870,14 +905,40 @@ private fun InputBar(
                     }
                 },
                 icon = Icons.Default.Mic,
+                tone = InputBarStatusTone.VOICE,
             )
-            is ChatViewModel.VoiceCaptureState.Processing -> VoiceStatusUiModel(
+            is ChatViewModel.VoiceCaptureState.Processing -> InputBarStatusUiModel(
                 title = "Processing voice input",
                 subtitle = voiceCaptureState.transcript,
                 icon = Icons.Outlined.Bolt,
+                tone = InputBarStatusTone.VOICE,
             )
         }
     }
+    val containerColor = when (status?.tone) {
+        InputBarStatusTone.WAITING -> MaterialTheme.colorScheme.tertiaryContainer
+        InputBarStatusTone.WORKING,
+        InputBarStatusTone.VOICE,
+        null,
+        -> MaterialTheme.colorScheme.secondaryContainer
+    }
+    val contentColor = when (status?.tone) {
+        InputBarStatusTone.WAITING -> MaterialTheme.colorScheme.onTertiaryContainer
+        InputBarStatusTone.WORKING,
+        InputBarStatusTone.VOICE,
+        null,
+        -> MaterialTheme.colorScheme.onSecondaryContainer
+    }
+    val plannerSuggestions = if (
+        !isGenerating &&
+            voiceCaptureState == ChatViewModel.VoiceCaptureState.Idle &&
+            voicePlaybackState == ChatViewModel.VoicePlaybackState.Idle
+    ) {
+        mealPlannerActivity?.suggestions.orEmpty()
+    } else {
+        emptyList()
+    }
+
 
     Surface(
         tonalElevation = 4.dp,
@@ -885,13 +946,13 @@ private fun InputBar(
     ) {
         Column {
             AnimatedVisibility(
-                visible = voiceStatus != null,
+                visible = status != null,
                 enter = fadeIn(),
                 exit = fadeOut(),
             ) {
-                voiceStatus?.let { status ->
+                status?.let { currentStatus ->
                     Surface(
-                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        color = containerColor,
                         tonalElevation = 1.dp,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -905,26 +966,38 @@ private fun InputBar(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Icon(
-                                imageVector = status.icon,
+                                imageVector = currentStatus.icon,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                tint = contentColor,
                             )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = status.title,
+                                    text = currentStatus.title,
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    color = contentColor,
                                 )
                                 Text(
-                                    text = status.subtitle,
+                                    text = currentStatus.subtitle,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.9f),
+                                    color = contentColor.copy(alpha = 0.9f),
                                     maxLines = 2,
                                 )
                             }
                         }
                     }
                 }
+            }
+
+            AnimatedVisibility(
+                visible = plannerSuggestions.isNotEmpty(),
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                PlannerSmartReplyChips(
+                    suggestions = plannerSuggestions,
+                    onSuggestionSelected = { suggestion -> onSmartReplySelected(suggestion.command) },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                )
             }
 
             Row(
@@ -1048,11 +1121,41 @@ private fun InputBar(
     }
 }
 
-private data class VoiceStatusUiModel(
+@Composable
+internal fun PlannerSmartReplyChips(
+    suggestions: List<MealPlannerSuggestion>,
+    onSuggestionSelected: (MealPlannerSuggestion) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .testTag("planner_smart_reply_row"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        suggestions.forEachIndexed { index, suggestion ->
+            AssistChip(
+                onClick = { onSuggestionSelected(suggestion) },
+                label = { Text(suggestion.label) },
+                modifier = Modifier.testTag("planner_smart_reply_chip_$index"),
+            )
+        }
+    }
+}
+
+private data class InputBarStatusUiModel(
     val title: String,
     val subtitle: String,
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val tone: InputBarStatusTone,
 )
+
+private enum class InputBarStatusTone {
+    VOICE,
+    WORKING,
+    WAITING,
+}
 
 @Composable
 private fun EmptyConversationHint(modifier: Modifier = Modifier) {

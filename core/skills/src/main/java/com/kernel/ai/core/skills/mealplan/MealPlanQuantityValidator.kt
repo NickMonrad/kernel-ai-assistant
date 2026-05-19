@@ -34,6 +34,11 @@ class MealPlanQuantityValidator @Inject constructor() {
         val normalizedAmount = parseAmount(amount)
             ?: throw MealPlanValidationException("Invalid ingredient amount '$amount' in '${ingredient.originalText}'.")
         val normalizedUnit = normalizeUnit(unit)
+        if (normalizedUnit in LENGTH_UNITS) {
+            throw MealPlanValidationException(
+                "Ingredient '${ingredient.originalText}' used an unsupported length unit '$normalizedUnit'. Use grams, ml, spoon units, cloves, or whole-item counts instead.",
+            )
+        }
         val gramsOrMl = toCanonicalMetric(normalizedAmount, normalizedUnit)
         val category = classifyIngredient(item)
         validateMagnitude(
@@ -166,5 +171,20 @@ class MealPlanQuantityValidator @Inject constructor() {
         val OIL_KEYWORDS = listOf("oil", "olive oil", "vegetable oil", "sesame oil")
         val SAUCE_KEYWORDS = listOf("stock", "broth", "sauce", "soy", "milk", "cream", "water", "vinegar")
         val SPICE_KEYWORDS = listOf("salt", "pepper", "ginger", "garlic", "paprika", "cumin", "curry")
+        val LENGTH_UNITS = setOf(
+            "mm",
+            "millimeter",
+            "millimeters",
+            "millimetre",
+            "millimetres",
+            "cm",
+            "centimeter",
+            "centimeters",
+            "centimetre",
+            "centimetres",
+            "in",
+            "inch",
+            "inches",
+        )
     }
 }
