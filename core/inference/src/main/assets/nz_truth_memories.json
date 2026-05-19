@@ -2387,5 +2387,17 @@
     "metadata": {
       "tags": ["mythology", "guardian", "te-reo", "kaitiaki"]
     }
+  },
+  {
+    "id": "nz_145",
+    "term": "Yeah nah",
+    "category": "nz_slang",
+    "definition": "A distinctly New Zealand expression meaning polite disagreement, hesitation, or soft refusal. Despite sounding contradictory, 'yeah nah' functions as a culturally fluent way to decline or push back without being blunt. Compare with its opposite 'nah yeah' (which means yes/agreement). Together they illustrate NZ's preference for softened, indirect communication.",
+    "trigger_context": "When the user asks about NZ slang, expressions of disagreement, or hedging phrases.",
+    "vibe_level": 2,
+    "vector_text": "Yeah nah. Polite disagreement. Soft refusal. Hesitation. NZ slang. Contradictory affirmative. Nah yeah. Indirect communication. Kiwi English. Colloquial.",
+    "metadata": {
+      "tags": ["slang", "expression", "colloquial", "kiwi-english"]
+    }
   }
 ]
