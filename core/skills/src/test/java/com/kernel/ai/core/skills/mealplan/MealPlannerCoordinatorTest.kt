@@ -1334,6 +1334,19 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `replace day beyond current plan range returns friendly guidance`() = runTest {
+        val active = readyForFinalizeSnapshot(finalSummaryWritten = false)
+        coEvery { sessionRepository.getActiveSession("conv") } returns active
+
+        val reply = coordinator.ingestUserMessage("conv", "replace day 6")
+
+        assertTrue(reply.content.contains("only has 2 days", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 1 to Day 2", ignoreCase = true))
+        assertFalse(reply.content.contains("Invalid day index", ignoreCase = true))
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `regenerate day repeats meal title and shows current plan snapshot`() = runTest {
         val active = readyForFinalizeSnapshot(finalSummaryWritten = false)
         val persisted = active.copy(

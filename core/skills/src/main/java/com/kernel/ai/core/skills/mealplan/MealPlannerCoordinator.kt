@@ -901,15 +901,15 @@ class MealPlannerCoordinator @Inject constructor(
             val generationSnapshot = try {
                 prepareReplacementGeneration(snapshot, dayIndex)
             } catch (e: IllegalArgumentException) {
-                return@withSessionGeneration MealPlannerReply(replacementFailureMessage(dayIndex, e.message))
+                return@withSessionGeneration MealPlannerReply(replacementFailureMessage(dayIndex, snapshot.days.size, e.message))
             }
             onPlannerActivityChanged(replacingDayActivity(generationSnapshot, dayIndex))
             val replaced = try {
                 generateReplacementDayInternal(generationSnapshot, dayIndex, markPendingGeneration = false)
             } catch (e: IllegalArgumentException) {
-                return@withSessionGeneration MealPlannerReply(replacementFailureMessage(dayIndex, e.message))
+                return@withSessionGeneration MealPlannerReply(replacementFailureMessage(dayIndex, snapshot.days.size, e.message))
             } catch (e: MealPlanValidationException) {
-                return@withSessionGeneration MealPlannerReply(replacementFailureMessage(dayIndex, e.message))
+                return@withSessionGeneration MealPlannerReply(replacementFailureMessage(dayIndex, snapshot.days.size, e.message))
             }
             generateSpecificDayRecipeInternal(
                 snapshot = replaced,
@@ -935,9 +935,9 @@ class MealPlannerCoordinator @Inject constructor(
                     replacementChangeMessage(snapshot, replaced, dayIndex) + "\n\n" + currentPlanReply(replaced),
                 )
             } catch (e: IllegalArgumentException) {
-                MealPlannerReply(replacementFailureMessage(dayIndex, e.message))
+                MealPlannerReply(replacementFailureMessage(dayIndex, snapshot.days.size, e.message))
             } catch (e: MealPlanValidationException) {
-                MealPlannerReply(replacementFailureMessage(dayIndex, e.message))
+                MealPlannerReply(replacementFailureMessage(dayIndex, snapshot.days.size, e.message))
             }
         }
 
@@ -1398,8 +1398,20 @@ class MealPlannerCoordinator @Inject constructor(
     private fun recoveryPrompt(dayIndex: Int): String =
         "I still need to finish Day ${dayIndex + 1}. Say 'regenerate day ${dayIndex + 1}', 'replace day ${dayIndex + 1}', or 'help' for more options."
 
-    private fun replacementFailureMessage(dayIndex: Int, detail: String?): String =
-        "I couldn't replace Day ${dayIndex + 1}. ${detail ?: "Try again with a different day."}"
+    private fun replacementFailureMessage(dayIndex: Int, totalDays: Int, detail: String?): String =
+        invalidReplacementDayMessage(dayIndex, totalDays)
+            ?: "I couldn't replace Day ${dayIndex + 1}. ${detail ?: "Try again with a different day."}"
+
+    private fun invalidReplacementDayMessage(dayIndex: Int, totalDays: Int): String? {
+        if (dayIndex !in 0 until totalDays) {
+            return when {
+                totalDays <= 0 -> "I don't have a meal plan draft to edit yet. Say 'generate recipes' to build one first."
+                totalDays == 1 -> "Your current plan only has Day 1, so I can only replace Day 1."
+                else -> "Your current plan only has $totalDays days, so I can replace Day 1 to Day $totalDays."
+            }
+        }
+        return null
+    }
 
     private fun replacementChangeMessage(before: MealPlanSnapshot, after: MealPlanSnapshot, dayIndex: Int): String {
         val beforeTitle = before.days.firstOrNull { it.dayIndex == dayIndex }?.title ?: "Meal"
