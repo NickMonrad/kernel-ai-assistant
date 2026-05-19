@@ -3067,21 +3067,31 @@ class QuickIntentRouter(
             paramExtractor = { _, _ -> emptyMap() },
             requiredSlots = slotContract("save_memory"),
         ),
-        // Pattern: "save [to/that/...] memory that X" / "save this to memory: X"
+        // Pattern: "save to memory that X" / "save to memory: X" / "save that X"
+        // NOTE: "save this/it to memory" is intentionally excluded — "this" and "it" are
+        // anaphoric references that require LLM context to resolve (see #937).
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """(?:save|store|keep)\s+(?:(?:to|in)\s+memory(?:\s+that)?|that|this|it)\s*[:\-–]?\s*(.+)""",
+                """(?:save|store|keep)\s+(?:(?:to|in)\s+memory(?:\s+that)?|that)\s*[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ ->
+                // Strip trailing "to/in memory" that can appear when "that" is used as a
+                // demonstrative (e.g. "save that to memory") rather than a conjunction.
+                val content = match.groupValues[1].trim()
+                    .removeSuffix(" to memory").removeSuffix(" in memory").trim()
+                if (content.isBlank()) emptyMap() else mapOf("content" to content)
+            },
             requiredSlots = slotContract("save_memory"),
         ),
         // Pattern: "remember that X" / "remember: X"
+        // Excludes first-person + context-reference openers (I, I'm, this, that, it) —
+        // those need LLM to resolve conjugation and anaphora.
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """remember\s+(?:that\s+)?[:\-–]?\s*(.+)""",
+                """remember\s+(?:that\s+)?[:\-–]?\s*(?!(?:I|I'm|this|that|it)\b)(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },

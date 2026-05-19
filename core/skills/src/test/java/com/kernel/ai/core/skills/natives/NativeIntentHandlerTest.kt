@@ -24,6 +24,7 @@ import com.kernel.ai.core.memory.entity.ContactAliasEntity
 import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.skills.SkillResult
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -75,6 +76,7 @@ class NativeIntentHandlerTest {
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
         cookingConversionService = cookingConversionService,
         currencyConversionService = currencyConversionService,
+        userProfileRepository = mockk<UserProfileRepository>(relaxed = true),
     )
 
     private fun handleIntent(intentName: String, params: Map<String, String>): SkillResult =

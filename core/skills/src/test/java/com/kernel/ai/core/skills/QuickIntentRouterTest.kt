@@ -3009,9 +3009,7 @@ class QuickIntentRouterTest {
         @JvmStatic
         fun saveMemoryRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("save that we're meeting Tuesday", "we're meeting Tuesday"),
-            Arguments.of("remember that I prefer dark mode", "I prefer dark mode"),
             Arguments.of("remember that my wifi password is 12345", "my wifi password is 12345"),
-            Arguments.of("can you remember that I have a dog named Xena", "I have a dog named Xena"),
             Arguments.of("remember my favourite colour is blue", "my favourite colour is blue"),
             Arguments.of("save to memory: important note", "important note"),
             Arguments.of("can you save to memory that my dog is named Xena", "my dog is named Xena"),
@@ -3340,6 +3338,15 @@ class QuickIntentRouterTest {
             Arguments.of("what month is this charge for"),
             Arguments.of("what month is this invoice for"),
             Arguments.of("what week is this training on"),
+            // save_memory — anaphoric references must fall to LLM (#937)
+            Arguments.of("save this to memory"),
+            Arguments.of("save it to memory"),
+            Arguments.of("save this recipe to memory"),
+            Arguments.of("remember that I like dark mode"),
+            Arguments.of("remember that I prefer dark mode"),
+            Arguments.of("remember that I have a dog named Xena"),
+            Arguments.of("remember that this is important"),
+            Arguments.of("can you remember that I have a dog named Xena"),
         )
     }
 

@@ -31,6 +31,7 @@ import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
@@ -135,6 +136,7 @@ class NativeIntentHandler @Inject constructor(
     private val embeddingEngine: EmbeddingEngine,
     private val cookingConversionService: CookingConversionService,
     private val currencyConversionService: CurrencyConversionService,
+    private val userProfileRepository: UserProfileRepository,
 ) {
 
     suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -2464,22 +2466,44 @@ class NativeIntentHandler @Inject constructor(
     // ── Save Memory ───────────────────────────────────────────────────────────
 
     private fun saveMemory(params: Map<String, String>): SkillResult {
-        val content = params["content"]?.takeIf { it.isNotBlank() }
+        val raw = params["content"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("save_memory", "No content to save")
         return try {
             runBlocking {
+                val userName = userProfileRepository.getStructured()?.name
+                val content = normaliseSaveContent(raw, userName)
                 val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
                 memoryRepository.addCoreMemory(
                     content = content,
                     source = "agent",
                     embeddingVector = vector ?: floatArrayOf(),
                 )
+                SkillResult.Success("✓ Saved: \"${content.take(100)}\"")
             }
-            SkillResult.Success("✓ Saved: \"${content.take(100)}\"")
         } catch (e: Exception) {
             Log.e(TAG, "save_memory failed", e)
             SkillResult.Failure("save_memory", e.message ?: "Failed to save memory")
         }
+    }
+
+    /**
+     * Normalises first-person possessive pronouns in regex-captured save content.
+     * When the QuickIntentRouter intercepts "remember that my X is Y", the LLM is bypassed
+     * and has no chance to substitute the user's name. This function does it instead.
+     *
+     * Only safe transformations are applied:
+     * - "my" → "Nick's" (possessive, no conjugation needed)
+     * - "I'm" → "Nick is" (safe contraction expansion)
+     *
+     * Bare "I" is NOT replaced — verb conjugation requires LLM, and those inputs are
+     * now excluded from regex routing via the negative lookahead on the remember pattern.
+     */
+    private fun normaliseSaveContent(raw: String, userName: String?): String {
+        if (userName.isNullOrBlank()) return raw
+        val name = userName.trim()
+        return raw
+            .replace(Regex("\\bI'm\\b", RegexOption.IGNORE_CASE), "$name is")
+            .replace(Regex("\\bmy\\b", RegexOption.IGNORE_CASE), "${name}'s")
     }
 
     // ── Set Brightness ────────────────────────────────────────────────────────
