@@ -135,6 +135,14 @@ class MealPlannerCoordinator @Inject constructor(
         if (slotExtractor.isShowCurrentPlanRequest(text)) {
             return MealPlannerReply(currentPlanReply(snapshot))
         }
+        val favouriteDayIndex = slotExtractor.extractFavouriteDayIndex(text)
+        if (favouriteDayIndex != null) {
+            return handleFavouriteRecipeToggle(snapshot, favouriteDayIndex, true)
+        }
+        val unfavouriteDayIndex = slotExtractor.extractUnfavouriteDayIndex(text)
+        if (unfavouriteDayIndex != null) {
+            return handleFavouriteRecipeToggle(snapshot, unfavouriteDayIndex, false)
+        }
         val missingBefore = missingSlots(snapshot)
         val peopleCount = slotExtractor.extractPeopleCount(text)
         val daysCount = slotExtractor.extractDaysCount(text)
@@ -200,6 +208,14 @@ class MealPlannerCoordinator @Inject constructor(
     ): MealPlannerReply {
         if (slotExtractor.isShowCurrentPlanRequest(text)) {
             return MealPlannerReply(currentPlanReply(snapshot))
+        }
+        val favouriteDayIndex = slotExtractor.extractFavouriteDayIndex(text)
+        if (favouriteDayIndex != null) {
+            return handleFavouriteRecipeToggle(snapshot, favouriteDayIndex, true)
+        }
+        val unfavouriteDayIndex = slotExtractor.extractUnfavouriteDayIndex(text)
+        if (unfavouriteDayIndex != null) {
+            return handleFavouriteRecipeToggle(snapshot, unfavouriteDayIndex, false)
         }
         val favouriteRecipeMode = slotExtractor.extractFavouriteRecipeMode(text)
         if (favouriteRecipeMode != null) {
@@ -320,20 +336,10 @@ class MealPlannerCoordinator @Inject constructor(
             return MealPlannerReply(planReviewPrompt(snapshot))
         }
         if (favouriteDayIndex != null) {
-            return try {
-                val updated = sessionRepository.setRecipeFavourite(snapshot.sessionId, favouriteDayIndex, true)
-                MealPlannerReply("Saved Day ${favouriteDayIndex + 1} as a favourite recipe for future meal plans.\n\n${currentPlanReply(updated)}")
-            } catch (e: IllegalArgumentException) {
-                MealPlannerReply(e.message ?: "I couldn't favourite that recipe yet.")
-            }
+            return handleFavouriteRecipeToggle(snapshot, favouriteDayIndex, true)
         }
         if (unfavouriteDayIndex != null) {
-            return try {
-                val updated = sessionRepository.setRecipeFavourite(snapshot.sessionId, unfavouriteDayIndex, false)
-                MealPlannerReply("Removed Day ${unfavouriteDayIndex + 1} from your favourite recipes.\n\n${currentPlanReply(updated)}")
-            } catch (e: IllegalArgumentException) {
-                MealPlannerReply(e.message ?: "I couldn't remove that favourite yet.")
-            }
+            return handleFavouriteRecipeToggle(snapshot, unfavouriteDayIndex, false)
         }
         if (replaceDayIndex != null) {
             return replaceDayAndGenerateRecipe(
@@ -1396,6 +1402,43 @@ class MealPlannerCoordinator @Inject constructor(
             buildPlanSummary(snapshot) + "\n\n" + statusPrompt(snapshot)
         }
 
+
+    private suspend fun handleFavouriteRecipeToggle(
+        snapshot: MealPlanSnapshot,
+        dayIndex: Int,
+        favourite: Boolean,
+    ): MealPlannerReply {
+        val day = snapshot.days.firstOrNull { it.dayIndex == dayIndex }
+            ?: return MealPlannerReply(invalidFavouriteDayMessage(dayIndex, snapshot.days.size))
+        if (day.currentRecipeVersion == null) {
+            val action = if (favourite) "save" else "remove"
+            return MealPlannerReply("I can $action favourites once Day ${dayIndex + 1} has a generated recipe. Say 'generate recipes' first.")
+        }
+        if (favourite && day.isFavouriteRecipe) {
+            return MealPlannerReply("Day ${dayIndex + 1} is already saved as a favourite recipe.\n\n${currentPlanReply(snapshot)}")
+        }
+        if (!favourite && !day.isFavouriteRecipe) {
+            return MealPlannerReply("Day ${dayIndex + 1} isn't saved as a favourite recipe yet.\n\n${currentPlanReply(snapshot)}")
+        }
+        return try {
+            val updated = sessionRepository.setRecipeFavourite(snapshot.sessionId, dayIndex, favourite)
+            val lead =
+                if (favourite) {
+                    "Saved Day ${dayIndex + 1} as a favourite recipe for future meal plans."
+                } else {
+                    "Removed Day ${dayIndex + 1} from your favourite recipes."
+                }
+            MealPlannerReply("$lead\n\n${currentPlanReply(updated)}")
+        } catch (e: IllegalArgumentException) {
+            MealPlannerReply(e.message ?: if (favourite) "I couldn't favourite that recipe yet." else "I couldn't remove that favourite yet.")
+        }
+    }
+
+    private fun invalidFavouriteDayMessage(dayIndex: Int, totalDays: Int): String = when {
+        totalDays <= 0 -> "I don't have Day ${dayIndex + 1} ready to favourite yet. Say 'generate recipes' first."
+        totalDays == 1 -> "Your current plan only has Day 1, so I can only manage favourites for Day 1."
+        else -> "Your current plan only has $totalDays days, so I can only manage favourites for Day 1 to Day $totalDays."
+    }
     private fun planReviewActionsPrompt(): String =
         "Say 'generate recipes', 'replace day 2', 'change preferences', 'help' for more options, or 'cancel'."
 
@@ -1929,7 +1972,6 @@ Rules:
             add(suggestion("Replace day ${dayIndex + 1}", "replace day ${dayIndex + 1}"))
             favouriteDaySuggestion(snapshot, dayIndex)?.let(::add)
         }
-        favouriteModeSuggestion(snapshot)?.let(::add)
         add(suggestion("Help", "help"))
     }
 

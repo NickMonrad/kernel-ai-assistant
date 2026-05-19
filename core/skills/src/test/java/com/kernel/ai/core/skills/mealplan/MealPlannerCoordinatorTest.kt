@@ -818,6 +818,29 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `ready plan unfavourite day that is not saved returns guidance`() = runTest {
+        val ready = readyForFinalizeSnapshot(finalSummaryWritten = false)
+        coEvery { sessionRepository.getActiveSession("conv") } returns ready
+
+        val reply = coordinator.ingestUserMessage("conv", "unfavourite day 1")
+
+        assertTrue(reply.content.contains("isn't saved as a favourite recipe yet", ignoreCase = true))
+        coVerify(exactly = 0) { sessionRepository.setRecipeFavourite(any(), any(), any()) }
+    }
+
+    @Test
+    fun `plan review favourite day asks for recipes first`() = runTest {
+        val planReview = planReviewSnapshot()
+        coEvery { sessionRepository.getActiveSession("conv") } returns planReview
+
+        val reply = coordinator.ingestUserMessage("conv", "favourite day 2")
+
+        assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 2", ignoreCase = true))
+        coVerify(exactly = 0) { sessionRepository.setRecipeFavourite(any(), any(), any()) }
+    }
+
+    @Test
     fun `plan review replacement emits working activity before draft update`() = runTest {
         val planReview = planReviewSnapshot()
         val replaced = planReview.copy(
@@ -1118,6 +1141,31 @@ class MealPlannerCoordinatorTest {
         assertTrue(reply.content.contains("Reply with any updated people count", ignoreCase = true))
         coVerify(exactly = 0) { sessionRepository.updateRequiredSlots(any(), any(), any(), any(), any()) }
     }
+
+    @Test
+    fun `collecting state can unfavourite a generated day while editing preferences`() = runTest {
+        val collecting = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
+            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
+            favouriteRecipeMode = FavouriteRecipeMode.AVOID,
+            days = readyForFinalizeSnapshot(finalSummaryWritten = false).days.mapIndexed { index, day ->
+                if (index == 1) day.copy(isFavouriteRecipe = true) else day
+            },
+        )
+        val updated = collecting.copy(
+            days = collecting.days.mapIndexed { index, day ->
+                if (index == 1) day.copy(isFavouriteRecipe = false) else day
+            },
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery { sessionRepository.setRecipeFavourite("session-1", 1, false) } returns updated
+
+        val reply = coordinator.ingestUserMessage("conv", "unfavourite day 2")
+
+        assertTrue(reply.content.contains("Removed Day 2", ignoreCase = true))
+        assertFalse(reply.content.contains("★ favourite"))
+        coVerify { sessionRepository.setRecipeFavourite("session-1", 1, false) }
+        coVerify(exactly = 0) { sessionRepository.updateRequiredSlots(any(), any(), any(), any(), any()) }
+    }
     @Test
     fun `collecting state generate rebuilds plan instead of looping edit prompt`() = runTest {
         val collecting = planReviewSnapshot().copy(status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS)
@@ -1280,7 +1328,7 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("show current plan", "done meal planning", "regenerate day 1", "replace day 1", "favourite day 1", "prefer favourites", "help"),
+            listOf("show current plan", "done meal planning", "regenerate day 1", "replace day 1", "favourite day 1", "help"),
             activity?.suggestions?.map { it.command },
         )
     }
