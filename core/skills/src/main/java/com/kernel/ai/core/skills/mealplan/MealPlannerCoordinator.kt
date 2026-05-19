@@ -574,14 +574,15 @@ class MealPlannerCoordinator @Inject constructor(
         removed: List<String>,
     ): List<String>? {
         if (added == null && removed.isEmpty()) return null
-        if (added?.contains("no dietary requirements") == true) {
+        val filteredAdded = added.orEmpty().filterNot { it in removed }
+        if (filteredAdded.contains("no dietary requirements")) {
             return listOf("no dietary requirements")
         }
         val updated = current
             .filterNot { it == "no dietary requirements" || it in removed }
             .toMutableList()
-        added.orEmpty()
-            .filterNot { it == "no dietary requirements" || it in removed }
+        filteredAdded
+            .filterNot { it == "no dietary requirements" }
             .forEach { restriction ->
                 if (restriction !in updated) {
                     updated += restriction
@@ -596,14 +597,15 @@ class MealPlannerCoordinator @Inject constructor(
         removed: List<String>,
     ): List<String>? {
         if (added == null && removed.isEmpty()) return null
-        if (added?.contains("no protein preference") == true) {
+        val filteredAdded = added.orEmpty().filterNot { it in removed }
+        if (filteredAdded.contains("no protein preference")) {
             return listOf("no protein preference")
         }
         val updated = current
             .filterNot { it == "no protein preference" || it in removed }
             .toMutableList()
-        added.orEmpty()
-            .filterNot { it == "no protein preference" || it in removed }
+        filteredAdded
+            .filterNot { it == "no protein preference" }
             .forEach { protein ->
                 if (protein !in updated) {
                     updated += protein

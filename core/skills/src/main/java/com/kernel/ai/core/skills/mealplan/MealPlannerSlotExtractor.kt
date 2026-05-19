@@ -20,13 +20,18 @@ class MealPlannerSlotExtractor @Inject constructor() {
 
     fun extractDietaryRestrictions(text: String): List<String>? {
         val normalized = normalizeWords(text)
-        return extractDietaryRestrictionsFromNormalized(normalized)
+        val additionPayload = extractAdditionPayload(normalized) ?: return null
+        return extractDietaryRestrictionsFromNormalized(additionPayload)
     }
 
     fun extractRemovedDietaryRestrictions(text: String): List<String>? {
         val normalized = normalizeWords(text)
         val removalPayload = extractRemovalPayload(normalized) ?: return null
-        return extractDietaryRestrictionsFromNormalized(removalPayload)
+        return splitExclusionTerms(removalPayload)
+            .mapNotNull(::normalizeRemovedDietaryRestriction)
+            .distinct()
+            .toList()
+            .takeIf { it.isNotEmpty() }
     }
 
     private fun extractDietaryRestrictionsFromNormalized(normalized: String): List<String>? {
@@ -76,13 +81,18 @@ class MealPlannerSlotExtractor @Inject constructor() {
 
     fun extractProteinPreferences(text: String, allowBareNoPreference: Boolean = false): List<String>? {
         val normalized = normalizeWords(text)
-        return extractProteinPreferencesFromNormalized(normalized, allowBareNoPreference)
+        val additionPayload = extractAdditionPayload(normalized) ?: return null
+        return extractProteinPreferencesFromNormalized(additionPayload, allowBareNoPreference)
     }
 
     fun extractRemovedProteinPreferences(text: String): List<String>? {
         val normalized = normalizeWords(text)
         val removalPayload = extractRemovalPayload(normalized) ?: return null
-        return extractProteinPreferencesFromNormalized(removalPayload, allowBareNoPreference = false)
+        return splitExclusionTerms(removalPayload)
+            .flatMap { normalizeRemovedProteinPreference(it).asSequence() }
+            .distinct()
+            .toList()
+            .takeIf { it.isNotEmpty() }
     }
 
     private fun extractProteinPreferencesFromNormalized(
@@ -95,7 +105,10 @@ class MealPlannerSlotExtractor @Inject constructor() {
         ) {
             return listOf(NO_PROTEIN_PREFERENCE)
         }
-        val exclusions = extractIngredientExclusions(normalized).map { it.removePrefix("no ").trim() }
+        val exclusions = (
+            extractIngredientExclusions(normalized).map { it.removePrefix("no ").trim() } +
+                extractDietaryRestrictionsFromNormalized(normalized).orEmpty()
+        ).distinct()
         val matches = PROTEIN_KEYWORDS
             .filter { keyword ->
                 keyword.pattern.findAll(normalized).any { match ->
@@ -119,8 +132,79 @@ class MealPlannerSlotExtractor @Inject constructor() {
             Regex("\\b$token\\s+allergy\\b").containsMatchIn(window)
     }
 
-    private fun extractRemovalPayload(normalized: String): String? =
-        REMOVE_PREFIX.find(normalized)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+    private fun extractRemovalPayload(normalized: String): String? {
+        val payload = REMOVE_PREFIX.find(normalized)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        return splitRemovalAndAdditionPayload(payload).first
+    }
+
+    private fun extractAdditionPayload(normalized: String): String? {
+        val payload = REMOVE_PREFIX.find(normalized)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+            ?: return normalized.takeIf { it.isNotBlank() }
+        return splitRemovalAndAdditionPayload(payload).second
+    }
+
+    private fun splitRemovalAndAdditionPayload(payload: String): Pair<String?, String?> {
+        val additionMarker = REMOVE_ADD_MARKER.find(payload)
+        if (additionMarker == null) {
+            return payload.takeIf { it.isNotBlank() } to null
+        }
+        val removal = payload.substring(0, additionMarker.range.first).trim().trimEnd(',', ' ')
+        val addition = payload.substring(additionMarker.range.last + 1).trim()
+        return removal.takeIf { it.isNotBlank() } to addition.takeIf { it.isNotBlank() }
+    }
+
+    private fun normalizeRemovedDietaryRestriction(rawTerm: String): String? {
+        val cleaned = cleanPreferenceTerm(rawTerm) ?: return null
+        if (cleaned == NO_DIETARY_REQUIREMENTS) {
+            return cleaned
+        }
+        if (cleaned.startsWith("no ")) {
+            val remainder = cleaned.removePrefix("no ").trim()
+            if (remainder.isBlank()) return null
+            if (matchesExplicitDietaryRestriction(remainder)) {
+                return cleaned
+            }
+            val canonicalRestriction = canonicalDietaryRestrictionFromExcludedTerm(remainder)
+            return when {
+                canonicalRestriction != null -> canonicalRestriction
+                isProteinOnlyRemovalTerm(remainder) -> cleaned
+                else -> "no $remainder"
+            }
+        }
+        val canonicalRestriction = canonicalDietaryRestrictionFromExcludedTerm(cleaned)
+        return when {
+            canonicalRestriction != null -> canonicalRestriction
+            isProteinOnlyRemovalTerm(cleaned) -> null
+            else -> "no $cleaned"
+        }
+    }
+
+    private fun normalizeRemovedProteinPreference(rawTerm: String): List<String> {
+        val cleaned = cleanPreferenceTerm(rawTerm) ?: return emptyList()
+        if (cleaned == NO_PROTEIN_PREFERENCE) {
+            return listOf(cleaned)
+        }
+        val normalized = cleaned.removePrefix("no ").trim()
+        if (normalized.isBlank()) {
+            return emptyList()
+        }
+        return extractProteinPreferencesFromNormalized(normalized, allowBareNoPreference = false).orEmpty()
+    }
+
+    private fun cleanPreferenceTerm(rawTerm: String): String? =
+        rawTerm
+            .trim()
+            .removePrefix("the ")
+            .removePrefix("any ")
+            .trim()
+            .trimEnd('.', '!', '?')
+            .takeIf { it.isNotBlank() }
+
+    private fun isProteinOnlyRemovalTerm(term: String): Boolean =
+        extractProteinPreferencesFromNormalized(term, allowBareNoPreference = false).orEmpty().isNotEmpty()
+
+    private fun matchesExplicitDietaryRestriction(normalized: String): Boolean =
+        DIETARY_PATTERNS.any { (pattern, _) -> pattern.containsMatchIn(normalized) }
 
     private fun canonicalDietaryRestrictionFromExcludedTerm(cleaned: String): String? {
         val normalized = cleaned.trim().lowercase()
@@ -132,12 +216,12 @@ class MealPlannerSlotExtractor @Inject constructor() {
         exclusions.any { exclusion -> proteinMatchesExclusion(protein, exclusion) }
 
     private fun proteinMatchesExclusion(protein: String, excluded: String): Boolean {
-        val normalizedExcluded = excluded.trim().lowercase()
+        val normalizedExcluded = canonicalDietaryRestrictionFromExcludedTerm(excluded) ?: excluded.trim().lowercase()
         return when (protein) {
             "beef" -> normalizedExcluded == "beef" || normalizedExcluded == "beef mince"
-            "fish" -> normalizedExcluded in setOf("fish", "salmon", "tuna", "snapper")
-            "prawns" -> normalizedExcluded in setOf("prawn", "prawns", "shrimp", "shellfish")
-            "eggs" -> normalizedExcluded in setOf("egg", "eggs")
+            "fish" -> normalizedExcluded in setOf("fish", "fish free", "salmon", "tuna", "snapper")
+            "prawns" -> normalizedExcluded in setOf("prawn", "prawns", "shrimp", "shellfish", "shellfish free")
+            "eggs" -> normalizedExcluded in setOf("egg", "eggs", "egg free")
             "chickpeas" -> normalizedExcluded in setOf("chickpea", "chickpeas")
             else -> normalizedExcluded == protein
         }
@@ -228,6 +312,7 @@ class MealPlannerSlotExtractor @Inject constructor() {
         val EXCLUSION_PATTERN = Regex("(?:\\bno\\b|\\bwithout\\b|\\bexclude\\b|\\bexcluding\\b|\\bavoid\\b)\\s+([a-z][a-z\\s-]{1,40})(?=$|[,.;&])")
         val EXCLUSION_SEPARATOR = Regex("\\s*(?:,|/|\\band\\b|\\bor\\b)\\s*")
         val REMOVE_PREFIX = Regex("^\\s*(?:please\\s+)?(?:remove|drop|delete|clear)\\s+(.+?)\\s*[.!?]*$")
+        val REMOVE_ADD_MARKER = Regex("\\s*(?:,|and)?\\s*(?:add|include|prefer|use)\\s+")
         val EXCLUSION_CANONICAL_RESTRICTIONS = mapOf(
             "kid friendly" to "kid friendly",
             "family friendly" to "kid friendly",

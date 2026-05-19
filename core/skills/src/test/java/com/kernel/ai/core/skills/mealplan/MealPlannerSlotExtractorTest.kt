@@ -102,8 +102,25 @@ class MealPlannerSlotExtractorTest {
 
     @Test
     fun `extract removal commands for dietary and protein preferences`() {
-        assertEquals(listOf("kid friendly", "gluten free"), extractor.extractRemovedDietaryRestrictions("remove gluten free and kid friendly"))
+        assertEquals(listOf("gluten free", "kid friendly"), extractor.extractRemovedDietaryRestrictions("remove gluten free and kid friendly"))
         assertEquals(listOf("beef", "pork"), extractor.extractRemovedProteinPreferences("please remove beef and pork"))
+    }
+
+    @Test
+    fun `extract change preference commands separate removals from additions`() {
+        assertEquals(listOf("vegan"), extractor.extractDietaryRestrictions("remove gluten free and add vegan"))
+        assertEquals(listOf("gluten free"), extractor.extractRemovedDietaryRestrictions("remove gluten free and add vegan"))
+        assertEquals(null, extractor.extractDietaryRestrictions("remove no gluten free"))
+        assertEquals(listOf("no gluten free"), extractor.extractRemovedDietaryRestrictions("remove no gluten free"))
+        assertEquals(listOf("no chicken"), extractor.extractRemovedDietaryRestrictions("remove no chicken"))
+        assertEquals(listOf("salmon"), extractor.extractProteinPreferences("remove beef and add salmon"))
+        assertEquals(listOf("beef"), extractor.extractRemovedProteinPreferences("remove beef and add salmon"))
+    }
+
+    @Test
+    fun `extractProteinPreferences blocks proteins excluded by canonicalized restrictions`() {
+        assertEquals(null, extractor.extractProteinPreferences("egg free, eggs"))
+        assertEquals(null, extractor.extractProteinPreferences("shellfish free, prawns"))
     }
 
     @Test
