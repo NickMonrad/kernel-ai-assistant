@@ -68,8 +68,29 @@ interface MealPlanProjectionWriteDao {
         """
         SELECT DISTINCT targetName FROM meal_plan_projection_writes
         WHERE mealPlanSessionId = :sessionId
+          AND targetKind = :targetKind
+          AND supersededAt IS NULL
+        """,
+    )
+    suspend fun getActiveTargetNamesForTarget(sessionId: String, targetKind: String): List<String>
+
+    @Query(
+        """
+        SELECT DISTINCT targetName FROM meal_plan_projection_writes
+        WHERE mealPlanSessionId = :sessionId
           AND supersededAt IS NULL
         """,
     )
     suspend fun getActiveTargetNamesForSession(sessionId: String): List<String>
+
+    @Query(
+        """
+        SELECT DISTINCT targetName FROM meal_plan_projection_writes
+        WHERE mealPlanSessionId = :sessionId
+        """,
+    )
+    suspend fun getAllTargetNamesForSession(sessionId: String): List<String>
+
+    @Query("DELETE FROM meal_plan_projection_writes WHERE mealPlanSessionId = :sessionId")
+    suspend fun deleteBySessionId(sessionId: String)
 }

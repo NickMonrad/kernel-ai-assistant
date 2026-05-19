@@ -1,7 +1,9 @@
 package com.kernel.ai.feature.chat
 
-import com.kernel.ai.feature.chat.model.ChatUiState
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
 import com.kernel.ai.feature.chat.model.ChatMessage
+import com.kernel.ai.feature.chat.model.ChatUiState
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -83,6 +85,40 @@ class ChatScreenKeepAwakeTest {
                 voiceCaptureState = ChatViewModel.VoiceCaptureState.Idle,
                 voicePlaybackState = ChatViewModel.VoicePlaybackState.Idle,
                 voiceMode = ChatViewModel.VoiceMode.BackAndForth,
+            ),
+        )
+    }
+
+    @Test
+    fun `keeps screen awake while planner work is active`() {
+        assertTrue(
+            shouldKeepChatScreenAwake(
+                uiState = readyState(),
+                voiceCaptureState = ChatViewModel.VoiceCaptureState.Idle,
+                voicePlaybackState = ChatViewModel.VoicePlaybackState.Idle,
+                voiceMode = null,
+                plannerActivity = MealPlannerActivity(
+                    title = "Generating recipe 2 of 5",
+                    subtitle = "Chicken stir-fry",
+                    state = MealPlannerActivityState.WORKING,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `planner waiting state does not keep screen awake by itself`() {
+        assertFalse(
+            shouldKeepChatScreenAwake(
+                uiState = readyState(),
+                voiceCaptureState = ChatViewModel.VoiceCaptureState.Idle,
+                voicePlaybackState = ChatViewModel.VoicePlaybackState.Idle,
+                voiceMode = null,
+                plannerActivity = MealPlannerActivity(
+                    title = "Meal plan ready",
+                    subtitle = "Say 'show current plan' or 'done meal planning'.",
+                    state = MealPlannerActivityState.WAITING,
+                ),
             ),
         )
     }
