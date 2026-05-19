@@ -25,6 +25,7 @@ import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
+import com.kernel.ai.core.memory.profile.UserProfileYaml
 import com.kernel.ai.core.skills.SkillResult
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -33,15 +34,19 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.time.LocalDate
 import java.time.LocalTime
@@ -1821,6 +1826,75 @@ class NativeIntentHandlerTest {
         every { cursor.close() } just Runs
 
         return cursor
+    }
+
+    // ── Save Memory ───────────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("Save Memory — pronoun normalisation")
+    inner class SaveMemoryPronounNormalisation {
+
+        private val memoryRepository = mockk<MemoryRepository>(relaxed = true)
+        private val embeddingEngine = mockk<EmbeddingEngine>(relaxed = true)
+        private val profileRepository = mockk<UserProfileRepository>(relaxed = true)
+
+        private fun handlerWithName(name: String?) = NativeIntentHandler(
+            context = context,
+            clockRepository = clockRepository,
+            clockAlertController = clockAlertController,
+            listItemDao = listItemDao,
+            listNameDao = listNameDao,
+            contactAliasRepository = contactAliasRepository,
+            importantDateRepository = importantDateRepository,
+            calendarBirthdayLookup = calendarBirthdayLookup,
+            memoryRepository = memoryRepository,
+            embeddingEngine = embeddingEngine,
+            cookingConversionService = cookingConversionService,
+            currencyConversionService = currencyConversionService,
+            userProfileRepository = profileRepository,
+        ).also {
+            coEvery { profileRepository.getStructured() } returns
+                if (name != null) UserProfileYaml(name = name) else null
+            coEvery { embeddingEngine.embed(any()) } returns floatArrayOf()
+        }
+
+        @Test
+        fun `my is replaced with name possessive`() {
+            val h = handlerWithName("Nick")
+            val contentSlot = slot<String>()
+            coEvery { memoryRepository.addCoreMemory(capture(contentSlot), any(), any(), any(), any(), any(), any(), any(), any()) } returns "row1"
+            runBlocking { h.handle("save_memory", mapOf("content" to "my wifi password is 12345")) }
+            assertEquals("Nick's wifi password is 12345", contentSlot.captured)
+        }
+
+        @Test
+        fun `I'm is replaced with name is`() {
+            val h = handlerWithName("Nick")
+            val contentSlot = slot<String>()
+            coEvery { memoryRepository.addCoreMemory(capture(contentSlot), any(), any(), any(), any(), any(), any(), any(), any()) } returns "row1"
+            runBlocking { h.handle("save_memory", mapOf("content" to "I'm allergic to peanuts")) }
+            assertEquals("Nick is allergic to peanuts", contentSlot.captured)
+        }
+
+        @Test
+        fun `name with dollar sign does not crash`() {
+            val h = handlerWithName("A\$B")
+            val contentSlot = slot<String>()
+            coEvery { memoryRepository.addCoreMemory(capture(contentSlot), any(), any(), any(), any(), any(), any(), any(), any()) } returns "row1"
+            val result = runBlocking { h.handle("save_memory", mapOf("content" to "my name is unusual")) }
+            assertInstanceOf(SkillResult.Success::class.java, result)
+            // Stored content must contain the dollar sign literally, not crash
+            assertTrue(contentSlot.captured.contains("A\$B's"))
+        }
+
+        @Test
+        fun `no profile — content stored verbatim`() {
+            val h = handlerWithName(null)
+            val contentSlot = slot<String>()
+            coEvery { memoryRepository.addCoreMemory(capture(contentSlot), any(), any(), any(), any(), any(), any(), any(), any()) } returns "row1"
+            runBlocking { h.handle("save_memory", mapOf("content" to "my favourite colour is blue")) }
+            assertEquals("my favourite colour is blue", contentSlot.captured)
+        }
     }
 
     private fun emailCursor(vararg rows: EmailRow): Cursor {

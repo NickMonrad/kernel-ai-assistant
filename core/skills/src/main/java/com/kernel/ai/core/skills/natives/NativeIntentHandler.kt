@@ -2501,9 +2501,12 @@ class NativeIntentHandler @Inject constructor(
     private fun normaliseSaveContent(raw: String, userName: String?): String {
         if (userName.isNullOrBlank()) return raw
         val name = userName.trim()
+        // Use the lambda overload of replace so the replacement string is treated literally —
+        // the String overload delegates to Matcher.replaceAll() where $ and \ are metacharacters
+        // and would throw IllegalArgumentException if the name contains them.
         return raw
-            .replace(Regex("\\bI'm\\b", RegexOption.IGNORE_CASE), "$name is")
-            .replace(Regex("\\bmy\\b", RegexOption.IGNORE_CASE), "${name}'s")
+            .replace(Regex("\\bI'm\\b", RegexOption.IGNORE_CASE)) { "$name is" }
+            .replace(Regex("\\bmy\\b", RegexOption.IGNORE_CASE)) { "${name}'s" }
     }
 
     // ── Set Brightness ────────────────────────────────────────────────────────

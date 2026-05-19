@@ -3079,9 +3079,14 @@ class QuickIntentRouter(
             paramExtractor = { match, _ ->
                 // Strip trailing "to/in memory" that can appear when "that" is used as a
                 // demonstrative (e.g. "save that to memory") rather than a conjunction.
-                val content = match.groupValues[1].trim()
-                    .removeSuffix(" to memory").removeSuffix(" in memory").trim()
-                if (content.isBlank()) emptyMap() else mapOf("content" to content)
+                // Use a regex replace (IGNORE_CASE) because removeSuffix is case-sensitive.
+                val stripped = match.groupValues[1].trim()
+                    .replace(Regex("\\s+(?:to|in)\\s+memory$", RegexOption.IGNORE_CASE), "")
+                    .trim()
+                // Reject single anaphoric tokens that survived stripping (e.g. "save that it to memory").
+                val ANAPHORIC = setOf("it", "this", "that")
+                if (stripped.isBlank() || stripped.lowercase() in ANAPHORIC) emptyMap()
+                else mapOf("content" to stripped)
             },
             requiredSlots = slotContract("save_memory"),
         ),
@@ -3098,10 +3103,12 @@ class QuickIntentRouter(
             requiredSlots = slotContract("save_memory"),
         ),
         // Pattern: "note that X" / "make a note that X" / "don't forget that X"
+        // Same negative lookahead as the "remember" pattern — first-person and demonstrative
+        // openers fall through to E4B so the LLM can resolve conjugation and anaphora.
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """(?:(?:make\s+a\s+)?note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(.+)""",
+                """(?:(?:make\s+a\s+)?note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(?!(?:I|I'm|this|that|it)\b)(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },

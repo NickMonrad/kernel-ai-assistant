@@ -3347,6 +3347,9 @@ class QuickIntentRouterTest {
             Arguments.of("remember that I have a dog named Xena"),
             Arguments.of("remember that this is important"),
             Arguments.of("can you remember that I have a dog named Xena"),
+            Arguments.of("note that I prefer email"),
+            Arguments.of("don't forget that I like dark mode"),
+            Arguments.of("make a note that I'm vegetarian"),
         )
     }
 
