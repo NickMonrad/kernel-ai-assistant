@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 interface MemoryRepository {
     /** Store a volatile, conversation-scoped memory. */
     suspend fun addEpisodicMemory(conversationId: String, content: String, embeddingVector: FloatArray): String
+    suspend fun hasEpisodicMemory(conversationId: String, content: String): Boolean
     /** Store a permanent cross-conversation memory. */
     suspend fun addCoreMemory(
         content: String,

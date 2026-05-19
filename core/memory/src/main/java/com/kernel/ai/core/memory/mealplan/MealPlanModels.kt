@@ -42,6 +42,12 @@ data class MealPlanDraft(
     val days: List<MealPlanDraftDay>,
 )
 
+data class RecentMealHistoryEntry(
+    val title: String,
+    val summary: String?,
+    val proteinTags: List<String> = emptyList(),
+)
+
 data class RecipeDraftIngredient(
     val originalText: String,
     val amount: String?,
@@ -76,6 +82,7 @@ data class CanonicalGroceryItem(
 data class MealPlanSnapshot(
     val sessionId: String,
     val conversationId: String,
+    val displayName: String,
     val status: MealPlanSessionStatus,
     val peopleCount: Int?,
     val daysCount: Int?,

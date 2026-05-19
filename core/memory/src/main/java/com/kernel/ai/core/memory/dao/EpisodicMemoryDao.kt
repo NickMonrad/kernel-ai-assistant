@@ -20,6 +20,17 @@ interface EpisodicMemoryDao {
     @Query("SELECT * FROM episodic_memories WHERE conversationId = :conversationId ORDER BY createdAt DESC")
     suspend fun getByConversation(conversationId: String): List<EpisodicMemoryEntity>
 
+    @Query(
+        """
+        SELECT EXISTS(
+            SELECT 1 FROM episodic_memories
+            WHERE conversationId = :conversationId
+              AND content = :content
+        )
+        """,
+    )
+    suspend fun existsByConversationAndContent(conversationId: String, content: String): Boolean
+
     @Query("DELETE FROM episodic_memories WHERE id = :id")
     suspend fun delete(id: String)
 
