@@ -16,6 +16,7 @@ import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.MealPlanDayDao
+import com.kernel.ai.core.memory.dao.MealPlanFavouriteRecipeDao
 import com.kernel.ai.core.memory.dao.MealPlanGroceryItemDao
 import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
 import com.kernel.ai.core.memory.dao.MealPlanRecipeVersionDao
@@ -39,6 +40,7 @@ import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.entity.MealPlanDayEntity
+import com.kernel.ai.core.memory.entity.MealPlanFavouriteRecipeEntity
 import com.kernel.ai.core.memory.entity.MealPlanGroceryItemEntity
 import com.kernel.ai.core.memory.entity.MealPlanProjectionWriteEntity
 import com.kernel.ai.core.memory.entity.MealPlanRecipeVersionEntity
@@ -80,8 +82,9 @@ import java.time.ZoneId
         MealPlanRecipeVersionEntity::class,
         MealPlanGroceryItemEntity::class,
         MealPlanProjectionWriteEntity::class,
+        MealPlanFavouriteRecipeEntity::class,
     ],
-    version = 45,
+    version = 46,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -111,6 +114,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun mealPlanRecipeVersionDao(): MealPlanRecipeVersionDao
     abstract fun mealPlanGroceryItemDao(): MealPlanGroceryItemDao
     abstract fun mealPlanProjectionWriteDao(): MealPlanProjectionWriteDao
+    abstract fun mealPlanFavouriteRecipeDao(): MealPlanFavouriteRecipeDao
 
     companion object {
         /** Adds lastDistilledAt to conversations (#165) and lastAccessedAt to episodic_memories (#167). */
@@ -734,6 +738,27 @@ abstract class KernelDatabase : RoomDatabase() {
                     """.trimIndent(),
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_meal_plan_sessions_displayCode ON meal_plan_sessions(displayCode)")
+            }
+        }
+
+        /** Adds favourite recipe support for deterministic meal planning (#882). */
+        val MIGRATION_45_46 = object : Migration(45, 46) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE meal_plan_sessions ADD COLUMN favouriteRecipeMode TEXT NOT NULL DEFAULT 'NONE'")
+                db.execSQL("ALTER TABLE meal_plan_recipe_versions ADD COLUMN recipeKey TEXT NOT NULL DEFAULT ''")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `meal_plan_favourite_recipes` (
+                        `recipeKey` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `summary` TEXT,
+                        `proteinTagsJson` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`recipeKey`)
+                    )
+                    """.trimIndent(),
+                )
             }
         }
     }

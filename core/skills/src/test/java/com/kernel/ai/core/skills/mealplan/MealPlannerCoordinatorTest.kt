@@ -2,6 +2,7 @@ package com.kernel.ai.core.skills.mealplan
 
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanDraftDay
 import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
@@ -26,6 +27,7 @@ class MealPlannerCoordinatorTest {
     private val sessionRepository = mockk<MealPlanSessionRepository>(relaxed = true) {
         coEvery { getRecentMealHistory(any()) } returns emptyList()
         coEvery { getPendingCompletedSummarySessions(any()) } returns emptyList()
+        coEvery { getFavouriteRecipes(any()) } returns emptyList()
     }
     private val slotExtractor = MealPlannerSlotExtractor()
     private val jsonParser = MealPlanJsonParser()
@@ -760,6 +762,68 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `plan review prefer favourites returns to editable preference flow`() = runTest {
+        val planReview = planReviewSnapshot()
+        val editable = planReview.copy(
+            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
+            favouriteRecipeMode = FavouriteRecipeMode.PREFER,
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns planReview
+        coEvery { sessionRepository.returnToSlotCollection("session-1") } returns editable
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = null,
+                proteinPreferences = null,
+                favouriteRecipeMode = FavouriteRecipeMode.PREFER,
+            )
+        } returns editable
+
+        val reply = coordinator.ingestUserMessage("conv", "prefer favourites")
+
+        assertTrue(reply.content.contains("Current plan details", ignoreCase = true))
+        assertFalse(reply.content.contains("saved favourites preferred", ignoreCase = true))
+        coVerify { sessionRepository.returnToSlotCollection("session-1") }
+        coVerify {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = null,
+                proteinPreferences = null,
+                favouriteRecipeMode = FavouriteRecipeMode.PREFER,
+            )
+        }
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `ready plan favourite day redirects to future dedicated UI`() = runTest {
+        val ready = readyForFinalizeSnapshot(finalSummaryWritten = false)
+        coEvery { sessionRepository.getActiveSession("conv") } returns ready
+
+        val reply = coordinator.ingestUserMessage("conv", "favourite day 1")
+
+        assertTrue(reply.content.contains("dedicated favourites and recent meal plans screen", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 1: Chicken stir-fry", ignoreCase = true))
+        coVerify(exactly = 0) { sessionRepository.setRecipeFavourite(any(), any(), any()) }
+    }
+
+    @Test
+    fun `plan review favourite day redirects to future dedicated UI`() = runTest {
+        val planReview = planReviewSnapshot()
+        coEvery { sessionRepository.getActiveSession("conv") } returns planReview
+
+        val reply = coordinator.ingestUserMessage("conv", "favourite day 2")
+
+        assertTrue(reply.content.contains("dedicated favourites and recent meal plans screen", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 2: Beef bowls", ignoreCase = true))
+        coVerify(exactly = 0) { sessionRepository.setRecipeFavourite(any(), any(), any()) }
+    }
+
+    @Test
     fun `plan review replacement emits working activity before draft update`() = runTest {
         val planReview = planReviewSnapshot()
         val replaced = planReview.copy(
@@ -989,6 +1053,29 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `collecting state prefer favourites stays in editable flow until generate`() = runTest {
+        val collecting = planReviewSnapshot().copy(status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS)
+        val updated = collecting.copy(favouriteRecipeMode = FavouriteRecipeMode.PREFER)
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = null,
+                proteinPreferences = null,
+                favouriteRecipeMode = FavouriteRecipeMode.PREFER,
+            )
+        } returns updated
+
+        val reply = coordinator.ingestUserMessage("conv", "prefer favourites")
+
+        assertTrue(reply.content.contains("Current plan details", ignoreCase = true))
+        assertFalse(reply.content.contains("saved favourites preferred", ignoreCase = true))
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `collecting state can replace a protein in one message`() = runTest {
         val collecting = planReviewSnapshot().copy(
             status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
@@ -1035,6 +1122,22 @@ class MealPlannerCoordinatorTest {
         assertTrue(reply.content.contains("Day 1: Lemon chicken", ignoreCase = true))
         assertTrue(reply.content.contains("Day 2: Beef bowls", ignoreCase = true))
         assertTrue(reply.content.contains("Reply with any updated people count", ignoreCase = true))
+        coVerify(exactly = 0) { sessionRepository.updateRequiredSlots(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `collecting state favourite commands redirect to future dedicated UI`() = runTest {
+        val collecting = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
+            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
+            favouriteRecipeMode = FavouriteRecipeMode.AVOID,
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+
+        val reply = coordinator.ingestUserMessage("conv", "unfavourite day 2")
+
+        assertTrue(reply.content.contains("dedicated favourites and recent meal plans screen", ignoreCase = true))
+        assertFalse(reply.content.contains("saved favourites avoided", ignoreCase = true))
+        coVerify(exactly = 0) { sessionRepository.setRecipeFavourite(any(), any(), any()) }
         coVerify(exactly = 0) { sessionRepository.updateRequiredSlots(any(), any(), any(), any(), any()) }
     }
     @Test
@@ -1178,6 +1281,30 @@ class MealPlannerCoordinatorTest {
             listOf("generate recipes", "show current plan", "replace day 1", "change preferences", "help"),
             activity?.suggestions?.map { it.command },
         )
+    }
+
+    @Test
+    fun `plan review help omits favourite bias affordances`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns planReviewSnapshot()
+
+        val reply = coordinator.ingestUserMessage("conv", "help")
+
+        assertTrue(reply.content.contains("replace day 1", ignoreCase = true))
+        assertFalse(reply.content.contains("prefer favourites", ignoreCase = true))
+        assertFalse(reply.content.contains("include favourites", ignoreCase = true))
+        assertFalse(reply.content.contains("avoid favourites", ignoreCase = true))
+    }
+
+    @Test
+    fun `ready help omits favourite bias affordances`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns readyForFinalizeSnapshot(finalSummaryWritten = false)
+
+        val reply = coordinator.ingestUserMessage("conv", "help")
+
+        assertTrue(reply.content.contains("done meal planning", ignoreCase = true))
+        assertFalse(reply.content.contains("prefer favourites", ignoreCase = true))
+        assertFalse(reply.content.contains("include favourites", ignoreCase = true))
+        assertFalse(reply.content.contains("avoid favourites", ignoreCase = true))
     }
 
     @Test
@@ -1566,6 +1693,7 @@ class MealPlannerCoordinatorTest {
         daysCount = null,
         dietaryRestrictions = emptyList(),
         proteinPreferences = emptyList(),
+        favouriteRecipeMode = FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,
         pendingGenerationDayIndex = null,
@@ -1587,6 +1715,7 @@ class MealPlannerCoordinatorTest {
         daysCount = 2,
         dietaryRestrictions = listOf("low lactose"),
         proteinPreferences = listOf("chicken"),
+        favouriteRecipeMode = FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,
         pendingGenerationDayIndex = null,
@@ -1617,6 +1746,8 @@ class MealPlannerCoordinatorTest {
                     lastErrorCode = null,
                     lastErrorMessage = null,
                     currentRecipe = null,
+                    recipeKey = null,
+                    isFavouriteRecipe = false,
                 )
             },
         )
@@ -1630,6 +1761,7 @@ class MealPlannerCoordinatorTest {
         daysCount = 2,
         dietaryRestrictions = listOf("low lactose"),
         proteinPreferences = listOf("chicken"),
+        favouriteRecipeMode = FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,
         pendingGenerationDayIndex = null,
@@ -1657,6 +1789,8 @@ class MealPlannerCoordinatorTest {
         lastErrorCode = null,
         lastErrorMessage = null,
         currentRecipe = null,
+        recipeKey = if (status == MealPlanDayStatus.PERSISTED) title.lowercase() else null,
+        isFavouriteRecipe = false,
     )
 
     private fun planJson(

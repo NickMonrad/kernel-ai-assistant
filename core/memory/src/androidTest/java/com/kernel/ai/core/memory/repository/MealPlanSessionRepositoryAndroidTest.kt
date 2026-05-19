@@ -70,6 +70,7 @@ class MealPlanSessionRepositoryAndroidTest {
             dayDao = database.mealPlanDayDao(),
             recipeVersionDao = database.mealPlanRecipeVersionDao(),
             groceryItemDao = database.mealPlanGroceryItemDao(),
+            favouriteRecipeDao = database.mealPlanFavouriteRecipeDao(),
             projectionWriteDao = database.mealPlanProjectionWriteDao(),
             listItemDao = database.listItemDao(),
             listNameDao = database.listNameDao(),
@@ -427,6 +428,45 @@ class MealPlanSessionRepositoryAndroidTest {
         val listNames = listNameDao.getAll().map { it.name }
         assertFalse(listNames.contains(legacyListName))
         assertTrue(listNames.any { it.matches(Regex("""Meal Plan \d{4}-\d{2}-\d{2} \(MP-001\) Shopping List""")) })
+    }
+
+    @Test
+    fun setRecipeFavourite_persistsFavouriteRecipesAndSupportsUndo() = runBlocking {
+        val session = repository.startOrResume("conv-favourites")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(
+                    dayIndex = 0,
+                    title = "Chicken Stir Fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                ),
+            ),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(
+                title = "Chicken Stir Fry",
+                method = listOf("Slice the vegetables.", "Stir-fry everything until glossy."),
+            ),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh"),
+            ),
+        )
+
+        val favourited = repository.setRecipeFavourite(session.sessionId, 0, true)
+
+        assertTrue(favourited.days.single().isFavouriteRecipe)
+        assertNotNull(favourited.days.single().recipeKey)
+        assertEquals(1, rawQueryInt("SELECT COUNT(*) FROM meal_plan_favourite_recipes"))
+
+        val unfavourited = repository.setRecipeFavourite(session.sessionId, 0, false)
+
+        assertFalse(unfavourited.days.single().isFavouriteRecipe)
+        assertEquals(0, rawQueryInt("SELECT COUNT(*) FROM meal_plan_favourite_recipes"))
     }
 
     @Test
@@ -827,6 +867,72 @@ class MealPlanSessionRepositoryAndroidTest {
         }
         migratedDb.close()
     }
+
+    @Test
+    fun migration45To46_addsFavouriteRecipeSupport() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 45).apply {
+            execSQL(
+                """
+                INSERT INTO `meal_plan_sessions` (
+                    `id`, `conversationId`, `status`, `peopleCount`, `daysCount`,
+                    `dietaryRestrictionsJson`, `proteinPreferencesJson`, `optionalSlotsJson`,
+                    `activeDayIndex`, `pendingGenerationKind`, `pendingGenerationDayIndex`,
+                    `pendingGenerationStartedAt`, `displayCode`, `planVersion`, `finalSummaryWritten`,
+                    `createdAt`, `updatedAt`, `completedAt`, `cancelledAt`
+                ) VALUES (
+                    'session-a', 'conv-a', 'PLAN_REVIEW', 2, 3, '[]', '[]', '{}', NULL, NULL, NULL, NULL, 1, 1, 0, 1000, 1000, NULL, NULL
+                )
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO `meal_plan_days` (
+                    `id`, `mealPlanSessionId`, `dayIndex`, `title`, `summary`, `proteinTagsJson`,
+                    `status`, `currentRecipeVersion`, `attemptCount`, `lastErrorCode`, `lastErrorMessage`,
+                    `createdAt`, `updatedAt`
+                ) VALUES (
+                    'day-a', 'session-a', 0, 'Chicken Stir Fry', 'Quick bowl', '["chicken"]',
+                    'PERSISTED', 1, 1, NULL, NULL, 1000, 1000
+                )
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO `meal_plan_recipe_versions` (
+                    `id`, `mealPlanSessionId`, `mealPlanDayId`, `version`, `title`, `servings`,
+                    `ingredientsJson`, `methodStepsJson`, `rawModelJson`, `createdAt`
+                ) VALUES (
+                    'recipe-a', 'session-a', 'day-a', 1, 'Chicken Stir Fry', 4, '[]', '[]', '{}', 1000
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            MIGRATION_DB_NAME,
+            46,
+            true,
+            KernelDatabase.MIGRATION_45_46,
+        )
+
+        assertTrue(tableExists(migratedDb, "meal_plan_favourite_recipes"))
+        migratedDb.query("SELECT favouriteRecipeMode FROM `meal_plan_sessions` WHERE id = 'session-a'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("NONE", cursor.getString(0))
+        }
+        migratedDb.query("SELECT recipeKey FROM `meal_plan_recipe_versions` WHERE id = 'recipe-a'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("", cursor.getString(0))
+        }
+        migratedDb.close()
+    }
+
+    private fun rawQueryInt(sql: String): Int =
+        database.openHelper.writableDatabase.query(sql).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
 
     private companion object {
         private const val MIGRATION_DB_NAME = "meal-plan-migration-test"
