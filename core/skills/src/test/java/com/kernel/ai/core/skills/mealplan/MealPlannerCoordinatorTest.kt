@@ -760,6 +760,30 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `plan review replacement emits working activity before draft update`() = runTest {
+        val planReview = planReviewSnapshot()
+        val replaced = planReview.copy(
+            days = listOf(
+                draftDay(dayIndex = 0, title = "Turkey skillet", status = MealPlanDayStatus.DRAFTED),
+                draftDay(dayIndex = 1, title = "Beef bowls", status = MealPlanDayStatus.DRAFTED),
+            ),
+        )
+        val activities = mutableListOf<MealPlannerActivity>()
+        coEvery { sessionRepository.getActiveSession("conv") } returns planReview
+        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns replacementJson(dayIndex = 0, title = "Turkey skillet")
+        coEvery { sessionRepository.replaceDayDraft("session-1", 0, "Turkey skillet", any(), any(), false) } returns replaced
+
+        coordinator.ingestUserMessage(
+            "conv",
+            "replace day 1",
+            onPlannerActivityChanged = { activities += it },
+        )
+
+        assertEquals(MealPlannerActivityState.WORKING, activities.single().state)
+        assertTrue(activities.single().subtitle.contains("Replacing Lemon chicken in your plan", ignoreCase = true))
+    }
+
+    @Test
     fun `collecting help lists dietary options when dietary slot is missing`() = runTest {
         coEvery { sessionRepository.getActiveSession("conv") } returns collectingSnapshot().copy(
             peopleCount = 3,
@@ -774,6 +798,31 @@ class MealPlannerCoordinatorTest {
         assertTrue(reply.content.contains("no coriander", ignoreCase = true))
     }
 
+
+    @Test
+    fun `collecting no-op removal does not regenerate plan`() = runTest {
+        val collecting = planReviewSnapshot().copy(
+            status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
+            dietaryRestrictions = listOf("kid friendly"),
+            proteinPreferences = listOf("beef"),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = null,
+                proteinPreferences = null,
+            )
+        } returns collecting
+
+        val reply = coordinator.ingestUserMessage("conv", "remove gluten free")
+
+        assertTrue(reply.content.contains("current plan details", ignoreCase = true))
+        coVerify(exactly = 0) { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) }
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+    }
     @Test
     fun `collecting state can remove a single dietary restriction while preserving others`() = runTest {
         val collecting = planReviewSnapshot().copy(

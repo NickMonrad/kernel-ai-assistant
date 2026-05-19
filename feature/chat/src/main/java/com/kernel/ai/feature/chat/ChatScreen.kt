@@ -335,7 +335,7 @@ private fun ChatContent(
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
     voiceMode: ChatViewModel.VoiceMode?,
     mealPlannerActivity: MealPlannerActivity?,
-    onPlannerSmartReplySelected: (String) -> Unit,
+    onPlannerSmartReplySelected: (MealPlannerSuggestion) -> Unit,
     onStartVoiceInput: () -> Unit,
     onStartBackAndForthVoiceInput: () -> Unit,
     onStopVoiceInput: () -> Unit,
@@ -846,7 +846,7 @@ private fun InputBar(
     voiceMode: ChatViewModel.VoiceMode?,
     mealPlannerActivity: MealPlannerActivity?,
     onTextChanged: (String) -> Unit,
-    onSmartReplySelected: (String) -> Unit,
+    onSmartReplySelected: (MealPlannerSuggestion) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit,
     onStartVoiceInput: () -> Unit,
@@ -995,7 +995,7 @@ private fun InputBar(
             ) {
                 PlannerSmartReplyChips(
                     suggestions = plannerSuggestions,
-                    onSuggestionSelected = { suggestion -> onSmartReplySelected(suggestion.command) },
+                    onSuggestionSelected = onSmartReplySelected,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 )
             }

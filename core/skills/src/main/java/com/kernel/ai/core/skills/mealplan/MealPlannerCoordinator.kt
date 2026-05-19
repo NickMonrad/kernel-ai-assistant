@@ -197,7 +197,7 @@ class MealPlannerCoordinator @Inject constructor(
         }
         val replaceDayIndex = slotExtractor.extractReplaceDayIndex(text)
         if (replaceDayIndex != null) {
-            return replaceDayForReview(snapshot, replaceDayIndex)
+            return replaceDayForReview(snapshot, replaceDayIndex, onPlannerActivityChanged)
         }
         if (slotExtractor.isChangePreferencesRequest(text)) {
             val editable = sessionRepository.returnToSlotCollection(snapshot.sessionId)
@@ -237,7 +237,7 @@ class MealPlannerCoordinator @Inject constructor(
         }
         if (interruptedReviewReplacementDayIndex != null) {
             if (slotExtractor.isRetryRequest(text) || replaceDayIndex == interruptedReviewReplacementDayIndex) {
-                return replaceDayForReview(snapshot, interruptedReviewReplacementDayIndex)
+                return replaceDayForReview(snapshot, interruptedReviewReplacementDayIndex, onPlannerActivityChanged)
             }
             if (replaceDayIndex == null && regenerateDayIndex == null) {
                 return MealPlannerReply(replacementRetryPrompt(interruptedReviewReplacementDayIndex))
@@ -579,7 +579,8 @@ class MealPlannerCoordinator @Inject constructor(
         if (added == null && removed.isEmpty()) return null
         val filteredAdded = added.orEmpty().filterNot { it in removed }
         if (filteredAdded.contains("no dietary requirements")) {
-            return listOf("no dietary requirements")
+            val updated = listOf("no dietary requirements")
+            return updated.takeUnless { it == current }
         }
         val updated = current
             .filterNot { it == "no dietary requirements" || it in removed }
@@ -591,7 +592,7 @@ class MealPlannerCoordinator @Inject constructor(
                     updated += restriction
                 }
             }
-        return updated
+        return updated.takeUnless { it == current }
     }
 
     private fun mergeUpdatedProteinPreferences(
@@ -602,7 +603,8 @@ class MealPlannerCoordinator @Inject constructor(
         if (added == null && removed.isEmpty()) return null
         val filteredAdded = added.orEmpty().filterNot { it in removed }
         if (filteredAdded.contains("no protein preference")) {
-            return listOf("no protein preference")
+            val updated = listOf("no protein preference")
+            return updated.takeUnless { it == current }
         }
         val updated = current
             .filterNot { it == "no protein preference" || it in removed }
@@ -614,7 +616,7 @@ class MealPlannerCoordinator @Inject constructor(
                     updated += protein
                 }
             }
-        return updated
+        return updated.takeUnless { it == current }
     }
     private fun shouldEnforceRecentPatternDiversity(snapshot: MealPlanSnapshot): Boolean {
         val preferredProteins = snapshot.proteinPreferences
@@ -924,12 +926,14 @@ class MealPlannerCoordinator @Inject constructor(
     private suspend fun replaceDayForReview(
         snapshot: MealPlanSnapshot,
         dayIndex: Int,
+        onPlannerActivityChanged: suspend (MealPlannerActivity) -> Unit,
     ): MealPlannerReply =
         withSessionGeneration(
             sessionId = snapshot.sessionId,
             onBusy = { MealPlannerReply(generationInProgressMessage(snapshot)) },
         ) {
             try {
+                onPlannerActivityChanged(replacingPlanDayActivity(snapshot, dayIndex))
                 val replaced = generateReplacementDayInternal(snapshot, dayIndex)
                 MealPlannerReply(
                     replacementChangeMessage(snapshot, replaced, dayIndex) + "\n\n" + currentPlanReply(replaced),
@@ -1676,6 +1680,19 @@ Rules:
         ),
     )
 
+    private fun replacingPlanDayActivity(snapshot: MealPlanSnapshot, dayIndex: Int): MealPlannerActivity = MealPlannerActivity(
+        title = "Updating Day ${dayIndex + 1}",
+        subtitle = snapshot.days.firstOrNull { it.dayIndex == dayIndex }?.title?.let {
+            "Replacing $it in your plan. Say 'help' for options."
+        } ?: "Replacing Day ${dayIndex + 1} in your plan. Say 'help' for options.",
+        state = MealPlannerActivityState.WORKING,
+        suggestions = listOf(
+            suggestion("Show current plan", "show current plan"),
+            suggestion("Help", "help"),
+            suggestion("Cancel plan", "cancel plan"),
+        ),
+    )
+
     private fun humanizeSlot(slot: String): String = when (slot) {
         "people" -> "people count"
         "days" -> "number of days"
@@ -1698,15 +1715,15 @@ Rules:
         val dietaryOnlyMissing = missing == listOf("dietary")
         return buildList {
             if ("people" in missing) {
-                add(suggestion("2 people", "2 people"))
+                add(suggestion("2 people", "2 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
                 if (missing.size == 1) {
-                    add(suggestion("4 people", "4 people"))
+                    add(suggestion("4 people", "4 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
                 }
             }
             if ("days" in missing) {
-                add(suggestion("4 days", "4 days"))
+                add(suggestion("4 days", "4 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
                 if (missing.size == 1) {
-                    add(suggestion("7 days", "7 days"))
+                    add(suggestion("7 days", "7 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
                 }
             }
             if ("dietary" in missing) {
@@ -1716,7 +1733,13 @@ Rules:
                     starterDietarySuggestions()
                 }
                 dietarySuggestions.forEach { dietary ->
-                    add(suggestion(dietary.replaceFirstChar { ch -> ch.titlecase() }, dietary))
+                    add(
+                        suggestion(
+                            dietary.replaceFirstChar { ch -> ch.titlecase() },
+                            dietary,
+                            composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA,
+                        ),
+                    )
                 }
             }
             if ("protein" in missing) {
@@ -1726,7 +1749,13 @@ Rules:
                     listOf("chicken")
                 }
                 proteinSuggestions.forEach { protein ->
-                    add(suggestion(protein.replaceFirstChar { ch -> ch.titlecase() }, protein))
+                    add(
+                        suggestion(
+                            protein.replaceFirstChar { ch -> ch.titlecase() },
+                            protein,
+                            composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA,
+                        ),
+                    )
                 }
             }
             add(suggestion("Help", "help"))
@@ -1812,8 +1841,12 @@ Rules:
         snapshot.days.firstOrNull { it.status == MealPlanDayStatus.PERSISTED }?.dayIndex
             ?: snapshot.days.firstOrNull()?.dayIndex
 
-    private fun suggestion(label: String, command: String): MealPlannerSuggestion =
-        MealPlannerSuggestion(label = label, command = command)
+    private fun suggestion(
+        label: String,
+        command: String,
+        composeMode: MealPlannerSuggestionComposeMode = MealPlannerSuggestionComposeMode.REPLACE,
+    ): MealPlannerSuggestion =
+        MealPlannerSuggestion(label = label, command = command, composeMode = composeMode)
 
     private fun isFinalizeRequest(text: String): Boolean =
         Regex(
@@ -1862,7 +1895,13 @@ data class MealPlannerReply(
 data class MealPlannerSuggestion(
     val label: String,
     val command: String,
+    val composeMode: MealPlannerSuggestionComposeMode = MealPlannerSuggestionComposeMode.REPLACE,
 )
+
+enum class MealPlannerSuggestionComposeMode {
+    REPLACE,
+    APPEND_COMMA,
+}
 
 data class MealPlannerActivity(
     val title: String,

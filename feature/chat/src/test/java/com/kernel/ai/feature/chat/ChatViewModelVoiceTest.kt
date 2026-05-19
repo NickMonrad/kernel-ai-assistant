@@ -38,6 +38,8 @@ import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
 import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.skills.mealplan.MealPlannerReply
+import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
+import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestionComposeMode
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
@@ -604,15 +606,45 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
-    fun `smart reply selection prefills the composer`() = runTest(dispatcher) {
+    fun `replace smart reply selection prefills the composer`() = runTest(dispatcher) {
         val viewModel = createViewModel()
         advanceUntilIdle()
 
-        viewModel.onSmartReplySelected("generate recipes")
+        viewModel.onSmartReplySelected(MealPlannerSuggestion("Generate recipes", "generate recipes"))
 
         val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
         assertEquals("generate recipes", state.inputText)
         coVerify(exactly = 0) { conversationRepository.addMessage(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `append smart reply selection adds comma separated values`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onSmartReplySelected(
+            MealPlannerSuggestion("Gluten free", "gluten free", MealPlannerSuggestionComposeMode.APPEND_COMMA),
+        )
+        viewModel.onSmartReplySelected(
+            MealPlannerSuggestion("Nut free", "nut free", MealPlannerSuggestionComposeMode.APPEND_COMMA),
+        )
+
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertEquals("gluten free, nut free", state.inputText)
+    }
+
+    @Test
+    fun `append smart reply selection preserves existing typed text`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("beef")
+
+        viewModel.onSmartReplySelected(
+            MealPlannerSuggestion("Chicken", "chicken", MealPlannerSuggestionComposeMode.APPEND_COMMA),
+        )
+
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertEquals("beef, chicken", state.inputText)
     }
 
     @Test

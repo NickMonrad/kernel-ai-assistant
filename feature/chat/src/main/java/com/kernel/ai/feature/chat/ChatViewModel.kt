@@ -45,6 +45,8 @@ import com.kernel.ai.core.skills.slot.SlotFillResult
 import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
+import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
+import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestionComposeMode
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -906,8 +908,27 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Prefills the composer from a planner smart reply chip; chips never auto-submit. */
-    fun onSmartReplySelected(command: String) {
-        onInputChanged(command)
+    fun onSmartReplySelected(suggestion: MealPlannerSuggestion) {
+        when (suggestion.composeMode) {
+            MealPlannerSuggestionComposeMode.REPLACE -> onInputChanged(suggestion.command)
+            MealPlannerSuggestionComposeMode.APPEND_COMMA ->
+                onInputChanged(appendSmartReplyValue(_inputText.value, suggestion.command))
+        }
+    }
+
+    private fun appendSmartReplyValue(current: String, command: String): String {
+        val trimmedCurrent = current.trim()
+        if (trimmedCurrent.isBlank()) return command
+        val normalizedCommand = command.trim().lowercase()
+        val existingValues = trimmedCurrent.split(',').map { it.trim().lowercase() }.filter { it.isNotBlank() }
+        if (normalizedCommand in existingValues) {
+            return trimmedCurrent
+        }
+        return if (trimmedCurrent.endsWith(',')) {
+            "$trimmedCurrent $command"
+        } else {
+            "$trimmedCurrent, $command"
+        }
     }
     /** Starts a one-shot voice capture: user speaks once, reply may be spoken, then loop ends. */
     fun startVoiceInput() = startVoiceInput(VoiceMode.OneShot)
