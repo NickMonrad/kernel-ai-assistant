@@ -21,6 +21,10 @@ import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
+import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
+import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
+import com.kernel.ai.core.memory.mealplan.MealPlanSnapshot
+import com.kernel.ai.core.memory.mealplan.MealPlanSnapshotDay
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
@@ -29,6 +33,8 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
 import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.skills.mealplan.MealPlannerReply
 import com.kernel.ai.feature.chat.model.ChatUiState
@@ -117,6 +123,8 @@ class ChatViewModelInitTest {
         every { jandalPersona.personaMode } returns MutableStateFlow(PersonaMode.FULL)
         every { jandalPersona.currentPersonaMode } returns PersonaMode.FULL
         every { voiceOutputPreferences.spokenResponsesEnabled } returns MutableStateFlow(false)
+        every { voiceOutputPreferences.autoSpeak } returns MutableStateFlow(false)
+        every { voiceOutputPreferences.maxSpokenSentences } returns flowOf(0)
         every { nzTruthSeedingService.isSeeding } returns MutableStateFlow(false)
         every { nzTruthSeedingService.seedIfNeeded() } just runs
         coEvery { verboseLoggingPreferenceUseCase.loadAndApplyVerboseLoggingPreference() } just runs
@@ -272,6 +280,123 @@ class ChatViewModelInitTest {
         coVerify(exactly = 0) { ragRepository.indexMessage(any(), any(), any()) }
         val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
         assertEquals(prompt, state.messages.last().content)
+    }
+
+    @Test
+    fun `restored chat initialization restores planner activity from canonical session state`() = runTest(dispatcher) {
+        val activity = MealPlannerActivity(
+            title = "Meal plan ready",
+            subtitle = "Say 'show current plan' or 'done meal planning'.",
+            state = MealPlannerActivityState.WAITING,
+        )
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        coEvery { mealPlannerCoordinator.activeSessionActivity("conv-existing") } returns activity
+
+        val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        )
+
+        advanceUntilIdle()
+
+        assertEquals(activity, viewModel.mealPlannerActivity.value)
+    }
+
+    @Test
+    fun `restored chat initialization syncs placeholder title to canonical meal plan name`() = runTest(dispatcher) {
+        val snapshot = MealPlanSnapshot(
+            sessionId = "session-1",
+            conversationId = "conv-existing",
+            displayName = "Meal Plan 2026-05-17 (MP-001)",
+            status = MealPlanSessionStatus.PLAN_REVIEW,
+            peopleCount = 2,
+            daysCount = 3,
+            dietaryRestrictions = emptyList(),
+            proteinPreferences = listOf("chicken"),
+            activeDayIndex = null,
+            pendingGenerationKind = null,
+            pendingGenerationDayIndex = null,
+            planVersion = 1,
+            finalSummaryWritten = false,
+            createdAt = 1L,
+            updatedAt = 1L,
+            completedAt = null,
+            cancelledAt = null,
+            days = listOf(
+                MealPlanSnapshotDay(
+                    id = "day-1",
+                    dayIndex = 0,
+                    title = "Chicken stir-fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                    status = MealPlanDayStatus.DRAFTED,
+                    currentRecipeVersion = null,
+                    attemptCount = 0,
+                    lastErrorCode = null,
+                    lastErrorMessage = null,
+                    currentRecipe = null,
+                ),
+            ),
+        )
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        coEvery { conversationRepository.getConversation("conv-existing") } returns
+            ConversationEntity(id = "conv-existing", title = "plan meals…", createdAt = 1L, updatedAt = 1L)
+        coEvery { mealPlanSessionRepository.getActiveSession("conv-existing") } returns snapshot
+
+        val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+        inferenceEngine = inferenceEngine,
+        downloadManager = downloadManager,
+        conversationRepository = conversationRepository,
+        ragRepository = ragRepository,
+        userProfileRepository = userProfileRepository,
+        memoryRepository = memoryRepository,
+        episodicDistillationUseCase = episodicDistillationUseCase,
+        modelSettingsRepository = modelSettingsRepository,
+        skillRegistry = skillRegistry,
+        skillExecutor = skillExecutor,
+        quickIntentRouter = quickIntentRouter,
+        slotFillerManager = slotFillerManager,
+        kernelAIToolSet = kernelAIToolSet,
+        toolProvider = toolProvider,
+        embeddingEngine = embeddingEngine,
+        voiceInputController = voiceInputController,
+        voiceOutputController = voiceOutputController,
+        voiceOutputPreferences = voiceOutputPreferences,
+        jandalPersona = jandalPersona,
+        nzTruthSeedingService = nzTruthSeedingService,
+        verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        mealPlanSessionRepository = mealPlanSessionRepository,
+        mealPlannerCoordinator = mealPlannerCoordinator,
+        )
+
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { conversationRepository.renameConversation("conv-existing", snapshot.displayName) }
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertEquals(snapshot.displayName, state.conversationTitle)
     }
 
     @Test
