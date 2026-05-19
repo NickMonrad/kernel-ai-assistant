@@ -784,7 +784,7 @@ class MealPlannerCoordinatorTest {
         val reply = coordinator.ingestUserMessage("conv", "prefer favourites")
 
         assertTrue(reply.content.contains("Current plan details", ignoreCase = true))
-        assertTrue(reply.content.contains("saved favourites preferred", ignoreCase = true))
+        assertFalse(reply.content.contains("saved favourites preferred", ignoreCase = true))
         coVerify { sessionRepository.returnToSlotCollection("session-1") }
         coVerify {
             sessionRepository.updateRequiredSlots(
@@ -1071,7 +1071,7 @@ class MealPlannerCoordinatorTest {
         val reply = coordinator.ingestUserMessage("conv", "prefer favourites")
 
         assertTrue(reply.content.contains("Current plan details", ignoreCase = true))
-        assertTrue(reply.content.contains("saved favourites preferred", ignoreCase = true))
+        assertFalse(reply.content.contains("saved favourites preferred", ignoreCase = true))
         coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
     }
 
@@ -1136,7 +1136,7 @@ class MealPlannerCoordinatorTest {
         val reply = coordinator.ingestUserMessage("conv", "unfavourite day 2")
 
         assertTrue(reply.content.contains("dedicated favourites and recent meal plans screen", ignoreCase = true))
-        assertTrue(reply.content.contains("saved favourites avoided", ignoreCase = true))
+        assertFalse(reply.content.contains("saved favourites avoided", ignoreCase = true))
         coVerify(exactly = 0) { sessionRepository.setRecipeFavourite(any(), any(), any()) }
         coVerify(exactly = 0) { sessionRepository.updateRequiredSlots(any(), any(), any(), any(), any()) }
     }
@@ -1278,9 +1278,33 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("generate recipes", "show current plan", "replace day 1", "prefer favourites", "change preferences", "help"),
+            listOf("generate recipes", "show current plan", "replace day 1", "change preferences", "help"),
             activity?.suggestions?.map { it.command },
         )
+    }
+
+    @Test
+    fun `plan review help omits favourite bias affordances`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns planReviewSnapshot()
+
+        val reply = coordinator.ingestUserMessage("conv", "help")
+
+        assertTrue(reply.content.contains("replace day 1", ignoreCase = true))
+        assertFalse(reply.content.contains("prefer favourites", ignoreCase = true))
+        assertFalse(reply.content.contains("include favourites", ignoreCase = true))
+        assertFalse(reply.content.contains("avoid favourites", ignoreCase = true))
+    }
+
+    @Test
+    fun `ready help omits favourite bias affordances`() = runTest {
+        coEvery { sessionRepository.getActiveSession("conv") } returns readyForFinalizeSnapshot(finalSummaryWritten = false)
+
+        val reply = coordinator.ingestUserMessage("conv", "help")
+
+        assertTrue(reply.content.contains("done meal planning", ignoreCase = true))
+        assertFalse(reply.content.contains("prefer favourites", ignoreCase = true))
+        assertFalse(reply.content.contains("include favourites", ignoreCase = true))
+        assertFalse(reply.content.contains("avoid favourites", ignoreCase = true))
     }
 
     @Test

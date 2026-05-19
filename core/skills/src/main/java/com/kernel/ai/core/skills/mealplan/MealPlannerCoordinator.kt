@@ -1278,7 +1278,7 @@ class MealPlannerCoordinator @Inject constructor(
             if (snapshot.days.isEmpty()) {
                 "I still need to rebuild your meal plan draft. You can say 'generate recipes' to try again, 'change preferences' to edit the plan details, 'show current plan' to inspect what I have, or 'cancel' to stop."
             } else {
-                "You're reviewing the draft meal plan. You can say 'show current plan' to inspect it again, 'generate recipes' to build the recipe details, 'replace day 1' to swap one meal, 'prefer favourites', 'include favourites', or 'avoid favourites' to adjust favourite bias, 'change preferences' to edit people, days, dietary needs, or proteins, or 'cancel' to stop."
+                "You're reviewing the draft meal plan. You can say 'show current plan' to inspect it again, 'generate recipes' to build the recipe details, 'replace day 1' to swap one meal, 'change preferences' to edit people, days, dietary needs, or proteins, or 'cancel' to stop."
             }
         MealPlanSessionStatus.RECIPES_IN_PROGRESS,
         MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY -> activeOrRecoveryHelpPrompt(snapshot, generationActive)
@@ -1297,7 +1297,7 @@ class MealPlannerCoordinator @Inject constructor(
                 appendLine("- 5 days")
                 appendLine("- gluten free, kid friendly, no coriander")
                 appendLine("- chicken, salmon")
-                appendLine("- prefer favourites")
+                appendLine("- 4 people, 5 days, chicken")
                 appendLine("- remove gluten free")
                 appendLine("- remove no chicken")
                 append("Then say 'generate' to rebuild the plan, 'show current plan' to inspect it, or 'cancel' to stop.")
@@ -1341,7 +1341,7 @@ class MealPlannerCoordinator @Inject constructor(
             pendingDay != null ->
                 "Recipe generation is paused at Day ${pendingDay.dayIndex + 1} of ${snapshot.days.size}. Say 'generate recipes' to continue, 'show current plan' to inspect the draft, or 'cancel' to stop."
             else ->
-                "You're at the final review step. Say 'show current plan' to inspect it, 'prefer favourites', 'include favourites', or 'avoid favourites' to adjust future bias, 'done meal planning' to finalize it, 'regenerate day 1' or 'replace day 1' to revise a day, or 'cancel' to stop."
+                "You're at the final review step. Say 'show current plan' to inspect it, 'done meal planning' to finalize it, 'regenerate day 1' or 'replace day 1' to revise a day, or 'cancel' to stop."
         }
     }
 
@@ -1362,7 +1362,7 @@ class MealPlannerCoordinator @Inject constructor(
         append("Current plan details: ")
         append(buildKnownBits(snapshot).ifEmpty { listOf("no saved details yet") }.joinToString(", "))
         append(".\n\n")
-        append("Reply with any updated people count, days, dietary requirements, allergens, ingredients to avoid, protein preferences, or favourite recipe preference. Say 'help' for examples or 'cancel' to stop.")
+        append("Reply with any updated people count, days, dietary requirements, allergens, ingredients to avoid, or protein preferences. Say 'help' for examples or 'cancel' to stop.")
     }
 
     private fun buildKnownBits(snapshot: MealPlanSnapshot): List<String> = buildList {
@@ -1370,7 +1370,7 @@ class MealPlannerCoordinator @Inject constructor(
         snapshot.daysCount?.let { add("$it days") }
         if (snapshot.dietaryRestrictions.isNotEmpty()) add(snapshot.dietaryRestrictions.joinToString())
         if (snapshot.proteinPreferences.isNotEmpty()) add(snapshot.proteinPreferences.joinToString())
-        if (snapshot.favouriteRecipeMode != FavouriteRecipeMode.NONE) add(favouriteModeLabel(snapshot.favouriteRecipeMode))
+
     }
 
     private fun missingSlots(snapshot: MealPlanSnapshot): List<String> = buildList {
@@ -1495,9 +1495,6 @@ class MealPlannerCoordinator @Inject constructor(
         append("Here’s the meal plan I built for ${snapshot.peopleCount} people over ${snapshot.daysCount} days")
         if (snapshot.dietaryRestrictions.isNotEmpty()) {
             append(" (${snapshot.dietaryRestrictions.joinToString()})")
-        }
-        if (snapshot.favouriteRecipeMode != FavouriteRecipeMode.NONE) {
-            append(" with ${favouriteModeLabel(snapshot.favouriteRecipeMode)}")
         }
         append(":\n")
         snapshot.days.sortedBy { it.dayIndex }.forEach { day ->
@@ -1809,7 +1806,6 @@ Rules:
         primaryEditableDay(snapshot)?.let { dayIndex ->
             add(suggestion("Replace day ${dayIndex + 1}", "replace day ${dayIndex + 1}"))
         }
-        favouriteModeSuggestion(snapshot)?.let(::add)
         add(suggestion("Change preferences", "change preferences"))
         add(suggestion("Help", "help"))
     }
@@ -1947,19 +1943,7 @@ Rules:
         snapshot.days.firstOrNull { it.status == MealPlanDayStatus.PERSISTED }?.dayIndex
             ?: snapshot.days.firstOrNull()?.dayIndex
 
-    private fun favouriteModeSuggestion(snapshot: MealPlanSnapshot): MealPlannerSuggestion? = when (snapshot.favouriteRecipeMode) {
-        FavouriteRecipeMode.NONE -> suggestion("Prefer favourites", "prefer favourites")
-        FavouriteRecipeMode.PREFER -> suggestion("Avoid favourites", "avoid favourites")
-        FavouriteRecipeMode.AVOID -> suggestion("Include favourites", "include favourites")
-        FavouriteRecipeMode.INCLUDE -> suggestion("Prefer favourites", "prefer favourites")
-    }
 
-    private fun favouriteModeLabel(mode: FavouriteRecipeMode): String = when (mode) {
-        FavouriteRecipeMode.NONE -> "no favourite recipe bias"
-        FavouriteRecipeMode.INCLUDE -> "some saved favourites mixed in"
-        FavouriteRecipeMode.PREFER -> "saved favourites preferred"
-        FavouriteRecipeMode.AVOID -> "saved favourites avoided"
-    }
 
     private fun suggestion(
         label: String,
