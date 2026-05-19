@@ -25,6 +25,13 @@ enum class PendingGenerationKind {
     REPLACEMENT,
 }
 
+enum class FavouriteRecipeMode {
+    NONE,
+    INCLUDE,
+    PREFER,
+    AVOID,
+}
+
 enum class GroceryNormalizationStatus {
     OPAQUE,
     NORMALIZED,
@@ -43,6 +50,13 @@ data class MealPlanDraft(
 )
 
 data class RecentMealHistoryEntry(
+    val title: String,
+    val summary: String?,
+    val proteinTags: List<String> = emptyList(),
+)
+
+data class FavouriteRecipeSummary(
+    val recipeKey: String,
     val title: String,
     val summary: String?,
     val proteinTags: List<String> = emptyList(),
@@ -88,6 +102,7 @@ data class MealPlanSnapshot(
     val daysCount: Int?,
     val dietaryRestrictions: List<String>,
     val proteinPreferences: List<String>,
+    val favouriteRecipeMode: FavouriteRecipeMode,
     val activeDayIndex: Int?,
     val pendingGenerationKind: PendingGenerationKind?,
     val pendingGenerationDayIndex: Int?,
@@ -112,6 +127,8 @@ data class MealPlanSnapshotDay(
     val lastErrorCode: String?,
     val lastErrorMessage: String?,
     val currentRecipe: RecipeDraft?,
+    val recipeKey: String?,
+    val isFavouriteRecipe: Boolean,
 )
 
 fun List<String>.toJsonArrayString(): String = JSONArray(this).toString()
