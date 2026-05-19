@@ -94,19 +94,6 @@ class MealPlanSessionRepository @Inject constructor(
             )
         }
 
-    suspend fun setFavouriteRecipeMode(sessionId: String, mode: FavouriteRecipeMode): MealPlanSnapshot = database.withTransaction {
-        val session = requireNotNull(sessionDao.getById(sessionId)) { "Unknown meal-plan session: $sessionId" }
-        if (session.status == MealPlanSessionStatus.CANCELLED.name) {
-            return@withTransaction session.toSnapshot()
-        }
-        val updated = session.copy(
-            favouriteRecipeMode = mode.name,
-            updatedAt = System.currentTimeMillis(),
-        )
-        sessionDao.update(updated)
-        updated.toSnapshot()
-    }
-
     /**
      * Planner retention pruning runs here before resuming/creating a session so old terminal
      * planner state does not accumulate indefinitely between active planner uses.

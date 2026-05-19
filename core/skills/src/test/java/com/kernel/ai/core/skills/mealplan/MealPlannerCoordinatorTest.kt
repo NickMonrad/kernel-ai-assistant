@@ -1047,6 +1047,29 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `collecting state prefer favourites stays in editable flow until generate`() = runTest {
+        val collecting = planReviewSnapshot().copy(status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS)
+        val updated = collecting.copy(favouriteRecipeMode = FavouriteRecipeMode.PREFER)
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = null,
+                proteinPreferences = null,
+                favouriteRecipeMode = FavouriteRecipeMode.PREFER,
+            )
+        } returns updated
+
+        val reply = coordinator.ingestUserMessage("conv", "prefer favourites")
+
+        assertTrue(reply.content.contains("Current plan details", ignoreCase = true))
+        assertTrue(reply.content.contains("saved favourites preferred", ignoreCase = true))
+        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `collecting state can replace a protein in one message`() = runTest {
         val collecting = planReviewSnapshot().copy(
             status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,

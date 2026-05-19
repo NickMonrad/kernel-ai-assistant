@@ -178,13 +178,12 @@ class MealPlannerCoordinator @Inject constructor(
             return MealPlannerReply(promptForMissingSlots(updated, missing))
         }
         val hadAllSlotsBefore = missingSlots(snapshot).isEmpty()
-        val hasAnySlotUpdates =
+        val hasStructuralSlotUpdates =
             peopleCount != null ||
                 daysCount != null ||
                 updatedDietaryRestrictions != null ||
-                updatedProteinPreferences != null ||
-                favouriteRecipeMode != null
-        if (hadAllSlotsBefore && !hasAnySlotUpdates) {
+                updatedProteinPreferences != null
+        if (hadAllSlotsBefore && !hasStructuralSlotUpdates) {
             if (slotExtractor.isGenerateRecipesRequest(text)) {
                 return generatePlanForReview(updated, onPlannerActivityChanged)
             }
