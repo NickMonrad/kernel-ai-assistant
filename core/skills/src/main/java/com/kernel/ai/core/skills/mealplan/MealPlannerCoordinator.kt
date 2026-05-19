@@ -137,11 +137,11 @@ class MealPlannerCoordinator @Inject constructor(
         }
         val favouriteDayIndex = slotExtractor.extractFavouriteDayIndex(text)
         if (favouriteDayIndex != null) {
-            return handleFavouriteRecipeToggle(snapshot, favouriteDayIndex, true)
+            return favouriteManagementMovedToUiReply(snapshot)
         }
         val unfavouriteDayIndex = slotExtractor.extractUnfavouriteDayIndex(text)
         if (unfavouriteDayIndex != null) {
-            return handleFavouriteRecipeToggle(snapshot, unfavouriteDayIndex, false)
+            return favouriteManagementMovedToUiReply(snapshot)
         }
         val missingBefore = missingSlots(snapshot)
         val peopleCount = slotExtractor.extractPeopleCount(text)
@@ -211,11 +211,11 @@ class MealPlannerCoordinator @Inject constructor(
         }
         val favouriteDayIndex = slotExtractor.extractFavouriteDayIndex(text)
         if (favouriteDayIndex != null) {
-            return handleFavouriteRecipeToggle(snapshot, favouriteDayIndex, true)
+            return favouriteManagementMovedToUiReply(snapshot)
         }
         val unfavouriteDayIndex = slotExtractor.extractUnfavouriteDayIndex(text)
         if (unfavouriteDayIndex != null) {
-            return handleFavouriteRecipeToggle(snapshot, unfavouriteDayIndex, false)
+            return favouriteManagementMovedToUiReply(snapshot)
         }
         val favouriteRecipeMode = slotExtractor.extractFavouriteRecipeMode(text)
         if (favouriteRecipeMode != null) {
@@ -336,10 +336,10 @@ class MealPlannerCoordinator @Inject constructor(
             return MealPlannerReply(planReviewPrompt(snapshot))
         }
         if (favouriteDayIndex != null) {
-            return handleFavouriteRecipeToggle(snapshot, favouriteDayIndex, true)
+            return favouriteManagementMovedToUiReply(snapshot)
         }
         if (unfavouriteDayIndex != null) {
-            return handleFavouriteRecipeToggle(snapshot, unfavouriteDayIndex, false)
+            return favouriteManagementMovedToUiReply(snapshot)
         }
         if (replaceDayIndex != null) {
             return replaceDayAndGenerateRecipe(
@@ -1231,7 +1231,7 @@ class MealPlannerCoordinator @Inject constructor(
             )
             else -> MealPlannerActivity(
                 title = "Meal plan ready",
-                subtitle = "Say 'show current plan', 'favourite day 1', 'replace day 1', 'regenerate day 2', 'done meal planning', or 'help'.",
+                subtitle = "Say 'show current plan', 'replace day 1', 'regenerate day 2', 'done meal planning', or 'help'.",
                 state = MealPlannerActivityState.WAITING,
                 suggestions = finalizeSuggestions(snapshot),
             )
@@ -1341,7 +1341,7 @@ class MealPlannerCoordinator @Inject constructor(
             pendingDay != null ->
                 "Recipe generation is paused at Day ${pendingDay.dayIndex + 1} of ${snapshot.days.size}. Say 'generate recipes' to continue, 'show current plan' to inspect the draft, or 'cancel' to stop."
             else ->
-                "You're at the final review step. Say 'show current plan' to inspect it, 'favourite day 1' or 'unfavourite day 1' to manage saved favourites, 'prefer favourites', 'include favourites', or 'avoid favourites' to adjust future bias, 'done meal planning' to finalize it, 'regenerate day 1' or 'replace day 1' to revise a day, or 'cancel' to stop."
+                "You're at the final review step. Say 'show current plan' to inspect it, 'prefer favourites', 'include favourites', or 'avoid favourites' to adjust future bias, 'done meal planning' to finalize it, 'regenerate day 1' or 'replace day 1' to revise a day, or 'cancel' to stop."
         }
     }
 
@@ -1403,47 +1403,16 @@ class MealPlannerCoordinator @Inject constructor(
         }
 
 
-    private suspend fun handleFavouriteRecipeToggle(
-        snapshot: MealPlanSnapshot,
-        dayIndex: Int,
-        favourite: Boolean,
-    ): MealPlannerReply {
-        val day = snapshot.days.firstOrNull { it.dayIndex == dayIndex }
-            ?: return MealPlannerReply(invalidFavouriteDayMessage(dayIndex, snapshot.days.size))
-        if (day.currentRecipeVersion == null) {
-            val action = if (favourite) "save" else "remove"
-            return MealPlannerReply("I can $action favourites once Day ${dayIndex + 1} has a generated recipe. Say 'generate recipes' first.")
-        }
-        if (favourite && day.isFavouriteRecipe) {
-            return MealPlannerReply("Day ${dayIndex + 1} is already saved as a favourite recipe.\n\n${currentPlanReply(snapshot)}")
-        }
-        if (!favourite && !day.isFavouriteRecipe) {
-            return MealPlannerReply("Day ${dayIndex + 1} isn't saved as a favourite recipe yet.\n\n${currentPlanReply(snapshot)}")
-        }
-        return try {
-            val updated = sessionRepository.setRecipeFavourite(snapshot.sessionId, dayIndex, favourite)
-            val lead =
-                if (favourite) {
-                    "Saved Day ${dayIndex + 1} as a favourite recipe for future meal plans."
-                } else {
-                    "Removed Day ${dayIndex + 1} from your favourite recipes."
-                }
-            MealPlannerReply("$lead\n\n${currentPlanReply(updated)}")
-        } catch (e: IllegalArgumentException) {
-            MealPlannerReply(e.message ?: if (favourite) "I couldn't favourite that recipe yet." else "I couldn't remove that favourite yet.")
-        }
-    }
+    private fun favouriteManagementMovedToUiReply(snapshot: MealPlanSnapshot): MealPlannerReply =
+        MealPlannerReply(
+            "Favourite and unfavourite actions will move to a dedicated favourites and recent meal plans screen instead of this chat.\n\n${currentPlanReply(snapshot)}",
+        )
 
-    private fun invalidFavouriteDayMessage(dayIndex: Int, totalDays: Int): String = when {
-        totalDays <= 0 -> "I don't have Day ${dayIndex + 1} ready to favourite yet. Say 'generate recipes' first."
-        totalDays == 1 -> "Your current plan only has Day 1, so I can only manage favourites for Day 1."
-        else -> "Your current plan only has $totalDays days, so I can only manage favourites for Day 1 to Day $totalDays."
-    }
     private fun planReviewActionsPrompt(): String =
         "Say 'generate recipes', 'replace day 2', 'change preferences', 'help' for more options, or 'cancel'."
 
     private fun readyToFinalizePrompt(): String =
-        "Say 'show current plan', 'favourite day 1', 'replace day 1', 'regenerate day 2', 'done meal planning', or 'help' for more options."
+        "Say 'show current plan', 'replace day 1', 'regenerate day 2', 'done meal planning', or 'help' for more options."
 
     private fun statusPrompt(snapshot: MealPlanSnapshot): String = when (snapshot.status) {
         MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS -> {
@@ -1970,7 +1939,6 @@ Rules:
         primaryEditableDay(snapshot)?.let { dayIndex ->
             add(suggestion("Regenerate day ${dayIndex + 1}", "regenerate day ${dayIndex + 1}"))
             add(suggestion("Replace day ${dayIndex + 1}", "replace day ${dayIndex + 1}"))
-            favouriteDaySuggestion(snapshot, dayIndex)?.let(::add)
         }
         add(suggestion("Help", "help"))
     }
@@ -1978,15 +1946,6 @@ Rules:
     private fun primaryEditableDay(snapshot: MealPlanSnapshot): Int? =
         snapshot.days.firstOrNull { it.status == MealPlanDayStatus.PERSISTED }?.dayIndex
             ?: snapshot.days.firstOrNull()?.dayIndex
-
-    private fun favouriteDaySuggestion(snapshot: MealPlanSnapshot, dayIndex: Int): MealPlannerSuggestion? {
-        val day = snapshot.days.firstOrNull { it.dayIndex == dayIndex } ?: return null
-        return if (day.isFavouriteRecipe) {
-            suggestion("Unfavourite day ${dayIndex + 1}", "unfavourite day ${dayIndex + 1}")
-        } else {
-            suggestion("Favourite day ${dayIndex + 1}", "favourite day ${dayIndex + 1}")
-        }
-    }
 
     private fun favouriteModeSuggestion(snapshot: MealPlanSnapshot): MealPlannerSuggestion? = when (snapshot.favouriteRecipeMode) {
         FavouriteRecipeMode.NONE -> suggestion("Prefer favourites", "prefer favourites")

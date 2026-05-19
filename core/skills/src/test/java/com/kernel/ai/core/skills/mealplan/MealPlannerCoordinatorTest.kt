@@ -800,43 +800,26 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
-    fun `ready plan favourite day marks recipe as favourite`() = runTest {
+    fun `ready plan favourite day redirects to future dedicated UI`() = runTest {
         val ready = readyForFinalizeSnapshot(finalSummaryWritten = false)
-        val updated = ready.copy(
-            days = ready.days.mapIndexed { index, day ->
-                if (index == 0) day.copy(isFavouriteRecipe = true) else day
-            },
-        )
         coEvery { sessionRepository.getActiveSession("conv") } returns ready
-        coEvery { sessionRepository.setRecipeFavourite("session-1", 0, true) } returns updated
 
         val reply = coordinator.ingestUserMessage("conv", "favourite day 1")
 
-        assertTrue(reply.content.contains("Saved Day 1 as a favourite recipe", ignoreCase = true))
-        assertTrue(reply.content.contains("★ favourite"))
-        coVerify { sessionRepository.setRecipeFavourite("session-1", 0, true) }
-    }
-
-    @Test
-    fun `ready plan unfavourite day that is not saved returns guidance`() = runTest {
-        val ready = readyForFinalizeSnapshot(finalSummaryWritten = false)
-        coEvery { sessionRepository.getActiveSession("conv") } returns ready
-
-        val reply = coordinator.ingestUserMessage("conv", "unfavourite day 1")
-
-        assertTrue(reply.content.contains("isn't saved as a favourite recipe yet", ignoreCase = true))
+        assertTrue(reply.content.contains("dedicated favourites and recent meal plans screen", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 1: Chicken stir-fry", ignoreCase = true))
         coVerify(exactly = 0) { sessionRepository.setRecipeFavourite(any(), any(), any()) }
     }
 
     @Test
-    fun `plan review favourite day asks for recipes first`() = runTest {
+    fun `plan review favourite day redirects to future dedicated UI`() = runTest {
         val planReview = planReviewSnapshot()
         coEvery { sessionRepository.getActiveSession("conv") } returns planReview
 
         val reply = coordinator.ingestUserMessage("conv", "favourite day 2")
 
-        assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
-        assertTrue(reply.content.contains("Day 2", ignoreCase = true))
+        assertTrue(reply.content.contains("dedicated favourites and recent meal plans screen", ignoreCase = true))
+        assertTrue(reply.content.contains("Day 2: Beef bowls", ignoreCase = true))
         coVerify(exactly = 0) { sessionRepository.setRecipeFavourite(any(), any(), any()) }
     }
 
@@ -1143,27 +1126,18 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
-    fun `collecting state can unfavourite a generated day while editing preferences`() = runTest {
+    fun `collecting state favourite commands redirect to future dedicated UI`() = runTest {
         val collecting = readyForFinalizeSnapshot(finalSummaryWritten = false).copy(
             status = MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS,
             favouriteRecipeMode = FavouriteRecipeMode.AVOID,
-            days = readyForFinalizeSnapshot(finalSummaryWritten = false).days.mapIndexed { index, day ->
-                if (index == 1) day.copy(isFavouriteRecipe = true) else day
-            },
-        )
-        val updated = collecting.copy(
-            days = collecting.days.mapIndexed { index, day ->
-                if (index == 1) day.copy(isFavouriteRecipe = false) else day
-            },
         )
         coEvery { sessionRepository.getActiveSession("conv") } returns collecting
-        coEvery { sessionRepository.setRecipeFavourite("session-1", 1, false) } returns updated
 
         val reply = coordinator.ingestUserMessage("conv", "unfavourite day 2")
 
-        assertTrue(reply.content.contains("Removed Day 2", ignoreCase = true))
-        assertFalse(reply.content.contains("★ favourite"))
-        coVerify { sessionRepository.setRecipeFavourite("session-1", 1, false) }
+        assertTrue(reply.content.contains("dedicated favourites and recent meal plans screen", ignoreCase = true))
+        assertTrue(reply.content.contains("saved favourites avoided", ignoreCase = true))
+        coVerify(exactly = 0) { sessionRepository.setRecipeFavourite(any(), any(), any()) }
         coVerify(exactly = 0) { sessionRepository.updateRequiredSlots(any(), any(), any(), any(), any()) }
     }
     @Test
@@ -1328,7 +1302,7 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("show current plan", "done meal planning", "regenerate day 1", "replace day 1", "favourite day 1", "help"),
+            listOf("show current plan", "done meal planning", "regenerate day 1", "replace day 1", "help"),
             activity?.suggestions?.map { it.command },
         )
     }
