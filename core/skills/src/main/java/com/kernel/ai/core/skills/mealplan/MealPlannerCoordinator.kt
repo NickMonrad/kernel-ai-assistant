@@ -3,6 +3,8 @@ package com.kernel.ai.core.skills.mealplan
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
+import com.kernel.ai.core.memory.mealplan.FavouriteRecipeSummary
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanDraft
 import com.kernel.ai.core.memory.mealplan.MealPlanDraftDay
@@ -22,6 +24,8 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val MAX_FAVOURITE_PROMPT_RECIPES = 6
 
 @Singleton
 class MealPlannerCoordinator @Inject constructor(
@@ -131,6 +135,14 @@ class MealPlannerCoordinator @Inject constructor(
         if (slotExtractor.isShowCurrentPlanRequest(text)) {
             return MealPlannerReply(currentPlanReply(snapshot))
         }
+        val favouriteDayIndex = slotExtractor.extractFavouriteDayIndex(text)
+        if (favouriteDayIndex != null) {
+            return favouriteManagementMovedToUiReply(snapshot)
+        }
+        val unfavouriteDayIndex = slotExtractor.extractUnfavouriteDayIndex(text)
+        if (unfavouriteDayIndex != null) {
+            return favouriteManagementMovedToUiReply(snapshot)
+        }
         val missingBefore = missingSlots(snapshot)
         val peopleCount = slotExtractor.extractPeopleCount(text)
         val daysCount = slotExtractor.extractDaysCount(text)
@@ -151,6 +163,7 @@ class MealPlannerCoordinator @Inject constructor(
             added = proteinPreferences,
             removed = removedProteinPreferences,
         )
+        val favouriteRecipeMode = slotExtractor.extractFavouriteRecipeMode(text)
         val mergedDietaryRestrictions = updatedDietaryRestrictions ?: snapshot.dietaryRestrictions
         val mergedProteinPreferences = updatedProteinPreferences ?: snapshot.proteinPreferences
         val shouldClearProteinPreferences =
@@ -162,6 +175,7 @@ class MealPlannerCoordinator @Inject constructor(
             daysCount = daysCount,
             dietaryRestrictions = updatedDietaryRestrictions,
             proteinPreferences = if (shouldClearProteinPreferences) emptyList() else updatedProteinPreferences,
+            favouriteRecipeMode = favouriteRecipeMode,
         )
         if (shouldClearProteinPreferences) {
             val conflicts = detectProteinPreferenceConflicts(updated.dietaryRestrictions, mergedProteinPreferences)
@@ -172,12 +186,12 @@ class MealPlannerCoordinator @Inject constructor(
             return MealPlannerReply(promptForMissingSlots(updated, missing))
         }
         val hadAllSlotsBefore = missingSlots(snapshot).isEmpty()
-        val hasAnySlotUpdates =
+        val hasStructuralSlotUpdates =
             peopleCount != null ||
                 daysCount != null ||
                 updatedDietaryRestrictions != null ||
                 updatedProteinPreferences != null
-        if (hadAllSlotsBefore && !hasAnySlotUpdates) {
+        if (hadAllSlotsBefore && !hasStructuralSlotUpdates) {
             if (slotExtractor.isGenerateRecipesRequest(text)) {
                 return generatePlanForReview(updated, onPlannerActivityChanged)
             }
@@ -194,6 +208,23 @@ class MealPlannerCoordinator @Inject constructor(
     ): MealPlannerReply {
         if (slotExtractor.isShowCurrentPlanRequest(text)) {
             return MealPlannerReply(currentPlanReply(snapshot))
+        }
+        val favouriteDayIndex = slotExtractor.extractFavouriteDayIndex(text)
+        if (favouriteDayIndex != null) {
+            return favouriteManagementMovedToUiReply(snapshot)
+        }
+        val unfavouriteDayIndex = slotExtractor.extractUnfavouriteDayIndex(text)
+        if (unfavouriteDayIndex != null) {
+            return favouriteManagementMovedToUiReply(snapshot)
+        }
+        val favouriteRecipeMode = slotExtractor.extractFavouriteRecipeMode(text)
+        if (favouriteRecipeMode != null) {
+            sessionRepository.returnToSlotCollection(snapshot.sessionId)
+            val updated = sessionRepository.updateRequiredSlots(
+                sessionId = snapshot.sessionId,
+                favouriteRecipeMode = favouriteRecipeMode,
+            )
+            return MealPlannerReply(promptForPreferenceEditing(updated))
         }
         val replaceDayIndex = slotExtractor.extractReplaceDayIndex(text)
         if (replaceDayIndex != null) {
@@ -227,8 +258,19 @@ class MealPlannerCoordinator @Inject constructor(
         val pendingDay = snapshot.days.firstOrNull { it.status != MealPlanDayStatus.PERSISTED && it.status != MealPlanDayStatus.FAILED }
         val replaceDayIndex = slotExtractor.extractReplaceDayIndex(text)
         val regenerateDayIndex = slotExtractor.extractRegenerateDayIndex(text)
+        val favouriteRecipeMode = slotExtractor.extractFavouriteRecipeMode(text)
+        val favouriteDayIndex = slotExtractor.extractFavouriteDayIndex(text)
+        val unfavouriteDayIndex = slotExtractor.extractUnfavouriteDayIndex(text)
         if (slotExtractor.isShowCurrentPlanRequest(text)) {
             return MealPlannerReply(currentPlanReply(snapshot))
+        }
+        if (favouriteRecipeMode != null) {
+            sessionRepository.returnToSlotCollection(snapshot.sessionId)
+            val updated = sessionRepository.updateRequiredSlots(
+                sessionId = snapshot.sessionId,
+                favouriteRecipeMode = favouriteRecipeMode,
+            )
+            return MealPlannerReply(promptForPreferenceEditing(updated))
         }
         val interruptedReviewReplacementDayIndex = snapshot.pendingGenerationDayIndex?.takeIf {
             snapshot.pendingGenerationKind == PendingGenerationKind.REPLACEMENT &&
@@ -293,7 +335,12 @@ class MealPlannerCoordinator @Inject constructor(
         if (snapshot.pendingGenerationKind == PendingGenerationKind.PLAN && snapshot.days.isEmpty()) {
             return MealPlannerReply(planReviewPrompt(snapshot))
         }
-
+        if (favouriteDayIndex != null) {
+            return favouriteManagementMovedToUiReply(snapshot)
+        }
+        if (unfavouriteDayIndex != null) {
+            return favouriteManagementMovedToUiReply(snapshot)
+        }
         if (replaceDayIndex != null) {
             return replaceDayAndGenerateRecipe(
                 snapshot = snapshot,
@@ -340,8 +387,9 @@ class MealPlannerCoordinator @Inject constructor(
             sessionRepository.markPendingGeneration(snapshot.sessionId, PendingGenerationKind.PLAN)
             onPlannerActivityChanged(generatingPlanActivity(snapshot))
             val recentHistory = sessionRepository.getRecentMealHistory(RECENT_MEAL_HISTORY_LIMIT)
+            val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
             val rawPlan = inferenceEngine.generateOnce(
-                prompt = buildPlanUserPrompt(snapshot, recentHistory),
+                prompt = buildPlanUserPrompt(snapshot, recentHistory, favouriteRecipes),
                 systemPrompt = buildPlanSystemPrompt(),
                 thinkingEnabled = false,
                 stopOnFirstJsonObject = true,
@@ -433,9 +481,10 @@ class MealPlannerCoordinator @Inject constructor(
         recentHistory: List<RecentMealHistoryEntry>,
     ): MealPlanDraftDay {
         val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
+        val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
         repeat(MAX_DAY_VARIETY_REPAIR_ATTEMPTS) {
             val raw = inferenceEngine.generateOnce(
-                prompt = buildReplacementDayUserPrompt(snapshot, currentDays, dayIndex, recentHistory),
+                prompt = buildReplacementDayUserPrompt(snapshot, currentDays, dayIndex, recentHistory, favouriteRecipes),
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
                 thinkingEnabled = false,
                 stopOnFirstJsonObject = true,
@@ -965,9 +1014,10 @@ class MealPlannerCoordinator @Inject constructor(
         }
         try {
             val recentHistory = sessionRepository.getRecentMealHistory(RECENT_MEAL_HISTORY_LIMIT)
+            val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
             val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
             val raw = inferenceEngine.generateOnce(
-                prompt = buildReplacementDayUserPrompt(snapshot, dayIndex, recentHistory),
+                prompt = buildReplacementDayUserPrompt(snapshot, dayIndex, recentHistory, favouriteRecipes),
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
                 thinkingEnabled = false,
                 stopOnFirstJsonObject = true,
@@ -1247,6 +1297,7 @@ class MealPlannerCoordinator @Inject constructor(
                 appendLine("- 5 days")
                 appendLine("- gluten free, kid friendly, no coriander")
                 appendLine("- chicken, salmon")
+                appendLine("- 4 people, 5 days, chicken")
                 appendLine("- remove gluten free")
                 appendLine("- remove no chicken")
                 append("Then say 'generate' to rebuild the plan, 'show current plan' to inspect it, or 'cancel' to stop.")
@@ -1319,6 +1370,7 @@ class MealPlannerCoordinator @Inject constructor(
         snapshot.daysCount?.let { add("$it days") }
         if (snapshot.dietaryRestrictions.isNotEmpty()) add(snapshot.dietaryRestrictions.joinToString())
         if (snapshot.proteinPreferences.isNotEmpty()) add(snapshot.proteinPreferences.joinToString())
+
     }
 
     private fun missingSlots(snapshot: MealPlanSnapshot): List<String> = buildList {
@@ -1349,6 +1401,12 @@ class MealPlannerCoordinator @Inject constructor(
         } else {
             buildPlanSummary(snapshot) + "\n\n" + statusPrompt(snapshot)
         }
+
+
+    private fun favouriteManagementMovedToUiReply(snapshot: MealPlanSnapshot): MealPlannerReply =
+        MealPlannerReply(
+            "Favourite and unfavourite actions will move to a dedicated favourites and recent meal plans screen instead of this chat.\n\n${currentPlanReply(snapshot)}",
+        )
 
     private fun planReviewActionsPrompt(): String =
         "Say 'generate recipes', 'replace day 2', 'change preferences', 'help' for more options, or 'cancel'."
@@ -1441,6 +1499,7 @@ class MealPlannerCoordinator @Inject constructor(
         append(":\n")
         snapshot.days.sortedBy { it.dayIndex }.forEach { day ->
             append("- Day ${day.dayIndex + 1}: ${day.title ?: "Meal"}")
+            if (day.isFavouriteRecipe) append(" ★ favourite")
             day.summary?.let { append(" — $it") }
             append('\n')
         }
@@ -1486,9 +1545,11 @@ Rules:
     private fun buildPlanUserPrompt(
         snapshot: MealPlanSnapshot,
         recentHistory: List<RecentMealHistoryEntry>,
+        favouriteRecipes: List<FavouriteRecipeSummary>,
     ): String {
         val now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.ENGLISH))
         val recentHistoryBlock = buildRecentHistoryPromptBlock(recentHistory)
+        val favouritePromptBlock = buildFavouriteRecipePromptBlock(snapshot.favouriteRecipeMode, favouriteRecipes)
         return buildString {
             appendLine("Build a ${snapshot.daysCount}-day dinner meal plan for ${snapshot.peopleCount} people.")
             appendLine("Date: $now")
@@ -1498,6 +1559,10 @@ Rules:
             if (recentHistoryBlock.isNotBlank()) {
                 appendLine()
                 append(recentHistoryBlock)
+            }
+            if (favouritePromptBlock.isNotBlank()) {
+                appendLine()
+                append(favouritePromptBlock)
             }
         }.trim()
     }
@@ -1570,6 +1635,7 @@ Rules:
         snapshot: MealPlanSnapshot,
         dayIndex: Int,
         recentHistory: List<RecentMealHistoryEntry>,
+        favouriteRecipes: List<FavouriteRecipeSummary>,
     ): String =
         buildReplacementDayUserPrompt(
             snapshot = snapshot,
@@ -1583,6 +1649,7 @@ Rules:
             },
             dayIndex = dayIndex,
             recentHistory = recentHistory,
+            favouriteRecipes = favouriteRecipes,
         )
 
     private fun buildReplacementDayUserPrompt(
@@ -1590,9 +1657,11 @@ Rules:
         currentDays: List<MealPlanDraftDay>,
         dayIndex: Int,
         recentHistory: List<RecentMealHistoryEntry>,
+        favouriteRecipes: List<FavouriteRecipeSummary>,
     ): String {
         val currentTitle = currentDays.firstOrNull { it.dayIndex == dayIndex }?.title ?: "Day ${dayIndex + 1}"
         val recentHistoryBlock = buildRecentHistoryPromptBlock(recentHistory)
+        val favouritePromptBlock = buildFavouriteRecipePromptBlock(snapshot.favouriteRecipeMode, favouriteRecipes)
         return buildString {
             appendLine("Replace Day ${dayIndex + 1} in this meal plan.")
             appendLine("Current plan:")
@@ -1602,6 +1671,10 @@ Rules:
             if (recentHistoryBlock.isNotBlank()) {
                 appendLine()
                 appendLine(recentHistoryBlock)
+            }
+            if (favouritePromptBlock.isNotBlank()) {
+                appendLine()
+                appendLine(favouritePromptBlock)
             }
             appendLine()
             appendLine("Return one alternative day that fits the plan without duplicating '$currentTitle' or clashing with the surrounding days.")
@@ -1633,6 +1706,33 @@ Rules:
                 append("Also vary away from these recent protein + cooking styles: ${recentPatterns.joinToString()}")
             }
         }.trim()
+    }
+
+    private fun buildFavouriteRecipePromptBlock(
+        mode: FavouriteRecipeMode,
+        favouriteRecipes: List<FavouriteRecipeSummary>,
+    ): String {
+        if (mode == FavouriteRecipeMode.NONE) return ""
+        if (favouriteRecipes.isEmpty()) {
+            return when (mode) {
+                FavouriteRecipeMode.INCLUDE -> "The user asked to include favourites, but no favourite recipes are saved yet. Build a fresh plan."
+                FavouriteRecipeMode.PREFER -> "The user asked to prefer favourites, but no favourite recipes are saved yet. Build a fresh plan and avoid pretending favourites exist."
+                FavouriteRecipeMode.AVOID -> "Avoid leaning on saved favourites; keep this plan fresh."
+                FavouriteRecipeMode.NONE -> ""
+            }
+        }
+        val favouritesText = favouriteRecipes.joinToString("; ") { favourite ->
+            buildString {
+                append(favourite.title)
+                favourite.summary?.takeIf { it.isNotBlank() }?.let { append(" — $it") }
+            }
+        }
+        return when (mode) {
+            FavouriteRecipeMode.INCLUDE -> "Include 1-2 saved favourite meals if they fit naturally: $favouritesText"
+            FavouriteRecipeMode.PREFER -> "Bias the plan toward these saved favourite meals when they fit naturally: $favouritesText"
+            FavouriteRecipeMode.AVOID -> "Avoid these saved favourite meals for this plan: $favouritesText"
+            FavouriteRecipeMode.NONE -> ""
+        }
     }
 
     private fun generatingPlanActivity(snapshot: MealPlanSnapshot): MealPlannerActivity = MealPlannerActivity(
@@ -1762,6 +1862,7 @@ Rules:
             add(suggestion("Cancel plan", "cancel plan"))
         }.distinctBy(MealPlannerSuggestion::command)
     }
+
     private fun starterDietarySuggestions(): List<String> =
         listOf("no dietary requirements", "kid friendly", "gluten free", "nut free")
 
@@ -1827,6 +1928,7 @@ Rules:
             append(" or say 'no protein preference'.")
         }
     }
+
     private fun finalizeSuggestions(snapshot: MealPlanSnapshot): List<MealPlannerSuggestion> = buildList {
         add(suggestion("Show current plan", "show current plan"))
         add(suggestion("Done meal planning", "done meal planning"))
@@ -1840,6 +1942,8 @@ Rules:
     private fun primaryEditableDay(snapshot: MealPlanSnapshot): Int? =
         snapshot.days.firstOrNull { it.status == MealPlanDayStatus.PERSISTED }?.dayIndex
             ?: snapshot.days.firstOrNull()?.dayIndex
+
+
 
     private fun suggestion(
         label: String,
