@@ -35,6 +35,11 @@ import com.kernel.ai.core.memory.mealplan.RecipeDraftIngredient
 import com.kernel.ai.core.memory.mealplan.RecipeDraftMethodStep
 import com.kernel.ai.core.memory.mealplan.jsonArrayToStringList
 import com.kernel.ai.core.memory.mealplan.toJsonArrayString
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -93,6 +98,25 @@ class MealPlanSessionRepository @Inject constructor(
                 proteinTags = jsonArrayToStringList(favourite.proteinTagsJson),
             )
         }
+
+    fun observeFavouriteRecipes(limit: Int): Flow<List<FavouriteRecipeSummary>> =
+        favouriteRecipeDao.observeRecent(limit).map { favourites ->
+            favourites.map { favourite ->
+                FavouriteRecipeSummary(
+                    recipeKey = favourite.recipeKey,
+                    title = favourite.title,
+                    summary = favourite.summary,
+                    proteinTags = jsonArrayToStringList(favourite.proteinTagsJson),
+                )
+            }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+
+    fun observeRecentCompletedPlans(limit: Int): Flow<List<MealPlanSnapshot>> =
+        combine(sessionDao.observeCompleted(limit), favouriteRecipeDao.observeRecent(1)) { sessions, _ -> sessions }
+            .mapLatest { sessions -> sessions.map { it.toSnapshot() } }
+
 
     /**
      * Planner retention pruning runs here before resuming/creating a session so old terminal
@@ -161,10 +185,18 @@ class MealPlanSessionRepository @Inject constructor(
         } else {
             favouriteRecipeDao.delete(recipeKey)
         }
+        if (session.status == MealPlanSessionStatus.COMPLETED.name) {
+            return@withTransaction session.toSnapshot()
+        }
         val updatedSession = session.copy(updatedAt = now)
         sessionDao.update(updatedSession)
         updatedSession.toSnapshot()
     }
+
+    suspend fun removeFavouriteRecipe(recipeKey: String) = database.withTransaction {
+        favouriteRecipeDao.delete(recipeKey)
+    }
+
     suspend fun savePlanDraft(
         sessionId: String,
         days: List<MealPlanDraftDay>,

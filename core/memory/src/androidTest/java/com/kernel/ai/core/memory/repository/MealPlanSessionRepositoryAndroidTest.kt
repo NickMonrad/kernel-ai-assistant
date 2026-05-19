@@ -25,6 +25,7 @@ import com.kernel.ai.core.memory.mealplan.RecipeDraftMethodStep
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -470,6 +471,47 @@ class MealPlanSessionRepositoryAndroidTest {
     }
 
     @Test
+    fun observeRecentCompletedPlans_updatesFavouriteFlagsFromCanonicalStore() = runBlocking {
+        val completed = createCompletedSessionWithRecipe("conv-browser")
+
+        val initial = repository.observeRecentCompletedPlans(10).first { it.isNotEmpty() }.single()
+        assertEquals(completed.displayName, initial.displayName)
+        assertFalse(initial.days.single().isFavouriteRecipe)
+
+        val favourited = repository.setRecipeFavourite(completed.sessionId, 0, true)
+        val favouriteKey = requireNotNull(favourited.days.single().recipeKey)
+
+        val favouritedPlans = repository.observeRecentCompletedPlans(10)
+            .first { plans -> plans.single().days.single().isFavouriteRecipe }
+            .single()
+        assertTrue(favouritedPlans.days.single().isFavouriteRecipe)
+        assertEquals(favouriteKey, favouritedPlans.days.single().recipeKey)
+
+        repository.removeFavouriteRecipe(favouriteKey)
+
+        val unfavouritedPlans = repository.observeRecentCompletedPlans(10)
+            .first { plans -> plans.isNotEmpty() && !plans.single().days.single().isFavouriteRecipe }
+            .single()
+        assertFalse(unfavouritedPlans.days.single().isFavouriteRecipe)
+    }
+
+    @Test
+    fun observeFavouriteRecipes_readsCanonicalFavouriteStore() = runBlocking {
+        val completed = createCompletedSessionWithRecipe("conv-favourite-library")
+        val favourited = repository.setRecipeFavourite(completed.sessionId, 0, true)
+        val favouriteKey = requireNotNull(favourited.days.single().recipeKey)
+
+        val favourite = repository.observeFavouriteRecipes(10)
+            .first { it.isNotEmpty() }
+            .single()
+
+        assertEquals(favouriteKey, favourite.recipeKey)
+        assertEquals("Chicken Stir Fry", favourite.title)
+        assertEquals("Quick bowl", favourite.summary)
+        assertEquals(listOf("chicken"), favourite.proteinTags)
+    }
+
+    @Test
     fun getRecentMealHistory_reads_recent_terminal_days_from_canonical_session_rows() = runBlocking {
         val completed = repository.startOrResume("conv-history-completed")
         repository.savePlanDraft(
@@ -743,6 +785,39 @@ class MealPlanSessionRepositoryAndroidTest {
             "UPDATE meal_plan_sessions SET updatedAt = ? WHERE id = ?",
             arrayOf<Any>(cutoff, sessionId),
         )
+    }
+
+    private fun createCompletedSessionWithRecipe(conversationId: String) = runBlocking {
+        val session = repository.startOrResume(conversationId)
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(
+                    dayIndex = 0,
+                    title = "Chicken Stir Fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                ),
+            ),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(
+                title = "Chicken Stir Fry",
+                method = listOf("Slice the vegetables.", "Stir-fry everything until glossy."),
+            ),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(
+                    displayText = "500 g chicken thigh",
+                    quantity = "500",
+                    unit = "g",
+                    ingredientName = "chicken thigh",
+                ),
+            ),
+        )
+        repository.completeSession(session.sessionId)
     }
 
     private fun tableExists(db: androidx.sqlite.db.SupportSQLiteDatabase, tableName: String): Boolean =

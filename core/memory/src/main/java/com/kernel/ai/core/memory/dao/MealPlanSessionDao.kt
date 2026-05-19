@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.kernel.ai.core.memory.entity.MealPlanSessionEntity
+import kotlinx.coroutines.flow.Flow
 
 data class RecentTerminalMealHistoryRow(
     val title: String,
@@ -61,6 +62,16 @@ interface MealPlanSessionDao {
 
     @Query("SELECT MAX(displayCode) FROM meal_plan_sessions")
     suspend fun getMaxDisplayCode(): Int?
+
+    @Query(
+        """
+        SELECT * FROM meal_plan_sessions
+        WHERE status = 'COMPLETED'
+        ORDER BY COALESCE(completedAt, updatedAt) DESC, createdAt DESC
+        LIMIT :limit
+        """,
+    )
+    fun observeCompleted(limit: Int): Flow<List<MealPlanSessionEntity>>
 
     @Query(
         """

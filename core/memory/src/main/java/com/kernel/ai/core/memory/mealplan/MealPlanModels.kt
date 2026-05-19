@@ -62,6 +62,17 @@ data class FavouriteRecipeSummary(
     val proteinTags: List<String> = emptyList(),
 )
 
+data class FavouriteRecipeBrowserItem(
+    val recipeKey: String,
+    val title: String,
+    val summary: String?,
+    val proteinTags: List<String> = emptyList(),
+    val recentPlanDisplayName: String?,
+    val recentPlanSessionId: String?,
+    val recentDayIndex: Int?,
+    val recipe: RecipeDraft?,
+)
+
 data class RecipeDraftIngredient(
     val originalText: String,
     val amount: String?,
