@@ -378,9 +378,14 @@ class LiteRtInferenceEngine @Inject constructor(
                     //      that our regex cannot reliably strip token-by-token).
                     val channelDelta = message.channels["thought"]
                     if (!channelDelta.isNullOrEmpty()) {
-                        val withoutHeader = channelDelta
-                            .removePrefix("<|channel>thought")
-                            .removePrefix("\n")
+                        // Only strip the SDK header prefix on the delta that actually carries it.
+                        // Mid-thinking deltas that start with '\n' (paragraph breaks, list items)
+                        // must not have their leading newline consumed unconditionally.
+                        val withoutHeader = if (channelDelta.startsWith("<|channel>thought")) {
+                            channelDelta.removePrefix("<|channel>thought").removePrefix("\n")
+                        } else {
+                            channelDelta
+                        }
                         val closeIdx = withoutHeader.indexOf("<channel|>")
                         if (closeIdx >= 0) {
                             // Thinking phase ended in this delta
