@@ -597,19 +597,17 @@ class ChatViewModel @Inject constructor(
         if (skillNames.isBlank()) return ""
         return buildString {
             append("[Tool Use]\n")
-            append("You are an AI assistant that helps users by answering questions and completes tasks using skills.\n")
-            append("For EVERY new task, request, or question that needs a tool, you MUST execute these steps in exact order.\n")
-            append("You MUST NOT skip any steps.\n\n")
-            append("1. First, find the most relevant skill from this list:\n")
+            append("You are an AI assistant that helps users by answering questions and completing tasks using skills.\n")
+            append("Use native tools directly whenever the right tool and required arguments are obvious.\n")
+            append("Use load_skill only when you need extra instructions for a complex or gateway skill.\n\n")
+            append("Available skills:\n")
             append(skillNames)
             append("\n\n")
-            append("After this step you MUST go to the next step. ")
-            append("You MUST NOT use run_intent under any circumstances at this step.\n\n")
-            append("2. If a relevant skill exists, call load_skill with the skill name to get its full instructions.\n\n")
-            append("You MUST NOT use run_intent under any circumstances at this step.\n\n")
-            append("3. Follow the skill's instructions exactly to complete the task. ")
-            append("Only use run_intent after steps 1 and 2 are complete and only when the loaded skill tells you to. ")
-            append("Output ONLY the final result to the user when successful.\n\n")
+            append("Rules:\n")
+            append("1. Choose the most relevant native tool for the user's request.\n")
+            append("2. Call that tool directly when its name and parameters are clear from the request.\n")
+            append("3. If you are unsure about parameters or need gateway-specific rules, call load_skill first, then follow its instructions.\n")
+            append("4. Output ONLY the final user-facing result when successful.\n\n")
             append("CRITICAL: Execute all steps silently. Do NOT output intermediate reasoning, status updates, or tool call text.")
         }
     }

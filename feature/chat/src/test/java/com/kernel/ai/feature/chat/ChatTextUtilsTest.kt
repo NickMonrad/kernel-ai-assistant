@@ -642,6 +642,23 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `returns true for leaked skill instructions`() {
+            assertTrue(
+                looksLikeRawToolCall(
+                    """
+                    query_wikipedia: Look up a topic on Wikipedia and return grounded factual context.
+
+                    Instructions:
+                    - Call the run_js tool with the format below.
+
+                    Tool format:
+                    - Call runJs with a single 'parameters' argument.
+                    """.trimIndent(),
+                ),
+            )
+        }
+
+        @Test
         fun `returns false for normal assistant reply`() {
             assertFalse(looksLikeRawToolCall("Here are the three meals I came up with."))
         }

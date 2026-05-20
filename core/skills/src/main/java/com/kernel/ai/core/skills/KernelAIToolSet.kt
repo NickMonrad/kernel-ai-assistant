@@ -24,8 +24,8 @@ private const val TAG = "KernelAI"
  *
  * ## Tool pipeline
  * 1. Model sees tool names + descriptions (SDK-generated from annotations)
- * 2. Model calls `loadSkill` → gets full instructions for a specific skill
- * 3. Model calls the target tool with correct parameters
+ * 2. For simple tools, model calls the target tool directly
+ * 3. For complex/gateway skills, model may call `loadSkill` first to get detailed instructions
  * 4. SDK feeds result back → model generates final text response
  *
  * ## Lazy injection
@@ -33,10 +33,9 @@ private const val TAG = "KernelAI"
  * SkillRegistry → Set<Skill> (includes LoadSkillSkill) → SkillRegistry.
  *
  * ## ⚠️ System prompt constraint
- * Because the model only learns skill parameters via `loadSkill`, the system prompt
- * ([DEFAULT_SYSTEM_PROMPT] in ModelConfig) must never contain raw tool call syntax
- * (e.g. `runJs(skillName="query-wikipedia")`). That would cause the model to skip
- * step 2 entirely. Behavioural rules are fine; skill invocation recipes are not.
+ * Direct tool names are fine in high-level behavioural rules, but avoid embedding raw
+ * call syntax or low-level gateway recipes in the system prompt. Behavioural rules are
+ * safe; detailed invocation recipes belong in `@Tool` descriptions or loadSkill payloads.
  */
 @Singleton
 class KernelAIToolSet @Inject constructor(
@@ -171,6 +170,29 @@ class KernelAIToolSet @Inject constructor(
         }
 
         val result = executeSkill("get_weather_gps", args)
+        lastToolResult = result["result"] ?: result["error"]
+        return result
+    }
+
+    @Tool(description = "Look up a topic on Wikipedia and return grounded factual context. Use for explicit Wikipedia searches or encyclopedia-style fact lookups.")
+    fun queryWikipedia(
+        @ToolParam(description = "The topic, entity, or article title to look up on Wikipedia.") query: String,
+    ): Map<String, String> {
+        toolCalledInThisTurn = true
+        val safeQuery = query.replace("\"", "\\\"").take(200)
+        setLastToolCall("query_wikipedia", "{\"query\":\"$safeQuery\"}")
+        Log.d(TAG, "ToolSet: queryWikipedia(${query.take(60)})")
+        val result = executeSkill("query_wikipedia", mapOf("query" to query))
+        lastToolResult = result["result"] ?: result["error"]
+        return result
+    }
+
+    @Tool(description = "Get current date/time and device runtime info including hardware tier, available memory, battery level, and device details. ALWAYS use this for current date, time, or day queries.")
+    fun getSystemInfo(): Map<String, String> {
+        toolCalledInThisTurn = true
+        setLastToolCall("get_system_info", "{}")
+        Log.d(TAG, "ToolSet: getSystemInfo()")
+        val result = executeSkill("get_system_info", emptyMap())
         lastToolResult = result["result"] ?: result["error"]
         return result
     }

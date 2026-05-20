@@ -26,9 +26,8 @@ class LoadSkillSkill @Inject constructor(
 
     override val name = "load_skill"
     override val description =
-        "Load full instructions for a skill before calling it. " +
-            "Call this first whenever you need to use run_intent, get_weather, " +
-            "query_wikipedia, save_memory, search_memory, or get_system_info."
+        "Load full instructions for a complex or gateway skill before calling it. " +
+            "Use this when you need detailed guidance for tools like run_intent or run_js."
 
     override val schema = SkillSchema(
         parameters = mapOf(
@@ -51,8 +50,8 @@ class LoadSkillSkill @Inject constructor(
 
     override val examples = listOf(
         "Load device action instructions → loadSkill(skillName=\"run_intent\")",
-        "Load Wikipedia instructions → loadSkill(skillName=\"query_wikipedia\")",
-        "Load memory save instructions → loadSkill(skillName=\"save_memory\")",
+        "Load JS gateway instructions → loadSkill(skillName=\"run_js\")",
+        "Load detailed weather instructions → loadSkill(skillName=\"get_weather\")",
     )
 
     // load_skill's own fullInstructions are always embedded in the system prompt — no need

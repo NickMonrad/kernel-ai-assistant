@@ -497,6 +497,18 @@ internal fun looksLikeToolConfirmation(response: String): Boolean {
 internal fun looksLikeRawToolCall(response: String): Boolean {
     if (response.contains("<|tool_call>") || response.contains("<tool_call|>")) return true
 
+    val lower = response.lowercase()
+    if (
+        ("instructions:" in lower && "tool format:" in lower && "runjs(" in lower) ||
+        Regex(
+            """^[a-z_]+:\s+.*wikipedia""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
+        )
+            .containsMatchIn(response)
+    ) {
+        return true
+    }
+
     return Regex(
         """\bcall:(?:load[_ ]?skill|run[_ ]?intent|run[_ ]?js|get[_ ]?weather|save[_ ]?memory|search[_ ]?memory|get[_ ]?system[_ ]?info)\b|
            \{\s*"name"\s*:\s*"(?:load_skill|run_intent|run_js|get_weather|save_memory|search_memory|get_system_info)"""",
