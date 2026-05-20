@@ -453,6 +453,34 @@ class LiteRtInferenceEngine @Inject constructor(
                         return
                     }
 
+                    if (!channelDelta.isNullOrEmpty() && thinkingComplete) {
+                        val responseDelta = stripReplayedPrefix(
+                            current = channelDelta,
+                            emitted = emittedResponseText.toString(),
+                            allowOverlap = true,
+                        )
+                        if (responseDelta.isEmpty() || responseDelta.startsWith("<ctrl")) {
+                            if (traceEnabled) {
+                                Log.d(
+                                    TAG,
+                                    "thinking_trace[$callbackId]: skip-post-close channel replay len=${channelDelta.length}",
+                                )
+                            }
+                            return
+                        }
+                        if (firstTokenMs < 0) {
+                            firstTokenMs = System.currentTimeMillis() - start
+                            Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                        }
+                        outputTokenCount++
+                        emittedResponseText.append(responseDelta)
+                        if (traceEnabled) {
+                            Log.d(TAG, "thinking_trace[$callbackId]: emit-post-close channel len=${responseDelta.length}")
+                        }
+                        trySend(GenerationResult.Token(responseDelta))
+                        return
+                    }
+
                     // Non-thinking token: process message.toString() delta.
                     // Defensive guards:
                     //  1. If toString() contains an open channel marker but no close marker,
