@@ -741,6 +741,7 @@ class LiteRtInferenceEngine @Inject constructor(
                             emitted = emittedResponseText.toString(),
                         )
                         if (responseDelta.isEmpty()) {
+
                             return
                         }
                         if (firstTokenMs < 0) {
@@ -748,7 +749,7 @@ class LiteRtInferenceEngine @Inject constructor(
                             Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                         }
                         outputTokenCount++
-                     emittedResponseText.append(responseDelta)
+                 emittedResponseText.append(responseDelta)
                         trySend(GenerationResult.Token(responseDelta))
                     }
                 }
