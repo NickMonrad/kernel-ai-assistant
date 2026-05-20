@@ -697,7 +697,7 @@ var emittedResponseText = StringBuilder()
                         return
                     }
 
-           if (!channelDelta.isNullOrEmpty()) {
+        if (!channelDelta.isNullOrEmpty()) {
                         val responseDelta = stripReplayedPrefix(
                             }
                             outputTokenCount++
