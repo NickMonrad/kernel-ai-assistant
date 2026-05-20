@@ -361,8 +361,6 @@ class LiteRtInferenceEngine @Inject constructor(
         var emittedResponseText = StringBuilder()
         var emittedThinkingText = StringBuilder()
         var sawThinkingTraffic = false
-        var callbackIndex = 0
-        val traceEnabled = BuildConfig.DEBUG
         // Set to true once we process the <channel|> close marker so that subsequent
         // callbacks with channels["thought"] still non-null don't misroute response
         // tokens into the thinking bubble.
@@ -376,17 +374,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 Contents.of(Content.Text(userMessage)),
                 object : MessageCallback {
                 override fun onMessage(message: Message) {
-                    val callbackId = ++callbackIndex
                     val channelDelta = message.channels["thought"]
-                    if (traceEnabled) {
-                        Log.d(
-                            TAG,
-                            "thinking_trace[$callbackId]: channelLen=${channelDelta?.length ?: -1}, " +
-                                "channelHasClose=${channelDelta?.contains("<channel|>") == true}, " +
-                                "thinkingComplete=$thinkingComplete, sawThinkingTraffic=$sawThinkingTraffic, " +
-                                "thinkingOutLen=${emittedThinkingText.length}, responseOutLen=${emittedResponseText.length}",
-                        )
-                    }
                     // Route thinking tokens separately (Gemma thinking mode).
                     // The SDK delivers thinking content as deltas via message.channels["thought"].
                     // The FINAL thinking delta includes the closing <channel|> marker, and may
@@ -418,9 +406,6 @@ class LiteRtInferenceEngine @Inject constructor(
                             if (pureThinking.isNotBlank()) {
                                 thinkingCharCount += pureThinking.length
                                 emittedThinkingText.append(pureThinking)
-                                if (traceEnabled) {
-                                    Log.d(TAG, "thinking_trace[$callbackId]: emit-thinking-close len=${pureThinking.length}")
-                                }
                                 trySend(GenerationResult.Thinking(pureThinking))
                             }
                             // Response text that arrived in the same delta as the channel close
@@ -431,9 +416,6 @@ class LiteRtInferenceEngine @Inject constructor(
                                 }
                                 outputTokenCount++
                                 emittedResponseText.append(afterClose)
-                                if (traceEnabled) {
-                                    Log.d(TAG, "thinking_trace[$callbackId]: emit-response-after-close len=${afterClose.length}")
-                                }
                                 trySend(GenerationResult.Token(afterClose))
                             }
                         } else {
@@ -441,9 +423,6 @@ class LiteRtInferenceEngine @Inject constructor(
                             thinkingCharCount += withoutHeader.length
                             if (withoutHeader.isNotBlank()) {
                                 emittedThinkingText.append(withoutHeader)
-                                if (traceEnabled) {
-                                    Log.d(TAG, "thinking_trace[$callbackId]: emit-thinking-mid len=${withoutHeader.length}")
-                                }
                                 trySend(GenerationResult.Thinking(withoutHeader))
                             }
                         }
@@ -458,14 +437,9 @@ class LiteRtInferenceEngine @Inject constructor(
                             current = channelDelta,
                             emitted = emittedResponseText.toString(),
                             allowOverlap = true,
+                            minOverlapLength = 3,
                         )
                         if (responseDelta.isEmpty() || responseDelta.startsWith("<ctrl")) {
-                            if (traceEnabled) {
-                                Log.d(
-                                    TAG,
-                                    "thinking_trace[$callbackId]: skip-post-close channel replay len=${channelDelta.length}",
-                                )
-                            }
                             return
                         }
                         if (firstTokenMs < 0) {
@@ -474,9 +448,6 @@ class LiteRtInferenceEngine @Inject constructor(
                         }
                         outputTokenCount++
                         emittedResponseText.append(responseDelta)
-                        if (traceEnabled) {
-                            Log.d(TAG, "thinking_trace[$callbackId]: emit-post-close channel len=${responseDelta.length}")
-                        }
                         trySend(GenerationResult.Token(responseDelta))
                         return
                     }
@@ -489,13 +460,6 @@ class LiteRtInferenceEngine @Inject constructor(
                     //  2. Full channel wrapper (open + close) — strip it before emitting.
                     val raw = message.toString()
                     val hasThoughtMarker = raw.contains("<|channel>thought")
-                    if (traceEnabled) {
-                        Log.d(
-                            TAG,
-                            "thinking_trace[$callbackId]: rawLen=${raw.length}, rawHasClose=${raw.contains("<channel|>")}, " +
-                                "rawHasThoughtHeader=$hasThoughtMarker",
-                        )
-                    }
                     val emittedThinking = emittedThinkingText.toString()
                     val beforeCloseCandidate = raw.substringBeforeLast("<channel|>")
                     val beforeCloseSansHeader = if (beforeCloseCandidate.startsWith("<|channel>thought")) {
@@ -550,12 +514,6 @@ class LiteRtInferenceEngine @Inject constructor(
                             emitted = emittedResponseText.toString(),
                         )
                         if (responseDelta.isEmpty()) {
-                            if (traceEnabled) {
-                                Log.d(
-                                    TAG,
-                                    "thinking_trace[$callbackId]: skip-post-close replay rawLen=${raw.length}, afterCloseLen=${afterClose.length}",
-                                )
-                            }
                             return
                         }
                         if (firstTokenMs < 0) {
@@ -564,18 +522,11 @@ class LiteRtInferenceEngine @Inject constructor(
                         }
                         outputTokenCount++
                         emittedResponseText.append(responseDelta)
-                        if (traceEnabled) {
-                            Log.d(TAG, "thinking_trace[$callbackId]: emit-post-close responseLen=${responseDelta.length}")
-                        }
                         trySend(GenerationResult.Token(responseDelta))
                         return
                     }
                     if (raw.contains("<|channel>") && !raw.contains("<channel|>")) {
                         // Partial channel header — skip, content will arrive via channels["thought"].
-                        // Log so any false-positive drops are observable in logcat.
-                        if (traceEnabled) {
-                            Log.d(TAG, "thinking_trace[$callbackId]: skip-partial-header rawLen=${raw.length}")
-                        }
                         return
                     }
                     val stripped = CHANNEL_WRAPPER_RE.replace(raw, "")
@@ -586,9 +537,6 @@ class LiteRtInferenceEngine @Inject constructor(
                             emitted = emittedResponseText.toString(),
                         )
                         if (responseDelta.isEmpty()) {
-                            if (traceEnabled) {
-                                Log.d(TAG, "thinking_trace[$callbackId]: skip-plain replay rawLen=${raw.length}, textLen=${text.length}")
-                            }
                             return
                         }
                         if (firstTokenMs < 0) {
@@ -597,9 +545,6 @@ class LiteRtInferenceEngine @Inject constructor(
                         }
                         outputTokenCount++
                         emittedResponseText.append(responseDelta)
-                        if (traceEnabled) {
-                            Log.d(TAG, "thinking_trace[$callbackId]: emit-plain responseLen=${responseDelta.length}")
-                        }
                         trySend(GenerationResult.Token(responseDelta))
                     }
                 }
@@ -900,6 +845,7 @@ class LiteRtInferenceEngine @Inject constructor(
         emitted: String,
         trimBoundaryWhitespace: Boolean = false,
         allowOverlap: Boolean = false,
+        minOverlapLength: Int = 1,
     ): String {
         if (emitted.isEmpty()) return current
         if (current.startsWith(emitted)) return current.removePrefix(emitted)
@@ -911,11 +857,11 @@ class LiteRtInferenceEngine @Inject constructor(
             return if (trimBoundaryWhitespace) remainder.trimStart() else remainder
         }
         if (allowOverlap) {
-            val exactOverlapRemainder = stripOverlappingReplayPrefix(current, emitted)
+            val exactOverlapRemainder = stripOverlappingReplayPrefix(current, emitted, minOverlapLength)
             if (exactOverlapRemainder != current) {
                 return if (trimBoundaryWhitespace) exactOverlapRemainder.trimStart() else exactOverlapRemainder
             }
-            val trimmedOverlapRemainder = stripOverlappingReplayPrefix(currentTrimmed, emittedTrimmed)
+            val trimmedOverlapRemainder = stripOverlappingReplayPrefix(currentTrimmed, emittedTrimmed, minOverlapLength)
             if (trimmedOverlapRemainder != currentTrimmed) {
                 return if (trimBoundaryWhitespace) trimmedOverlapRemainder.trimStart() else trimmedOverlapRemainder
             }
@@ -923,9 +869,9 @@ class LiteRtInferenceEngine @Inject constructor(
         return current
     }
 
-    private fun stripOverlappingReplayPrefix(current: String, emitted: String): String {
+    private fun stripOverlappingReplayPrefix(current: String, emitted: String, minOverlapLength: Int): String {
         val maxOverlap = minOf(current.length, emitted.length)
-        for (overlapLength in maxOverlap downTo 1) {
+        for (overlapLength in maxOverlap downTo minOverlapLength) {
             if (emitted.endsWith(current.take(overlapLength))) {
                 return current.drop(overlapLength)
             }
