@@ -688,25 +688,7 @@ class LiteRtInferenceEngine @Inject constructor(
                         return
                     }
 
-                  if (!channelDelta.isNullOrEmpty()) {
-                        val responseDelta = stripReplayedPrefix(
-                            current = channelDelta,
-                            emitted = emittedResponseText.toString(),
-                            allowOverlap = true,
-                            minOverlapLength = 3,
-                        )
-                        if (responseDelta.isEmpty() || responseDelta.startsWith("<ctrl")) {
-                            return
-                        }
-                            }
-                            outputTokenCount++
-                            emittedResponseText.append(delta)
-                            trySend(GenerationResult.Token(delta))
-                        }
-                        return
-                    }
-
-                  if (!channelDelta.isNullOrEmpty()) {
+                if (!channelDelta.isNullOrEmpty()) {
                         val responseDelta = stripReplayedPrefix(
                             current = channelDelta,
                             emitted = emittedResponseText.toString(),
