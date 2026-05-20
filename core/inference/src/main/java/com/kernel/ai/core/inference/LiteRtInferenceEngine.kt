@@ -642,7 +642,7 @@ class LiteRtInferenceEngine @Inject constructor(
         var firstTokenMs: Long = -1
         var outputTokenCount = 0
         var thinkingCharCount = 0
-       var emittedResponseText = StringBuilder()
+      var emittedResponseText = StringBuilder()
         val thinkingEnabledForGeneration = currentConfig?.thinkingEnabled == true
         val thinkingStateMachine = if (thinkingEnabledForGeneration) ThinkingStreamStateMachine() else null
         var thinkingStateMachineActive = false
@@ -675,11 +675,12 @@ class LiteRtInferenceEngine @Inject constructor(
                             thinkingCharCount += delta.length
                             trySend(GenerationResult.Thinking(delta))
                         }
-                        emission.responseDeltas.forEach { delta ->
+                  emission.responseDeltas.forEach { delta ->
                             if (delta.isEmpty()) return@forEach
                             if (firstTokenMs < 0) {
                                 firstTokenMs = System.currentTimeMillis() - start
                                 Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                            }
                             }
                             outputTokenCount++
                             emittedResponseText.append(delta)
@@ -724,6 +725,7 @@ class LiteRtInferenceEngine @Inject constructor(
                     //     the SDK hasn't finished routing this content to channels["thought"] yet.
                     //     Skip — we'll receive the same content via the channel delta path.
                     //  2. Full channel wrapper (open + close) — strip it before emitting.
+
                     if (raw.contains("<|channel>") && !raw.contains("<channel|>")) {
                         // Partial channel header — skip, content will arrive via channels["thought"].
                        // Log so any false-positive drops are observable in logcat.
@@ -745,7 +747,7 @@ class LiteRtInferenceEngine @Inject constructor(
                             Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                         }
                         outputTokenCount++
-                        emittedResponseText.append(responseDelta)
+                     emittedResponseText.append(responseDelta)
                         trySend(GenerationResult.Token(responseDelta))
                     }
                 }
