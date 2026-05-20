@@ -362,7 +362,7 @@ class LiteRtInferenceEngine @Inject constructor(
         var emittedThinkingText = StringBuilder()
         var sawThinkingTraffic = false
         var callbackIndex = 0
-        val traceEnabled = Log.isLoggable(TAG, Log.DEBUG)
+        val traceEnabled = BuildConfig.DEBUG
         // Set to true once we process the <channel|> close marker so that subsequent
         // callbacks with channels["thought"] still non-null don't misroute response
         // tokens into the thinking bubble.
