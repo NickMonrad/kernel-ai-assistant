@@ -642,7 +642,7 @@ class LiteRtInferenceEngine @Inject constructor(
         var firstTokenMs: Long = -1
         var outputTokenCount = 0
         var thinkingCharCount = 0
-     var emittedResponseText = StringBuilder()
+    var emittedResponseText = StringBuilder()
         val thinkingEnabledForGeneration = currentConfig?.thinkingEnabled == true
         val thinkingStateMachine = if (thinkingEnabledForGeneration) ThinkingStreamStateMachine() else null
         var thinkingStateMachineActive = false
@@ -658,7 +658,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 Contents.of(Content.Text(userMessage)),
                 object : MessageCallback {
                 override fun onMessage(message: Message) {
-                val channelDelta = message.channels["thought"]
+             val channelDelta = message.channels["thought"]
                     val raw = message.toString()
 
                     val hasThinkingEvidence = !channelDelta.isNullOrEmpty() ||
@@ -675,6 +675,13 @@ class LiteRtInferenceEngine @Inject constructor(
                             thinkingCharCount += delta.length
                             trySend(GenerationResult.Thinking(delta))
                         }
+                        emission.responseDeltas.forEach { delta ->
+                            if (delta.isEmpty()) return@forEach
+                            if (firstTokenMs < 0) {
+                                firstTokenMs = System.currentTimeMillis() - start
+                                Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                            }
+                        }
               emission.responseDeltas.forEach { delta ->
                             if (delta.isEmpty()) return@forEach
                             if (firstTokenMs < 0) {
@@ -689,7 +696,7 @@ class LiteRtInferenceEngine @Inject constructor(
                         return
                     }
 
-                if (!channelDelta.isNullOrEmpty()) {
+              if (!channelDelta.isNullOrEmpty()) {
                         val responseDelta = stripReplayedPrefix(
                             }
                             outputTokenCount++
@@ -701,12 +708,6 @@ class LiteRtInferenceEngine @Inject constructor(
 
                 if (!channelDelta.isNullOrEmpty()) {
                         val responseDelta = stripReplayedPrefix(
-                            current = channelDelta,
-                            emitted = emittedResponseText.toString(),
-                            allowOverlap = true,
-                            minOverlapLength = 3,
-                        )
-                        if (responseDelta.isEmpty() || responseDelta.startsWith("<ctrl")) {
                             return
                         }
                         if (firstTokenMs < 0) {
@@ -1041,6 +1042,44 @@ class LiteRtInferenceEngine @Inject constructor(
 
     private fun safeClose(closeable: AutoCloseable?, label: String) {
         try { closeable?.close() } catch (e: Exception) { Log.w(TAG, "close $label: ${e.message}") }
+    }
+
+    private fun stripReplayedPrefix(
+        current: String,
+        emitted: String,
+        trimBoundaryWhitespace: Boolean = false,
+        allowOverlap: Boolean = false,
+    ): String {
+        if (emitted.isEmpty()) return current
+        if (current.startsWith(emitted)) return current.removePrefix(emitted)
+
+        val currentTrimmed = current.trimEnd()
+        val emittedTrimmed = emitted.trimEnd()
+        if (emittedTrimmed.isNotEmpty() && currentTrimmed.startsWith(emittedTrimmed)) {
+            val remainder = currentTrimmed.removePrefix(emittedTrimmed)
+            return if (trimBoundaryWhitespace) remainder.trimStart() else remainder
+        }
+        if (allowOverlap) {
+            val exactOverlapRemainder = stripOverlappingReplayPrefix(current, emitted)
+            if (exactOverlapRemainder != current) {
+                return if (trimBoundaryWhitespace) exactOverlapRemainder.trimStart() else exactOverlapRemainder
+            }
+            val trimmedOverlapRemainder = stripOverlappingReplayPrefix(currentTrimmed, emittedTrimmed)
+            if (trimmedOverlapRemainder != currentTrimmed) {
+                return if (trimBoundaryWhitespace) trimmedOverlapRemainder.trimStart() else trimmedOverlapRemainder
+            }
+        }
+        return current
+    }
+
+    private fun stripOverlappingReplayPrefix(current: String, emitted: String): String {
+        val maxOverlap = minOf(current.length, emitted.length)
+        for (overlapLength in maxOverlap downTo 1) {
+            if (emitted.endsWith(current.take(overlapLength))) {
+                return current.drop(overlapLength)
+            }
+        }
+        return current
     }
 
     /**
