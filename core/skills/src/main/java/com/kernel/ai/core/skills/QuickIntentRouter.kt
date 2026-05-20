@@ -2133,6 +2133,15 @@ class QuickIntentRouter(
             ),
         ),
         // ── Find Nearby (most specific first to avoid greedy mis-capture) ──
+        // "find me the nearest cafe" — verb + me + the nearest + query
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show|get)\s+me\s+the\s+nearest\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
         // "find me nearby cafes" — verb + me + nearby + query
         IntentPattern(
             intentName = "find_nearby",
@@ -2228,6 +2237,30 @@ class QuickIntentRouter(
                     promptTemplate = "What are you looking for?",
                 ),
             ),
+        ),
+        // "I need to find a gas station" / "I'm looking for a cafe" — assumed nearby
+        // Note: "I need to" is stripped by INTENT_PREFIX_RE before pattern matching, so
+        // "I need to find a gas station" arrives here as "find a gas station" — handled by
+        // the isFallback catch-all below. "I'm looking for" is NOT stripped, so it matches here.
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """I(?:'m|\s+am)\s+looking\s+for\s+(?:a\s+|an\s+)?(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "find a gas station" / "find an ATM" — catch-all after prefix strip (e.g. "I need to
+        // find a gas station" → "find a gas station" after prefix strip). Requires article "a/an"
+        // to avoid colliding with "find my way to X" (navigate_to via classifier).
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """^find\s+(?:a|an)\s+(.+)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+            isFallback = true,
         ),
 
         // ── Communication ──

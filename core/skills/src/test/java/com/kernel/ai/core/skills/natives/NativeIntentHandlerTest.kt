@@ -1897,6 +1897,35 @@ class NativeIntentHandlerTest {
         }
     }
 
+    @Nested
+    @DisplayName("Find Nearby — NZ term translation")
+    inner class FindNearbyNzTranslation {
+
+        @Test
+        fun `gas station is translated to petrol station`() {
+            every { context.startActivity(any()) } just Runs
+            val result = handleIntent("find_nearby", mapOf("query" to "gas station"))
+            assertInstanceOf(SkillResult.Success::class.java, result)
+            assertTrue((result as SkillResult.Success).content.contains("petrol station"), "Expected 'petrol station' in: ${result.content}")
+        }
+
+        @Test
+        fun `wharepaku is translated to toilet`() {
+            every { context.startActivity(any()) } just Runs
+            val result = handleIntent("find_nearby", mapOf("query" to "wharepaku"))
+            assertInstanceOf(SkillResult.Success::class.java, result)
+            assertTrue((result as SkillResult.Success).content.contains("toilet"), "Expected 'toilet' in: ${result.content}")
+        }
+
+        @Test
+        fun `unrecognised term is passed through unchanged`() {
+            every { context.startActivity(any()) } just Runs
+            val result = handleIntent("find_nearby", mapOf("query" to "cafe"))
+            assertInstanceOf(SkillResult.Success::class.java, result)
+            assertTrue((result as SkillResult.Success).content.contains("cafe"), "Expected 'cafe' in: ${result.content}")
+        }
+    }
+
     private fun emailCursor(vararg rows: EmailRow): Cursor {
         val cursor = mockk<Cursor>()
         val columns = mapOf(

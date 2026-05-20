@@ -14,7 +14,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v31"  // bumped: added nz_145 (Yeah nah) corpus entry; added kumara/chocka/hundies to jandal_vocab.json (#736)
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v32"  // bumped: force reseed to reindex nz_140–nz_145 embeddings (sweet potato/kumara recall fix)
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val KEY_PERSONA_MODE = "persona_mode"
 private const val SESSION_VOCAB_COUNT_FULL = 2

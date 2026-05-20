@@ -2693,6 +2693,15 @@ class QuickIntentRouterTest {
             Arguments.of("find ATMs near me", "ATMs"),
             Arguments.of("show nearby supermarkets", "supermarkets"),
             Arguments.of("show nearby cafes", "cafes"),
+            // "find me the nearest X" — new pattern
+            Arguments.of("find me the nearest wharepaku", "wharepaku"),
+            Arguments.of("find me the nearest cafe", "cafe"),
+            Arguments.of("find me the nearest petrol station", "petrol station"),
+            // "I need to find a/an X" — new pattern
+            Arguments.of("I need to find a gas station", "gas station"),
+            Arguments.of("I need to find a pharmacy", "pharmacy"),
+            Arguments.of("I'm looking for a cafe", "cafe"),
+            Arguments.of("I am looking for an ATM", "ATM"),
         )
 
         @JvmStatic

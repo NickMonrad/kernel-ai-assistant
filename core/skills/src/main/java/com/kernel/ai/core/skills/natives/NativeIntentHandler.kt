@@ -246,6 +246,16 @@ class NativeIntentHandler @Inject constructor(
             "get_list" to "get_list_items",
         )
 
+        /** Translates NZ/informal search terms to standard English for Maps queries. */
+        private val NZ_SEARCH_TERMS = mapOf(
+            "gas station" to "petrol station",
+            "gas stations" to "petrol stations",
+            "wharepaku" to "toilet",
+            "wharepakus" to "toilets",
+            "freeway" to "motorway",
+            "freeways" to "motorways",
+        )
+
         private val KNOWN_INTENTS = setOf(
             "toggle_flashlight_on", "toggle_flashlight_off",
             "send_email", "send_sms", "make_call",
@@ -1170,7 +1180,8 @@ class NativeIntentHandler @Inject constructor(
     // ── Find Nearby ───────────────────────────────────────────────────────────
 
     private fun findNearby(params: Map<String, String>): SkillResult {
-        val query = params["query"] ?: return SkillResult.Failure("find_nearby", "No search query provided")
+        val rawQuery = params["query"] ?: return SkillResult.Failure("find_nearby", "No search query provided")
+        val query = NZ_SEARCH_TERMS[rawQuery.lowercase()] ?: rawQuery
         return try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(query)}")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
