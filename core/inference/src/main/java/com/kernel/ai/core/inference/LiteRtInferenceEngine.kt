@@ -651,14 +651,14 @@ var emittedResponseText = StringBuilder()
             if (thinkingEnabledForGeneration) mapOf("enable_thinking" to true) else emptyMap()
 
         val thinkingContext: Map<String, Any> =
-            if (currentConfig?.thinkingEnabled == true) mapOf("enable_thinking" to true) else emptyMap()
+            if (thinkingEnabledForGeneration) mapOf("enable_thinking" to true) else emptyMap()
 
         try {
             conv.sendMessageAsync(
                 Contents.of(Content.Text(userMessage)),
                 object : MessageCallback {
                 override fun onMessage(message: Message) {
-        val channelDelta = message.channels["thought"]
+     val channelDelta = message.channels["thought"]
                     val raw = message.toString()
 
                     val hasThinkingEvidence = !channelDelta.isNullOrEmpty() ||
@@ -680,14 +680,16 @@ var emittedResponseText = StringBuilder()
                             if (firstTokenMs < 0) {
                                 firstTokenMs = System.currentTimeMillis() - start
                                 Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                       }
                             }
-
-                            }
+                            outputTokenCount++
+                            emittedResponseText.append(delta)
+                            trySend(GenerationResult.Token(delta))
                         }
                         return
                     }
 
-        if (!channelDelta.isNullOrEmpty()) {
+     if (!channelDelta.isNullOrEmpty()) {
                         val responseDelta = stripReplayedPrefix(
                             }
                             outputTokenCount++
@@ -699,9 +701,6 @@ var emittedResponseText = StringBuilder()
 
                 if (!channelDelta.isNullOrEmpty()) {
                         val responseDelta = stripReplayedPrefix(
-                    }
-
-                if (!channelDelta.isNullOrEmpty()) {
                         val responseDelta = stripReplayedPrefix(
                             return
                         }
@@ -1040,45 +1039,6 @@ var emittedResponseText = StringBuilder()
         try { closeable?.close() } catch (e: Exception) { Log.w(TAG, "close $label: ${e.message}") }
     }
 
-    private fun stripReplayedPrefix(
-        current: String,
-        emitted: String,
-        trimBoundaryWhitespace: Boolean = false,
-        allowOverlap: Boolean = false,
-        minOverlapLength: Int = 1,
-    ): String {
-        if (emitted.isEmpty()) return current
-        if (current.startsWith(emitted)) return current.removePrefix(emitted)
-
-        val currentTrimmed = current.trimEnd()
-        val emittedTrimmed = emitted.trimEnd()
-        if (emittedTrimmed.isNotEmpty() && currentTrimmed.startsWith(emittedTrimmed)) {
-            val remainder = currentTrimmed.removePrefix(emittedTrimmed)
-            return if (trimBoundaryWhitespace) remainder.trimStart() else remainder
-        }
-        if (allowOverlap) {
-            val exactOverlapRemainder = stripOverlappingReplayPrefix(current, emitted, minOverlapLength)
-            if (exactOverlapRemainder != current) {
-                return if (trimBoundaryWhitespace) exactOverlapRemainder.trimStart() else exactOverlapRemainder
-            }
-            val trimmedOverlapRemainder = stripOverlappingReplayPrefix(currentTrimmed, emittedTrimmed, minOverlapLength)
-            if (trimmedOverlapRemainder != currentTrimmed) {
-                return if (trimBoundaryWhitespace) trimmedOverlapRemainder.trimStart() else trimmedOverlapRemainder
-            }
-        }
-        return current
-    }
-
-    private fun stripOverlappingReplayPrefix(current: String, emitted: String, minOverlapLength: Int): String {
-        val maxOverlap = minOf(current.length, emitted.length)
-        for (overlapLength in maxOverlap downTo minOverlapLength) {
-            if (emitted.endsWith(current.take(overlapLength))) {
-                return current.drop(overlapLength)
-            }
-        }
-        return current
-    }
-
     /**
      * Returns a rough expected byte count for the given model path.
      * Falls back to 0 (skips quantization check) if the model isn't in [KernelModel].
@@ -1091,17 +1051,6 @@ var emittedResponseText = StringBuilder()
     }
 
     companion object {
-        /**
-         * Strips residual SDK-internal channel wrappers from message.toString() on non-thinking
-         * token callbacks. The primary thinking-channel handling now uses an early-return path
-         * that avoids message.toString() entirely; this regex is a defensive fallback for retries
-         * or cases where thinking state differs (e.g. second sendMessageAsync on same session).
-         */
-        private val CHANNEL_WRAPPER_RE = Regex(
-            "<\\|channel>\\w+.*?<channel\\|>",
-            setOf(RegexOption.DOT_MATCHES_ALL),
-        )
-
         /**
          * Avoids exact powers-of-2 token counts that trigger a buffer-alignment bug
          * in LiteRT's GPU `reshape::Eval` operation (observed on Adreno 740 / SM8550).
