@@ -75,7 +75,7 @@ class MemoryRepositoryImpl @Inject constructor(
             vectorized = false,
         )
         val rowId = episodicDao.insert(entity)
-        if (rowId > 0) {
+        if (rowId > 0 && embeddingVector.isNotEmpty()) {
             ensureEpisodicVecTable(embeddingVector.size)
             vectorStore.upsert(EPISODIC_VEC_TABLE, rowId, embeddingVector)
             episodicDao.markVectorized(rowId)
@@ -116,7 +116,7 @@ class MemoryRepositoryImpl @Inject constructor(
             metadataJson = metadataJson,
         )
         val rowId = coreDao.insert(entity)
-        if (rowId > 0) {
+        if (rowId > 0 && embeddingVector.isNotEmpty()) {
             ensureCoreVecTable(embeddingVector.size)
             vectorStore.upsert(CORE_VEC_TABLE, rowId, embeddingVector)
             coreDao.markVectorized(rowId)

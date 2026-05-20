@@ -54,6 +54,17 @@ User input
 └─────────────────────────────┘
 ```
 
+**`save_memory` intent routing** (fix #937, commit `480fafcd`): `save_memory` spans both tiers with deliberate fall-through rules — do not add new patterns without checking these:
+
+| Input | Tier | Reason |
+|-------|------|--------|
+| `save/store/keep [to/in memory [that] \| that] <content>` | **Tier 2** | QuickIntentRouter intercepts and stores directly |
+| `save/store/keep this/it …` | **Tier 3 (E4B)** | Anaphoric — `this`/`it` need LLM context to resolve; falls through |
+| `remember [that] <content>` — content does **not** start with `I`, `I'm`, `this`, `that`, or `it` | **Tier 2** | QuickIntentRouter intercepts |
+| `remember that I …` / `remember that this/that/it …` | **Tier 3 (E4B)** | Negative lookahead excludes first-person & demonstrative openers |
+
+When Tier 2 intercepts, `NativeIntentHandler.saveMemory()` calls `normaliseSaveContent()` before storing: `\bmy\b` → `Name's` and `\bI'm\b` → `Name is`, resolved from `UserProfileRepository.getStructured()?.name`. Bare `I` is **not** replaced — verb conjugation requires the LLM, and those inputs fall through via the negative lookahead above.
+
 **Model inventory:**
 
 | Model | Role | Size | Loading |
