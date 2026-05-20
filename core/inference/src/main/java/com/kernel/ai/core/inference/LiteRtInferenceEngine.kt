@@ -642,7 +642,7 @@ class LiteRtInferenceEngine @Inject constructor(
         var firstTokenMs: Long = -1
         var outputTokenCount = 0
         var thinkingCharCount = 0
-    var emittedResponseText = StringBuilder()
+  var emittedResponseText = StringBuilder()
         val thinkingEnabledForGeneration = currentConfig?.thinkingEnabled == true
         val thinkingStateMachine = if (thinkingEnabledForGeneration) ThinkingStreamStateMachine() else null
         var thinkingStateMachineActive = false
@@ -658,7 +658,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 Contents.of(Content.Text(userMessage)),
                 object : MessageCallback {
                 override fun onMessage(message: Message) {
-             val channelDelta = message.channels["thought"]
+          val channelDelta = message.channels["thought"]
                     val raw = message.toString()
 
                     val hasThinkingEvidence = !channelDelta.isNullOrEmpty() ||
@@ -681,6 +681,7 @@ class LiteRtInferenceEngine @Inject constructor(
                                 firstTokenMs = System.currentTimeMillis() - start
                                 Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                             }
+                            }
                         }
               emission.responseDeltas.forEach { delta ->
                             if (delta.isEmpty()) return@forEach
@@ -696,7 +697,7 @@ class LiteRtInferenceEngine @Inject constructor(
                         return
                     }
 
-              if (!channelDelta.isNullOrEmpty()) {
+           if (!channelDelta.isNullOrEmpty()) {
                         val responseDelta = stripReplayedPrefix(
                             }
                             outputTokenCount++
@@ -708,6 +709,11 @@ class LiteRtInferenceEngine @Inject constructor(
 
                 if (!channelDelta.isNullOrEmpty()) {
                         val responseDelta = stripReplayedPrefix(
+                    }
+
+                if (!channelDelta.isNullOrEmpty()) {
+                        val responseDelta = stripReplayedPrefix(
+
                             return
                         }
                         if (firstTokenMs < 0) {
@@ -716,6 +722,9 @@ class LiteRtInferenceEngine @Inject constructor(
                         }
                         outputTokenCount++
                         emittedResponseText.append(responseDelta)
+                        if (traceEnabled) {
+                            Log.d(TAG, "thinking_trace[$callbackId]: emit-post-close responseLen=${responseDelta.length}")
+                        }
                         trySend(GenerationResult.Token(responseDelta))
                         return
                     }
@@ -729,7 +738,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
                     if (raw.contains("<|channel>") && !raw.contains("<channel|>")) {
                         // Partial channel header — skip, content will arrive via channels["thought"].
-                       // Log so any false-positive drops are observable in logcat.
+           // Log so any false-positive drops are observable in logcat.
                         Log.d(TAG, "Skipping partial channel header in toString() [len=${raw.length}] — expecting thought delta")
                         return
                     }
@@ -749,7 +758,7 @@ class LiteRtInferenceEngine @Inject constructor(
                             Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                         }
                         outputTokenCount++
-                 emittedResponseText.append(responseDelta)
+             emittedResponseText.append(responseDelta)
                         trySend(GenerationResult.Token(responseDelta))
                     }
                 }
