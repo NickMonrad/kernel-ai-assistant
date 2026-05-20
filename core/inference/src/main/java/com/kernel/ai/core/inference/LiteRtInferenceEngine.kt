@@ -374,7 +374,13 @@ class LiteRtInferenceEngine @Inject constructor(
                         trySend(GenerationResult.Thinking(thinkingText))
                     }
 
-                    val text = message.toString()
+                    // Strip SDK channel wrappers (<|channel>thought...<channel|>) from toString().
+                    // The SDK converts <|think|>…<|/think|> tokens to its own internal marker
+                    // format and leaves them in toString() even when a Channel is registered.
+                    // The clean thinking content is already delivered via message.channels["thought"]
+                    // above; the wrapper here is noise that must not leak into the chat text.
+                    val raw = message.toString()
+                    val text = CHANNEL_WRAPPER_RE.replace(raw, "").trim()
                     if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
                         if (firstTokenMs < 0) {
                             firstTokenMs = System.currentTimeMillis() - start
@@ -688,6 +694,17 @@ class LiteRtInferenceEngine @Inject constructor(
     }
 
     companion object {
+        /**
+         * Strips SDK-internal channel wrappers from message.toString().
+         * When a thinking Channel is registered, the SDK converts <|think|>…<|/think|> tokens
+         * into <|channel>thought\n…\n<channel|> in toString() instead of removing them.
+         * We strip these here because the clean content is already delivered via channels["thought"].
+         */
+        private val CHANNEL_WRAPPER_RE = Regex(
+            "<\\|channel>\\w+.*?<channel\\|>",
+            setOf(RegexOption.DOT_MATCHES_ALL),
+        )
+
         /**
          * Avoids exact powers-of-2 token counts that trigger a buffer-alignment bug
          * in LiteRT's GPU `reshape::Eval` operation (observed on Adreno 740 / SM8550).

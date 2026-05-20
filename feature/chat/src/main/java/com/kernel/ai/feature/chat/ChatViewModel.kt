@@ -651,6 +651,8 @@ class ChatViewModel @Inject constructor(
 
             val persisted = conversationRepository.getMessagesOnce(id)
             if (persisted.isNotEmpty()) {
+                val thinkingCount = persisted.count { !it.thinkingText.isNullOrBlank() }
+                if (thinkingCount > 0) Log.d("KernelAI", "thinking_restore: $thinkingCount/${persisted.size} messages have thinkingText")
                 _messages.value = persisted.map { entity ->
                     ChatMessage(
                         id = entity.id,
@@ -1700,6 +1702,7 @@ class ChatViewModel @Inject constructor(
                                 rawContent
                             }
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
+                            Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
 
                             // Guard: LiteRT occasionally produces 0 tokens (TTFT=-1ms) when the model
                             // generates an immediate EOS — often triggered by an unusual RAG injection
