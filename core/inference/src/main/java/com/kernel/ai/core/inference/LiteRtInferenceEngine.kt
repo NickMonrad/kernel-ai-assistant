@@ -681,6 +681,7 @@ var emittedResponseText = StringBuilder()
                                 firstTokenMs = System.currentTimeMillis() - start
                                 Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                             }
+
                             }
                         }
                         return
