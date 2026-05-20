@@ -1663,6 +1663,7 @@ class ChatViewModel @Inject constructor(
                 hallucinationRetryAttempted = false
                 var rawToolCallRetryAttempted = false
                 var blankResponseRetryAttempted = false
+                var preservedThinkingText: String? = null
                 var currentPrompt = prompt
                 var needsHallucinationRetry: Boolean
 
@@ -1702,6 +1703,7 @@ class ChatViewModel @Inject constructor(
                                 rawContent
                             }
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
+                                ?: preservedThinkingText
                             Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
 
                             // Guard: LiteRT occasionally produces 0 tokens (TTFT=-1ms) when the model
@@ -1712,6 +1714,10 @@ class ChatViewModel @Inject constructor(
                             if (fullContent.isBlank()) {
                                 if (!blankResponseRetryAttempted) {
                                     blankResponseRetryAttempted = true
+                                    // Preserve thinking from first attempt — the retry runs without RAG
+                                    // and may produce no thinking tokens, which would overwrite a valid
+                                    // chain-of-thought with an empty string.
+                                    if (thinking != null) preservedThinkingText = thinking
                                     Log.w("KernelAI", "blank_response_guard: 0 tokens — retrying without RAG context")
                                     // Null out grounding context so correctGroundedFacts does not
                                     // mutate the retry response using stale RAG-injected data.

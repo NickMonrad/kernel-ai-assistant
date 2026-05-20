@@ -367,22 +367,57 @@ class LiteRtInferenceEngine @Inject constructor(
                 Contents.of(Content.Text(userMessage)),
                 object : MessageCallback {
                 override fun onMessage(message: Message) {
-                    // Route thinking tokens separately (Gemma thinking mode)
-                    val thinkingText = message.channels["thought"]
-                    if (!thinkingText.isNullOrEmpty()) {
-                        thinkingCharCount += thinkingText.length
-                        trySend(GenerationResult.Thinking(thinkingText))
+                    // Route thinking tokens separately (Gemma thinking mode).
+                    // The SDK delivers thinking content as deltas via message.channels["thought"].
+                    // The FINAL thinking delta includes the closing <channel|> marker, and may
+                    // also include the start of the response text after it. We must:
+                    //   1. Strip the <|channel>thought prefix from the first delta
+                    //   2. Split on <channel|> — before it is thinking, after it is response
+                    //   3. Return early so message.toString() is never processed during thinking
+                    //      (toString() contains a partial/full channel wrapper during this phase
+                    //      that our regex cannot reliably strip token-by-token).
+                    val channelDelta = message.channels["thought"]
+                    if (!channelDelta.isNullOrEmpty()) {
+                        val withoutHeader = channelDelta
+                            .removePrefix("<|channel>thought")
+                            .removePrefix("\n")
+                        val closeIdx = withoutHeader.indexOf("<channel|>")
+                        if (closeIdx >= 0) {
+                            // Thinking phase ended in this delta
+                            val pureThinking = withoutHeader.substring(0, closeIdx).trimEnd()
+                            val afterClose = withoutHeader.substring(closeIdx + "<channel|>".length)
+                                .trimStart()
+                            if (pureThinking.isNotBlank()) {
+                                thinkingCharCount += pureThinking.length
+                                trySend(GenerationResult.Thinking(pureThinking))
+                            }
+                            // Response text that arrived in the same delta as the channel close
+                            if (afterClose.isNotBlank() && !afterClose.startsWith("<ctrl")) {
+                                if (firstTokenMs < 0) {
+                                    firstTokenMs = System.currentTimeMillis() - start
+                                    Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                                }
+                                outputTokenCount++
+                                trySend(GenerationResult.Token(afterClose))
+                            }
+                        } else {
+                            // Mid-thinking delta — no closing marker yet
+                            thinkingCharCount += withoutHeader.length
+                            if (withoutHeader.isNotBlank()) {
+                                trySend(GenerationResult.Thinking(withoutHeader))
+                            }
+                        }
+                        // Early return: don't also process message.toString() during thinking.
+                        // toString() contains the accumulating channel wrapper text which cannot
+                        // be reliably stripped on a per-token basis before the channel closes.
+                        return
                     }
 
-                    // Strip SDK channel wrappers (<|channel>thought...<channel|>) from toString().
-                    // The SDK converts <|think|>…<|/think|> tokens to its own internal marker
-                    // format and leaves them in toString() even when a Channel is registered.
-                    // The clean thinking content is already delivered via message.channels["thought"]
-                    // above; the wrapper here is noise that must not leak into the chat text.
+                    // Non-thinking token: process message.toString() delta.
+                    // Apply a defensive strip in case any residual channel wrapper text
+                    // arrives here (e.g. on a retry where thinking state differs).
                     val raw = message.toString()
                     val stripped = CHANNEL_WRAPPER_RE.replace(raw, "")
-                    // Only trim residual whitespace when a channel wrapper was actually removed;
-                    // pure response tokens (e.g. "\n\n" paragraph breaks) must not be trimmed.
                     val text = if (stripped.length != raw.length) stripped.trim() else stripped
                     if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
                         if (firstTokenMs < 0) {
@@ -698,10 +733,10 @@ class LiteRtInferenceEngine @Inject constructor(
 
     companion object {
         /**
-         * Strips SDK-internal channel wrappers from message.toString().
-         * When a thinking Channel is registered, the SDK converts <|think|>…<|/think|> tokens
-         * into <|channel>thought\n…\n<channel|> in toString() instead of removing them.
-         * We strip these here because the clean content is already delivered via channels["thought"].
+         * Strips residual SDK-internal channel wrappers from message.toString() on non-thinking
+         * token callbacks. The primary thinking-channel handling now uses an early-return path
+         * that avoids message.toString() entirely; this regex is a defensive fallback for retries
+         * or cases where thinking state differs (e.g. second sendMessageAsync on same session).
          */
         private val CHANNEL_WRAPPER_RE = Regex(
             "<\\|channel>\\w+.*?<channel\\|>",
