@@ -380,7 +380,10 @@ class LiteRtInferenceEngine @Inject constructor(
                     // The clean thinking content is already delivered via message.channels["thought"]
                     // above; the wrapper here is noise that must not leak into the chat text.
                     val raw = message.toString()
-                    val text = CHANNEL_WRAPPER_RE.replace(raw, "").trim()
+                    val stripped = CHANNEL_WRAPPER_RE.replace(raw, "")
+                    // Only trim residual whitespace when a channel wrapper was actually removed;
+                    // pure response tokens (e.g. "\n\n" paragraph breaks) must not be trimmed.
+                    val text = if (stripped.length != raw.length) stripped.trim() else stripped
                     if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
                         if (firstTokenMs < 0) {
                             firstTokenMs = System.currentTimeMillis() - start
