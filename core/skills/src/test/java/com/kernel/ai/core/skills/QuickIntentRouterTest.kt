@@ -2745,6 +2745,9 @@ class QuickIntentRouterTest {
             Arguments.of("I'm looking for information about taniwha"),
             Arguments.of("I am looking for help"),
             Arguments.of("I'm looking for something to do"),
+            // "I'm looking for a route/way to X" must NOT route to find_nearby (nav phrase)
+            Arguments.of("I'm looking for a route to Auckland"),
+            Arguments.of("I'm looking for a way home"),
         )
 
         // ── Communication ─────────────────────────────────────────────────────────
@@ -3387,6 +3390,7 @@ class QuickIntentRouterTest {
             // save_memory — anaphoric references must fall to LLM (#937)
             Arguments.of("save this to memory"),
             Arguments.of("save it to memory"),
+            Arguments.of("save that to memory"),
             Arguments.of("save this recipe to memory"),
             Arguments.of("remember that I like dark mode"),
             Arguments.of("remember that I prefer dark mode"),

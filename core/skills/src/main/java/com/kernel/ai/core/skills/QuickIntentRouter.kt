@@ -2256,7 +2256,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "find_nearby",
             regex = Regex(
-                """I(?:'m|\s+am)\s+looking\s+for\s+(?:a|an)\s+(.+)""",
+                """I(?:'m|\s+am)\s+looking\s+for\s+(?:a|an)\s+(?!(?:route|way|path|shortcut|directions?)\b)(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
@@ -3120,7 +3120,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """(?:save|store|keep)\s+(?:(?:to|in)\s+memory(?:\s+that)?|that)\s*[:\-–]?\s*(.+)""",
+                """(?:save|store|keep)\s+(?:(?:to|in)\s+memory(?:\s+that)?|that(?!\s+to\s+memory|\s+in\s+memory))\s*[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3128,7 +3128,7 @@ class QuickIntentRouter(
                 // demonstrative (e.g. "save that to memory") rather than a conjunction.
                 // Use a regex replace (IGNORE_CASE) because removeSuffix is case-sensitive.
                 val stripped = match.groupValues[1].trim()
-                    .replace(Regex("\\s+(?:to|in)\\s+memory$", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("(?:^|\\s+)(?:to|in)\\s+memory$", RegexOption.IGNORE_CASE), "")
                     .trim()
                 // Reject single anaphoric tokens that survived stripping (e.g. "save that it to memory").
                 val ANAPHORIC = setOf("it", "this", "that")
