@@ -1353,6 +1353,15 @@ class QuickIntentRouterTest {
             assertEquals("find_nearby", needsSlot.intent.intentName, "intent for '$input'")
             assertEquals("query", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
+
+        @ParameterizedTest(name = "Must not steal: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#findNearbyMustNotStealPhrases")
+        fun `catch-all must not steal navigation phrases`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            val isStolen = result is QuickIntentRouter.RouteResult.RegexMatch &&
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.intentName == "find_nearby"
+            assertFalse(isStolen, "'$input' must not route to find_nearby via regex")
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -2708,6 +2717,17 @@ class QuickIntentRouterTest {
         fun findNearbyClassifierPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("where's the closest supermarket"),
             Arguments.of("is there a cafe around here"),
+        )
+
+        @JvmStatic
+        fun findNearbyMustNotStealPhrases(): Stream<Arguments> = Stream.of(
+            // Navigation phrases must not be claimed by the find_nearby catch-all
+            Arguments.of("find a route to the airport"),
+            Arguments.of("find a way home"),
+            Arguments.of("find a path to the station"),
+            Arguments.of("find a shortcut to work"),
+            Arguments.of("find directions to the museum"),
+            Arguments.of("I need to find a route to Auckland"),
         )
 
         // ── Communication ─────────────────────────────────────────────────────────

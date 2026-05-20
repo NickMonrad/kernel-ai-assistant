@@ -2238,10 +2238,11 @@ class QuickIntentRouter(
                 ),
             ),
         ),
-        // "I need to find a gas station" / "I'm looking for a cafe" — assumed nearby
+        // "I'm looking for a cafe" — assumed nearby. Marked isFallback so non-location queries
+        // like "I'm looking for my car keys" can fall through to the classifier / E4B first.
         // Note: "I need to" is stripped by INTENT_PREFIX_RE before pattern matching, so
-        // "I need to find a gas station" arrives here as "find a gas station" — handled by
-        // the isFallback catch-all below. "I'm looking for" is NOT stripped, so it matches here.
+        // "I need to find a gas station" arrives as "find a gas station" — caught by the
+        // isFallback catch-all below. "I'm looking for" is NOT stripped.
         IntentPattern(
             intentName = "find_nearby",
             regex = Regex(
@@ -2249,14 +2250,17 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+            isFallback = true,
         ),
         // "find a gas station" / "find an ATM" — catch-all after prefix strip (e.g. "I need to
-        // find a gas station" → "find a gas station" after prefix strip). Requires article "a/an"
-        // to avoid colliding with "find my way to X" (navigate_to via classifier).
+        // find a gas station" → "find a gas station" after INTENT_PREFIX_RE strips "I need to").
+        // Requires article "a/an" to avoid stealing bare "find my way to X" phrases.
+        // Negative lookahead blocks navigation nouns so "find a route/way/path to X" can
+        // fall through to the navigate_to classifier.
         IntentPattern(
             intentName = "find_nearby",
             regex = Regex(
-                """^find\s+(?:a|an)\s+(.+)$""",
+                """^find\s+(?:a|an)\s+(?!(?:route|way|path|shortcut|directions?)\b)(.+)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
