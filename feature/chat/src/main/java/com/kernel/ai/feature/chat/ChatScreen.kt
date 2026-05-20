@@ -688,6 +688,17 @@ private fun MessageBubble(
                         tint = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.size(14.dp),
                     )
+                    IconButton(
+                        onClick = { onCopy(message.thinkingText!!) },
+                        modifier = Modifier.size(20.dp).padding(start = 2.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy thinking",
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
                 }
                 AnimatedVisibility(visible = expanded) {
                     Surface(
