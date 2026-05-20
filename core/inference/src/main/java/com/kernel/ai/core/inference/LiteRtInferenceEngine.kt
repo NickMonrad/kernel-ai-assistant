@@ -358,6 +358,7 @@ class LiteRtInferenceEngine @Inject constructor(
         var firstTokenMs: Long = -1
         var outputTokenCount = 0
         var thinkingCharCount = 0
+        var emittedResponseText = StringBuilder()
         // Set to true once we process the <channel|> close marker so that subsequent
         // callbacks with channels["thought"] still non-null don't misroute response
         // tokens into the thinking bubble.
@@ -410,6 +411,7 @@ class LiteRtInferenceEngine @Inject constructor(
                                     Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                                 }
                                 outputTokenCount++
+                                emittedResponseText.append(afterClose)
                                 trySend(GenerationResult.Token(afterClose))
                             }
                         } else {
@@ -432,6 +434,31 @@ class LiteRtInferenceEngine @Inject constructor(
                     //     Skip — we'll receive the same content via the channel delta path.
                     //  2. Full channel wrapper (open + close) — strip it before emitting.
                     val raw = message.toString()
+                    if (thinkingComplete && raw.contains("<channel|>")) {
+                        // Some post-thinking callbacks still surface the already-closed thought
+                        // payload via toString(), but without the opening <|channel> header.
+                        // Keep only the response suffix and drop any prefix we've already emitted.
+                        val afterClose = raw.substringAfterLast("<channel|>").trimStart()
+                        if (afterClose.isBlank() || afterClose.startsWith("<ctrl")) {
+                            return
+                        }
+                        val delta = emittedResponseText.toString()
+                            .takeIf { afterClose.startsWith(it) }
+                            ?.let { afterClose.removePrefix(it) }
+                            ?: afterClose
+                        if (delta.isBlank()) {
+                            Log.d(TAG, "Skipping mirrored post-close toString() payload [len=${raw.length}]")
+                            return
+                        }
+                        if (firstTokenMs < 0) {
+                            firstTokenMs = System.currentTimeMillis() - start
+                            Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                        }
+                        outputTokenCount++
+                        emittedResponseText.append(delta)
+                        trySend(GenerationResult.Token(delta))
+                        return
+                    }
                     if (raw.contains("<|channel>") && !raw.contains("<channel|>")) {
                         // Partial channel header — skip, content will arrive via channels["thought"].
                         // Log so any false-positive drops are observable in logcat.
@@ -446,6 +473,7 @@ class LiteRtInferenceEngine @Inject constructor(
                             Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                         }
                         outputTokenCount++
+                        emittedResponseText.append(text)
                         trySend(GenerationResult.Token(text))
                     }
                 }
