@@ -669,17 +669,20 @@ private fun MessageBubble(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
     ) {
-        // Thinking bubble — expandable, shows chain-of-thought content when tapped
+        // Thinking bubble — auto-expands while streaming, collapses when done, user-toggleable
         if (showThinkingProcess && !message.thinkingText.isNullOrBlank()) {
-            var expanded by rememberSaveable { mutableStateOf(false) }
+            var userExpanded by rememberSaveable { mutableStateOf(false) }
+            val expanded = userExpanded || message.isStreaming
             Column(modifier = Modifier.padding(bottom = 4.dp).testTag("think_bubble")) {
                 Row(
-                    modifier = Modifier.clickable { expanded = !expanded },
+                    modifier = Modifier.clickable { userExpanded = !expanded },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Thinking…",
-                        style = MaterialTheme.typography.labelSmall.copy(fontStyle = FontStyle.Italic),
+                        text = if (message.isStreaming) "Thinking…" else "Thinking",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontStyle = if (message.isStreaming) FontStyle.Italic else FontStyle.Normal,
+                        ),
                         color = MaterialTheme.colorScheme.outline,
                     )
                     Icon(
