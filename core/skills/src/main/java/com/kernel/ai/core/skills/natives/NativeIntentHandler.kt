@@ -2509,16 +2509,8 @@ class NativeIntentHandler @Inject constructor(
      * Bare "I" is NOT replaced — verb conjugation requires LLM, and those inputs are
      * now excluded from regex routing via the negative lookahead on the remember pattern.
      */
-    private fun normaliseSaveContent(raw: String, userName: String?): String {
-        if (userName.isNullOrBlank()) return raw
-        val name = userName.trim()
-        // Use the lambda overload of replace so the replacement string is treated literally —
-        // the String overload delegates to Matcher.replaceAll() where $ and \ are metacharacters
-        // and would throw IllegalArgumentException if the name contains them.
-        return raw
-            .replace(Regex("\\bI'm\\b", RegexOption.IGNORE_CASE)) { "$name is" }
-            .replace(Regex("\\bmy\\b", RegexOption.IGNORE_CASE)) { "${name}'s" }
-    }
+    private fun normaliseSaveContent(raw: String, userName: String?): String =
+        com.kernel.ai.core.skills.natives.normaliseSaveContent(raw, userName)
 
     // ── Set Brightness ────────────────────────────────────────────────────────
 

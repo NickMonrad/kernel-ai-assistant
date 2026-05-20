@@ -3,6 +3,7 @@ package com.kernel.ai.core.skills.natives
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillParameter
@@ -23,6 +24,7 @@ private const val TAG = "KernelAI"
 class SaveMemorySkill @Inject constructor(
     private val memoryRepository: MemoryRepository,
     private val embeddingEngine: EmbeddingEngine,
+    private val userProfileRepository: UserProfileRepository,
 ) : Skill {
 
     override val name = "save_memory"
@@ -72,10 +74,17 @@ bulk_add_to_list (two or more items) for that instead.
     """.trimIndent()
 
     override suspend fun execute(call: SkillCall): SkillResult {
-        val content = call.arguments["content"]
+        val rawContent = call.arguments["content"]
             ?: return SkillResult.Failure(name, "Missing 'content' argument")
         return withContext(Dispatchers.IO) {
             try {
+                // Defense-in-depth: normalise first-person pronouns even if E4B didn't convert
+                // them (e.g. "my mum's name is Susan" → "Nick's mum's name is Susan").
+                val userName = userProfileRepository.getName()
+                val content = normaliseSaveContent(rawContent, userName)
+                if (content != rawContent) {
+                    Log.d(TAG, "SaveMemorySkill: normalised content from \"${rawContent.take(60)}\" to \"${content.take(60)}\"")
+                }
                 val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
                 if (vector == null) {
                     Log.w(TAG, "SaveMemorySkill: embedding engine not ready — saving without vector")

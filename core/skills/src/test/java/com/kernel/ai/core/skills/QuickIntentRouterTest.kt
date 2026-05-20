@@ -2723,6 +2723,15 @@ class QuickIntentRouterTest {
             Arguments.of("I need to find a pharmacy", "pharmacy"),
             Arguments.of("I'm looking for a cafe", "cafe"),
             Arguments.of("I am looking for an ATM", "ATM"),
+            // Article-capture regression fixes — "find a nearby X" must not capture "a" as query
+            Arguments.of("Find a nearby Pharmacy", "Pharmacy"),
+            Arguments.of("find a nearby cafe", "cafe"),
+            Arguments.of("find the nearby supermarket", "supermarket"),
+            Arguments.of("find an nearby ATM", "ATM"),
+            // Leading article stripped from lazy "find X nearby" pattern
+            Arguments.of("find a chemist nearby", "chemist"),
+            Arguments.of("find a pharmacy near me", "pharmacy"),
+            Arguments.of("find an ATM nearby", "ATM"),
         )
 
         @JvmStatic
@@ -3064,6 +3073,14 @@ class QuickIntentRouterTest {
             Arguments.of("can you save to memory that my dog is named Xena", "my dog is named Xena"),
             Arguments.of("note that the gate code is 4567", "the gate code is 4567"),
             Arguments.of("store that my doctor is Dr Smith", "my doctor is Dr Smith"),
+            // First-person "I" patterns — now routed via regex (lookahead no longer excludes I/I'm)
+            Arguments.of("remember that I like dark mode", "I like dark mode"),
+            Arguments.of("remember that I prefer dark mode", "I prefer dark mode"),
+            Arguments.of("remember that I have a dog named Xena", "I have a dog named Xena"),
+            Arguments.of("can you remember that I have a dog named Xena", "I have a dog named Xena"),
+            Arguments.of("note that I prefer email", "I prefer email"),
+            Arguments.of("don't forget that I like dark mode", "I like dark mode"),
+            Arguments.of("make a note that I'm vegetarian", "I'm vegetarian"),
         )
         @JvmStatic
         fun saveMemoryNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
@@ -3392,14 +3409,7 @@ class QuickIntentRouterTest {
             Arguments.of("save it to memory"),
             Arguments.of("save that to memory"),
             Arguments.of("save this recipe to memory"),
-            Arguments.of("remember that I like dark mode"),
-            Arguments.of("remember that I prefer dark mode"),
-            Arguments.of("remember that I have a dog named Xena"),
             Arguments.of("remember that this is important"),
-            Arguments.of("can you remember that I have a dog named Xena"),
-            Arguments.of("note that I prefer email"),
-            Arguments.of("don't forget that I like dark mode"),
-            Arguments.of("make a note that I'm vegetarian"),
         )
     }
 

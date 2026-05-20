@@ -2188,6 +2188,16 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
+        // "find a nearby pharmacy" / "find the nearest cafe" (article before nearby/nearest)
+        // Must precede the lazy "find X nearby" catch-all to avoid capturing "a" as the query.
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show|locate|search\s+for|look\s+for)\s+(?:a|an|the)\s+near(?:by|est)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
         // "find cafes nearby" / "show me petrol stations close by" — general pattern
         IntentPattern(
             intentName = "find_nearby",
@@ -2195,7 +2205,13 @@ class QuickIntentRouter(
                 """(?:find|show\s+me|look\s+for|search\s+for|locate)\s+(.+?)\s+(?:near(?:by|\s+me)|close\s+by|around\s+(?:here|me))""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ ->
+                // Strip leading article (a/an/the) that the lazy match can capture as the whole query
+                // e.g. "find a chemist nearby" → lazy captures "a chemist" → strip "a " → "chemist"
+                val raw = match.groupValues[1].trim()
+                val stripped = raw.replace(Regex("""^(?:a|an|the)\s+""", RegexOption.IGNORE_CASE), "")
+                mapOf("query" to stripped.ifBlank { raw })
+            },
         ),
         // "show me dog parks on the map" / "find cafes on the map"
         IntentPattern(
@@ -3143,19 +3159,19 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """remember\s+(?:that\s+)?[:\-–]?\s*(?!(?:I|I'm|this|that|it)\b)(.+)""",
+                """remember\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
             requiredSlots = slotContract("save_memory"),
         ),
         // Pattern: "note that X" / "make a note that X" / "don't forget that X"
-        // Same negative lookahead as the "remember" pattern — first-person and demonstrative
-        // openers fall through to E4B so the LLM can resolve conjugation and anaphora.
+        // First-person ("I prefer X") is now handled by normaliseSaveContent so no longer falls
+        // through to E4B. Only true anaphoric tokens (this/that/it) still fall through.
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """(?:(?:make\s+a\s+)?note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(?!(?:I|I'm|this|that|it)\b)(.+)""",
+                """(?:(?:make\s+a\s+)?note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
