@@ -688,7 +688,7 @@ class LiteRtInferenceEngine @Inject constructor(
                         return
                     }
 
-                   if (!channelDelta.isNullOrEmpty()) {
+                  if (!channelDelta.isNullOrEmpty()) {
                         val responseDelta = stripReplayedPrefix(
                             current = channelDelta,
                             emitted = emittedResponseText.toString(),
