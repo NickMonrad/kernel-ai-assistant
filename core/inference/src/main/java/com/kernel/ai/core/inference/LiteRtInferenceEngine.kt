@@ -658,7 +658,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 Contents.of(Content.Text(userMessage)),
                 object : MessageCallback {
                 override fun onMessage(message: Message) {
-                    val channelDelta = message.channels["thought"]
+                  val channelDelta = message.channels["thought"]
                     val raw = message.toString()
 
                     val hasThinkingEvidence = !channelDelta.isNullOrEmpty() ||
@@ -1042,10 +1042,10 @@ class LiteRtInferenceEngine @Inject constructor(
 
     companion object {
         /**
-         * Strips SDK-internal channel wrappers from message.toString().
-         * When a thinking Channel is registered, the SDK converts <|think|>…<|/think|> tokens
-         * into <|channel>thought\n…\n<channel|> in toString() instead of removing them.
-         * We strip these here because the clean content is already delivered via channels["thought"].
+         * Strips residual SDK-internal channel wrappers from message.toString() on non-thinking
+         * token callbacks. The primary thinking-channel handling now uses an early-return path
+         * that avoids message.toString() entirely; this regex is a defensive fallback for retries
+         * or cases where thinking state differs (e.g. second sendMessageAsync on same session).
          */
         private val CHANNEL_WRAPPER_RE = Regex(
             "<\\|channel>\\w+.*?<channel\\|>",
