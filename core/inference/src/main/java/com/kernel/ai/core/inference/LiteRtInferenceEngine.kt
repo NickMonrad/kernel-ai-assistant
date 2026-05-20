@@ -359,6 +359,9 @@ class LiteRtInferenceEngine @Inject constructor(
         var outputTokenCount = 0
         var thinkingCharCount = 0
 
+        val thinkingContext: Map<String, Any> =
+            if (currentConfig?.thinkingEnabled == true) mapOf("enable_thinking" to true) else emptyMap()
+
         try {
             conv.sendMessageAsync(
                 Contents.of(Content.Text(userMessage)),
@@ -411,6 +414,7 @@ class LiteRtInferenceEngine @Inject constructor(
                     }
                 }
             },
+            thinkingContext,
         )
         } catch (e: Exception) {
             _isGenerating.value = false
@@ -517,6 +521,7 @@ class LiteRtInferenceEngine @Inject constructor(
                             }
                         }
                     },
+                    if (requestedThinkingEnabled) mapOf("enable_thinking" to true) else emptyMap(),
                 )
                 try {
                     withTimeout(timeoutMs) { latch.await() }
@@ -630,9 +635,12 @@ class LiteRtInferenceEngine @Inject constructor(
 
         val tools = config.toolProvider?.let { listOf(it) } ?: emptyList()
 
-        // When thinking is enabled, register the thought channel so the model emits
-        // chain-of-thought tokens via message.channels["thought"]. Omitting the channel
-        // disables thinking entirely — the model skips reasoning and responds directly.
+        // Two things are required to enable thinking:
+        // 1. Register the "thought" channel in ConversationConfig — this routes tokens between
+        //    <|think|> and <|/think|> to message.channels["thought"] instead of message.toString().
+        // 2. Pass extraContext = mapOf("enable_thinking" to true) in sendMessageAsync — this sets
+        //    the Jinja template variable that injects <|think|> before the model's response,
+        //    triggering chain-of-thought generation. Without this, no thinking tokens are emitted.
         val channels = if (config.thinkingEnabled) {
             listOf(Channel("thought", "<|think|>", "<|/think|>"))
         } else {
