@@ -426,7 +426,9 @@ class LiteRtInferenceEngine @Inject constructor(
                     //  2. Full channel wrapper (open + close) — strip it before emitting.
                     val raw = message.toString()
                     if (raw.contains("<|channel>") && !raw.contains("<channel|>")) {
-                        // Partial channel header — skip, content will arrive via channels["thought"]
+                        // Partial channel header — skip, content will arrive via channels["thought"].
+                        // Log so any false-positive drops are observable in logcat.
+                        Log.d(TAG, "Skipping partial channel header in toString() [len=${raw.length}] — expecting thought delta")
                         return
                     }
                     val stripped = CHANNEL_WRAPPER_RE.replace(raw, "")
