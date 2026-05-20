@@ -658,7 +658,7 @@ var emittedResponseText = StringBuilder()
                 Contents.of(Content.Text(userMessage)),
                 object : MessageCallback {
                 override fun onMessage(message: Message) {
-          val channelDelta = message.channels["thought"]
+        val channelDelta = message.channels["thought"]
                     val raw = message.toString()
 
                     val hasThinkingEvidence = !channelDelta.isNullOrEmpty() ||
@@ -683,17 +683,6 @@ var emittedResponseText = StringBuilder()
                             }
                             }
                         }
-              emission.responseDeltas.forEach { delta ->
-                            if (delta.isEmpty()) return@forEach
-                            if (firstTokenMs < 0) {
-                                firstTokenMs = System.currentTimeMillis() - start
-                                Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
-                            }
-                            }
-                            outputTokenCount++
-                            emittedResponseText.append(delta)
-                            trySend(GenerationResult.Token(delta))
-                        }
                         return
                     }
 
@@ -713,7 +702,6 @@ var emittedResponseText = StringBuilder()
 
                 if (!channelDelta.isNullOrEmpty()) {
                         val responseDelta = stripReplayedPrefix(
-
                             return
                         }
                         if (firstTokenMs < 0) {
@@ -722,9 +710,6 @@ var emittedResponseText = StringBuilder()
                         }
                         outputTokenCount++
                         emittedResponseText.append(responseDelta)
-                        if (traceEnabled) {
-                            Log.d(TAG, "thinking_trace[$callbackId]: emit-post-close responseLen=${responseDelta.length}")
-                        }
                         trySend(GenerationResult.Token(responseDelta))
                         return
                     }
@@ -738,7 +723,7 @@ var emittedResponseText = StringBuilder()
 
                     if (raw.contains("<|channel>") && !raw.contains("<channel|>")) {
                         // Partial channel header — skip, content will arrive via channels["thought"].
-           // Log so any false-positive drops are observable in logcat.
+       // Log so any false-positive drops are observable in logcat.
                         Log.d(TAG, "Skipping partial channel header in toString() [len=${raw.length}] — expecting thought delta")
                         return
                     }
@@ -758,7 +743,7 @@ var emittedResponseText = StringBuilder()
                             Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                         }
                         outputTokenCount++
-             emittedResponseText.append(responseDelta)
+        emittedResponseText.append(responseDelta)
                         trySend(GenerationResult.Token(responseDelta))
                     }
                 }
@@ -1059,6 +1044,7 @@ var emittedResponseText = StringBuilder()
         emitted: String,
         trimBoundaryWhitespace: Boolean = false,
         allowOverlap: Boolean = false,
+        minOverlapLength: Int = 1,
     ): String {
         if (emitted.isEmpty()) return current
         if (current.startsWith(emitted)) return current.removePrefix(emitted)
@@ -1070,11 +1056,11 @@ var emittedResponseText = StringBuilder()
             return if (trimBoundaryWhitespace) remainder.trimStart() else remainder
         }
         if (allowOverlap) {
-            val exactOverlapRemainder = stripOverlappingReplayPrefix(current, emitted)
+            val exactOverlapRemainder = stripOverlappingReplayPrefix(current, emitted, minOverlapLength)
             if (exactOverlapRemainder != current) {
                 return if (trimBoundaryWhitespace) exactOverlapRemainder.trimStart() else exactOverlapRemainder
             }
-            val trimmedOverlapRemainder = stripOverlappingReplayPrefix(currentTrimmed, emittedTrimmed)
+            val trimmedOverlapRemainder = stripOverlappingReplayPrefix(currentTrimmed, emittedTrimmed, minOverlapLength)
             if (trimmedOverlapRemainder != currentTrimmed) {
                 return if (trimBoundaryWhitespace) trimmedOverlapRemainder.trimStart() else trimmedOverlapRemainder
             }
@@ -1082,9 +1068,9 @@ var emittedResponseText = StringBuilder()
         return current
     }
 
-    private fun stripOverlappingReplayPrefix(current: String, emitted: String): String {
+    private fun stripOverlappingReplayPrefix(current: String, emitted: String, minOverlapLength: Int): String {
         val maxOverlap = minOf(current.length, emitted.length)
-        for (overlapLength in maxOverlap downTo 1) {
+        for (overlapLength in maxOverlap downTo minOverlapLength) {
             if (emitted.endsWith(current.take(overlapLength))) {
                 return current.drop(overlapLength)
             }
