@@ -358,6 +358,10 @@ class LiteRtInferenceEngine @Inject constructor(
         var firstTokenMs: Long = -1
         var outputTokenCount = 0
         var thinkingCharCount = 0
+        // Set to true once we process the <channel|> close marker so that subsequent
+        // callbacks with channels["thought"] still non-null don't misroute response
+        // tokens into the thinking bubble.
+        var thinkingComplete = false
 
         val thinkingContext: Map<String, Any> =
             if (currentConfig?.thinkingEnabled == true) mapOf("enable_thinking" to true) else emptyMap()
@@ -377,7 +381,7 @@ class LiteRtInferenceEngine @Inject constructor(
                     //      (toString() contains a partial/full channel wrapper during this phase
                     //      that our regex cannot reliably strip token-by-token).
                     val channelDelta = message.channels["thought"]
-                    if (!channelDelta.isNullOrEmpty()) {
+                    if (!channelDelta.isNullOrEmpty() && !thinkingComplete) {
                         // Only strip the SDK header prefix on the delta that actually carries it.
                         // Mid-thinking deltas that start with '\n' (paragraph breaks, list items)
                         // must not have their leading newline consumed unconditionally.
@@ -388,7 +392,10 @@ class LiteRtInferenceEngine @Inject constructor(
                         }
                         val closeIdx = withoutHeader.indexOf("<channel|>")
                         if (closeIdx >= 0) {
-                            // Thinking phase ended in this delta
+                            // Thinking phase ended in this delta — mark complete so subsequent
+                            // callbacks with channels["thought"] still non-null don't misroute
+                            // response tokens into the thinking bubble.
+                            thinkingComplete = true
                             val pureThinking = withoutHeader.substring(0, closeIdx).trimEnd()
                             val afterClose = withoutHeader.substring(closeIdx + "<channel|>".length)
                                 .trimStart()
