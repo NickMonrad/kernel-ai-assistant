@@ -419,6 +419,57 @@ class LiteRtInferenceEngine @Inject constructor(
                                 trySend(GenerationResult.Token(afterClose))
                             }
                         } else {
+                            val raw = message.toString()
+                            val emittedThinking = emittedThinkingText.toString()
+                            val rawHasThoughtMarker = raw.contains("<|channel>thought")
+                            if (raw.contains("<channel|>")) {
+                                val beforeCloseCandidate = raw.substringBeforeLast("<channel|>")
+                                val beforeCloseSansHeader = if (beforeCloseCandidate.startsWith("<|channel>thought")) {
+                                    beforeCloseCandidate.removePrefix("<|channel>thought").removePrefix("\n")
+                                } else {
+                                    beforeCloseCandidate
+                                }
+                                val thoughtRemainder = stripReplayedPrefix(
+                                    current = beforeCloseSansHeader,
+                                    emitted = emittedThinking,
+                                    trimBoundaryWhitespace = true,
+                                    allowOverlap = true,
+                                )
+                                val rawLooksLikeThinkingClose = rawHasThoughtMarker ||
+                                    beforeCloseSansHeader.isBlank() ||
+                                    thoughtRemainder != beforeCloseSansHeader
+                                if (rawLooksLikeThinkingClose) {
+                                    val thinkingDelta = stripReplayedPrefix(
+                                        current = beforeCloseSansHeader,
+                                        emitted = emittedThinking,
+                                        trimBoundaryWhitespace = true,
+                                        allowOverlap = true,
+                                    ).trimEnd()
+                                    if (thinkingDelta.isNotBlank()) {
+                                        thinkingCharCount += thinkingDelta.length
+                                        emittedThinkingText.append(thinkingDelta)
+                                        trySend(GenerationResult.Thinking(thinkingDelta))
+                                    }
+                                    thinkingComplete = true
+                                    val afterClose = raw.substringAfterLast("<channel|>").trimStart()
+                                    if (afterClose.isNotBlank() && !afterClose.startsWith("<ctrl")) {
+                                        val responseDelta = stripReplayedPrefix(
+                                            current = afterClose,
+                                            emitted = emittedResponseText.toString(),
+                                        )
+                                        if (responseDelta.isNotEmpty()) {
+                                            if (firstTokenMs < 0) {
+                                                firstTokenMs = System.currentTimeMillis() - start
+                                                Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                                            }
+                                            outputTokenCount++
+                                            emittedResponseText.append(responseDelta)
+                                            trySend(GenerationResult.Token(responseDelta))
+                                        }
+                                    }
+                                    return
+                                }
+                            }
                             // Mid-thinking delta — no closing marker yet
                             thinkingCharCount += withoutHeader.length
                             if (withoutHeader.isNotBlank()) {
