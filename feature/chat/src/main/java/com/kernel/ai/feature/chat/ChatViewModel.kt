@@ -2097,7 +2097,7 @@ class ChatViewModel @Inject constructor(
         try {
             // generateOnce() reuses the existing conversation session (LiteRT only supports
             // one session at a time) and acquires generationMutex so it waits if engine is busy.
-            val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = null)
+            val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = null, thinkingEnabled = false)
             Log.d("KernelAI", "Raw title output: \"$raw\"")
             val title = raw
                 .trim()
