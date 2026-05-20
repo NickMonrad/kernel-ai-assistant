@@ -515,13 +515,21 @@ class LiteRtInferenceEngine @Inject constructor(
                     val stripped = CHANNEL_WRAPPER_RE.replace(raw, "")
                     val text = if (stripped.length != raw.length) stripped.trim() else stripped
                     if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
+                        val responseDelta = stripReplayedPrefix(
+                            current = text,
+                            emitted = emittedResponseText.toString(),
+                        )
+                        if (responseDelta.isEmpty()) {
+                            Log.d(TAG, "Skipping mirrored response replay in toString() [len=${raw.length}]")
+                            return
+                        }
                         if (firstTokenMs < 0) {
                             firstTokenMs = System.currentTimeMillis() - start
                             Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                         }
                         outputTokenCount++
-                        emittedResponseText.append(text)
-                        trySend(GenerationResult.Token(text))
+                        emittedResponseText.append(responseDelta)
+                        trySend(GenerationResult.Token(responseDelta))
                     }
                 }
 
