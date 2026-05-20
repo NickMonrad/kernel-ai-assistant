@@ -2481,7 +2481,7 @@ class NativeIntentHandler @Inject constructor(
             ?: return SkillResult.Failure("save_memory", "No content to save")
         return try {
             runBlocking {
-                val userName = userProfileRepository.getStructured()?.name
+                val userName = userProfileRepository.getName()
                 val content = normaliseSaveContent(raw, userName)
                 val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
                 memoryRepository.addCoreMemory(

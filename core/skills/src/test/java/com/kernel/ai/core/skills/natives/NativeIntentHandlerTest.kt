@@ -1855,6 +1855,7 @@ class NativeIntentHandlerTest {
         ).also {
             coEvery { profileRepository.getStructured() } returns
                 if (name != null) UserProfileYaml(name = name) else null
+            coEvery { profileRepository.getName() } returns name
             coEvery { embeddingEngine.embed(any()) } returns floatArrayOf()
         }
 

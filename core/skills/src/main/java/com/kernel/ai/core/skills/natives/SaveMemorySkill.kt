@@ -77,14 +77,13 @@ bulk_add_to_list (two or more items) for that instead.
         return withContext(Dispatchers.IO) {
             try {
                 val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
-                    ?: run {
-                        Log.w(TAG, "SaveMemorySkill: embedding engine not ready, skipping")
-                        return@withContext SkillResult.Failure(name, "Embedding engine not ready")
-                    }
+                if (vector == null) {
+                    Log.w(TAG, "SaveMemorySkill: embedding engine not ready — saving without vector")
+                }
                 memoryRepository.addCoreMemory(
                     content = content,
                     source = "agent",
-                    embeddingVector = vector,
+                    embeddingVector = vector ?: floatArrayOf(),
                 )
                 Log.d(TAG, "SaveMemorySkill: stored core memory — '${content.take(60)}'")
                 // Success: action result — LLM narration appropriate
