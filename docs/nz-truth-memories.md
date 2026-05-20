@@ -10,7 +10,7 @@ Jandal's NZ cultural knowledge lives in a structured JSON corpus that is embedde
 ```
 core/inference/src/main/assets/nz_truth_memories.json
 ```
-Contains all 135 (and growing) NZ truth entries. Edit this to add, change, or remove entries.
+Contains all 144 (and growing) NZ truth entries. Edit this to add, change, or remove entries.
 
 ### 2. The seed guard key
 ```
@@ -18,7 +18,7 @@ core/inference/src/main/java/com/kernel/ai/core/inference/JandalPersona.kt
 ```
 Line near the top:
 ```kotlin
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v3"
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v31"
 ```
 **Bump the version number every time you change the corpus.** On next app launch, the app detects the new key, wipes all existing `agent_identity` memories, and reseeds from scratch.
 
@@ -115,10 +115,10 @@ The vibe level controls how loosely the RAG will match this entry. Lower = stric
 1. **Open the corpus:**
    `core/inference/src/main/assets/nz_truth_memories.json`
 
-2. **Add your entry** at the end of the array. Use the next available ID (`nz_137`, `nz_138`, etc.):
+2. **Add your entry** at the end of the array. Use the next available ID (`nz_146`, `nz_147`, etc.):
    ```json
    {
-     "id": "nz_137",
+     "id": "nz_146",
      "term": "Your term here",
      "category": "slang",
      "definition": "Confident one-liner Jandal will say.",
@@ -136,17 +136,17 @@ The vibe level controls how loosely the RAG will match this entry. Lower = stric
 4. **Bump the seed guard** in `JandalPersona.kt`:
    ```kotlin
    // Before:
-   private const val KEY_TRUTHS_SEEDED = "truths_seeded_v11"
+   private const val KEY_TRUTHS_SEEDED = "truths_seeded_v31"
    // After:
-   private const val KEY_TRUTHS_SEEDED = "truths_seeded_v12"
+   private const val KEY_TRUTHS_SEEDED = "truths_seeded_v32"
    ```
    Add a comment explaining what changed.
 
 5. **Build and install** the app. On first launch after update, logcat will show:
    ```
-   JandalPersona: Loaded 136 NZ truth entries
+   JandalPersona: Loaded 145 NZ truth entries
    ChatViewModel: Seeding NZ truth memories...
-   ChatViewModel: Seeded 136 NZ truth memories
+   ChatViewModel: Seeded 145 NZ truth memories
    ```
 
 5. **Test** by asking Jandal something related to your new entry. Check logcat for:
@@ -286,3 +286,6 @@ The `definition` is injected directly into Jandal's prompt as:
 | `truths_seeded_v9` | Added Carked it (nz_093), Flight of the Conchords + Binary Solo (nz_094), Hungus (nz_095) |
 | `truths_seeded_v10` | Removed nz_003 (The 6-7 — not a real named NZ term); fixed nz_007 Munted (added drunk/intoxicated meaning); corpus 95 → 94 |
 | `truths_seeded_v11` | 41 new entries (nz_096–nz_136) from three-source slang audit + jandal_vocab.json cross-check. Every term Jandal uses in conversation now has a RAG corpus entry. New categories: `attitude`, `daily_life`, `maori`. Corpus 94 → 135 |
+| `truths_seeded_v12`–`v29` | Incremental fixes, vibe tuning, and migration to `kiwi_memories` table (see git log for details) |
+| `truths_seeded_v30` | #736: nz_001 "gas station" → "petrol station"; new entries nz_140–nz_144 (Kumara, Wharepaku, Chocka, Hundies, Taniwha) with rich definitions, cultural context, and expanded vector_text. Corpus 138 → 143 |
+| `truths_seeded_v31` | #736: Added nz_145 (Yeah nah) corpus entry; added kumara, chocka, hundies to jandal_vocab.json (vocab←→corpus sync). Corpus 143 → 144 |
