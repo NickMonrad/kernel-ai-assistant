@@ -419,9 +419,16 @@ class LiteRtInferenceEngine @Inject constructor(
                     }
 
                     // Non-thinking token: process message.toString() delta.
-                    // Apply a defensive strip in case any residual channel wrapper text
-                    // arrives here (e.g. on a retry where thinking state differs).
+                    // Defensive guards:
+                    //  1. If toString() contains an open channel marker but no close marker,
+                    //     the SDK hasn't finished routing this content to channels["thought"] yet.
+                    //     Skip — we'll receive the same content via the channel delta path.
+                    //  2. Full channel wrapper (open + close) — strip it before emitting.
                     val raw = message.toString()
+                    if (raw.contains("<|channel>") && !raw.contains("<channel|>")) {
+                        // Partial channel header — skip, content will arrive via channels["thought"]
+                        return
+                    }
                     val stripped = CHANNEL_WRAPPER_RE.replace(raw, "")
                     val text = if (stripped.length != raw.length) stripped.trim() else stripped
                     if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
