@@ -1353,6 +1353,15 @@ class QuickIntentRouterTest {
             assertEquals("find_nearby", needsSlot.intent.intentName, "intent for '$input'")
             assertEquals("query", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
+
+        @ParameterizedTest(name = "Must not steal: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#findNearbyMustNotStealPhrases")
+        fun `catch-all must not steal navigation phrases`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            val isStolen = result is QuickIntentRouter.RouteResult.RegexMatch &&
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.intentName == "find_nearby"
+            assertFalse(isStolen, "'$input' must not route to find_nearby via regex")
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -2662,6 +2671,14 @@ class QuickIntentRouterTest {
             Arguments.of("directions to the airport", "the airport"),
             Arguments.of("navigate to the beach", "the beach"),
             Arguments.of("drive to the city", "the city"),
+            // E1/E2: "find a route/way/path to X" must route to navigate_to
+            Arguments.of("find a route to the airport", "the airport"),
+            Arguments.of("find a way home", "home"),
+            Arguments.of("find a path to the station", "the station"),
+            Arguments.of("find a shortcut to work", "work"),
+            Arguments.of("find directions to the museum", "the museum"),
+            Arguments.of("find my way home", "home"),
+            Arguments.of("find my way to the airport", "the airport"),
         )
 
         @JvmStatic
@@ -2693,12 +2710,53 @@ class QuickIntentRouterTest {
             Arguments.of("find ATMs near me", "ATMs"),
             Arguments.of("show nearby supermarkets", "supermarkets"),
             Arguments.of("show nearby cafes", "cafes"),
+            // "find me the nearest X" — new pattern
+            Arguments.of("find me the nearest wharepaku", "wharepaku"),
+            Arguments.of("find me the nearest cafe", "cafe"),
+            Arguments.of("find me the nearest petrol station", "petrol station"),
+            // D3: "get me the nearest X" must route to find_nearby (not navigate_to)
+            Arguments.of("get me the nearest chemist", "chemist"),
+            Arguments.of("get me the nearest pharmacy", "pharmacy"),
+            Arguments.of("get me the nearest cafe", "cafe"),
+            // "I need to find a/an X" — new pattern
+            Arguments.of("I need to find a gas station", "gas station"),
+            Arguments.of("I need to find a pharmacy", "pharmacy"),
+            Arguments.of("I'm looking for a cafe", "cafe"),
+            Arguments.of("I am looking for an ATM", "ATM"),
+            // Article-capture regression fixes — "find a nearby X" must not capture "a" as query
+            Arguments.of("Find a nearby Pharmacy", "Pharmacy"),
+            Arguments.of("find a nearby cafe", "cafe"),
+            Arguments.of("find the nearby supermarket", "supermarket"),
+            Arguments.of("find an nearby ATM", "ATM"),
+            // Leading article stripped from lazy "find X nearby" pattern
+            Arguments.of("find a chemist nearby", "chemist"),
+            Arguments.of("find a pharmacy near me", "pharmacy"),
+            Arguments.of("find an ATM nearby", "ATM"),
         )
 
         @JvmStatic
         fun findNearbyClassifierPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("where's the closest supermarket"),
             Arguments.of("is there a cafe around here"),
+        )
+
+        @JvmStatic
+        fun findNearbyMustNotStealPhrases(): Stream<Arguments> = Stream.of(
+            // Navigation phrases must not be claimed by the find_nearby catch-all
+            Arguments.of("find a route to the airport"),
+            Arguments.of("find a way home"),
+            Arguments.of("find a path to the station"),
+            Arguments.of("find a shortcut to work"),
+            Arguments.of("find directions to the museum"),
+            Arguments.of("I need to find a route to Auckland"),
+            // D1/D2: "I'm looking for" without article must NOT route to find_nearby
+            Arguments.of("I'm looking for my car keys"),
+            Arguments.of("I'm looking for information about taniwha"),
+            Arguments.of("I am looking for help"),
+            Arguments.of("I'm looking for something to do"),
+            // "I'm looking for a route/way to X" must NOT route to find_nearby (nav phrase)
+            Arguments.of("I'm looking for a route to Auckland"),
+            Arguments.of("I'm looking for a way home"),
         )
 
         // ── Communication ─────────────────────────────────────────────────────────
@@ -3009,14 +3067,20 @@ class QuickIntentRouterTest {
         @JvmStatic
         fun saveMemoryRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("save that we're meeting Tuesday", "we're meeting Tuesday"),
-            Arguments.of("remember that I prefer dark mode", "I prefer dark mode"),
             Arguments.of("remember that my wifi password is 12345", "my wifi password is 12345"),
-            Arguments.of("can you remember that I have a dog named Xena", "I have a dog named Xena"),
             Arguments.of("remember my favourite colour is blue", "my favourite colour is blue"),
             Arguments.of("save to memory: important note", "important note"),
             Arguments.of("can you save to memory that my dog is named Xena", "my dog is named Xena"),
             Arguments.of("note that the gate code is 4567", "the gate code is 4567"),
             Arguments.of("store that my doctor is Dr Smith", "my doctor is Dr Smith"),
+            // First-person "I" patterns — now routed via regex (lookahead no longer excludes I/I'm)
+            Arguments.of("remember that I like dark mode", "I like dark mode"),
+            Arguments.of("remember that I prefer dark mode", "I prefer dark mode"),
+            Arguments.of("remember that I have a dog named Xena", "I have a dog named Xena"),
+            Arguments.of("can you remember that I have a dog named Xena", "I have a dog named Xena"),
+            Arguments.of("note that I prefer email", "I prefer email"),
+            Arguments.of("don't forget that I like dark mode", "I like dark mode"),
+            Arguments.of("make a note that I'm vegetarian", "I'm vegetarian"),
         )
         @JvmStatic
         fun saveMemoryNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
@@ -3340,6 +3404,12 @@ class QuickIntentRouterTest {
             Arguments.of("what month is this charge for"),
             Arguments.of("what month is this invoice for"),
             Arguments.of("what week is this training on"),
+            // save_memory — anaphoric references must fall to LLM (#937)
+            Arguments.of("save this to memory"),
+            Arguments.of("save it to memory"),
+            Arguments.of("save that to memory"),
+            Arguments.of("save this recipe to memory"),
+            Arguments.of("remember that this is important"),
         )
     }
 

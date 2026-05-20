@@ -3,7 +3,7 @@
     "id": "nz_001",
     "term": "Always blow on the pie",
     "category": "safety",
-    "definition": "The essential rule for eating a meat pie from a dairy or gas station. Prevents thermo-nuclear mouth burns.",
+    "definition": "The essential rule for eating a meat pie from a dairy or petrol station. Prevents thermo-nuclear mouth burns.",
     "trigger_context": "When the user is rushing, acting recklessly, or asking about food safety.",
     "vibe_level": 2,
     "vector_text": "Always blow on the pie. Hot food safety. Rushing and being impatient. Thermal burns from meat pie. Patience. Slow down. Safer communities together.",
@@ -2326,6 +2326,78 @@
         "everyday"
       ],
       "era": "classic"
+    }
+  },
+  {
+    "id": "nz_140",
+    "term": "Kumara",
+    "category": "food",
+    "definition": "New Zealand sweet potato. A root vegetable brought to Aotearoa by early Māori, botanically distinct from North American yams. Sold primarily in red (Owairaka), gold (Toka Toka), and orange (Beauregard) varieties. Culturally significant and an absolute requirement for both a traditional Māori hāngī and the classic Kiwi Sunday roast.",
+    "trigger_context": "When the user mentions kumara, sweet potato, roast dinner, hāngī, or Māori traditional food.",
+    "vibe_level": 2,
+    "vector_text": "Kumara. Sweet potato. Roast kumara. Owairaka red kumara. Toka Toka gold. Beauregard orange. Hangi. Sunday roast. Root vegetable. Maori food. Aotearoa.",
+    "metadata": {
+      "tags": ["food", "vegetable", "dinner", "maori", "hangi"]
+    }
+  },
+  {
+    "id": "nz_141",
+    "term": "Wharepaku",
+    "category": "maori",
+    "definition": "The te reo Māori term for toilet, restroom, or bathroom. A compound word literally translating to 'small house' (whare = building/house, paku = small). Heavily integrated into modern New Zealand English and serves as the standard term found on public signage, in schools, and across government buildings nationwide.",
+    "trigger_context": "When the user asks where the toilet, restroom, or bathroom is, mentions wharepaku, or needs directions to the loo.",
+    "vibe_level": 2,
+    "vector_text": "Wharepaku. Toilet. Restroom. Bathroom. Loo. Dunny. Where is the bathroom. Small house. Whare. Public signage. School. Government building.",
+    "metadata": {
+      "tags": ["te-reo", "daily_life", "bathroom", "signage"]
+    }
+  },
+  {
+    "id": "nz_142",
+    "term": "Chocka",
+    "category": "slang",
+    "definition": "Completely full to the brim; packed. A ubiquitous colloquialism abbreviated from 'chock-a-block.' Highly versatile: used to describe a crowded physical space ('the pub is chocka'), a vehicle packed with gear for a road trip, or the physical sensation of being completely stuffed after a mean feed.",
+    "trigger_context": "When the user says 'chocka', describes a crowded or overly full place, or mentions being stuffed after eating.",
+    "vibe_level": 4,
+    "vector_text": "Chocka. Chocka block. Chock-a-block. Full up. Crowded. Packed out. Stuffed. Too many people. No room. Bursting. Rammed.",
+    "metadata": {
+      "tags": ["slang", "full", "crowded"]
+    }
+  },
+  {
+    "id": "nz_143",
+    "term": "Hundies",
+    "category": "slang",
+    "definition": "Absolute agreement, confirmation, or maximum effort. Colloquial shorthand for 'one hundred percent.' Functions as an enthusiastic affirmative response (similar to 'absolutely' or 'I agree entirely') or as an adverb to describe committing full energy and focus to an action or task (e.g. 'we're going hundies on this project').",
+    "trigger_context": "When the user says 'hundies', expresses maximum effort, or signals absolute agreement or commitment.",
+    "vibe_level": 4,
+    "vector_text": "Hundies. One hundred percent. Full effort. Going all out. Maximum commitment. Total agreement. Absolutely. One hundred. Giving it everything.",
+    "metadata": {
+      "tags": ["slang", "effort", "agreement"]
+    }
+  },
+  {
+    "id": "nz_144",
+    "term": "Taniwha",
+    "category": "maori",
+    "definition": "Supernatural creatures from Māori mythology, strongly associated with waterways. Powerful, mythological beings that dwell in deep rivers, dark caves, lakes, or the ocean. They hold a dual nature in Māori tradition: often serving as respected kaitiaki (protective guardians) for a specific iwi (tribe) and their local environment, but can also act as dangerous, predatory monsters that enforce respect for natural boundaries.",
+    "trigger_context": "When the user explicitly mentions taniwha, Māori mythology, water spirits, kaitiaki, or guardians of the land.",
+    "vibe_level": 3,
+    "vector_text": "Taniwha. Water spirit. Guardian. Kaitiaki. Monster. Maori mythology. Deep river. Ocean creature. Legend. Iwi. Supernatural. Protector. Predator. Dark cave. Lake.",
+    "metadata": {
+      "tags": ["mythology", "guardian", "te-reo", "kaitiaki"]
+    }
+  },
+  {
+    "id": "nz_145",
+    "term": "Yeah nah",
+    "category": "nz_slang",
+    "definition": "A distinctly New Zealand expression meaning polite disagreement, hesitation, or soft refusal. Despite sounding contradictory, 'yeah nah' functions as a culturally fluent way to decline or push back without being blunt. Compare with its opposite 'nah yeah' (which means yes/agreement). Together they illustrate NZ's preference for softened, indirect communication.",
+    "trigger_context": "When the user asks about NZ slang, expressions of disagreement, or hedging phrases.",
+    "vibe_level": 2,
+    "vector_text": "Yeah nah. Polite disagreement. Soft refusal. Hesitation. NZ slang. Contradictory affirmative. Nah yeah. Indirect communication. Kiwi English. Colloquial.",
+    "metadata": {
+      "tags": ["slang", "expression", "colloquial", "kiwi-english"]
     }
   }
 ]

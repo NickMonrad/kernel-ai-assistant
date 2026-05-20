@@ -35,6 +35,27 @@ class UserProfileRepository @Inject constructor(
         dao.get()?.structuredJson?.let { UserProfileYaml.fromJson(it) }
 
     /**
+     * Get the user's name from the structured profile, falling back to heuristic
+     * parsing of the raw profile text if [structuredJson] is not yet populated.
+     * Returns null if no name can be determined.
+     */
+    suspend fun getName(): String? {
+        val structuredName = getStructured()?.name
+        if (structuredName != null) return structuredName
+        val profileText = get()
+        val parsedName = UserProfileParser.parse(profileText).name
+        if (parsedName == null) {
+            Log.w(
+                "KernelAI",
+                "UserProfileRepository.getName(): both paths returned null " +
+                    "(profileText length=${profileText.length}). " +
+                    "Profile may not contain a recognisable name field.",
+            )
+        }
+        return parsedName
+    }
+
+    /**
      * Save [text] as the user profile. Trims to [maxLength] if needed.
      * Attempts LLM-based extraction (#374 Phase 2b) first; falls back to heuristic regex
      * if the inference engine is not ready. The parsed YAML is logged to logcat (tag KernelAI)
