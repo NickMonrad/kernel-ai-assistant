@@ -1704,7 +1704,7 @@ class ChatViewModel @Inject constructor(
                                 rawContent
                             }
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
-                                ?: preservedThinkingText
+                               ?: preservedThinkingText
                             Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
 
                             // Guard: LiteRT occasionally produces 0 tokens (TTFT=-1ms) when the model

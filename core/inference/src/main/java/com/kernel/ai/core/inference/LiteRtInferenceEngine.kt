@@ -688,7 +688,7 @@ class LiteRtInferenceEngine @Inject constructor(
                         return
                     }
 
-                    if (!channelDelta.isNullOrEmpty()) {
+                   if (!channelDelta.isNullOrEmpty()) {
                         val responseDelta = stripReplayedPrefix(
                             current = channelDelta,
                             emitted = emittedResponseText.toString(),
@@ -1041,6 +1041,17 @@ class LiteRtInferenceEngine @Inject constructor(
     }
 
     companion object {
+        /**
+         * Strips SDK-internal channel wrappers from message.toString().
+         * When a thinking Channel is registered, the SDK converts <|think|>…<|/think|> tokens
+         * into <|channel>thought\n…\n<channel|> in toString() instead of removing them.
+         * We strip these here because the clean content is already delivered via channels["thought"].
+         */
+        private val CHANNEL_WRAPPER_RE = Regex(
+            "<\\|channel>\\w+.*?<channel\\|>",
+            setOf(RegexOption.DOT_MATCHES_ALL),
+        )
+
         /**
          * Avoids exact powers-of-2 token counts that trigger a buffer-alignment bug
          * in LiteRT's GPU `reshape::Eval` operation (observed on Adreno 740 / SM8550).
