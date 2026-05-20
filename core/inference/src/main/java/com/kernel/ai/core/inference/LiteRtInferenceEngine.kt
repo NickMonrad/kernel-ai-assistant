@@ -360,6 +360,7 @@ class LiteRtInferenceEngine @Inject constructor(
         var thinkingCharCount = 0
         var emittedResponseText = StringBuilder()
         var emittedThinkingText = StringBuilder()
+        var sawThinkingTraffic = false
         // Set to true once we process the <channel|> close marker so that subsequent
         // callbacks with channels["thought"] still non-null don't misroute response
         // tokens into the thinking bubble.
@@ -384,6 +385,7 @@ class LiteRtInferenceEngine @Inject constructor(
                     //      that our regex cannot reliably strip token-by-token).
                     val channelDelta = message.channels["thought"]
                     if (!channelDelta.isNullOrEmpty() && !thinkingComplete) {
+                        sawThinkingTraffic = true
                         // Only strip the SDK header prefix on the delta that actually carries it.
                         // Mid-thinking deltas that start with '\n' (paragraph breaks, list items)
                         // must not have their leading newline consumed unconditionally.
@@ -437,22 +439,47 @@ class LiteRtInferenceEngine @Inject constructor(
                     //     Skip — we'll receive the same content via the channel delta path.
                     //  2. Full channel wrapper (open + close) — strip it before emitting.
                     val raw = message.toString()
-                    if (raw.contains("<channel|>")) {
+                    val hasThoughtMarker = raw.contains("<|channel>thought")
+                    val emittedThinking = emittedThinkingText.toString()
+                    val beforeCloseCandidate = raw.substringBeforeLast("<channel|>")
+                    val beforeCloseSansHeader = if (beforeCloseCandidate.startsWith("<|channel>thought")) {
+                        beforeCloseCandidate.removePrefix("<|channel>thought").removePrefix("\n")
+                    } else {
+                        beforeCloseCandidate
+                    }
+                    val thoughtRemainder = stripReplayedPrefix(
+                        current = beforeCloseSansHeader,
+                        emitted = emittedThinking,
+                        trimBoundaryWhitespace = true,
+                        allowOverlap = true,
+                    )
+                    val thoughtReplayMatch = thoughtRemainder != beforeCloseSansHeader ||
+                        beforeCloseSansHeader.isBlank()
+                    val headerlessInitialClose = !thinkingComplete &&
+                        !sawThinkingTraffic &&
+                        !hasThoughtMarker &&
+                        emittedResponseText.isEmpty() &&
+                        beforeCloseSansHeader.isNotBlank()
+                    if (raw.contains("<channel|>") && (
+                        hasThoughtMarker ||
+                            (sawThinkingTraffic && thoughtReplayMatch) ||
+                            headerlessInitialClose
+                    )) {
+                        if (hasThoughtMarker || headerlessInitialClose) {
+                            sawThinkingTraffic = true
+                        }
                         // Some callbacks surface the close marker only in toString(), with either
                         // a full/partial thought payload before it or a replay of the already-seen
                         // response after it. Split defensively on the final close marker so the
                         // thought prefix never leaks into the visible assistant reply.
-                        val beforeCloseRaw = raw.substringBeforeLast("<channel|>")
-                        val beforeClose = if (beforeCloseRaw.startsWith("<|channel>thought")) {
-                            beforeCloseRaw.removePrefix("<|channel>thought").removePrefix("\n")
-                        } else {
-                            beforeCloseRaw
-                        }.trimEnd()
+                        val beforeClose = beforeCloseSansHeader
                         val afterClose = raw.substringAfterLast("<channel|>").trimStart()
-                        val thinkingDelta = emittedThinkingText.toString()
-                            .takeIf { beforeClose.startsWith(it) }
-                            ?.let { beforeClose.removePrefix(it) }
-                            ?: beforeClose
+                        val thinkingDelta = stripReplayedPrefix(
+                            current = beforeClose,
+                            emitted = emittedThinking,
+                            trimBoundaryWhitespace = true,
+                            allowOverlap = true,
+                        ).trimEnd()
                         if (!thinkingComplete && thinkingDelta.isNotBlank()) {
                             thinkingCharCount += thinkingDelta.length
                             emittedThinkingText.append(thinkingDelta)
@@ -462,10 +489,10 @@ class LiteRtInferenceEngine @Inject constructor(
                         if (afterClose.isBlank() || afterClose.startsWith("<ctrl")) {
                             return
                         }
-                        val responseDelta = emittedResponseText.toString()
-                            .takeIf { afterClose.startsWith(it) }
-                            ?.let { afterClose.removePrefix(it) }
-                            ?: afterClose
+                        val responseDelta = stripReplayedPrefix(
+                            current = afterClose,
+                            emitted = emittedResponseText.toString(),
+                        )
                         if (responseDelta.isBlank()) {
                             Log.d(TAG, "Skipping mirrored post-close toString() payload [len=${raw.length}]")
                             return
@@ -787,6 +814,44 @@ class LiteRtInferenceEngine @Inject constructor(
 
     private fun safeClose(closeable: AutoCloseable?, label: String) {
         try { closeable?.close() } catch (e: Exception) { Log.w(TAG, "close $label: ${e.message}") }
+    }
+
+    private fun stripReplayedPrefix(
+        current: String,
+        emitted: String,
+        trimBoundaryWhitespace: Boolean = false,
+        allowOverlap: Boolean = false,
+    ): String {
+        if (emitted.isEmpty()) return current
+        if (current.startsWith(emitted)) return current.removePrefix(emitted)
+
+        val currentTrimmed = current.trimEnd()
+        val emittedTrimmed = emitted.trimEnd()
+        if (emittedTrimmed.isNotEmpty() && currentTrimmed.startsWith(emittedTrimmed)) {
+            val remainder = currentTrimmed.removePrefix(emittedTrimmed)
+            return if (trimBoundaryWhitespace) remainder.trimStart() else remainder
+        }
+        if (allowOverlap) {
+            val exactOverlapRemainder = stripOverlappingReplayPrefix(current, emitted)
+            if (exactOverlapRemainder != current) {
+                return if (trimBoundaryWhitespace) exactOverlapRemainder.trimStart() else exactOverlapRemainder
+            }
+            val trimmedOverlapRemainder = stripOverlappingReplayPrefix(currentTrimmed, emittedTrimmed)
+            if (trimmedOverlapRemainder != currentTrimmed) {
+                return if (trimBoundaryWhitespace) trimmedOverlapRemainder.trimStart() else trimmedOverlapRemainder
+            }
+        }
+        return current
+    }
+
+    private fun stripOverlappingReplayPrefix(current: String, emitted: String): String {
+        val maxOverlap = minOf(current.length, emitted.length)
+        for (overlapLength in maxOverlap downTo 1) {
+            if (emitted.endsWith(current.take(overlapLength))) {
+                return current.drop(overlapLength)
+            }
+        }
+        return current
     }
 
     /**
