@@ -2112,7 +2112,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "navigate_to",
             regex = Regex(
-                """(?:navigate|directions?|drive|take\s+me|get\s+me)(?:\s+to)?\s+(.+)""",
+                """(?:navigate|directions?|drive|take\s+me|get\s+me(?!\s+the\s+nearest))(?:\s+to)?\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("destination" to match.groupValues[1].trim()) },
@@ -2131,6 +2131,16 @@ class QuickIntentRouter(
                     promptTemplate = "Where would you like to go?",
                 ),
             ),
+        ),
+        // "find a route/way/path/shortcut to X" / "find my way home" — navigation phrases
+        // blocked from the find_nearby catch-all by negative lookahead; routed here instead.
+        IntentPattern(
+            intentName = "navigate_to",
+            regex = Regex(
+                """^find\s+(?:(?:a|my)\s+)?(?:route|way|path|shortcut|directions?)\s+(?:to\s+)?(.+)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("destination" to match.groupValues[1].trim()) },
         ),
         // ── Find Nearby (most specific first to avoid greedy mis-capture) ──
         // "find me the nearest cafe" — verb + me + the nearest + query
@@ -2246,7 +2256,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "find_nearby",
             regex = Regex(
-                """I(?:'m|\s+am)\s+looking\s+for\s+(?:a\s+|an\s+)?(.+)""",
+                """I(?:'m|\s+am)\s+looking\s+for\s+(?:a|an)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },

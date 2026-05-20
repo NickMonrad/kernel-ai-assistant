@@ -2671,6 +2671,14 @@ class QuickIntentRouterTest {
             Arguments.of("directions to the airport", "the airport"),
             Arguments.of("navigate to the beach", "the beach"),
             Arguments.of("drive to the city", "the city"),
+            // E1/E2: "find a route/way/path to X" must route to navigate_to
+            Arguments.of("find a route to the airport", "the airport"),
+            Arguments.of("find a way home", "home"),
+            Arguments.of("find a path to the station", "the station"),
+            Arguments.of("find a shortcut to work", "work"),
+            Arguments.of("find directions to the museum", "the museum"),
+            Arguments.of("find my way home", "home"),
+            Arguments.of("find my way to the airport", "the airport"),
         )
 
         @JvmStatic
@@ -2706,6 +2714,10 @@ class QuickIntentRouterTest {
             Arguments.of("find me the nearest wharepaku", "wharepaku"),
             Arguments.of("find me the nearest cafe", "cafe"),
             Arguments.of("find me the nearest petrol station", "petrol station"),
+            // D3: "get me the nearest X" must route to find_nearby (not navigate_to)
+            Arguments.of("get me the nearest chemist", "chemist"),
+            Arguments.of("get me the nearest pharmacy", "pharmacy"),
+            Arguments.of("get me the nearest cafe", "cafe"),
             // "I need to find a/an X" — new pattern
             Arguments.of("I need to find a gas station", "gas station"),
             Arguments.of("I need to find a pharmacy", "pharmacy"),
@@ -2728,6 +2740,11 @@ class QuickIntentRouterTest {
             Arguments.of("find a shortcut to work"),
             Arguments.of("find directions to the museum"),
             Arguments.of("I need to find a route to Auckland"),
+            // D1/D2: "I'm looking for" without article must NOT route to find_nearby
+            Arguments.of("I'm looking for my car keys"),
+            Arguments.of("I'm looking for information about taniwha"),
+            Arguments.of("I am looking for help"),
+            Arguments.of("I'm looking for something to do"),
         )
 
         // ── Communication ─────────────────────────────────────────────────────────
