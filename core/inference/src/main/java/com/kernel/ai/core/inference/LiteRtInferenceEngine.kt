@@ -359,6 +359,7 @@ class LiteRtInferenceEngine @Inject constructor(
         var outputTokenCount = 0
         var thinkingCharCount = 0
         var emittedResponseText = StringBuilder()
+        var emittedThinkingText = StringBuilder()
         // Set to true once we process the <channel|> close marker so that subsequent
         // callbacks with channels["thought"] still non-null don't misroute response
         // tokens into the thinking bubble.
@@ -402,6 +403,7 @@ class LiteRtInferenceEngine @Inject constructor(
                                 .trimStart()
                             if (pureThinking.isNotBlank()) {
                                 thinkingCharCount += pureThinking.length
+                                emittedThinkingText.append(pureThinking)
                                 trySend(GenerationResult.Thinking(pureThinking))
                             }
                             // Response text that arrived in the same delta as the channel close
@@ -418,6 +420,7 @@ class LiteRtInferenceEngine @Inject constructor(
                             // Mid-thinking delta — no closing marker yet
                             thinkingCharCount += withoutHeader.length
                             if (withoutHeader.isNotBlank()) {
+                                emittedThinkingText.append(withoutHeader)
                                 trySend(GenerationResult.Thinking(withoutHeader))
                             }
                         }
@@ -434,19 +437,36 @@ class LiteRtInferenceEngine @Inject constructor(
                     //     Skip — we'll receive the same content via the channel delta path.
                     //  2. Full channel wrapper (open + close) — strip it before emitting.
                     val raw = message.toString()
-                    if (thinkingComplete && raw.contains("<channel|>")) {
-                        // Some post-thinking callbacks still surface the already-closed thought
-                        // payload via toString(), but without the opening <|channel> header.
-                        // Keep only the response suffix and drop any prefix we've already emitted.
+                    if (raw.contains("<channel|>")) {
+                        // Some callbacks surface the close marker only in toString(), with either
+                        // a full/partial thought payload before it or a replay of the already-seen
+                        // response after it. Split defensively on the final close marker so the
+                        // thought prefix never leaks into the visible assistant reply.
+                        val beforeCloseRaw = raw.substringBeforeLast("<channel|>")
+                        val beforeClose = if (beforeCloseRaw.startsWith("<|channel>thought")) {
+                            beforeCloseRaw.removePrefix("<|channel>thought").removePrefix("\n")
+                        } else {
+                            beforeCloseRaw
+                        }.trimEnd()
                         val afterClose = raw.substringAfterLast("<channel|>").trimStart()
+                        val thinkingDelta = emittedThinkingText.toString()
+                            .takeIf { beforeClose.startsWith(it) }
+                            ?.let { beforeClose.removePrefix(it) }
+                            ?: beforeClose
+                        if (!thinkingComplete && thinkingDelta.isNotBlank()) {
+                            thinkingCharCount += thinkingDelta.length
+                            emittedThinkingText.append(thinkingDelta)
+                            trySend(GenerationResult.Thinking(thinkingDelta))
+                        }
+                        thinkingComplete = true
                         if (afterClose.isBlank() || afterClose.startsWith("<ctrl")) {
                             return
                         }
-                        val delta = emittedResponseText.toString()
+                        val responseDelta = emittedResponseText.toString()
                             .takeIf { afterClose.startsWith(it) }
                             ?.let { afterClose.removePrefix(it) }
                             ?: afterClose
-                        if (delta.isBlank()) {
+                        if (responseDelta.isBlank()) {
                             Log.d(TAG, "Skipping mirrored post-close toString() payload [len=${raw.length}]")
                             return
                         }
@@ -455,8 +475,8 @@ class LiteRtInferenceEngine @Inject constructor(
                             Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                         }
                         outputTokenCount++
-                        emittedResponseText.append(delta)
-                        trySend(GenerationResult.Token(delta))
+                        emittedResponseText.append(responseDelta)
+                        trySend(GenerationResult.Token(responseDelta))
                         return
                     }
                     if (raw.contains("<|channel>") && !raw.contains("<channel|>")) {
