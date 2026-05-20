@@ -19,16 +19,23 @@ internal fun normaliseSaveContent(raw: String, userName: String?): String {
         .replace(Regex("""\bI(?:'m| am)\b""", RegexOption.IGNORE_CASE)) { "$name is" }
         .replace(Regex("""\bI have\b""", RegexOption.IGNORE_CASE)) { "$name has" }
         .replace(Regex("""\bI go\b""", RegexOption.IGNORE_CASE)) { "$name goes" }
+        // Negation before bare "do": "I don't" → "Nick doesn't" (must precede "I do" → "Nick does")
+        .replace(Regex("""\bI don't\b""", RegexOption.IGNORE_CASE)) { "$name doesn't" }
         .replace(Regex("""\bI do\b""", RegexOption.IGNORE_CASE)) { "$name does" }
+        // -ch/-sh/-x/-o endings need "-es" (not "-s")
+        .replace(Regex("""\bI watch\b""", RegexOption.IGNORE_CASE)) { "$name watches" }
+        // "-y" after consonant → "-ies"
+        .replace(Regex("""\bI try\b""", RegexOption.IGNORE_CASE)) { "$name tries" }
         // Common regular verbs — append "s" for third-person singular.
         .replace(
             Regex(
-                """\bI (prefer|like|want|love|hate|enjoy|use|eat|drink|play|watch|listen|read|own|know|think|believe|feel|speak|drive|live|work|run|support|follow|need|find|see|hear|make|take|keep|put|get|give|bring|buy|sell|build|create|write|design|test|code|manage|lead|help|try|start|stop|send|show|check|set|turn|open|close|hold|leave|move|stay|say|ask|tell|call|visit)\b""",
+                """\bI (prefer|like|want|love|hate|enjoy|use|eat|drink|play|listen|read|own|know|think|believe|feel|speak|drive|live|work|run|support|follow|need|find|see|hear|make|take|keep|put|get|give|bring|buy|sell|build|create|write|design|test|code|manage|lead|help|start|stop|send|show|check|set|turn|open|close|hold|leave|move|stay|say|ask|tell|call|visit)\b""",
                 RegexOption.IGNORE_CASE,
             ),
         ) { match -> "$name ${match.groupValues[1].lowercase()}s" }
-        // Catch-all: remaining "I" subject (verb may not conjugate perfectly, acceptable trade-off).
-        .replace(Regex("""\bI\b""")) { name }
+        // Catch-all: remaining "I" subject — require at least one more token to avoid storing bare name
+        // (e.g. a truncated "remember that I" → content="I" would otherwise save the username alone).
+        .replace(Regex("""\bI(?=\s+\S)""")) { name }
         // Possessives.
         .replace(Regex("""\bmy\b""", RegexOption.IGNORE_CASE)) { "${name}'s" }
 }

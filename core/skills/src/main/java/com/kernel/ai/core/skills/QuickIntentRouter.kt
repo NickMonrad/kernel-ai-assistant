@@ -3159,7 +3159,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """remember\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(.+)""",
+                """remember\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(\S.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
@@ -3171,7 +3171,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """(?:(?:make\s+a\s+)?note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(.+)""",
+                """(?:(?:make\s+a\s+)?note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(\S.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
