@@ -650,6 +650,9 @@ class LiteRtInferenceEngine @Inject constructor(
         val thinkingContext: Map<String, Any> =
             if (thinkingEnabledForGeneration) mapOf("enable_thinking" to true) else emptyMap()
 
+        val thinkingContext: Map<String, Any> =
+            if (currentConfig?.thinkingEnabled == true) mapOf("enable_thinking" to true) else emptyMap()
+
         try {
             conv.sendMessageAsync(
                 Contents.of(Content.Text(userMessage)),
