@@ -642,7 +642,7 @@ class LiteRtInferenceEngine @Inject constructor(
         var firstTokenMs: Long = -1
         var outputTokenCount = 0
         var thinkingCharCount = 0
-      var emittedResponseText = StringBuilder()
+     var emittedResponseText = StringBuilder()
         val thinkingEnabledForGeneration = currentConfig?.thinkingEnabled == true
         val thinkingStateMachine = if (thinkingEnabledForGeneration) ThinkingStreamStateMachine() else null
         var thinkingStateMachineActive = false
@@ -675,7 +675,7 @@ class LiteRtInferenceEngine @Inject constructor(
                             thinkingCharCount += delta.length
                             trySend(GenerationResult.Thinking(delta))
                         }
-                  emission.responseDeltas.forEach { delta ->
+              emission.responseDeltas.forEach { delta ->
                             if (delta.isEmpty()) return@forEach
                             if (firstTokenMs < 0) {
                                 firstTokenMs = System.currentTimeMillis() - start
