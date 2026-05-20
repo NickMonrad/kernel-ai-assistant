@@ -642,7 +642,7 @@ class LiteRtInferenceEngine @Inject constructor(
         var firstTokenMs: Long = -1
         var outputTokenCount = 0
         var thinkingCharCount = 0
-        var emittedResponseText = StringBuilder()
+       var emittedResponseText = StringBuilder()
         val thinkingEnabledForGeneration = currentConfig?.thinkingEnabled == true
         val thinkingStateMachine = if (thinkingEnabledForGeneration) ThinkingStreamStateMachine() else null
         var thinkingStateMachineActive = false
@@ -658,7 +658,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 Contents.of(Content.Text(userMessage)),
                 object : MessageCallback {
                 override fun onMessage(message: Message) {
-                 val channelDelta = message.channels["thought"]
+                val channelDelta = message.channels["thought"]
                     val raw = message.toString()
 
                     val hasThinkingEvidence = !channelDelta.isNullOrEmpty() ||
@@ -680,6 +680,16 @@ class LiteRtInferenceEngine @Inject constructor(
                             if (firstTokenMs < 0) {
                                 firstTokenMs = System.currentTimeMillis() - start
                                 Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                            }
+                            outputTokenCount++
+                            emittedResponseText.append(delta)
+                            trySend(GenerationResult.Token(delta))
+                        }
+                        return
+                    }
+
+                if (!channelDelta.isNullOrEmpty()) {
+                        val responseDelta = stripReplayedPrefix(
                             }
                             outputTokenCount++
                             emittedResponseText.append(delta)
