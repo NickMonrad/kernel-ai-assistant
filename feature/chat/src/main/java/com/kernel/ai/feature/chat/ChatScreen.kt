@@ -671,7 +671,7 @@ private fun MessageBubble(
     ) {
         // Thinking bubble — auto-expands while streaming, collapses when done, user-toggleable
         if (showThinkingProcess && !message.thinkingText.isNullOrBlank()) {
-           var userExpanded by rememberSaveable(key = "thinking_userExpanded") { mutableStateOf(false) }
+            var userExpanded by rememberSaveable(key = "thinking_userExpanded") { mutableStateOf(false) }
             val expanded = userExpanded || message.isStreaming
             Column(modifier = Modifier.padding(bottom = 4.dp).testTag("think_bubble")) {
                 Row(
