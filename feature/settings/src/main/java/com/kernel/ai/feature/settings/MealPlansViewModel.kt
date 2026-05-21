@@ -101,7 +101,7 @@ class MealPlansViewModel @Inject constructor(
             availableLists = lists,
             recentPlansQuery = chrome.recentPlansQuery,
             favouriteRecipesQuery = chrome.favouriteRecipesQuery,
-            expandedPlanIds = chrome.expandedPlanIds,
+            expandedPlanIds = effectiveExpandedPlanIds(plans, chrome),
             expandedDetailIds = chrome.expandedDetailIds,
             pendingRecipeKeys = chrome.pendingRecipeKeys,
         )
@@ -269,6 +269,13 @@ class MealPlansViewModel @Inject constructor(
                 snapshot.copy(daysCount = totalDays, days = matchingDays)
             }
         }
+    }
+    private fun effectiveExpandedPlanIds(
+        plans: List<MealPlanSnapshot>,
+        chrome: BrowserChrome,
+    ): Set<String> {
+        if (chrome.recentPlansQuery.isBlank()) return chrome.expandedPlanIds
+        return chrome.expandedPlanIds + plans.mapTo(mutableSetOf()) { it.sessionId }
     }
 
     private fun filterFavouriteRecipes(

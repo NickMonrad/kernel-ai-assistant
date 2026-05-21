@@ -105,6 +105,11 @@ class MealPlansViewModelTest {
         assertEquals("tofu", state.recentPlansQuery)
         assertEquals(1, state.recentPlans.size)
         assertEquals(listOf("Tofu Curry"), state.recentPlans.single().days.map { it.title })
+        assertTrue("session-1" in state.expandedPlanIds)
+
+        viewModel.updateRecentPlansQuery("")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse("session-1" in states.last().expandedPlanIds)
 
         collectJob.cancel()
     }
