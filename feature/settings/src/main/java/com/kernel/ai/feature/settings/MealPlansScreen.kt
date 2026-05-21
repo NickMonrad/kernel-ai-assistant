@@ -26,13 +26,14 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -510,12 +511,26 @@ private fun RecipeDetails(
         if (onAddRecipeToLists != null || onAddIngredientsToList != null) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 onAddRecipeToLists?.let { action ->
-                    OutlinedButton(onClick = action, enabled = actionsEnabled) {
+                    Button(
+                        onClick = action,
+                        enabled = actionsEnabled,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ),
+                    ) {
                         Text("Add recipe to Lists")
                     }
                 }
                 onAddIngredientsToList?.let { action ->
-                    OutlinedButton(onClick = action, enabled = actionsEnabled) {
+                    Button(
+                        onClick = action,
+                        enabled = actionsEnabled,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ),
+                    ) {
                         Text("Add ingredients to list")
                     }
                 }
