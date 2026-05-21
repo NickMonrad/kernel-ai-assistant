@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-05-21 (PR #946 spec sync: thinking-mode/tool-turn hardening, direct native tool wrappers, DirectReply bypass notes, known QIR/anaphora follow-up gaps; prior: PR #925 deterministic meal planner architecture, planner status surface, friendly meal-plan IDs, conversation title sync, Room v45; PR #924 conversation management — archive, pin, drag-to-reorder, swipe gestures, multi-select, ArchiveCleanupWorker; PR #834 voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, important dates, world clock, colloquial weather QIR; PR #848 currency #831; PR #847 widget #617; PR #845 aye fix #843)
+> **Last updated:** 2026-05-21 (PR #946 spec sync: thinking-mode/tool-turn hardening, direct native tool wrappers, DirectReply bypass notes, known QIR/anaphora follow-up gaps; PR #934 meal plans browser: recent/favourites tabs, recipe search, list export actions; prior: PR #925 deterministic meal planner architecture, planner status surface, friendly meal-plan IDs, conversation title sync, Room v45; PR #924 conversation management — archive, pin, drag-to-reorder, swipe gestures, multi-select, ArchiveCleanupWorker; PR #834 voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, important dates, world clock, colloquial weather QIR; PR #848 currency #831; PR #847 widget #617; PR #845 aye fix #843)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -906,6 +906,24 @@ That surface also publishes planner-smart-reply commands such as:
 - `done meal planning`
 
 `shouldKeepChatScreenAwake(...)` treats planner `WORKING` activity the same as active generation so the device does not sleep mid-run while the planner is doing foreground-visible work.
+
+#### 4.3.6 Meal plans browser and favourites management
+
+Post-cook browsing and favourite management live outside chat in a dedicated **Meal plans** screen reachable from the navigation drawer.
+
+The screen has two tabs:
+- **Recent plans** — completed meal plans with expandable day cards and recipe details
+- **Favourites** — canonical favourite recipes derived from planner-owned recipe identity keys
+
+Key behaviour:
+- Recent-plan recipe search filters by recipe name and auto-expands matching plans so the matching day cards are immediately visible
+- Favourite search filters canonical favourite recipes by recipe name
+- Favourite / unfavourite actions update the canonical `meal_plan_favourite_recipes` store outside the chat planner flow
+- Recipe actions can either recreate a standalone recipe checklist in Lists or append the recipe's ingredient lines into an existing user-managed list
+- Planner-managed projection lists are excluded from the ingredient target picker so users do not accidentally append back into generated planner artifacts
+
+This browser intentionally reuses the planner's canonical Room state instead of introducing a second source of truth or reviving chat-only favourite management.
+
 ### 4.4 Extensible Skills (WebAssembly — Phase 5)
 
 Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime, v1.0+).
