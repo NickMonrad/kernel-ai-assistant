@@ -432,6 +432,41 @@ class ChatTextUtilsTest {
         }
     }
 
+    @Nested
+    @DisplayName("prefersImmediateConversationContext")
+    inner class ImmediateContextTests {
+        @Test
+        fun `returns true for short pronoun follow up questions`() {
+            assertTrue(prefersImmediateConversationContext("What are they"))
+            assertTrue(prefersImmediateConversationContext("How do they work?"))
+        }
+
+        @Test
+        fun `returns false for long or non pronoun queries`() {
+            assertFalse(prefersImmediateConversationContext("Tell me everything you remember about sweet potatoes and their nutritional profile"))
+            assertFalse(prefersImmediateConversationContext("What time is it"))
+        }
+    }
+
+    @Nested
+    @DisplayName("extractExplicitWikipediaQuery")
+    inner class ExplicitWikipediaQueryTests {
+        @Test
+        fun `preserves identifier text for look up wikipedia for command`() {
+            assertEquals("SM-918B", extractExplicitWikipediaQuery("Look up Wikipedia for SM-918B"))
+        }
+
+        @Test
+        fun `preserves mixed query for on wikipedia command`() {
+            assertEquals("Samsung sm-918b", extractExplicitWikipediaQuery("Look up Samsung sm-918b on Wikipedia"))
+        }
+
+        @Test
+        fun `returns null for non explicit wikipedia queries`() {
+            assertEquals(null, extractExplicitWikipediaQuery("What is sm-918b"))
+        }
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     // TOOL CONFIRMATION (HALLUCINATION GUARD)
     // ═════════════════════════════════════════════════════════════════════════

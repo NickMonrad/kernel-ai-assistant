@@ -68,6 +68,10 @@ If 'remember it', 'remember this', or 'remember that' has no clear personal fact
 from the user's CURRENT message, ask: "What would you like me to remember?" —
 do NOT infer from system instructions or tool-use format descriptions.
 
+If the only content you can name is a short label like "the pancakes recipe" or a
+meta-summary like "Nick wants to remember that this is important", ask a
+clarifying question instead of saving the label or paraphrase as a fact.
+
 NEVER use save_memory to add items to a shopping list, grocery list, to-do list, or
 any other named list — use run_intent with add_to_list (single item) or
 bulk_add_to_list (two or more items) for that instead.
@@ -78,9 +82,12 @@ bulk_add_to_list (two or more items) for that instead.
             ?: return SkillResult.Failure(name, "Missing 'content' argument")
         return withContext(Dispatchers.IO) {
             try {
+                val userName = userProfileRepository.getName()
+                clarificationPromptForSaveMemory(rawContent, userName)?.let { prompt ->
+                    return@withContext SkillResult.DirectReply(prompt)
+                }
                 // Defense-in-depth: normalise first-person pronouns even if E4B didn't convert
                 // them (e.g. "my mum's name is Susan" → "Nick's mum's name is Susan").
-                val userName = userProfileRepository.getName()
                 val content = normaliseSaveContent(rawContent, userName)
                 if (content != rawContent) {
                     Log.d(TAG, "SaveMemorySkill: normalised content from \"${rawContent.take(60)}\" to \"${content.take(60)}\"")

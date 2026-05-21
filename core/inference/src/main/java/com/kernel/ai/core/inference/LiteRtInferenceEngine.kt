@@ -46,6 +46,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "LiteRtInferenceEngine"
+private const val SCREEN_INTERACTIVE_POLL_MS = 500L
+private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
 internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
 internal const val THINKING_CLOSE_MARKER = "<channel|>"
 private val CHANNEL_WRAPPER_RE = Regex(
@@ -80,6 +82,24 @@ internal fun resolveSpeculativeDecodingForInit(
 
 private fun modelSupportsSpeculativeDecoding(modelPath: String): Boolean =
     Capabilities(modelPath).use { it.hasSpeculativeDecodingSupport() }
+
+internal suspend fun waitForInteractiveState(
+    isInteractive: () -> Boolean,
+    pollMs: Long = SCREEN_INTERACTIVE_POLL_MS,
+    timeoutMs: Long = SCREEN_INTERACTIVE_TIMEOUT_MS,
+): Boolean {
+    if (isInteractive()) return true
+    return try {
+        withTimeout(timeoutMs) {
+            while (!isInteractive()) {
+                delay(pollMs)
+            }
+        }
+        true
+    } catch (_: TimeoutCancellationException) {
+        false
+    }
+}
 
 internal fun isValidJsonObject(raw: String): Boolean =
     try {
@@ -478,17 +498,28 @@ class LiteRtInferenceEngine @Inject constructor(
      *
      * GPU hardware is suspended when the screen is off — calling [createEngineWithFallback]
      * while the screen is off hangs indefinitely. This guard is called at the top of
-     * [initialize] to prevent that. Polls [PowerManager.isInteractive] every 500ms so that
-     * [LlmDispatcher] remains free for other queued work while waiting.
+     * [initialize] to prevent that. If Android does not report an interactive screen within
+     * [SCREEN_INTERACTIVE_TIMEOUT_MS], the init proceeds anyway so the single-threaded
+     * [LlmDispatcher] does not stay wedged forever after sleep/wake.
      */
-    private suspend fun waitForScreenInteractive() {
+    private suspend fun waitForScreenInteractive(): Boolean {
         val pm = context.getSystemService(PowerManager::class.java)
-        if (pm.isInteractive) return
+        if (pm.isInteractive) return true
         Log.i(TAG, "Screen is off — waiting before GPU init (#609)")
-        while (!pm.isInteractive) {
-            delay(500)
+        val becameInteractive = waitForInteractiveState(
+            isInteractive = { pm.isInteractive },
+            pollMs = SCREEN_INTERACTIVE_POLL_MS,
+            timeoutMs = SCREEN_INTERACTIVE_TIMEOUT_MS,
+        )
+        if (becameInteractive) {
+            Log.i(TAG, "Screen is on — proceeding with GPU init")
+        } else {
+            Log.w(
+                TAG,
+                "Screen did not become interactive within ${SCREEN_INTERACTIVE_TIMEOUT_MS}ms — proceeding with GPU init anyway",
+            )
         }
-        Log.i(TAG, "Screen is on — proceeding with GPU init")
+        return becameInteractive
     }
 
     override suspend fun initialize(config: ModelConfig) {

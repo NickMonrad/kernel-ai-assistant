@@ -33,6 +33,38 @@ class QueryWikipediaSkillTest {
     }
 
     @Test
+    fun `execute rejects unrelated fuzzy result for identifier like query`() = runTest {
+        coEvery { runner.execute("query-wikipedia", mapOf("query" to "SM-918B")) } returns
+            "Sodium lignosulfonate\n\nA lignosulfonate compound."
+
+        val result = skill.execute(
+            SkillCall(
+                skillName = "query_wikipedia",
+                arguments = mapOf("query" to "SM-918B"),
+            ),
+        )
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals("No confident Wikipedia result found for: SM-918B", reply.content)
+    }
+
+    @Test
+    fun `execute keeps identifier result when title contains the requested id`() = runTest {
+        coEvery { runner.execute("query-wikipedia", mapOf("query" to "Samsung sm-918b")) } returns
+            "Samsung SM-S918B\n\nSamsung device summary."
+
+        val result = skill.execute(
+            SkillCall(
+                skillName = "query_wikipedia",
+                arguments = mapOf("query" to "Samsung sm-918b"),
+            ),
+        )
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals("Samsung SM-S918B\n\nSamsung device summary.", reply.content)
+    }
+
+    @Test
     fun `fullInstructions stay focused on wikipedia and omit forecast guidance`() {
         val instructions = skill.fullInstructions
 

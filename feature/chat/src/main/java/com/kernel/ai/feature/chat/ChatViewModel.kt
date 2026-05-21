@@ -19,8 +19,10 @@ import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.LlmDispatcher
 import com.kernel.ai.core.inference.MINIMAL_SYSTEM_PROMPT
+import com.kernel.ai.core.inference.ModelCapabilities
 import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.inference.PersonaMode
+import com.kernel.ai.core.inference.capabilities
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -101,6 +103,9 @@ private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
 
 /** Stop phrases that terminate the back-and-forth voice loop (#754). */
 private val STOP_PHRASES = setOf("stop", "cancel", "done", "that's all", "thats all", "exit", "quit")
+
+internal fun shouldWaitForAppForegroundAfterEviction(currentState: Lifecycle.State): Boolean =
+    currentState < Lifecycle.State.STARTED
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -346,6 +351,7 @@ class ChatViewModel @Inject constructor(
                 error = input.error,
                 isLoadingModel = engine.isLoadingModel,
                 showThinkingProcess = showThinking,
+                modelCapabilities = activeModel?.capabilities,
             )
         }
     }.stateIn(
@@ -491,20 +497,16 @@ class ChatViewModel @Inject constructor(
                 withContext(Dispatchers.Main) {
                     suspendCancellableCoroutine { cont ->
                         val lifecycle = ProcessLifecycleOwner.get().lifecycle
-                        // LifecycleEventObserver replays catch-up events when added (e.g. ON_START
-                        // if current state is STARTED). We must ignore that replay and only resume
-                        // after we've confirmed the app went to background (ON_STOP) and came back
-                        // (ON_START). Pre-seed seenStop=true if debounce has already fired.
-                        var seenStop = lifecycle.currentState < Lifecycle.State.STARTED
+                        val currentState = lifecycle.currentState
+                        if (!shouldWaitForAppForegroundAfterEviction(currentState)) {
+                            if (cont.isActive) cont.resume(Unit)
+                            return@suspendCancellableCoroutine
+                        }
                         val observer = object : LifecycleEventObserver {
                             override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
-                                when (event) {
-                                    Lifecycle.Event.ON_STOP -> seenStop = true
-                                    Lifecycle.Event.ON_START -> if (seenStop) {
-                                        lifecycle.removeObserver(this)
-                                        if (cont.isActive) cont.resume(Unit)
-                                    }
-                                    else -> {}
+                                if (event == Lifecycle.Event.ON_START) {
+                                    lifecycle.removeObserver(this)
+                                    if (cont.isActive) cont.resume(Unit)
                                 }
                             }
                         }
@@ -1378,7 +1380,14 @@ class ChatViewModel @Inject constructor(
                 messages = _messages.value.dropLast(1),
             )
             val routeResult = mealPlannerRoute
-            val matchedIntent = weatherFollowUpLocation?.let {
+            val explicitWikipediaQuery = extractExplicitWikipediaQuery(text)
+            val matchedIntent = explicitWikipediaQuery?.let {
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "query_wikipedia",
+                    params = mapOf("query" to it),
+                    source = "conversation",
+                )
+            } ?: weatherFollowUpLocation?.let {
                 QuickIntentRouter.MatchedIntent(
                     intentName = "get_weather",
                     params = mapOf("location" to it),
@@ -1562,10 +1571,11 @@ class ChatViewModel @Inject constructor(
                 looksLikeToolQuery(text) ||
                 isToolFollowUp
             isToolQueryForTurn = isToolQuery
+            val preferImmediateContext = prefersImmediateConversationContext(text) && priorMessages.isNotEmpty()
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
             val effectiveRagContext: String
             val effectiveRagTokenCost: Int
-            if (isToolQuery) {
+            if (isToolQuery || preferImmediateContext) {
                 effectiveRagContext = ""
                 effectiveRagTokenCost = 0
             } else {
@@ -1580,7 +1590,7 @@ class ChatViewModel @Inject constructor(
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
             // the previous turn to resolve what "that/it/this" refers to. Inject the last
             // user+assistant pair as a lightweight context block — still no RAG or personality.
-            val anaphoraContext: String = if (isToolQuery && (looksLikeAnaphora(text) || isToolFollowUp)) {
+            val anaphoraContext: String = if ((isToolQuery && (looksLikeAnaphora(text) || isToolFollowUp)) || preferImmediateContext) {
                 val lastPair = priorMessages.takeLast(2)
                 if (lastPair.isEmpty()) "" else buildString {
                     append("[Context: previous exchange]\n")

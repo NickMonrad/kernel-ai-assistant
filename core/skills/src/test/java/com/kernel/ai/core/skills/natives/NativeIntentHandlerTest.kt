@@ -248,6 +248,24 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `get_time returns tomorrow weekday when relative day is requested`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDay = LocalDate.now().plusDays(1).format(DateTimeFormatter.ofPattern("EEEE"))
+        assertEquals("Tomorrow is $expectedDay", reply.content)
+    }
+
+    @Test
+    fun `save_memory asks for clarification instead of saving short recipe labels`() {
+        val result = handleIntent("save_memory", mapOf("content" to "the pancakes recipe"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals(
+            "Do you want me to remember the full recipe, or a specific fact about it?",
+            reply.content,
+        )
+    }
+
+    @Test
     fun `make_call resolves direct contact names with punctuation-insensitive matching`() {
         coEvery { contactAliasRepository.getByAlias(any()) } returns null
         every {

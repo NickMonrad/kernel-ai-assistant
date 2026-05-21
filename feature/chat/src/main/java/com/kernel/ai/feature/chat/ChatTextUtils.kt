@@ -410,6 +410,29 @@ internal fun looksLikeAnaphora(text: String): Boolean {
     ).containsMatchIn(lower)
 }
 
+internal fun prefersImmediateConversationContext(text: String): Boolean {
+    val lower = text.lowercase().trim()
+    if (lower.length > 80) return false
+    if (Regex("""^what\s+(?:time|date|day)\s+is\s+(?:it|today)\b""", RegexOption.IGNORE_CASE).containsMatchIn(lower)) {
+        return false
+    }
+    return Regex(
+        """^(?:what|who|how|why|when|where|which)\b.*\b(?:it|they|them|that|this|those|these)\b""",
+        RegexOption.IGNORE_CASE,
+    ).containsMatchIn(lower)
+}
+
+internal fun extractExplicitWikipediaQuery(text: String): String? {
+    val patterns = listOf(
+        Regex("""^\s*(?:look\s+up|search)\s+wikipedia\s+(?:for\s+)?(.+?)\s*[?!.]*$""", RegexOption.IGNORE_CASE),
+        Regex("""^\s*(?:look\s+up|search)\s+(.+?)\s+on\s+wikipedia\s*[?!.]*$""", RegexOption.IGNORE_CASE),
+        Regex("""^\s*wikipedia\s+(.+?)\s*[?!.]*$""", RegexOption.IGNORE_CASE),
+    )
+    return patterns.firstNotNullOfOrNull { regex ->
+        regex.matchEntire(text)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+    }
+}
+
 /**
  * Returns true if [text] is a short follow-up like "yes", "continue", or "ok let's do it"
  * and the immediately previous exchange was already in a tool-driven flow.

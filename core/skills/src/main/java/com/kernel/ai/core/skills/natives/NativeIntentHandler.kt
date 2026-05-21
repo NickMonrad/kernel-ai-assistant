@@ -735,17 +735,28 @@ class NativeIntentHandler @Inject constructor(
     // ── Time / Date ───────────────────────────────────────────────────────────
 
     private fun getTime(params: Map<String, String> = emptyMap()): SkillResult {
+        val relativeDay = params["relative_day"]?.trim()?.lowercase()
+        val relativeDayLabel = when (relativeDay) {
+            "tomorrow" -> "Tomorrow"
+            else -> "Today"
+        }
         val location = params["location"]?.trim()?.takeIf { it.isNotBlank() }
         if (location != null) {
             return when (val resolution = WorldClockCatalog.resolve(location)) {
                 is WorldClockResolution.Resolved -> {
                     val zonedNow = Instant.ofEpochMilli(System.currentTimeMillis())
                         .atZone(ZoneId.of(resolution.candidate.zoneId))
+                    val targetZoned = when (relativeDay) {
+                        "tomorrow" -> zonedNow.plusDays(1)
+                        else -> zonedNow
+                    }
                     when (params["query_type"]) {
                         "date" -> SkillResult.DirectReply(
-                            "In ${resolution.candidate.displayName}, today is ${zonedNow.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
+                            "In ${resolution.candidate.displayName}, ${relativeDayLabel.lowercase()} is ${targetZoned.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
                         )
-
+                        "day_of_week" -> SkillResult.DirectReply(
+                            "In ${resolution.candidate.displayName}, ${relativeDayLabel.lowercase()} is ${targetZoned.format(DateTimeFormatter.ofPattern("EEEE"))}",
+                        )
                         else -> SkillResult.DirectReply(
                             "In ${resolution.candidate.displayName}, it's ${zonedNow.format(DateTimeFormatter.ofPattern("h:mm a"))} on ${zonedNow.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
                         )
@@ -765,6 +776,10 @@ class NativeIntentHandler @Inject constructor(
         }
 
         val now = LocalDateTime.now()
+        val targetDateTime = when (relativeDay) {
+            "tomorrow" -> now.plusDays(1)
+            else -> now
+        }
         // DirectReply: factual time/date data — LLM wrapping risks corrupting values
         // (e.g. "3:47 PM" → "nearly four o'clock") and adds no value for a simple query.
         return when (params["query_type"]) {
@@ -772,10 +787,10 @@ class NativeIntentHandler @Inject constructor(
                 "It's ${now.format(DateTimeFormatter.ofPattern("h:mm a"))}",
             )
             "date" -> SkillResult.DirectReply(
-                "Today is ${now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
+                "${relativeDayLabel} is ${targetDateTime.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
             )
             "day_of_week" -> SkillResult.DirectReply(
-                "It's ${now.format(DateTimeFormatter.ofPattern("EEEE"))}",
+                "${relativeDayLabel} is ${targetDateTime.format(DateTimeFormatter.ofPattern("EEEE"))}",
             )
             "year" -> SkillResult.DirectReply("It's ${now.year}")
             "month" -> SkillResult.DirectReply(
@@ -2482,6 +2497,9 @@ class NativeIntentHandler @Inject constructor(
         return try {
             runBlocking {
                 val userName = userProfileRepository.getName()
+                clarificationPromptForSaveMemory(raw, userName)?.let { prompt ->
+                    return@runBlocking SkillResult.DirectReply(prompt)
+                }
                 val content = normaliseSaveContent(raw, userName)
                 val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
                 memoryRepository.addCoreMemory(
@@ -2489,7 +2507,7 @@ class NativeIntentHandler @Inject constructor(
                     source = "agent",
                     embeddingVector = vector ?: floatArrayOf(),
                 )
-                SkillResult.Success("✓ Saved: \"${content.take(100)}\"")
+                SkillResult.Success("✓ Saved: \"${content.take(100)}\".")
             }
         } catch (e: Exception) {
             Log.e(TAG, "save_memory failed", e)

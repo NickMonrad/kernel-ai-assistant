@@ -729,6 +729,16 @@ class QuickIntentRouterTest {
     }
 
         @Test
+        fun `should extract tomorrow weekday query without treating it as today`() {
+            val result = regexOnlyRouter.route("What's the day of the week tomorrow")
+            assertRegexMatch(result, "get_time", "What's the day of the week tomorrow")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("day_of_week", intent.params["query_type"])
+            assertEquals("tomorrow", intent.params["relative_day"])
+        }
+
+        @Test
         fun `should extract location for world time query`() {
             val result = regexOnlyRouter.route("what time is it in London right now")
             assertRegexMatch(result, "get_time", "what time is it in London right now")
@@ -1808,6 +1818,12 @@ class QuickIntentRouterTest {
             val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
             assertEquals("save_memory", needsSlot.intent.intentName, "intent for '$input'")
             assertEquals("content", needsSlot.missingSlot.name, "missing slot for '$input'")
+        }
+
+        @Test
+        fun `should not route remember about me query to save memory`() {
+            val result = regexOnlyRouter.route("What do you remember about me")
+            assertFallThrough(result, "What do you remember about me")
         }
 
     // ═══════════════════════════════════════════════════════════════════════════

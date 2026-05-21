@@ -313,10 +313,11 @@ class RagRepository @Inject constructor(
         if (!tableCreated) return@withContext emptyList()
 
         runCatching {
-            val rawResults = vectorStore.search(TABLE, queryVector, topK * 2)
+            val matches = vectorStore.search(TABLE, queryVector, topK * 2)
                 .filter { it.distance <= MAX_DISTANCE }
-                .map { it.rowId }
+            val rawResults = matches.map { it.rowId }
             if (rawResults.isEmpty()) return@runCatching emptyList()
+            val distanceMap = matches.associate { it.rowId to it.distance }
 
             val entities = if (conversationId != null) {
                 embeddingDao.getByRowIdsForConversation(rawResults, conversationId)
@@ -337,6 +338,7 @@ class RagRepository @Inject constructor(
                     content = msg.content,
                     conversationId = entity.conversationId,
                     timestamp = msg.timestamp,
+                    score = 1f - (distanceMap[entity.rowId] ?: 1f),
                 )
             }
         }.getOrElse {
@@ -358,6 +360,7 @@ class RagRepository @Inject constructor(
     suspend fun searchCoreAndEpisodic(
         query: String,
         topK: Int = DEFAULT_TOP_K,
+        includeSiblingContext: Boolean = false,
     ): List<MemorySearchResult> = withContext(Dispatchers.IO) {
         val queryVector = embeddingEngine.embed(query)
         if (queryVector.isEmpty()) return@withContext emptyList()
@@ -367,6 +370,7 @@ class RagRepository @Inject constructor(
                 coreTopK = topK,
                 episodicTopK = topK,
             )
+            if (!includeSiblingContext) return@runCatching initialResults
 
             // Sibling expansion: fetch all episodic entries from the same conversations as
             // the initial episodic hits, capped to avoid bloating the result set.
