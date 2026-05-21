@@ -195,7 +195,6 @@ class ChatViewModel @Inject constructor(
     private var activeVoiceStreamingSession: VoiceOutputStreamingSession? = null
     private var activeVoiceStreamingBuffer = StringBuilder()
     private var isVoiceStreamingEnabledForTurn = false
-    private var activeVoiceGroundingContext: String? = null
     private var suppressVoiceOutputForCurrentResponse = false
     private var spokenResponsesEnabled = true
     private var autoSpeakEnabled = true
@@ -271,7 +270,6 @@ class ChatViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _showThinkingProcess = MutableStateFlow(true)
-    private val _correctGroundedFactsEnabled = MutableStateFlow(false)
 
     /** Ensures at most one concurrent Gemma-4 initialisation attempt. */
     private val gemma4InitMutex = Mutex()
@@ -727,7 +725,6 @@ class ChatViewModel @Inject constructor(
                 val settings = modelSettingsRepository.getSettings(preferred.modelId)
                 activeContextWindowSize = settings.contextWindowSize
                 _showThinkingProcess.value = settings.showThinkingProcess
-                _correctGroundedFactsEnabled.value = settings.correctGroundedFactsEnabled
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
                     systemPrompt = buildSystemPrompt(),
@@ -782,7 +779,6 @@ class ChatViewModel @Inject constructor(
                 Log.d(TAG, "initEngineWhenReady: modelId=${preferred.modelId} speculativeDecodingEnabled=${settings.speculativeDecodingEnabled}")
                 activeContextWindowSize = settings.contextWindowSize
                 _showThinkingProcess.value = settings.showThinkingProcess
-                _correctGroundedFactsEnabled.value = settings.correctGroundedFactsEnabled
                 inferenceEngine.initialize(ModelConfig(
                     modelPath = modelPath,
                     systemPrompt = buildSystemPrompt(),
@@ -1191,7 +1187,6 @@ class ChatViewModel @Inject constructor(
             // Set by the Tier 2 intercept when a skill executes successfully; injected into
             // the E4B prompt so it can generate a natural conversational wrapper.
             var systemContext: String? = null
-            var groundingContext: String? = null
             var isToolQueryForTurn = false
             // Set true when QIR routes to a device action, OR when the LLM calls a non-indexable
             // tool (run_intent, get_weather, etc.) — suppresses RAG indexing for both the user
@@ -1651,16 +1646,8 @@ class ChatViewModel @Inject constructor(
                 }
                 append(text)
             }
-            groundingContext = buildString {
-                if (effectiveRagContext.isNotBlank()) append(effectiveRagContext)
-                if (systemContext != null) {
-                    if (isNotBlank()) append('\n')
-                    append(systemContext)
-                }
-            }.ifBlank { null }
             prepareVoicePlaybackForTurn(
                 streamingEnabled = autoSpeakEnabled && !isToolQueryForTurn,
-                groundingContext = groundingContext,
             )
 
             } finally {
@@ -1707,12 +1694,7 @@ class ChatViewModel @Inject constructor(
                         }
 
                       is GenerationResult.Complete -> {
-                            val rawContent = accumulatedContent.toString()
-                            val fullContent = if (_correctGroundedFactsEnabled.value) {
-                                correctGroundedFacts(rawContent, groundingContext)
-                            } else {
-                                rawContent
-                            }
+                            val fullContent = accumulatedContent.toString()
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                            ?: preservedThinkingText
                             Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
@@ -1730,9 +1712,7 @@ class ChatViewModel @Inject constructor(
                                     // chain-of-thought with an empty string.
                                     if (thinking != null) preservedThinkingText = thinking
                                     Log.w("KernelAI", "blank_response_guard: 0 tokens — retrying without RAG context")
-                                    // Null out grounding context so correctGroundedFacts does not
-                                    // mutate the retry response using stale RAG-injected data.
-                                    groundingContext = null
+
                                     currentPrompt = buildString {
                                         if (systemContext != null) append("$systemContext\n\n")
                                         append("[System: ${jandalPersona.buildGreetingInstruction(false, jandalPersona.currentPersonaMode)}]\n\n")
@@ -2045,7 +2025,6 @@ class ChatViewModel @Inject constructor(
         isVoiceStreamingEnabledForTurn = false
         activeVoiceStreamingBuffer = StringBuilder()
         activeVoiceStreamingSession = null
-        activeVoiceGroundingContext = null
         voiceOutputController.stop()
         _isSpeakingResponse.value = false
     }
@@ -2215,11 +2194,9 @@ class ChatViewModel @Inject constructor(
 
     private suspend fun prepareVoicePlaybackForTurn(
         streamingEnabled: Boolean,
-        groundingContext: String?,
     ) {
         activeVoiceStreamingBuffer = StringBuilder()
         activeVoiceStreamingSession = null
-        activeVoiceGroundingContext = groundingContext
         isVoiceStreamingEnabledForTurn = streamingEnabled
         val shouldSpeak = pendingVoiceReply
         pendingVoiceReply = false
@@ -2251,11 +2228,7 @@ class ChatViewModel @Inject constructor(
             ) ?: break
             speakVoiceChunk(
                 session = session,
-                chunk = maybeCorrectStreamingSpeechChunk(
-                    chunk = chunk,
-                    groundingContext = activeVoiceGroundingContext,
-                    correctionEnabled = _correctGroundedFactsEnabled.value,
-                ),
+                chunk = chunk,
                 isFinal = false,
             )
         }
@@ -2266,10 +2239,7 @@ class ChatViewModel @Inject constructor(
             stopVoicePlayback()
             return
         }
-        val session = activeVoiceStreamingSession ?: run {
-            activeVoiceGroundingContext = null
-            return
-        }
+        val session = activeVoiceStreamingSession ?: return
         val finalChunk = if (isVoiceStreamingEnabledForTurn) {
             val bufferedChunks = mutableListOf<String>()
             while (true) {
@@ -2281,11 +2251,7 @@ class ChatViewModel @Inject constructor(
                 ) ?: break
                 bufferedChunks += chunk
             }
-            maybeCorrectStreamingSpeechChunk(
-                chunk = finalizeChatTextForSpeech(bufferedChunks.joinToString(" ").trim()),
-                groundingContext = activeVoiceGroundingContext,
-                correctionEnabled = _correctGroundedFactsEnabled.value,
-            )
+            finalizeChatTextForSpeech(bufferedChunks.joinToString(" ").trim())
         } else {
             finalizeChatTextForSpeech(finalContent)
         }
@@ -2293,7 +2259,6 @@ class ChatViewModel @Inject constructor(
         handleVoiceOutputResult(result)
         activeVoiceStreamingSession = null
         activeVoiceStreamingBuffer = StringBuilder()
-        activeVoiceGroundingContext = null
         isVoiceStreamingEnabledForTurn = false
     }
 
@@ -2472,91 +2437,6 @@ private fun shouldIndexToolCallResult(skillName: String): Boolean = when (skillN
     "search_memory",    // read-only, no new content
     -> false
     else -> true        // run_js (wikipedia etc.) — knowledge worth recalling
-}
-
-/**
- * Repairs a small set of known literal-copy failures when the model was given grounding context.
- *
- * The repair is intentionally narrow:
- * - percentage truncation from [System:] tool context, e.g. 92% -> 9%
- * - malformed standalone year tokens, e.g. 200007 -> 2007 or 209 -> 2009
- *
- * Broader paraphrasing is left untouched so analytical answers still read naturally.
- */
-internal fun maybeCorrectStreamingSpeechChunk(
-    chunk: String,
-    groundingContext: String?,
-    correctionEnabled: Boolean,
-): String = if (correctionEnabled) {
-    correctGroundedFacts(chunk, groundingContext)
-} else {
-    chunk
-}
-
-internal fun correctGroundedFacts(response: String, groundingContext: String?): String {
-    if (groundingContext.isNullOrBlank()) return response
-
-    val expectedNumbers = Regex("""\d+""").findAll(groundingContext)
-        .map { it.value }
-        .filter { it.length >= 2 }
-        .distinct()
-        .toList()
-
-    // Snapshot original percentage tokens so later loop iterations can't re-correct
-    // a token that was already fixed by a prior iteration (chain-correction guard).
-    val originalPctTokens = Regex("""(\d+)%""").findAll(response).map { it.groupValues[1] }.toSet()
-    var corrected = response
-    expectedNumbers.forEach { expected ->
-        if (corrected.contains("$expected%")) return@forEach
-        corrected = corrected.replace(Regex("""(\d+)%""")) { pctMatch ->
-            val found = pctMatch.groupValues[1]
-            if (found in originalPctTokens && expected.startsWith(found) && found.length < expected.length) "$expected%"
-            else pctMatch.value
-        }
-    }
-
-    val expectedYears = Regex("""(?<!\d)(?:1[6-9]\d{2}|20\d{2}|21\d{2})(?!\d)""")
-        .findAll(groundingContext)
-        .map { it.value }
-        .distinct()
-        .toList()
-    if (expectedYears.isEmpty()) return corrected
-
-    return Regex("""(?<![\d%])\d{3,6}(?![\d%])""").replace(corrected) { match ->
-        val found = match.value
-        if (found.length == 4 && found in expectedYears) return@replace found
-
-        val candidates = expectedYears.filter { expected ->
-            expected != found &&
-                found.firstOrNull() == expected.firstOrNull() &&
-                levenshteinDistance(found, expected) <= if (found.length <= 4) 1 else 2
-        }
-        if (candidates.size == 1) candidates.first() else found
-    }
-}
-
-private fun levenshteinDistance(left: String, right: String): Int {
-    if (left == right) return 0
-    if (left.isEmpty()) return right.length
-    if (right.isEmpty()) return left.length
-
-    val prev = IntArray(right.length + 1) { it }
-    val curr = IntArray(right.length + 1)
-
-    for (i in 1..left.length) {
-        curr[0] = i
-        for (j in 1..right.length) {
-            val cost = if (left[i - 1] == right[j - 1]) 0 else 1
-            curr[j] = minOf(
-                curr[j - 1] + 1,
-                prev[j] + 1,
-                prev[j - 1] + cost,
-            )
-        }
-        for (j in prev.indices) prev[j] = curr[j]
-    }
-
-    return prev[right.length]
 }
 
 private fun formatBytes(bytes: Long): String = when {

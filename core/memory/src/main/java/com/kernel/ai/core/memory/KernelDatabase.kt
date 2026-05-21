@@ -84,7 +84,7 @@ import java.time.ZoneId
         MealPlanProjectionWriteEntity::class,
         MealPlanFavouriteRecipeEntity::class,
     ],
-    version = 46,
+    version = 47,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -759,6 +759,53 @@ abstract class KernelDatabase : RoomDatabase() {
                     )
                     """.trimIndent(),
                 )
+            }
+        }
+
+        /** Removes the grounded-facts repair toggle from model_settings; the heuristic itself is retired. */
+        val MIGRATION_46_47 = object : Migration(46, 47) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `model_settings_new` (
+                        `modelId` TEXT NOT NULL,
+                        `contextWindowSize` INTEGER NOT NULL,
+                        `temperature` REAL NOT NULL,
+                        `topP` REAL NOT NULL,
+                        `topK` INTEGER NOT NULL,
+                        `showThinkingProcess` INTEGER NOT NULL,
+                        `speculativeDecodingEnabled` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`modelId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `model_settings_new` (
+                        `modelId`,
+                        `contextWindowSize`,
+                        `temperature`,
+                        `topP`,
+                        `topK`,
+                        `showThinkingProcess`,
+                        `speculativeDecodingEnabled`,
+                        `updatedAt`
+                    )
+                    SELECT
+                        `modelId`,
+                        `contextWindowSize`,
+                        `temperature`,
+                        `topP`,
+                        `topK`,
+                        `showThinkingProcess`,
+                        `speculativeDecodingEnabled`,
+                        `updatedAt`
+                    FROM `model_settings`
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE `model_settings`")
+                db.execSQL("ALTER TABLE `model_settings_new` RENAME TO `model_settings`")
             }
         }
     }
