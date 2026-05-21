@@ -523,6 +523,7 @@ class ChatTextUtilsTest {
                 "save this meal plan to my shopping list",
                 "open app settings",
                 "toggle flashlight",
+                "what's the current system info",
                 "note that my password is 1234",
                 "don't forget the meeting",
                 "store my preference",
@@ -637,9 +638,9 @@ class ChatTextUtilsTest {
         }
 
         @Test
-        fun `non tool instruction forbids tools`() {
+        fun `non tool instruction softly prefers reasoning`() {
             assertEquals(
-                "This is a normal conversational or reasoning reply. Answer directly from your own knowledge and reasoning. Do NOT call tools unless the user explicitly asks you to look something up or fetch external/current information.",
+                "This looks like a normal conversational or reasoning reply. Prefer answering directly from your own knowledge and reasoning. Only call tools if the user is clearly asking for current, external, or retrieved information.",
                 nonToolTurnInstruction(),
             )
         }

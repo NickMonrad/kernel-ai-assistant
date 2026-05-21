@@ -379,6 +379,7 @@ internal fun looksLikeToolQuery(query: String): Boolean {
         "turn on", "turn off", "toggle", "open app",
         "play ", "navigate to", "directions to",
         "what time", "what's the time", "battery", "get battery",
+        "system info", "device info",
         "meal plan", "plan my meals", "meal planner", "plan meals",
     )
     return toolKeywords.any { keyword ->
@@ -464,8 +465,8 @@ internal fun toolTurnInstruction(isFirstReply: Boolean): String? =
     }
 
 internal fun nonToolTurnInstruction(): String =
-    "This is a normal conversational or reasoning reply. Answer directly from your own knowledge and reasoning. " +
-        "Do NOT call tools unless the user explicitly asks you to look something up or fetch external/current information."
+    "This looks like a normal conversational or reasoning reply. Prefer answering directly from your own knowledge and reasoning. " +
+        "Only call tools if the user is clearly asking for current, external, or retrieved information."
 
 /**
  * Returns true if [response] looks like the model confirmed a tool action without
