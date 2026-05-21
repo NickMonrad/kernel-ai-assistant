@@ -597,19 +597,17 @@ class ChatViewModel @Inject constructor(
         if (skillNames.isBlank()) return ""
         return buildString {
             append("[Tool Use]\n")
-            append("You are an AI assistant that helps users by answering questions and completes tasks using skills.\n")
-            append("For EVERY new task, request, or question that needs a tool, you MUST execute these steps in exact order.\n")
-            append("You MUST NOT skip any steps.\n\n")
-            append("1. First, find the most relevant skill from this list:\n")
+            append("You are an AI assistant that helps users by answering questions and completing tasks using skills.\n")
+            append("Use native tools directly whenever the right tool and required arguments are obvious.\n")
+            append("Use load_skill only when you need extra instructions for a complex or gateway skill.\n\n")
+            append("Available skills:\n")
             append(skillNames)
             append("\n\n")
-            append("After this step you MUST go to the next step. ")
-            append("You MUST NOT use run_intent under any circumstances at this step.\n\n")
-            append("2. If a relevant skill exists, call load_skill with the skill name to get its full instructions.\n\n")
-            append("You MUST NOT use run_intent under any circumstances at this step.\n\n")
-            append("3. Follow the skill's instructions exactly to complete the task. ")
-            append("Only use run_intent after steps 1 and 2 are complete and only when the loaded skill tells you to. ")
-            append("Output ONLY the final result to the user when successful.\n\n")
+            append("Rules:\n")
+            append("1. Choose the most relevant native tool for the user's request.\n")
+            append("2. Call that tool directly when its name and parameters are clear from the request.\n")
+            append("3. If you are unsure about parameters or need gateway-specific rules, call load_skill first, then follow its instructions.\n")
+            append("4. Output ONLY the final user-facing result when successful.\n\n")
             append("CRITICAL: Execute all steps silently. Do NOT output intermediate reasoning, status updates, or tool call text.")
         }
     }
@@ -651,6 +649,8 @@ class ChatViewModel @Inject constructor(
 
             val persisted = conversationRepository.getMessagesOnce(id)
             if (persisted.isNotEmpty()) {
+                val thinkingCount = persisted.count { !it.thinkingText.isNullOrBlank() }
+                if (thinkingCount > 0) Log.d("KernelAI", "thinking_restore: $thinkingCount/${persisted.size} messages have thinkingText")
                 _messages.value = persisted.map { entity ->
                     ChatMessage(
                         id = entity.id,
@@ -1629,12 +1629,15 @@ class ChatViewModel @Inject constructor(
                     buildToolUsePrompt()
                         .takeIf { it.isNotBlank() }
                         ?.let { append("$it\n\n") }
+                    toolTurnInstruction(isFirstReply)
+                        ?.let { append("[System: $it]\n\n") }
                 }
                 // Greeting instruction injected per-turn so turn 1 says "Kia ora" and
                 // subsequent turns explicitly suppress greetings — without invalidating the KV cache.
                 // Suppressed entirely for tool queries to keep the prompt focused.
                 if (!isToolQuery) {
                     append("[System: ${jandalPersona.buildGreetingInstruction(isFirstReply, jandalPersona.currentPersonaMode)}]\n\n")
+                    append("[System: ${nonToolTurnInstruction()}]\n\n")
                 }
                 append(text)
             }
@@ -1661,6 +1664,7 @@ class ChatViewModel @Inject constructor(
                 hallucinationRetryAttempted = false
                 var rawToolCallRetryAttempted = false
                 var blankResponseRetryAttempted = false
+                var preservedThinkingText: String? = null
                 var currentPrompt = prompt
                 var needsHallucinationRetry: Boolean
 
@@ -1700,6 +1704,8 @@ class ChatViewModel @Inject constructor(
                                 rawContent
                             }
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
+                                ?: preservedThinkingText
+                            Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
 
                             // Guard: LiteRT occasionally produces 0 tokens (TTFT=-1ms) when the model
                             // generates an immediate EOS — often triggered by an unusual RAG injection
@@ -1709,6 +1715,10 @@ class ChatViewModel @Inject constructor(
                             if (fullContent.isBlank()) {
                                 if (!blankResponseRetryAttempted) {
                                     blankResponseRetryAttempted = true
+                                    // Preserve thinking from first attempt — the retry runs without RAG
+                                    // and may produce no thinking tokens, which would overwrite a valid
+                                    // chain-of-thought with an empty string.
+                                    if (thinking != null) preservedThinkingText = thinking
                                     Log.w("KernelAI", "blank_response_guard: 0 tokens — retrying without RAG context")
                                     // Null out grounding context so correctGroundedFacts does not
                                     // mutate the retry response using stale RAG-injected data.
@@ -1777,7 +1787,11 @@ class ChatViewModel @Inject constructor(
 
                             if (nativeToolCall != null || toolCallResult != null) {
                                 val toolCall = nativeToolCall ?: toolCallResult!!.first
+                                val nativeToolWasDirectReply =
+                                    nativeToolCall != null && kernelAIToolSet.lastToolWasDirectReply()
                                 val resultContent = when {
+                                    nativeToolWasDirectReply ->
+                                        toolCall.resultText
                                     nativeToolCall != null && toolCall.presentation != null && toolCall.isSuccess ->
                                         toolCall.resultText
                                     nativeToolCall != null -> fullContent
@@ -2097,7 +2111,7 @@ class ChatViewModel @Inject constructor(
         try {
             // generateOnce() reuses the existing conversation session (LiteRT only supports
             // one session at a time) and acquires generationMutex so it waits if engine is busy.
-            val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = null)
+            val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = null, thinkingEnabled = false)
             Log.d("KernelAI", "Raw title output: \"$raw\"")
             val title = raw
                 .trim()

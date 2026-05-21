@@ -55,7 +55,7 @@ Rules for extraction:
             return null
         }
         return try {
-            val raw = inferenceEngine.generateOnce(freeText, SYSTEM_PROMPT)
+            val raw = inferenceEngine.generateOnce(freeText, SYSTEM_PROMPT, thinkingEnabled = false)
             if (raw.isBlank()) {
                 Log.w(TAG, "Profile LLM extraction returned blank response")
                 return null

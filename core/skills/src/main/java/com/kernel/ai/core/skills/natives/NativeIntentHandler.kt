@@ -31,6 +31,7 @@ import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
@@ -135,6 +136,7 @@ class NativeIntentHandler @Inject constructor(
     private val embeddingEngine: EmbeddingEngine,
     private val cookingConversionService: CookingConversionService,
     private val currencyConversionService: CurrencyConversionService,
+    private val userProfileRepository: UserProfileRepository,
 ) {
 
     suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -242,6 +244,16 @@ class NativeIntentHandler @Inject constructor(
     companion object {
         private val INTENT_ALIASES = mapOf(
             "get_list" to "get_list_items",
+        )
+
+        /** Translates NZ/informal search terms to standard English for Maps queries. */
+        private val NZ_SEARCH_TERMS = mapOf(
+            "gas station" to "petrol station",
+            "gas stations" to "petrol stations",
+            "wharepaku" to "toilet",
+            "wharepakus" to "toilets",
+            "freeway" to "motorway",
+            "freeways" to "motorways",
         )
 
         private val KNOWN_INTENTS = setOf(
@@ -1168,7 +1180,8 @@ class NativeIntentHandler @Inject constructor(
     // ── Find Nearby ───────────────────────────────────────────────────────────
 
     private fun findNearby(params: Map<String, String>): SkillResult {
-        val query = params["query"] ?: return SkillResult.Failure("find_nearby", "No search query provided")
+        val rawQuery = params["query"] ?: return SkillResult.Failure("find_nearby", "No search query provided")
+        val query = NZ_SEARCH_TERMS[rawQuery.lowercase()] ?: rawQuery
         return try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(query)}")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -2464,23 +2477,40 @@ class NativeIntentHandler @Inject constructor(
     // ── Save Memory ───────────────────────────────────────────────────────────
 
     private fun saveMemory(params: Map<String, String>): SkillResult {
-        val content = params["content"]?.takeIf { it.isNotBlank() }
+        val raw = params["content"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("save_memory", "No content to save")
         return try {
             runBlocking {
+                val userName = userProfileRepository.getName()
+                val content = normaliseSaveContent(raw, userName)
                 val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
                 memoryRepository.addCoreMemory(
                     content = content,
                     source = "agent",
                     embeddingVector = vector ?: floatArrayOf(),
                 )
+                SkillResult.Success("✓ Saved: \"${content.take(100)}\"")
             }
-            SkillResult.Success("✓ Saved: \"${content.take(100)}\"")
         } catch (e: Exception) {
             Log.e(TAG, "save_memory failed", e)
             SkillResult.Failure("save_memory", e.message ?: "Failed to save memory")
         }
     }
+
+    /**
+     * Normalises first-person possessive pronouns in regex-captured save content.
+     * When the QuickIntentRouter intercepts "remember that my X is Y", the LLM is bypassed
+     * and has no chance to substitute the user's name. This function does it instead.
+     *
+     * Only safe transformations are applied:
+     * - "my" → "Nick's" (possessive, no conjugation needed)
+     * - "I'm" → "Nick is" (safe contraction expansion)
+     *
+     * Bare "I" is NOT replaced — verb conjugation requires LLM, and those inputs are
+     * now excluded from regex routing via the negative lookahead on the remember pattern.
+     */
+    private fun normaliseSaveContent(raw: String, userName: String?): String =
+        com.kernel.ai.core.skills.natives.normaliseSaveContent(raw, userName)
 
     // ── Set Brightness ────────────────────────────────────────────────────────
 
