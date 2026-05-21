@@ -53,7 +53,7 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 🧩 **Quick intent slot filling** — supported fast-path intents can pause for missing required parameters instead of failing silently
 - 🪪 **Rich tool presentations** — weather cards, list cards, confirmation chips, expandable previews, and surfaced fallback links
 - 🔎 **Tool call debugging** — expand any tool call chip to see request/result, tap to copy
-- 🧭 **Nav drawer** — Lists and Alarms accessible from Chat, Actions, and all main screens via hamburger menu
+- 🧭 **Nav drawer** — Lists, Alarms, and Meal plans accessible from Chat, Actions, and all main screens via hamburger menu
 - 📋 **Lists** — create and manage named lists via chat ("add milk to shopping list") or the Lists UI; full CRUD with active/completed sections
 - 🗓️ **Scheduled Alarms** — date-specific alarms scheduled via Jandal appear in the Alarms screen for review and cancellation
 - 📟 **Side panel** — slide-out drawer accessible from Chat and Settings shows active alarms and timers with live countdown; cancel any from the panel
@@ -67,7 +67,7 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 🔊 **Per-message speaker button** — `VolumeUp` icon on every assistant bubble; tap to play or stop that message's TTS independently of voice mode
 - ⚙️ **Expanded TTS settings** — pitch slider (Sherpa only, 0.5–2.0×), auto-speak chat replies toggle (decoupled from Quick Actions via `autoSpeakEnabled` field), max spoken sentences dropdown (0 = unlimited, 2, 3, 5); all grouped in a **"Chat voice behaviour"** section in Settings
 - 🛑 **Verbal stop command** — saying "stop", "stop speaking", "cancel", "be quiet", "shut up", or "silence" during TTS playback cancels speech and stops mic re-arm
-- 🗣️ **VCTK multi-speaker selection** — choose from 109 VCTK voices (gender filter, speaker ID, accent label) in Settings → Voice; sid mapping sourced directly from the Piper model config
+|- 🗣️ **VCTK multi-speaker selection** — choose from 109 VCTK voices (gender filter, speaker ID, accent label) in Settings → Voice; sid mapping sourced directly from the Piper model config
 |- 🗣️ **Semaine multi-speaker selection** — 4 distinct voices (Prudence, Spike, Obadiah, Poppy) selectable in Settings → Voice (#818, PR #818)
 |- 📐 **Deterministic unit conversion** — length, mass, volume, temperature, speed with alias normalisation and spoken-STT variants (#676, PR #816)
 |- 💱 **Deterministic currency conversion** — ISO code resolution via Frankfurter/ECB rates with same-currency short-circuit and clear error for unsupported currencies (#831, PR #848)
@@ -77,11 +77,11 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 |- 🔒 **Blank response guard** — retries without RAG before showing fallback when LiteRT produces 0 tokens; keeps chat awake during load and generation (#839/#841, PRs #840/#842)
 |- 🎙️ **Homescreen Glance widget** — quick actions and voice from the launcher via GlanceAppWidget; VoiceCommandActivity and WidgetTextInputActivity with task isolation (#617, PR #847)
 |- 🔧 **Audio quality fixes** — AudioTrack tail cutoff prevention via hardware-latency silence padding; expectedSlotPromptSpeech normalisation to match TTS output; SID=0 clamp for single-speaker voices; aye pronunciation correction (#837/#828/#810, PRs #838/#836/#811)
-- 🍽️ **Deterministic meal planner foundation** — app-owned meal-planning sessions with bounded JSON generation, per-day recipe persistence, shopping-list projection, quantity sanity validation, and quick-action/chat handoff (#859, PR #864)
+- 🍽️ **Deterministic meal planner** — app-owned meal-planning sessions with bounded JSON generation, draft-plan approval, progressive recipe reveal, visible `x of y` progress, interruption-safe resume, quantity sanity validation, and quick-action/chat handoff (#859/#869, PRs #864/#875)
+- 📚 **Meal plans browser** — drawer-accessible Recent plans and Favourites tabs with recipe search, canonical favourite toggles, recipe re-add to Lists, and ingredient export into existing user lists (#933, PR #934)
 
 ### Coming Soon
 - 💬 **Expanded multi-turn dialog** — broader confirmation, digression, and slot-filling coverage across more intents *(Phase 3G, #708 and follow-ups)*
-- 🍽️ **Meal planner phase 2** — progressive day-by-day reveal, visible `x of y` generation progress, and interruption-safe resume/background handling *(#869)*
 - 🗒️ **Lists — management upgrades** — rename, pin, sort, edit items, favorites, and due dates *(#662)*
 - ⏰ **Alarms CRUD UI** — create, edit, and toggle alarms directly from the Alarms screen *(Phase 3, #479)*
 - 🌙 **Dreaming Engine** — overnight WorkManager consolidation (Light Sleep → REM → Deep Sleep) *(Phase 4)*
@@ -93,114 +93,3 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 🎙️ **"Hey Jandal" wake word** — always-on local detection → instant action routing *(Phase 3F)*
 
 ## Roadmap
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 1 | Core LiteRT-LM integration + GPU/NPU acceleration + Chat UI | ✅ |
-| 2 | sqlite-vec + EmbeddingGemma for local RAG + memory, UI polish, model selection | ✅ |
-| 3 | Native Skills (alarms, lists, weather, media, navigation) + multi-turn dialog + episodic distillation + nav drawer + Brand refresh | 🔄 |
-| 4 | Dreaming Engine (WorkManager overnight cycle) + Semantic Cache + Self-Healing Identity System | ⬜ |
-| 5 | Chicory Wasm runtime + GitHub Skill Store | ⬜ |
-| 6 | 8GB device optimization (dynamic weight loading) | ⬜ |
-
-## Getting Started
-
-### Tested devices
-
-| Device | Chip | RAM | Backend | Status |
-|--------|------|-----|---------|--------|
-| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | GPU (OpenCL / Adreno 740) | ✅ Tested |
-| Google Pixel 10 | Tensor G5 | 12 GB | GPU (Immortalis-G925) | ✅ Expected compatible |
-
-> **Backend note:** On Qualcomm devices the app uses the GPU (OpenCL) delegate via LiteRT. Hardware tier detection automatically selects the right delegate. See [`models/README.md`](models/README.md) for per-device model setup.
-
-### Performance — Samsung Galaxy S23 Ultra (Gemma-4 E-4B, GPU)
-
-Measured on-device from production logs. "tok/s" counts output tokens delivered to the UI.
-
-| Metric | Value |
-|--------|-------|
-| Time to First Token (TTFT) | 2–5s (cold), ~2s (warm KV cache) |
-| Generation speed | ~9–10 tok/s |
-| Engine init | ~2s (warm, kernel cache hit) |
-
-**Multi-Token Prediction (MTP / speculative decoding)**
-
-MTP speeds up decode by speculatively generating multiple tokens per step. LiteRT-LM recommends it on GPU backends, and Jandal enables it during engine initialisation only when the loaded Gemma 4 model reports support. The toggle is available in Settings → Model for Gemma 4 model cards and requires an app restart. The benefit scales with response length — on long responses (~400+ tokens) we observed a **~2× wall-time speedup**; on short responses the overhead is negligible.
-
-| Response length | MTP off | MTP on | Speedup |
-|----------------|---------|--------|---------|
-| Short (~100 tok) | ~15s | ~12s | ~1.2× |
-| Long (~400 tok) | ~69s | ~30s | ~2.3× |
-
-> **Note:** A formal repeatable benchmark (fixed prompts, greedy decoding, N-run average) is tracked in [#803](https://github.com/NickMonrad/kernel-ai-assistant/issues/803). The numbers above are from manual device testing with variable-length responses.
-
-### Prerequisites
-
-- Android Studio Ladybug (2024.2.1) or newer
-- Android NDK (for sqlite-vec)
-- JDK 17
-- Physical Android device with 8–12GB RAM (emulator cannot test GPU/NPU)
-
-### Setup
-
-```bash
-git clone https://github.com/NickMonrad/kernel-ai-assistant.git
-cd kernel-ai-assistant
-./gradlew assembleDebug
-```
-
-Model files are managed manually for local development. Place the required `.litertlm`,
-`.tflite`, and `sentencepiece.model` files under `models/` and push them to the device
-using the instructions in [`models/README.md`](models/README.md).
-
-Open in Android Studio, connect your device via USB, and run.
-
-### Optional: Android CLI for agent workflows
-
-This repo can use the official `android` CLI as a low-noise accelerator for agentic Android work:
-
-```bash
-./scripts/setup-android-cli.sh
-android describe --project_dir=.
-android docs search 'edge-to-edge Compose guidance'
-```
-
-Useful commands in this repo:
-
-- `android describe --project_dir=.` — discover project metadata and build outputs
-- `android docs search ...` / `android docs fetch ...` — fetch official Android guidance
-- `android layout --pretty` — inspect the active app UI from a connected device/emulator
-- `android run --apks=app/build/outputs/apk/debug/app-debug.apk` — deploy a known APK
-
-`./scripts/setup-android-cli.sh` installs the official Google CLI into `~/.local/bin` on supported platforms, runs `android init`, and wires the `android-cli` skill into detected agents such as OpenCode and Copilot.
-
-If the CLI is unavailable on your platform, keep using the normal Gradle + `adb` workflow.
-
-## Testing
-
-- Automated test overview: [`docs/automated-testing.md`](docs/automated-testing.md)
-- Device setup and logcat guide: [`docs/adb-testing.md`](docs/adb-testing.md)
-- Detailed backlog/specification: [`docs/testing/automated-test-specification.md`](docs/testing/automated-test-specification.md)
-
-Common commands:
-
-```bash
-./gradlew testDebugUnitTest
-./gradlew connectedDebugAndroidTest
-python3 scripts/adb_skill_test.py --phases weather,lists
-python3 scripts/adb_skill_test.py --profile
-```
-
-## Key Technical Pillars
-
-* **Inference:** Google AI Edge (LiteRT) with INT4 quantization, GPU + NPU delegates
-* **Extensibility:** GitHub-indexed Skill Store (Rust → Wasm) + Native Kotlin skills
-* **Context:** Recursive context window management with semantic summarization
-* **Privacy:** 100% offline-capable; no telemetry or external LLM API dependencies
-
-## License
-
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
-
-This project adapts code from [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery) and uses the [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) library. See [NOTICE](NOTICE) for attribution.
