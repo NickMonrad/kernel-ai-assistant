@@ -387,14 +387,15 @@ Deterministic meal planning now has its v1 foundation merged. The next phases ar
 |-----------|-------|--------|----------|
 | [#827](https://github.com/NickMonrad/kernel-ai-assistant/issues/827) | Cooking weights and measures for meal planning | ✅ Done — PR #855 | 🟡 Medium |
 | [#859](https://github.com/NickMonrad/kernel-ai-assistant/issues/859) | Deterministic meal planner foundation | ✅ Done — PR #864 | 🔴 High |
-| [#869](https://github.com/NickMonrad/kernel-ai-assistant/issues/869) | Meal planner phase 2 — progressive reveal + interruption-safe generation | ⬜ Pending | 🔴 High |
+| [#869](https://github.com/NickMonrad/kernel-ai-assistant/issues/869) | Meal planner phase 2 — progressive reveal + interruption-safe generation | ✅ Done — PR #875 | 🔴 High |
+| [#933](https://github.com/NickMonrad/kernel-ai-assistant/issues/933) | Recent meal plans and favourite recipes browser | ✅ Done — PR #934 | 🟡 Medium |
 | [#235](https://github.com/NickMonrad/kernel-ai-assistant/issues/235) | Artifact entity — persistent structured documents in Room DB | ⬜ Pending | 🟡 Medium |
 | [#43](https://github.com/NickMonrad/kernel-ai-assistant/issues/43) | Recipe skill datasources & regional produce | ⬜ Pending | 🟢 Low |
 
-**Current state after PR #864:**
+**Current state after PR #934:**
 
-- Shipped: app-owned meal-planner session/day/recipe/grocery tables, bounded JSON generation, quantity sanity validation, deterministic shopping/recipe projections, and quick-action/widget handoff into chat.
-- Next UX gap: longer multi-day plans still complete as one long foreground experience; users need progressive day-by-day reveal, explicit `Generating recipe x of y` feedback, and clean resume after interruption/backgrounding (#869).
+- Shipped: app-owned meal-planner session/day/recipe/grocery tables, bounded JSON generation, draft approval before recipe generation, progressive per-day recipe reveal, visible `Generating recipe x of y` status, interruption-safe resume prompts, deterministic shopping/recipe projections, and quick-action/widget handoff into chat.
+- Shipped: a drawer-accessible Meal plans browser with Recent plans and Favourites tabs, recipe-name search, canonical favourite toggles outside chat, and export actions to recreate recipe lists or append ingredients into existing user lists.
 - Later platform/data phases stay separate by design: #235 expands durable structured artifacts; #43 adds recipe grounding and regional produce data.
 
 ---
