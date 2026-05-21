@@ -35,6 +35,11 @@ import com.kernel.ai.core.memory.mealplan.RecipeDraftIngredient
 import com.kernel.ai.core.memory.mealplan.RecipeDraftMethodStep
 import com.kernel.ai.core.memory.mealplan.jsonArrayToStringList
 import com.kernel.ai.core.memory.mealplan.toJsonArrayString
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -45,6 +50,10 @@ import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+
+class MealPlanIngredientDataUnavailableException(
+    val dayIndex: Int,
+) : IllegalArgumentException("Day ${dayIndex + 1} has no ingredient data to add.")
 
 @Singleton
 class MealPlanSessionRepository @Inject constructor(
@@ -93,6 +102,63 @@ class MealPlanSessionRepository @Inject constructor(
                 proteinTags = jsonArrayToStringList(favourite.proteinTagsJson),
             )
         }
+
+    fun observeFavouriteRecipes(limit: Int): Flow<List<FavouriteRecipeSummary>> =
+        favouriteRecipeDao.observeRecent(limit).map { favourites ->
+            favourites.map { favourite ->
+                FavouriteRecipeSummary(
+                    recipeKey = favourite.recipeKey,
+                    title = favourite.title,
+                    summary = favourite.summary,
+                    proteinTags = jsonArrayToStringList(favourite.proteinTagsJson),
+                )
+            }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+
+    fun observeRecentCompletedPlans(limit: Int): Flow<List<MealPlanSnapshot>> =
+        combine(sessionDao.observeCompleted(limit), favouriteRecipeDao.observeRecent(1)) { sessions, _ -> sessions }
+            .mapLatest { sessions -> sessions.map { it.toSnapshot() } }
+
+    fun observeActiveLists(): Flow<List<ListNameEntity>> =
+        listNameDao.observeActiveLists()
+
+    suspend fun recreateRecipeList(sessionId: String, dayIndex: Int): String = database.withTransaction {
+        val (_, recipeVersion) = requireCurrentRecipeVersion(sessionId, dayIndex)
+        val targetName = nextAvailableListName(recipeVersion.title.ifBlank { "Recipe" })
+        val now = System.currentTimeMillis()
+        val listId = listNameDao.insertAndGet(ListNameEntity(name = targetName, createdAt = now, updatedAt = now))
+            .takeIf { it != -1L }
+            ?: error("Failed to create recipe list: $targetName")
+        buildRecipeListTexts(recipeVersion).forEach { text ->
+            listItemDao.insert(
+                ListItemEntity(listId = listId, text = text, createdAt = now, updatedAt = now),
+            )
+        }
+        targetName
+    }
+
+    suspend fun addRecipeIngredientsToList(sessionId: String, dayIndex: Int, listId: Long): String = database.withTransaction {
+        val list = requireNotNull(listNameDao.getById(listId)?.takeIf { it.archivedAt == null }) { "Unknown active list: $listId" }
+        val (_, recipeVersion) = requireCurrentRecipeVersion(sessionId, dayIndex)
+        val ingredientLines = groceryItemDao.getByRecipeVersion(recipeVersion.id)
+            .map { grocery -> grocery.displayText.ifBlank { grocery.originalText } }
+            .ifEmpty { buildRecipeIngredientTexts(recipeVersion) }
+            .filter { it.isNotBlank() }
+        if (ingredientLines.isEmpty()) {
+            throw MealPlanIngredientDataUnavailableException(dayIndex)
+        }
+        val now = System.currentTimeMillis()
+        ingredientLines.forEach { text ->
+            listItemDao.insert(
+                ListItemEntity(listId = listId, text = text, createdAt = now, updatedAt = now),
+            )
+        }
+        listNameDao.updateTimestamp(listId, now)
+        list.name
+    }
+
 
     /**
      * Planner retention pruning runs here before resuming/creating a session so old terminal
@@ -161,10 +227,18 @@ class MealPlanSessionRepository @Inject constructor(
         } else {
             favouriteRecipeDao.delete(recipeKey)
         }
+        if (session.status == MealPlanSessionStatus.COMPLETED.name) {
+            return@withTransaction session.toSnapshot()
+        }
         val updatedSession = session.copy(updatedAt = now)
         sessionDao.update(updatedSession)
         updatedSession.toSnapshot()
     }
+
+    suspend fun removeFavouriteRecipe(recipeKey: String) = database.withTransaction {
+        favouriteRecipeDao.delete(recipeKey)
+    }
+
     suspend fun savePlanDraft(
         sessionId: String,
         days: List<MealPlanDraftDay>,
@@ -783,6 +857,43 @@ class MealPlanSessionRepository @Inject constructor(
     private suspend fun currentRecipeVersion(day: MealPlanDayEntity): MealPlanRecipeVersionEntity? {
         val version = day.currentRecipeVersion ?: return null
         return recipeVersionDao.getLatestForDay(day.id)?.takeIf { it.version == version }
+    }
+
+    private suspend fun requireCurrentRecipeVersion(
+        sessionId: String,
+        dayIndex: Int,
+    ): Pair<MealPlanDayEntity, MealPlanRecipeVersionEntity> {
+        val day = requireNotNull(dayDao.getBySessionAndIndex(sessionId, dayIndex)) {
+            "Unknown meal-plan day $dayIndex for session $sessionId"
+        }
+        val recipeVersion = requireNotNull(currentRecipeVersion(day)) {
+            "Day ${dayIndex + 1} does not have a recipe yet."
+        }
+        return day to recipeVersion
+    }
+
+    private fun buildRecipeListTexts(recipeVersion: MealPlanRecipeVersionEntity): List<String> = buildList {
+        add("Ingredients")
+        addAll(buildRecipeIngredientTexts(recipeVersion))
+        add("Method")
+        addAll(buildRecipeMethodTexts(recipeVersion))
+    }
+
+    private fun buildRecipeIngredientTexts(recipeVersion: MealPlanRecipeVersionEntity): List<String> =
+        jsonToIngredients(recipeVersion.ingredientsJson).map { ingredient -> ingredient.originalText }
+
+    private fun buildRecipeMethodTexts(recipeVersion: MealPlanRecipeVersionEntity): List<String> =
+        jsonToMethodSteps(recipeVersion.methodStepsJson).map { step -> "${step.stepNumber}. ${step.text}" }
+
+    private suspend fun nextAvailableListName(baseName: String): String {
+        val normalizedBaseName = baseName.trim().ifBlank { "Recipe" }
+        var candidate = normalizedBaseName
+        var suffix = 2
+        while (listNameDao.getByName(candidate) != null) {
+            candidate = "$normalizedBaseName ($suffix)"
+            suffix += 1
+        }
+        return candidate
     }
 
     private fun resolvedRecipeKey(recipeVersion: MealPlanRecipeVersionEntity, proteinTags: List<String>): String =

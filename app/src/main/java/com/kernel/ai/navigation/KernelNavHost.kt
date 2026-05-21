@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.ChatBubble
@@ -49,6 +50,7 @@ import com.kernel.ai.feature.settings.ImportantDatesScreen
 import com.kernel.ai.feature.settings.ListItemsScreen
 import com.kernel.ai.feature.settings.ChatPreferencesScreen
 import com.kernel.ai.feature.settings.ListsScreen
+import com.kernel.ai.feature.settings.MealPlansScreen
 import com.kernel.ai.feature.settings.MemoryScreen
 import com.kernel.ai.feature.settings.ModelManagementScreen
 import com.kernel.ai.feature.settings.ModelSettingsScreen
@@ -77,6 +79,7 @@ private const val ROUTE_CHAT_PREFERENCES = "settings/chat_preferences"
 private const val ROUTE_CONTACT_ALIASES = "settings/contact_aliases"
 private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
 private const val ROUTE_SIDE_PANEL = "settings/side_panel"
+private const val ROUTE_MEAL_PLANS = "meal_plans"
 private const val ROUTE_LISTS = "lists"
 private const val ROUTE_LIST_ITEMS = "lists/{listId}"
 private const val ROUTE_CONVERT = "convert"
@@ -210,6 +213,20 @@ fun KernelNavHost(
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
                         navController.navigate(ROUTE_CONTACT_ALIASES) {
+                            popUpTo(ROUTE_LIST) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                )
+                NavigationDrawerItem(
+                    label = { Text("Meal plans") },
+                    icon = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
+                    selected = currentBaseRoute == ROUTE_MEAL_PLANS,
+                    onClick = {
+                        coroutineScope.launch { drawerState.close() }
+                        navController.navigate(ROUTE_MEAL_PLANS) {
                             popUpTo(ROUTE_LIST) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
@@ -475,6 +492,12 @@ fun KernelNavHost(
 
                 composable(ROUTE_MEMORY) {
                     MemoryScreen(
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(ROUTE_MEAL_PLANS) {
+                    MealPlansScreen(
                         onBack = { navController.popBackStack() },
                     )
                 }
