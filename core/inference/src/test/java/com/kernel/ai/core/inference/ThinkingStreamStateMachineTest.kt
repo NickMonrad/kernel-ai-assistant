@@ -81,7 +81,7 @@ class ThinkingStreamStateMachineTest {
     }
 
     @Test
-   fun `marker detection tolerates space before close bracket`() {
+fun `marker detection tolerates space before close bracket`() {
         val stateMachine = ThinkingStreamStateMachine()
 
         val first = stateMachine.consume(
@@ -98,6 +98,7 @@ class ThinkingStreamStateMachineTest {
         assertEquals(emptyList<String>(), second.thinkingDeltas)
         assertEquals(listOf("Visible reply"), second.responseDeltas)
     }
+
     fun `post-close raw wrapper unwraps non-thought channel body`() {
         val stateMachine = ThinkingStreamStateMachine()
 
