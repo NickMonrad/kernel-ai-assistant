@@ -81,6 +81,25 @@ class ThinkingStreamStateMachineTest {
     }
 
     @Test
+    fun `marker detection tolerates space before close bracket`() {
+        val stateMachine = ThinkingStreamStateMachine()
+
+        val first = stateMachine.consume(
+            channelDelta = "$THINKING_CHANNEL_HEADER\nReasoning<channel|",
+            rawMessage = "",
+        )
+        val second = stateMachine.consume(
+            channelDelta = " >Visible reply",
+            rawMessage = "",
+        )
+
+        assertEquals(listOf("Reasoning"), first.thinkingDeltas)
+        assertEquals(emptyList<String>(), first.responseDeltas)
+        assertEquals(emptyList<String>(), second.thinkingDeltas)
+        assertEquals(listOf("Visible reply"), second.responseDeltas)
+    }
+
+    @Test
     fun `post-close raw wrapper unwraps non-thought channel body`() {
         val stateMachine = ThinkingStreamStateMachine()
 

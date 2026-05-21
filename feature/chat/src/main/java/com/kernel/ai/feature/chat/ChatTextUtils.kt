@@ -464,7 +464,8 @@ internal fun toolTurnInstruction(isFirstReply: Boolean): String? =
     }
 
 internal fun nonToolTurnInstruction(): String =
-    "This is a normal conversational or reasoning reply. Answer directly from your own knowledge and reasoning. Do NOT call any tool for this reply."
+    "This is a normal conversational or reasoning reply. Answer directly from your own knowledge and reasoning. " +
+        "Do NOT call tools unless the user explicitly asks you to look something up or fetch external/current information."
 
 /**
  * Returns true if [response] looks like the model confirmed a tool action without

@@ -639,7 +639,7 @@ class ChatTextUtilsTest {
         @Test
         fun `non tool instruction forbids tools`() {
             assertEquals(
-                "This is a normal conversational or reasoning reply. Answer directly from your own knowledge and reasoning. Do NOT call any tool for this reply.",
+                "This is a normal conversational or reasoning reply. Answer directly from your own knowledge and reasoning. Do NOT call tools unless the user explicitly asks you to look something up or fetch external/current information.",
                 nonToolTurnInstruction(),
             )
         }
@@ -687,6 +687,15 @@ class ChatTextUtilsTest {
         @Test
         fun `returns false for normal assistant reply`() {
             assertFalse(looksLikeRawToolCall("Here are the three meals I came up with."))
+        }
+
+        @Test
+        fun `returns false for normal response mentioning wikipedia with colon`() {
+            assertFalse(
+                looksLikeRawToolCall(
+                    "On Wikipedia: the week is a unit of time equal to seven days.",
+                ),
+            )
         }
     }
 
