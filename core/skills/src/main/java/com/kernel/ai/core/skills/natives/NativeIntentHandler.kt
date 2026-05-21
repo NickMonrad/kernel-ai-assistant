@@ -738,6 +738,7 @@ class NativeIntentHandler @Inject constructor(
         val relativeDay = params["relative_day"]?.trim()?.lowercase()
         val relativeDayLabel = when (relativeDay) {
             "tomorrow" -> "Tomorrow"
+            "yesterday" -> "Yesterday"
             else -> "Today"
         }
         val location = params["location"]?.trim()?.takeIf { it.isNotBlank() }
@@ -748,6 +749,7 @@ class NativeIntentHandler @Inject constructor(
                         .atZone(ZoneId.of(resolution.candidate.zoneId))
                     val targetZoned = when (relativeDay) {
                         "tomorrow" -> zonedNow.plusDays(1)
+                        "yesterday" -> zonedNow.minusDays(1)
                         else -> zonedNow
                     }
                     when (params["query_type"]) {
@@ -778,6 +780,7 @@ class NativeIntentHandler @Inject constructor(
         val now = LocalDateTime.now()
         val targetDateTime = when (relativeDay) {
             "tomorrow" -> now.plusDays(1)
+            "yesterday" -> now.minusDays(1)
             else -> now
         }
         // DirectReply: factual time/date data — LLM wrapping risks corrupting values
