@@ -1629,12 +1629,15 @@ class ChatViewModel @Inject constructor(
                     buildToolUsePrompt()
                         .takeIf { it.isNotBlank() }
                         ?.let { append("$it\n\n") }
+                    toolTurnInstruction(isFirstReply)
+                        ?.let { append("[System: $it]\n\n") }
                 }
                 // Greeting instruction injected per-turn so turn 1 says "Kia ora" and
                 // subsequent turns explicitly suppress greetings — without invalidating the KV cache.
                 // Suppressed entirely for tool queries to keep the prompt focused.
                 if (!isToolQuery) {
                     append("[System: ${jandalPersona.buildGreetingInstruction(isFirstReply, jandalPersona.currentPersonaMode)}]\n\n")
+                    append("[System: ${nonToolTurnInstruction()}]\n\n")
                 }
                 append(text)
             }

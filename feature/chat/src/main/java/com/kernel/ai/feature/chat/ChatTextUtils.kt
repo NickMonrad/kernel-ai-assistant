@@ -456,6 +456,16 @@ internal fun looksLikeToolFollowUp(
         ).any { context.contains(it) }
 }
 
+internal fun toolTurnInstruction(isFirstReply: Boolean): String? =
+    if (isFirstReply) {
+        null
+    } else {
+        "Do NOT start this reply with a greeting. This is a follow-up tool turn, so answer directly with the tool result."
+    }
+
+internal fun nonToolTurnInstruction(): String =
+    "This is a normal conversational or reasoning reply. Answer directly from your own knowledge and reasoning. Do NOT call any tool for this reply."
+
 /**
  * Returns true if [response] looks like the model confirmed a tool action without
  * actually calling any tool — the classic Gemma-4 hallucination pattern.

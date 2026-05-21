@@ -620,6 +620,32 @@ class ChatTextUtilsTest {
     }
 
     @Nested
+    @DisplayName("turn instructions")
+    inner class TurnInstructionTests {
+
+        @Test
+        fun `tool turn instruction is omitted on first reply`() {
+            assertEquals(null, toolTurnInstruction(isFirstReply = true))
+        }
+
+        @Test
+        fun `tool turn instruction suppresses greeting on follow up`() {
+            assertEquals(
+                "Do NOT start this reply with a greeting. This is a follow-up tool turn, so answer directly with the tool result.",
+                toolTurnInstruction(isFirstReply = false),
+            )
+        }
+
+        @Test
+        fun `non tool instruction forbids tools`() {
+            assertEquals(
+                "This is a normal conversational or reasoning reply. Answer directly from your own knowledge and reasoning. Do NOT call any tool for this reply.",
+                nonToolTurnInstruction(),
+            )
+        }
+    }
+
+    @Nested
     @DisplayName("looksLikeRawToolCall")
     inner class RawToolCallTests {
 
