@@ -1331,6 +1331,15 @@ class QuickIntentRouterTest {
             assertEquals("navigate_to", needsSlot.intent.intentName, "intent for '$input'")
             assertEquals("destination", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
+
+        @ParameterizedTest(name = "Must not steal: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#navigateToMustNotStealPhrases")
+        fun `regex navigation must not steal conversational drive phrasing`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            val isStolen = result is QuickIntentRouter.RouteResult.RegexMatch &&
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.intentName == "navigate_to"
+            assertFalse(isStolen, "'$input' must not route to navigate_to via regex")
+        }
     }
 
     @Nested
@@ -2701,6 +2710,15 @@ class QuickIntentRouterTest {
         fun navigateToClassifierPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("how do I get to the airport"),
             Arguments.of("I need to find my way to downtown"),
+        )
+
+        @JvmStatic
+        fun navigateToMustNotStealPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("The car wash is 500m from my home. Should I walk or drive there to wash my car"),
+            Arguments.of("Should I drive to work tomorrow or take the train?"),
+            Arguments.of("If I drive to Auckland tomorrow, will traffic be bad?"),
+            Arguments.of("Would it be faster to get directions to the stadium online first?"),
+            Arguments.of("Do I need directions to succeed in this job?"),
         )
 
         @JvmStatic

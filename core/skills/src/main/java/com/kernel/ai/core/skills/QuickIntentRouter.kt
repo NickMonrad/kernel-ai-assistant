@@ -2128,7 +2128,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "navigate_to",
             regex = Regex(
-                """(?:navigate|directions?|drive|take\s+me|get\s+me(?!\s+the\s+nearest))(?:\s+to)?\s+(.+)""",
+                """^(?:navigate|directions?|drive|take\s+me|get\s+me(?!\s+the\s+nearest))(?:\s+to)?\s+(.+?)\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("destination" to match.groupValues[1].trim()) },
