@@ -9,6 +9,7 @@ import com.kernel.ai.core.memory.mealplan.MealPlanSnapshotDay
 import com.kernel.ai.core.memory.mealplan.RecipeDraft
 import com.kernel.ai.core.memory.mealplan.RecipeDraftIngredient
 import com.kernel.ai.core.memory.mealplan.RecipeDraftMethodStep
+import com.kernel.ai.core.memory.repository.MealPlanIngredientDataUnavailableException
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -207,6 +208,25 @@ class MealPlansViewModelTest {
 
         collectJob.cancel()
     }
+    @Test
+    fun `addIngredientsToList surfaces missing ingredient data message`() = runTest {
+        coEvery { repository.addRecipeIngredientsToList("session-1", 0, 7L) } throws MealPlanIngredientDataUnavailableException(dayIndex = 0)
+
+        val messages = mutableListOf<String>()
+        val messageJob = launch { viewModel.messages.collect { messages += it } }
+        val states = mutableListOf<MealPlansUiState>()
+        val collectJob = launch { viewModel.uiState.collect { states += it } }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.addIngredientsToList("session-1", 0, "recipe-1", 7L)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("Day 1 has no ingredient data to add."), messages)
+        assertFalse("recipe-1" in states.last().pendingRecipeKeys)
+        collectJob.cancel()
+        messageJob.cancel()
+    }
+
 
     @Test
     fun `removeFavourite delegates to repository`() = runTest {

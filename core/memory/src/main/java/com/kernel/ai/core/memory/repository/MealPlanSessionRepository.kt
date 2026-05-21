@@ -51,6 +51,10 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+class MealPlanIngredientDataUnavailableException(
+    val dayIndex: Int,
+) : IllegalArgumentException("Day ${dayIndex + 1} has no ingredient data to add.")
+
 @Singleton
 class MealPlanSessionRepository @Inject constructor(
     private val database: KernelDatabase,
@@ -142,8 +146,8 @@ class MealPlanSessionRepository @Inject constructor(
             .map { grocery -> grocery.displayText.ifBlank { grocery.originalText } }
             .ifEmpty { buildRecipeIngredientTexts(recipeVersion) }
             .filter { it.isNotBlank() }
-        require(ingredientLines.isNotEmpty()) {
-            "Day ${dayIndex + 1} has no ingredient data to add."
+        if (ingredientLines.isEmpty()) {
+            throw MealPlanIngredientDataUnavailableException(dayIndex)
         }
         val now = System.currentTimeMillis()
         ingredientLines.forEach { text ->

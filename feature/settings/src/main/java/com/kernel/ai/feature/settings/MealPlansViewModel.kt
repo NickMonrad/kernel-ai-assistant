@@ -8,6 +8,7 @@ import com.kernel.ai.core.memory.mealplan.FavouriteRecipeBrowserItem
 import com.kernel.ai.core.memory.mealplan.FavouriteRecipeSummary
 import com.kernel.ai.core.memory.mealplan.MealPlanSnapshot
 import com.kernel.ai.core.memory.mealplan.MealPlanSnapshotDay
+import com.kernel.ai.core.memory.repository.MealPlanIngredientDataUnavailableException
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -179,12 +180,12 @@ class MealPlansViewModel @Inject constructor(
             try {
                 val listName = mealPlanSessionRepository.addRecipeIngredientsToList(sessionId, dayIndex, listId)
                 _messages.tryEmit("Added ingredients to \"$listName\".")
+            } catch (e: MealPlanIngredientDataUnavailableException) {
+                Log.w(TAG, "addIngredientsToList missing ingredients for $sessionId day $dayIndex list $listId", e)
+                _messages.tryEmit(e.message ?: "That recipe has no ingredient data to add.")
             } catch (e: IllegalArgumentException) {
                 Log.w(TAG, "addIngredientsToList rejected for $sessionId day $dayIndex list $listId", e)
-                _messages.tryEmit(
-                    e.message?.takeIf { it.endsWith("has no ingredient data to add.") }
-                        ?: "Couldn't add those ingredients to your list.",
-                )
+                _messages.tryEmit("Couldn't add those ingredients to your list.")
             } catch (e: Exception) {
                 Log.w(TAG, "addIngredientsToList failed for $sessionId day $dayIndex list $listId", e)
                 _messages.tryEmit("Couldn't add those ingredients to your list.")
