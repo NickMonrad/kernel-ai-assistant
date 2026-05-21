@@ -673,13 +673,10 @@ class LiteRtInferenceEngine @Inject constructor(
         var firstTokenMs: Long = -1
         var outputTokenCount = 0
         var thinkingCharCount = 0
-var emittedResponseText = StringBuilder()
+        var emittedResponseText = StringBuilder()
         val thinkingEnabledForGeneration = currentConfig?.thinkingEnabled == true
         val thinkingStateMachine = if (thinkingEnabledForGeneration) ThinkingStreamStateMachine() else null
         var thinkingStateMachineActive = false
-
-        val thinkingContext: Map<String, Any> =
-            if (thinkingEnabledForGeneration) mapOf("enable_thinking" to true) else emptyMap()
 
         val thinkingContext: Map<String, Any> =
             if (thinkingEnabledForGeneration) mapOf("enable_thinking" to true) else emptyMap()
@@ -711,37 +708,11 @@ var emittedResponseText = StringBuilder()
                             if (firstTokenMs < 0) {
                                 firstTokenMs = System.currentTimeMillis() - start
                                 Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
-                       }
                             }
                             outputTokenCount++
                             emittedResponseText.append(delta)
                             trySend(GenerationResult.Token(delta))
                         }
-                        return
-                    }
-
-     if (!channelDelta.isNullOrEmpty()) {
-                        val responseDelta = stripReplayedPrefix(
-                            }
-                            outputTokenCount++
-                            emittedResponseText.append(delta)
-                            trySend(GenerationResult.Token(delta))
-                        }
-                        return
-                    }
-
-                if (!channelDelta.isNullOrEmpty()) {
-                        val responseDelta = stripReplayedPrefix(
-                        val responseDelta = stripReplayedPrefix(
-                            return
-                        }
-                        if (firstTokenMs < 0) {
-                            firstTokenMs = System.currentTimeMillis() - start
-                            Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
-                        }
-                        outputTokenCount++
-                        emittedResponseText.append(responseDelta)
-                        trySend(GenerationResult.Token(responseDelta))
                         return
                     }
 
@@ -754,7 +725,7 @@ var emittedResponseText = StringBuilder()
 
                     if (raw.contains("<|channel>") && !raw.contains("<channel|>")) {
                         // Partial channel header — skip, content will arrive via channels["thought"].
-       // Log so any false-positive drops are observable in logcat.
+                        // Log so any false-positive drops are observable in logcat.
                         Log.d(TAG, "Skipping partial channel header in toString() [len=${raw.length}] — expecting thought delta")
                         return
                     }
@@ -774,7 +745,7 @@ var emittedResponseText = StringBuilder()
                             Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                         }
                         outputTokenCount++
-        emittedResponseText.append(responseDelta)
+                        emittedResponseText.append(responseDelta)
                         trySend(GenerationResult.Token(responseDelta))
                     }
                 }
