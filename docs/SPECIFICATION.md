@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-05-18 (PR #925 spec sync: deterministic meal planner architecture, planner status surface, friendly meal-plan IDs, conversation title sync, Room v45; prior: PR #924 conversation management — archive, pin, drag-to-reorder, swipe gestures, multi-select, ArchiveCleanupWorker; PR #834 voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, important dates, world clock, colloquial weather QIR; PR #848 currency #831; PR #847 widget #617; PR #845 aye fix #843)
+> **Last updated:** 2026-05-21 (PR #946 spec sync: thinking-mode/tool-turn hardening, direct native tool wrappers, DirectReply bypass notes, known QIR/anaphora follow-up gaps; prior: PR #925 deterministic meal planner architecture, planner status surface, friendly meal-plan IDs, conversation title sync, Room v45; PR #924 conversation management — archive, pin, drag-to-reorder, swipe gestures, multi-select, ArchiveCleanupWorker; PR #834 voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, important dates, world clock, colloquial weather QIR; PR #848 currency #831; PR #847 widget #617; PR #845 aye fix #843)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -148,11 +148,17 @@ and kiwi RAG entirely.
 
 - `QuickIntentRouter.RouteResult.FallThrough` has a non-null `bestGuess`, or
 - `looksLikeToolQuery(text)` matches explicit tool-oriented phrasing such as "search Wikipedia",
-  "look up", "set alarm", "remember", or "add to my list"
+  "look up", "system info", "set alarm", "remember", or "add to my list"
 
 This keeps ordinary chat lean while preserving tool guidance for explicit tool requests. When adding a
 new skill whose user phrasing is not obviously tool-like, the corresponding router coverage or
 `looksLikeToolQuery(...)` patterns should be updated so the skill remains reachable.
+
+**Per-turn reasoning bias:** For turns that are *not* classified as tool-like, `ChatViewModel`
+injects a soft non-tool instruction: prefer direct reasoning, but still allow tools when the
+request is clearly about current, external, or retrieved information. This is intentionally not a
+hard "never call tools" rule; a stricter version caused visible internal conflict in Gemma's
+thinking traces for some `get_system_info` requests before the tool was correctly invoked.
 
 All sections are conditionally included — omitted entirely if no results meet their distance threshold. Token budget is allocated sequentially: Core → Episodic → Message History.
 
@@ -461,21 +467,25 @@ engine.createConversation(ConversationConfig(
 ExperimentalFlags.enableConversationConstrainedDecoding = false
 ```
 
-> **Lazy skill loading (#341, #372):** The system prompt injects only skill names +
-> one-line descriptions (~100 tokens). When the model needs to use a skill, it first
-> calls `loadSkill()` to retrieve full parameter docs, examples, and enforcement rules
-> on demand. This keeps the baseline prompt compact and improves tool call accuracy.
+> **Direct-first tool calling (#341, #372, #946):** The system prompt injects only skill names +
+> one-line descriptions (~100 tokens). The model now prefers direct native tool calls when the
+> target is obvious (`queryWikipedia`, `getSystemInfo`, `getWeather`, `saveMemory`,
+> `searchMemory`). `loadSkill()` remains available for complex or gateway-driven tasks where extra
+> instruction payload is still useful. This keeps the baseline prompt compact without forcing
+> every tool turn through the older `loadSkill → gateway` recipe.
 
 **KernelAIToolSet gateway tools:**
 
-| Gateway | Tool method | Dispatcher | Use for |
+| Category | Tool method | Dispatcher | Use for |
 |---------|------------|-----------|---------|
-| Meta | `loadSkill(skillName)` | `LoadSkillSkill` | Load full instructions before using any tool |
+| Meta | `loadSkill(skillName)` | `LoadSkillSkill` | Load extended instructions for complex/gateway tasks |
 | Native | `runIntent(intentName, parameters)` | `NativeIntentHandler.kt` | Android OS intents and deterministic local actions (alarm, timer, DND, media, navigation, date diff, lists, etc.) |
-| WebView JS | `runJs(parameters)` | `JsSkillRunner.kt` | JS skills in `assets/skills/` (currently Wikipedia and get-weather-city); parameters is a JSON string with `skill_name` and `data` |
-| Native | `getWeather(location, forecastDays)` | `GetWeatherUnifiedSkill.kt` | Unified weather entry point (GPS + explicit city + indirect-location resolution) |
-| Memory | `saveMemory(content)` | `SaveMemorySkill` | Store facts to long-term memory |
-| Memory | `searchMemory(query)` | `SearchMemorySkill` | Semantic search across memories |
+| Direct native | `queryWikipedia(query)` | `QueryWikipediaSkill` → `JsSkillRunner.kt` | Public Wikipedia lookup surface; internally bridges to the JS runtime |
+| Direct native | `getSystemInfo()` | `GetSystemInfoSkill` | Current device/runtime/date-time snapshot |
+| Direct native | `getWeather(location, forecastDays)` | `GetWeatherUnifiedSkill.kt` | Unified weather entry point (GPS + explicit city + indirect-location resolution) |
+| Direct native | `saveMemory(content)` | `SaveMemorySkill` | Store facts to long-term memory |
+| Direct native | `searchMemory(query)` | `SearchMemorySkill` | Semantic search across memories |
+| Gateway | `runJs(parameters)` | `JsSkillRunner.kt` | Internal JS skills in `assets/skills/`; parameters is a JSON string with `skill_name` and `data` |
 
 Each `@Tool` method delegates to the matching `Skill.execute()` via `SkillRegistry`, bridging
 the SDK's synchronous callback with `runBlocking` (acceptable since the SDK already blocks its
@@ -494,9 +504,46 @@ interface Skill {
 ```
 
 **Response handling:** The SDK handles tool calls transparently during `generate()`.
-`KernelAIToolSet` tracks turn state (`wasToolCalled()`, `lastToolName()`, `lastToolResult()`)
-so `ChatViewModel` can attach tool call metadata to the UI. A `ToolCallExtractor` text-parsing
-fallback exists for edge cases where the model emits raw JSON outside the SDK path.
+`KernelAIToolSet` tracks turn state (`wasToolCalled()`, `lastToolName()`, `lastToolResult()`,
+`lastToolWasDirectReply()`) so `ChatViewModel` can attach tool call metadata to the UI. For tools
+that return `SkillResult.DirectReply`, `ChatViewModel` now prefers the tool result text itself over
+the model's post-tool synthesis. This guards against visible meta-leaks such as "I used
+query_wikipedia..." or "The result says..." appearing in chat after a successful tool turn. A
+`ToolCallExtractor` text-parsing fallback still exists for edge cases where the model emits raw
+JSON outside the SDK path.
+
+#### 4.2.1 Thinking Mode on Tool Turns
+
+Thinking mode for Gemma-4 is enabled only when **both** of these are true:
+
+1. `ConversationConfig.channels` registers `Channel("thought", "<|think|>", "<|/think|>")`
+2. `sendMessageAsync(..., extraContext = mapOf("enable_thinking" to true))` is used for the turn
+
+Either requirement on its own produces zero thinking tokens.
+
+**Streaming quirk:** Even with channel registration, LiteRT-LM can still mirror wrapped thought
+content through `message.toString()` in the SDK's internal form:
+
+```text
+<|channel>thought
+...
+<channel|>
+```
+
+`LiteRtInferenceEngine` strips this wrapper with `CHANNEL_WRAPPER_RE` and uses
+`ThinkingStreamStateMachine` to split hidden thought deltas from visible response deltas.
+
+**Current hardening for tool turns (PR #946):**
+- explicit tool-like turns get the `[Tool Use]` block
+- follow-up tool turns suppress repeated greetings
+- `query_wikipedia`, `get_system_info`, weather, and memory-search style direct replies are shown
+  from the tool result itself when they return `SkillResult.DirectReply`
+- leaked raw tool syntax / instruction dumps are filtered by `looksLikeRawToolCall(...)`
+
+**Known open gaps / follow-up issues:**
+- #956 — relative weekday phrasing with "tomorrow" can still misroute in QIR
+- #957 — `What do you remember about me` can still misroute to `save_memory`
+- #958 — anaphoric `remember that` follow-ups still need better prior-turn fact resolution
 
 **Registered `run_intent` intents:**
 
@@ -716,8 +763,8 @@ and awaits the result with a 15s timeout.
 
 | Skill name | Description | Status |
 |------------|-------------|--------|
-| `get_system_info` | Device/model/backend/battery stats | ✅ |
-| `query_wikipedia` | Public Wikipedia lookup skill; loads focused instructions, then calls `run_js` with `skill_name="query-wikipedia"` | ✅ |
+| `get_system_info` | Device/model/backend/battery stats; returns `DirectReply` so grounded output wins over post-tool narration | ✅ |
+| `query_wikipedia` | Public Wikipedia lookup skill; exposed as direct `queryWikipedia(query)` wrapper and internally bridged to JS; returns `DirectReply` | ✅ |
 | `save_memory` | Persist a note/fact to `core_memories_vec` | ✅ (explicit trigger only — see memory rule below) |
 | `search_memory` | Semantic search across core memories, episodic memories, and `message_embeddings` | ✅ |
 | `get_weather_gps` / `get_weather` | Weather retrieval with GPS, explicit locations, and indirect-location resolution | ✅ |
@@ -741,10 +788,10 @@ The following skills are all shipped and registered in `SkillRegistry` / `Native
 | `send_email` | `run_intent` → `ACTION_SEND` | Explicit intent only; PR #247 |
 | `send_sms` | `run_intent` → `ACTION_SENDTO` | Background SMS via `SEND_SMS`; PR #247 |
 | `get_weather` | `getWeather()` (unified) | GPS + city + profile location fallback + colloquial QIR routing + indirect-location Nominatim; PR #274, #412, #667 |
-| `query_wikipedia` | `run_js` → WebView | PR #257 |
+| `query_wikipedia` | `queryWikipedia()` → `QueryWikipediaSkill` → `run_js` → WebView | PR #257, hardened PR #946 |
 | `save_memory` | `SaveMemorySkill` | Explicit user trigger; PR #257/#270 |
 | `search_memory` | `SearchMemorySkill` | Cross-conversation semantic search; PR #270, quality PR #326 |
-| `get_system_info` | native Kotlin | datetime fix PR #339 |
+| `get_system_info` | `getSystemInfo()` → native Kotlin | datetime fix PR #339, hardened PR #946 |
 | `create_calendar_event` | `run_intent` → `ACTION_INSERT` | PR #309, date parsing PR #325 |
 | `set_dnd` | `run_intent` → `NotificationManager` | PR #390 |
 | `rich tool result UI` | `ToolResultCard` Compose | Weather cards, confirmation chips, list cards; #222, PR #661 |
@@ -774,7 +821,8 @@ The following skills are all shipped and registered in `SkillRegistry` / `Native
 - Memory rule: user says "remember", "save", "don't forget", "can you remember", or "make a note of" → MUST call `save_memory`
 - Alarm rule: user asks to set an alarm → MUST call `run_intent{intent_name: set_alarm}`
 - Weather rule: `GetWeatherSkill` description includes "ALWAYS call this tool, never use memory" to prevent Gemma-4 from serving stale weather from episodic memory instead of fetching fresh data (#322)
-- Wikipedia rule: `query_wikipedia` is the public skill surface for encyclopedia lookups; it loads focused instructions and then executes the internal `run_js` gateway with `skill_name="query-wikipedia"`
+- Wikipedia rule: `query_wikipedia` is the public skill surface for encyclopedia lookups; the model should prefer direct `queryWikipedia(query=...)`, which internally bridges to the JS runtime
+- System info rule: prompts like "system info" / "device info" should be treated as tool-like so they receive `[Tool Use]` context instead of the softer non-tool reasoning bias
 
 > **Adding new skills:** Registering a skill automatically makes it available in the dynamically
 > generated tool list. If the skill serves requests that do not already look obviously tool-like,

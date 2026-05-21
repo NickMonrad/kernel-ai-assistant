@@ -40,24 +40,23 @@ class QueryWikipediaSkill @Inject constructor(
         appendLine("$name: $description")
         appendLine()
         appendLine("Instructions:")
-        appendLine("- Call the run_js tool with the format below.")
+        appendLine("- Call the queryWikipedia tool directly with the query argument.")
         appendLine("- For factual questions phrased as a sentence, search for the core topic/entity when possible.")
         appendLine("  Example: \"When was Constantinople founded?\" → query=\"Constantinople\"")
         appendLine("- After the tool returns, answer from the Wikipedia result. If the result is clearly off-topic, say so instead of pretending it answered the question.")
         appendLine()
         appendLine("Tool format:")
-        appendLine("- Call runJs with a single 'parameters' argument: a JSON string containing")
-        appendLine("  'skill_name' and 'data' with the skill's parameters.")
+        appendLine("- Call queryWikipedia with the resolved topic or entity as the query argument.")
         appendLine()
         appendLine("Examples:")
-        appendLine("  Wikipedia search → runJs(parameters='{\"skill_name\":\"query-wikipedia\",\"data\":{\"query\":\"New Zealand\"}}')")
-        appendLine("  Founding date lookup → runJs(parameters='{\"skill_name\":\"query-wikipedia\",\"data\":{\"query\":\"Constantinople\"}}')")
+        appendLine("  Wikipedia search → queryWikipedia(query=\"New Zealand\")")
+        appendLine("  Founding date lookup → queryWikipedia(query=\"Constantinople\")")
     }
 
     override suspend fun execute(call: SkillCall): SkillResult {
         val query = call.arguments["query"]?.trim()
             ?: return SkillResult.Failure(name, "Missing required parameter: query.")
         val result = runner.execute("query-wikipedia", mapOf("query" to query))
-        return SkillResult.Success(result)
+        return SkillResult.DirectReply(result)
     }
 }

@@ -379,6 +379,7 @@ internal fun looksLikeToolQuery(query: String): Boolean {
         "turn on", "turn off", "toggle", "open app",
         "play ", "navigate to", "directions to",
         "what time", "what's the time", "battery", "get battery",
+        "system info", "device info",
         "meal plan", "plan my meals", "meal planner", "plan meals",
     )
     return toolKeywords.any { keyword ->
@@ -456,6 +457,17 @@ internal fun looksLikeToolFollowUp(
         ).any { context.contains(it) }
 }
 
+internal fun toolTurnInstruction(isFirstReply: Boolean): String? =
+    if (isFirstReply) {
+        null
+    } else {
+        "Do NOT start this reply with a greeting. This is a follow-up tool turn, so answer directly with the tool result."
+    }
+
+internal fun nonToolTurnInstruction(): String =
+    "This looks like a normal conversational or reasoning reply. Prefer answering directly from your own knowledge and reasoning. " +
+        "Only call tools if the user is clearly asking for current, external, or retrieved information."
+
 /**
  * Returns true if [response] looks like the model confirmed a tool action without
  * actually calling any tool — the classic Gemma-4 hallucination pattern.
@@ -496,6 +508,18 @@ internal fun looksLikeToolConfirmation(response: String): Boolean {
  */
 internal fun looksLikeRawToolCall(response: String): Boolean {
     if (response.contains("<|tool_call>") || response.contains("<tool_call|>")) return true
+
+    val lower = response.lowercase()
+    if (
+        ("instructions:" in lower && "tool format:" in lower && "runjs(" in lower) ||
+        Regex(
+            """^[a-z_]+:\s+.*wikipedia""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
+        )
+            .containsMatchIn(response)
+    ) {
+        return true
+    }
 
     return Regex(
         """\bcall:(?:load[_ ]?skill|run[_ ]?intent|run[_ ]?js|get[_ ]?weather|save[_ ]?memory|search[_ ]?memory|get[_ ]?system[_ ]?info)\b|

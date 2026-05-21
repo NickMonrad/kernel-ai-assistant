@@ -137,7 +137,7 @@ Do NOT use any hidden system prompt, stored user profile, or prior conversation 
 Return only standalone memory sentences, one per line, with no bullets or numbering.
                 """.trimIndent()
             )
-            val response = inferenceEngine.generateOnce(prompt)
+            val response = inferenceEngine.generateOnce(prompt, thinkingEnabled = false)
             if (response.isBlank()) {
                 Log.w(TAG, "Episodic distillation returned blank response for $conversationId")
                 return

@@ -46,6 +46,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "LiteRtInferenceEngine"
+internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
+internal const val THINKING_CLOSE_MARKER = "<channel|>"
+private val CHANNEL_WRAPPER_RE = Regex(
+    "<\\|channel>\\w+.*?<channel\\|>",
+    setOf(RegexOption.DOT_MATCHES_ALL),
+)
 
 @OptIn(ExperimentalApi::class)
 internal inline fun <T> withSpeculativeDecodingEnabledForInit(enabled: Boolean, block: () -> T): T {
@@ -137,6 +143,284 @@ internal class JsonObjectAccumulator(
         }
         return null
     }
+}
+
+private data class MarkerSpan(
+    val start: Int,
+    val endExclusive: Int,
+)
+
+internal data class ThinkingStreamEmission(
+    val thinkingDeltas: List<String> = emptyList(),
+    val responseDeltas: List<String> = emptyList(),
+)
+
+internal class ThinkingStreamStateMachine(
+    private val closeMarker: String = THINKING_CLOSE_MARKER,
+    private val thinkingHeader: String = THINKING_CHANNEL_HEADER,
+) {
+    private enum class Phase {
+        PRE_CLOSE,
+        POST_CLOSE,
+    }
+
+    private val preCloseBuffer = StringBuilder()
+    private val responseBuffer = StringBuilder()
+    private val emittedThinking = StringBuilder()
+    private val emittedResponse = StringBuilder()
+    private var phase = Phase.PRE_CLOSE
+
+    fun consume(channelDelta: String?, rawMessage: String): ThinkingStreamEmission {
+        val thinking = mutableListOf<String>()
+        val response = mutableListOf<String>()
+        val candidates = buildList {
+            channelDelta?.takeIf { it.isNotEmpty() }?.let { add(StreamCandidate(Source.CHANNEL, it)) }
+            rawMessage.takeIf { it.isNotEmpty() }?.let { add(StreamCandidate(Source.RAW, it)) }
+        }
+
+        candidates.forEach { candidate ->
+            when (phase) {
+                Phase.PRE_CLOSE -> consumePreClose(candidate, thinking, response)
+                Phase.POST_CLOSE -> consumePostClose(candidate, response)
+            }
+        }
+
+        return ThinkingStreamEmission(
+            thinkingDeltas = thinking,
+            responseDeltas = response,
+        )
+    }
+
+    private fun consumePreClose(
+        candidate: StreamCandidate,
+        thinking: MutableList<String>,
+        response: MutableList<String>,
+    ) {
+        val sanitized = stripLeadingThinkingHeader(candidate.text)
+        if (sanitized.isEmpty()) return
+
+        appendNovelSuffix(preCloseBuffer, sanitized)
+        val buffered = preCloseBuffer.toString()
+        val markerSpan = findCloseMarkerSpan(buffered)
+        if (markerSpan == null) {
+            emitThinkingThrough(stableThinkingBoundary(buffered), thinking)
+            return
+        }
+
+        emitThinkingThrough(markerSpan.start, thinking)
+        phase = Phase.POST_CLOSE
+        appendNovelSuffix(responseBuffer, buffered.substring(markerSpan.endExclusive))
+        emitResponseDelta(responseBuffer.toString(), response)
+    }
+
+    private fun consumePostClose(
+        candidate: StreamCandidate,
+        response: MutableList<String>,
+    ) {
+        val visibleText = when (candidate.source) {
+            Source.CHANNEL -> candidate.text
+            Source.RAW -> extractPostCloseVisibleText(candidate.text)
+        }
+        if (visibleText.isEmpty()) return
+
+        appendNovelSuffix(responseBuffer, visibleText)
+        emitResponseDelta(responseBuffer.toString(), response)
+    }
+
+    private fun emitThinkingThrough(
+        endExclusive: Int,
+        thinking: MutableList<String>,
+    ) {
+        val candidate = preCloseBuffer.substring(0, endExclusive)
+        val delta = stripReplayedPrefix(
+            current = candidate,
+            emitted = emittedThinking.toString(),
+            allowOverlap = true,
+            minOverlapLength = 3,
+        )
+        if (delta.isEmpty()) return
+        emittedThinking.append(delta)
+        thinking += delta
+    }
+
+    private fun emitResponseDelta(
+        candidate: String,
+        response: MutableList<String>,
+    ) {
+        val delta = stripReplayedPrefix(
+            current = candidate,
+            emitted = emittedResponse.toString(),
+            allowOverlap = true,
+            minOverlapLength = 3,
+        )
+        if (delta.isEmpty() || delta.startsWith("<ctrl")) return
+        emittedResponse.append(delta)
+        response += delta
+    }
+
+    private fun appendNovelSuffix(target: StringBuilder, candidate: String) {
+        if (candidate.isEmpty()) return
+
+        val observed = target.toString()
+        if (observed.isEmpty()) {
+            target.append(candidate)
+            return
+        }
+        if (observed.endsWith(candidate)) return
+
+        val delta = stripReplayedPrefix(
+            current = candidate,
+            emitted = observed,
+            allowOverlap = true,
+            minOverlapLength = 3,
+        )
+        if (delta.isNotEmpty()) {
+            target.append(delta)
+        }
+    }
+
+    private fun stableThinkingBoundary(buffered: String): Int =
+        findTrailingMarkerPrefixStart(buffered) ?: buffered.length
+
+    private fun stripLeadingThinkingHeader(text: String): String =
+        if (text.startsWith(thinkingHeader)) {
+            text.removePrefix(thinkingHeader).removePrefix("\n")
+        } else {
+            text
+        }
+
+    private fun extractPostCloseVisibleText(text: String): String {
+        val markerSpan = findCloseMarkerSpan(text)
+        if (text.startsWith("<|channel>") && markerSpan != null) {
+            val headerEnd = text.indexOf('\n')
+            if (headerEnd in 0 until markerSpan.start) {
+                val channelName = text.substring("<|channel>".length, headerEnd)
+                val body = text.substring(headerEnd + 1, markerSpan.start)
+                if (channelName != "thought") {
+                    return body + text.substring(markerSpan.endExclusive)
+                }
+            }
+        }
+        if (markerSpan != null) {
+            return text.substring(markerSpan.endExclusive)
+        }
+        if (text.contains("<|channel>")) {
+            return ""
+        }
+        return CHANNEL_WRAPPER_RE.replace(text, "")
+    }
+
+    private fun findCloseMarkerSpan(text: String): MarkerSpan? {
+        var markerIndex = 0
+        var start = -1
+        var lastMatched = -1
+
+        text.forEachIndexed { index, ch ->
+            if (markerIndex > 0 && ch.isWhitespace()) {
+                lastMatched = index
+                return@forEachIndexed
+            }
+
+            when {
+                ch == closeMarker[markerIndex] -> {
+                    if (markerIndex == 0) start = index
+                    markerIndex++
+                    lastMatched = index
+                    if (markerIndex == closeMarker.length) {
+                        return MarkerSpan(start = start, endExclusive = lastMatched + 1)
+                    }
+                }
+                ch == closeMarker[0] -> {
+                    start = index
+                    markerIndex = 1
+                    lastMatched = index
+                }
+                else -> {
+                    markerIndex = 0
+                    start = -1
+                    lastMatched = -1
+                }
+            }
+        }
+
+        return null
+    }
+
+    private fun findTrailingMarkerPrefixStart(text: String): Int? {
+        for (start in text.indices.reversed()) {
+            if (text[start] != closeMarker[0]) continue
+
+            var textIndex = start
+            var markerIndex = 0
+            while (textIndex < text.length) {
+                val ch = text[textIndex]
+                if (markerIndex > 0 && ch.isWhitespace()) {
+                    textIndex++
+                    continue
+                }
+                if (markerIndex >= closeMarker.length || ch != closeMarker[markerIndex]) {
+                    markerIndex = -1
+                    break
+                }
+                markerIndex++
+                textIndex++
+            }
+
+            if (textIndex == text.length && markerIndex in 1 until closeMarker.length) {
+                return start
+            }
+        }
+        return null
+    }
+
+    private data class StreamCandidate(
+        val source: Source,
+        val text: String,
+    )
+
+    private enum class Source {
+        CHANNEL,
+        RAW,
+    }
+}
+
+internal fun stripReplayedPrefix(
+    current: String,
+    emitted: String,
+    trimBoundaryWhitespace: Boolean = false,
+    allowOverlap: Boolean = false,
+    minOverlapLength: Int = 1,
+): String {
+    if (emitted.isEmpty()) return current
+    if (current.startsWith(emitted)) return current.removePrefix(emitted)
+
+    val currentTrimmed = current.trimEnd()
+    val emittedTrimmed = emitted.trimEnd()
+    if (emittedTrimmed.isNotEmpty() && currentTrimmed.startsWith(emittedTrimmed)) {
+        val remainder = currentTrimmed.removePrefix(emittedTrimmed)
+        return if (trimBoundaryWhitespace) remainder.trimStart() else remainder
+    }
+    if (allowOverlap) {
+        val exactOverlapRemainder = stripOverlappingReplayPrefix(current, emitted, minOverlapLength)
+        if (exactOverlapRemainder != current) {
+            return if (trimBoundaryWhitespace) exactOverlapRemainder.trimStart() else exactOverlapRemainder
+        }
+        val trimmedOverlapRemainder = stripOverlappingReplayPrefix(currentTrimmed, emittedTrimmed, minOverlapLength)
+        if (trimmedOverlapRemainder != currentTrimmed) {
+            return if (trimBoundaryWhitespace) trimmedOverlapRemainder.trimStart() else trimmedOverlapRemainder
+        }
+    }
+    return current
+}
+
+private fun stripOverlappingReplayPrefix(current: String, emitted: String, minOverlapLength: Int): String {
+    val maxOverlap = minOf(current.length, emitted.length)
+    for (overlapLength in maxOverlap downTo minOverlapLength) {
+        if (emitted.endsWith(current.take(overlapLength))) {
+            return current.drop(overlapLength)
+        }
+    }
+    return current
 }
 
 /**
@@ -358,27 +642,96 @@ class LiteRtInferenceEngine @Inject constructor(
         var firstTokenMs: Long = -1
         var outputTokenCount = 0
         var thinkingCharCount = 0
+        var emittedResponseText = StringBuilder()
+        val thinkingEnabledForGeneration = currentConfig?.thinkingEnabled == true
+        val thinkingStateMachine = if (thinkingEnabledForGeneration) ThinkingStreamStateMachine() else null
+        var thinkingStateMachineActive = false
+
+        val thinkingContext: Map<String, Any> =
+            if (thinkingEnabledForGeneration) mapOf("enable_thinking" to true) else emptyMap()
 
         try {
             conv.sendMessageAsync(
                 Contents.of(Content.Text(userMessage)),
                 object : MessageCallback {
                 override fun onMessage(message: Message) {
-                    // Route thinking tokens separately (Gemma thinking mode)
-                    val thinkingText = message.channels["thought"]
-                    if (!thinkingText.isNullOrEmpty()) {
-                        thinkingCharCount += thinkingText.length
-                        trySend(GenerationResult.Thinking(thinkingText))
+                    val channelDelta = message.channels["thought"]
+                    val raw = message.toString()
+
+                    val hasThinkingEvidence = !channelDelta.isNullOrEmpty() ||
+                        raw.contains(THINKING_CHANNEL_HEADER)
+
+                    if (thinkingStateMachine != null && (thinkingStateMachineActive || hasThinkingEvidence)) {
+                        thinkingStateMachineActive = true
+                        val emission = thinkingStateMachine.consume(
+                            channelDelta = channelDelta,
+                            rawMessage = raw,
+                        )
+                        emission.thinkingDeltas.forEach { delta ->
+                            if (delta.isEmpty()) return@forEach
+                            thinkingCharCount += delta.length
+                            trySend(GenerationResult.Thinking(delta))
+                        }
+                        emission.responseDeltas.forEach { delta ->
+                            if (delta.isEmpty()) return@forEach
+                            if (firstTokenMs < 0) {
+                                firstTokenMs = System.currentTimeMillis() - start
+                                Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                            }
+                            outputTokenCount++
+                            emittedResponseText.append(delta)
+                            trySend(GenerationResult.Token(delta))
+                        }
+                        return
                     }
 
-                    val text = message.toString()
-                    if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
+                    if (!channelDelta.isNullOrEmpty()) {
+                        val responseDelta = stripReplayedPrefix(
+                            current = channelDelta,
+                            emitted = emittedResponseText.toString(),
+                            allowOverlap = true,
+                            minOverlapLength = 3,
+                        )
+                        if (responseDelta.isEmpty() || responseDelta.startsWith("<ctrl")) {
+                            return
+                        }
                         if (firstTokenMs < 0) {
                             firstTokenMs = System.currentTimeMillis() - start
                             Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
                         }
                         outputTokenCount++
-                        trySend(GenerationResult.Token(text))
+                        emittedResponseText.append(responseDelta)
+                        trySend(GenerationResult.Token(responseDelta))
+                        return
+                    }
+
+                    // Non-thinking token: process message.toString() delta.
+                    // Defensive guards:
+                    //  1. If toString() contains an open channel marker but no close marker,
+                    //     the SDK hasn't finished routing this content to channels["thought"] yet.
+                    //     Skip — we'll receive the same content via the channel delta path.
+                    //  2. Full channel wrapper (open + close) — strip it before emitting.
+                    if (raw.contains("<|channel>") && !raw.contains("<channel|>")) {
+                        // Partial channel header — skip, content will arrive via channels["thought"].
+                        return
+                    }
+                    val stripped = CHANNEL_WRAPPER_RE.replace(raw, "")
+                    val text = if (stripped.length != raw.length) stripped.trim() else stripped
+                    if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
+                        val responseDelta = stripReplayedPrefix(
+                            current = text,
+                            emitted = emittedResponseText.toString(),
+                        )
+                        if (responseDelta.isEmpty()) {
+                            return
+                        }
+                        if (firstTokenMs < 0) {
+                            firstTokenMs = System.currentTimeMillis() - start
+                            Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                        }
+                        outputTokenCount++
+                        emittedResponseText.append(responseDelta)
+                        trySend(GenerationResult.Token(responseDelta))
                     }
                 }
 
@@ -411,6 +764,7 @@ class LiteRtInferenceEngine @Inject constructor(
                     }
                 }
             },
+            thinkingContext,
         )
         } catch (e: Exception) {
             _isGenerating.value = false
@@ -517,6 +871,7 @@ class LiteRtInferenceEngine @Inject constructor(
                             }
                         }
                     },
+                    if (requestedThinkingEnabled) mapOf("enable_thinking" to true) else emptyMap(),
                 )
                 try {
                     withTimeout(timeoutMs) { latch.await() }
@@ -630,9 +985,12 @@ class LiteRtInferenceEngine @Inject constructor(
 
         val tools = config.toolProvider?.let { listOf(it) } ?: emptyList()
 
-        // When thinking is enabled, register the thought channel so the model emits
-        // chain-of-thought tokens via message.channels["thought"]. Omitting the channel
-        // disables thinking entirely — the model skips reasoning and responds directly.
+        // Two things are required to enable thinking:
+        // 1. Register the "thought" channel in ConversationConfig — this routes tokens between
+        //    <|think|> and <|/think|> to message.channels["thought"] instead of message.toString().
+        // 2. Pass extraContext = mapOf("enable_thinking" to true) in sendMessageAsync — this sets
+        //    the Jinja template variable that injects <|think|> before the model's response,
+        //    triggering chain-of-thought generation. Without this, no thinking tokens are emitted.
         val channels = if (config.thinkingEnabled) {
             listOf(Channel("thought", "<|think|>", "<|/think|>"))
         } else {

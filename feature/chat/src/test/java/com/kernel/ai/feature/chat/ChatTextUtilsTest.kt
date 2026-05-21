@@ -523,6 +523,7 @@ class ChatTextUtilsTest {
                 "save this meal plan to my shopping list",
                 "open app settings",
                 "toggle flashlight",
+                "what's the current system info",
                 "note that my password is 1234",
                 "don't forget the meeting",
                 "store my preference",
@@ -620,6 +621,32 @@ class ChatTextUtilsTest {
     }
 
     @Nested
+    @DisplayName("turn instructions")
+    inner class TurnInstructionTests {
+
+        @Test
+        fun `tool turn instruction is omitted on first reply`() {
+            assertEquals(null, toolTurnInstruction(isFirstReply = true))
+        }
+
+        @Test
+        fun `tool turn instruction suppresses greeting on follow up`() {
+            assertEquals(
+                "Do NOT start this reply with a greeting. This is a follow-up tool turn, so answer directly with the tool result.",
+                toolTurnInstruction(isFirstReply = false),
+            )
+        }
+
+        @Test
+        fun `non tool instruction softly prefers reasoning`() {
+            assertEquals(
+                "This looks like a normal conversational or reasoning reply. Prefer answering directly from your own knowledge and reasoning. Only call tools if the user is clearly asking for current, external, or retrieved information.",
+                nonToolTurnInstruction(),
+            )
+        }
+    }
+
+    @Nested
     @DisplayName("looksLikeRawToolCall")
     inner class RawToolCallTests {
 
@@ -642,8 +669,34 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `returns true for leaked skill instructions`() {
+            assertTrue(
+                looksLikeRawToolCall(
+                    """
+                    query_wikipedia: Look up a topic on Wikipedia and return grounded factual context.
+
+                    Instructions:
+                    - Call the run_js tool with the format below.
+
+                    Tool format:
+                    - Call runJs with a single 'parameters' argument.
+                    """.trimIndent(),
+                ),
+            )
+        }
+
+        @Test
         fun `returns false for normal assistant reply`() {
             assertFalse(looksLikeRawToolCall("Here are the three meals I came up with."))
+        }
+
+        @Test
+        fun `returns false for normal response mentioning wikipedia with colon`() {
+            assertFalse(
+                looksLikeRawToolCall(
+                    "On Wikipedia: the week is a unit of time equal to seven days.",
+                ),
+            )
         }
     }
 
