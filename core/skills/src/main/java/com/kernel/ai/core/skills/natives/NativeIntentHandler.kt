@@ -2307,11 +2307,59 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
+    private fun normalizeOrdinalWordDatePrefix(input: String): String {
+        val normalized = input.lowercase()
+            .replace("-", " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+        val ordinalWords = mapOf(
+            "first" to 1,
+            "second" to 2,
+            "third" to 3,
+            "fourth" to 4,
+            "fifth" to 5,
+            "sixth" to 6,
+            "seventh" to 7,
+            "eighth" to 8,
+            "ninth" to 9,
+            "tenth" to 10,
+            "eleventh" to 11,
+            "twelfth" to 12,
+            "thirteenth" to 13,
+            "fourteenth" to 14,
+            "fifteenth" to 15,
+            "sixteenth" to 16,
+            "seventeenth" to 17,
+            "eighteenth" to 18,
+            "nineteenth" to 19,
+            "twentieth" to 20,
+            "twenty first" to 21,
+            "twenty second" to 22,
+            "twenty third" to 23,
+            "twenty fourth" to 24,
+            "twenty fifth" to 25,
+            "twenty sixth" to 26,
+            "twenty seventh" to 27,
+            "twenty eighth" to 28,
+            "twenty ninth" to 29,
+            "thirtieth" to 30,
+            "thirty first" to 31,
+        )
+        val matched = ordinalWords.entries
+            .sortedByDescending { it.key.length }
+            .firstOrNull { normalized == it.key || normalized.startsWith("${it.key} ") }
+            ?: return input
+        return input.replaceFirst(Regex("""(?i)^${Regex.escape(matched.key)}\b"""), matched.value.toString())
+    }
+
+
     private fun parseImportantDateInput(input: String): ParsedImportantDateInput? {
-        val sanitized = correctMonthSpelling(input).trim()
-            .replace(Regex("""\b(\d{1,2})(st|nd|rd|th)\b""", RegexOption.IGNORE_CASE), "$1")
-            .replace(",", "")
-            .replace(Regex("""^(the|a|an)\s+""", RegexOption.IGNORE_CASE), "")
+        val sanitized = normalizeOrdinalWordDatePrefix(
+            correctMonthSpelling(input).trim()
+                .replace(Regex("""\b(\d{1,2})(st|nd|rd|th)\b""", RegexOption.IGNORE_CASE), "$1")
+                .replace(",", "")
+                .replace(Regex("""^(the|a|an)\s+""", RegexOption.IGNORE_CASE), ""),
+        )
         val fullDateFormatters = listOf(
             DateTimeFormatter.ISO_LOCAL_DATE,
             DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH),
