@@ -65,6 +65,41 @@ class QueryWikipediaSkillTest {
     }
 
     @Test
+    fun `execute keeps natural language query results when only later tokens contain digits`() = runTest {
+        coEvery { runner.execute("query-wikipedia", mapOf("query" to "Battle of 1812")) } returns
+            "War of 1812\n\nA conflict between the United States and the United Kingdom."
+
+        val result = skill.execute(
+            SkillCall(
+                skillName = "query_wikipedia",
+                arguments = mapOf("query" to "Battle of 1812"),
+            ),
+        )
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals(
+            "War of 1812\n\nA conflict between the United States and the United Kingdom.",
+            reply.content,
+        )
+    }
+
+    @Test
+    fun `execute rejects title whose plain words only form an identifier subsequence`() = runTest {
+        coEvery { runner.execute("query-wikipedia", mapOf("query" to "AB12")) } returns
+            "Alberta Highway 12\n\nA provincial highway in Alberta."
+
+        val result = skill.execute(
+            SkillCall(
+                skillName = "query_wikipedia",
+                arguments = mapOf("query" to "AB12"),
+            ),
+        )
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals("No confident Wikipedia result found for: AB12", reply.content)
+    }
+
+    @Test
     fun `fullInstructions stay focused on wikipedia and omit forecast guidance`() {
         val instructions = skill.fullInstructions
 

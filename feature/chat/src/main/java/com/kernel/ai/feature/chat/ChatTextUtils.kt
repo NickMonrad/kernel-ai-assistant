@@ -422,6 +422,11 @@ internal fun prefersImmediateConversationContext(text: String): Boolean {
     ).containsMatchIn(lower)
 }
 
+private val BARE_WIKIPEDIA_ANAPHORA_REGEX = Regex(
+    """^(?:it|this|that|these|those|him|her|them|there)\b(?:\s+(?:please|thanks))?$""",
+    RegexOption.IGNORE_CASE,
+)
+
 internal fun extractExplicitWikipediaQuery(text: String): String? {
     val patterns = listOf(
         Regex("""^\s*(?:look\s+up|search)\s+wikipedia\s+(?:for\s+)?(.+?)\s*[?!.]*$""", RegexOption.IGNORE_CASE),
@@ -429,7 +434,8 @@ internal fun extractExplicitWikipediaQuery(text: String): String? {
         Regex("""^\s*wikipedia\s+(.+?)\s*[?!.]*$""", RegexOption.IGNORE_CASE),
     )
     return patterns.firstNotNullOfOrNull { regex ->
-        regex.matchEntire(text)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+        regex.matchEntire(text)?.groupValues?.getOrNull(1)?.trim()
+            ?.takeIf { it.isNotBlank() && !BARE_WIKIPEDIA_ANAPHORA_REGEX.matches(it) }
     }
 }
 

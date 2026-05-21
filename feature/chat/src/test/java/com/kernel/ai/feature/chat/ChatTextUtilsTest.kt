@@ -465,6 +465,12 @@ class ChatTextUtilsTest {
         fun `returns null for non explicit wikipedia queries`() {
             assertEquals(null, extractExplicitWikipediaQuery("What is sm-918b"))
         }
+
+        @Test
+        fun `returns null for bare anaphora wikipedia commands`() {
+            assertEquals(null, extractExplicitWikipediaQuery("Search Wikipedia for it"))
+            assertEquals(null, extractExplicitWikipediaQuery("Look up this on Wikipedia"))
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
