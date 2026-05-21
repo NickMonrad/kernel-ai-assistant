@@ -638,7 +638,7 @@ class ChatTextUtilsTest {
         }
 
         @Test
-        fun `non tool instruction softly prefers reasoning`() {
+     fun `non tool instruction softly prefers reasoning`() {
             assertEquals(
                 "This looks like a normal conversational or reasoning reply. Prefer answering directly from your own knowledge and reasoning. Only call tools if the user is clearly asking for current, external, or retrieved information.",
                 nonToolTurnInstruction(),
