@@ -512,6 +512,42 @@ class MealPlanSessionRepositoryAndroidTest {
     }
 
     @Test
+    fun recreateRecipeList_createsStandaloneChecklistListsWithUniqueNames() = runBlocking {
+        val completed = createCompletedSessionWithRecipe("conv-recreate-recipe-list")
+
+        val firstListName = repository.recreateRecipeList(completed.sessionId, 0)
+        val secondListName = repository.recreateRecipeList(completed.sessionId, 0)
+
+        assertEquals("Chicken Stir Fry", firstListName)
+        assertEquals("Chicken Stir Fry (2)", secondListName)
+        val firstListId = requireNotNull(listNameDao.getByName(firstListName)).id
+        val secondListId = requireNotNull(listNameDao.getByName(secondListName)).id
+        val expectedItems = listOf(
+            "Ingredients",
+            "placeholder ingredient",
+            "Method",
+            "1. Slice the vegetables.",
+            "2. Stir-fry everything until glossy.",
+        )
+
+        assertEquals(expectedItems, listItemDao.getByList(firstListId).map { it.text })
+        assertEquals(expectedItems, listItemDao.getByList(secondListId).map { it.text })
+    }
+
+    @Test
+    fun addRecipeIngredientsToList_appendsCanonicalIngredientsToExistingList() = runBlocking {
+        val completed = createCompletedSessionWithRecipe("conv-add-ingredients-list")
+        val now = System.currentTimeMillis()
+        val listId = listNameDao.insertAndGet(ListNameEntity(name = "weeknight shopping", createdAt = now, updatedAt = now))
+        assertTrue(listId > 0L)
+
+        val listName = repository.addRecipeIngredientsToList(completed.sessionId, 0, listId)
+
+        assertEquals("weeknight shopping", listName)
+        assertEquals(listOf("500 g chicken thigh"), listItemDao.getByList(listId).map { it.text })
+    }
+
+    @Test
     fun getRecentMealHistory_reads_recent_terminal_days_from_canonical_session_rows() = runBlocking {
         val completed = repository.startOrResume("conv-history-completed")
         repository.savePlanDraft(

@@ -117,6 +117,44 @@ class MealPlanSessionRepository @Inject constructor(
         combine(sessionDao.observeCompleted(limit), favouriteRecipeDao.observeRecent(1)) { sessions, _ -> sessions }
             .mapLatest { sessions -> sessions.map { it.toSnapshot() } }
 
+    fun observeActiveLists(): Flow<List<ListNameEntity>> =
+        listNameDao.observeActiveLists()
+
+    suspend fun recreateRecipeList(sessionId: String, dayIndex: Int): String = database.withTransaction {
+        val (_, recipeVersion) = requireCurrentRecipeVersion(sessionId, dayIndex)
+        val targetName = nextAvailableListName(recipeVersion.title.ifBlank { "Recipe" })
+        val now = System.currentTimeMillis()
+        val listId = listNameDao.insertAndGet(ListNameEntity(name = targetName, createdAt = now, updatedAt = now))
+            .takeIf { it != -1L }
+            ?: error("Failed to create recipe list: $targetName")
+        buildRecipeListTexts(recipeVersion).forEach { text ->
+            listItemDao.insert(
+                ListItemEntity(listId = listId, text = text, createdAt = now, updatedAt = now),
+            )
+        }
+        targetName
+    }
+
+    suspend fun addRecipeIngredientsToList(sessionId: String, dayIndex: Int, listId: Long): String = database.withTransaction {
+        val list = requireNotNull(listNameDao.getById(listId)?.takeIf { it.archivedAt == null }) { "Unknown active list: $listId" }
+        val (_, recipeVersion) = requireCurrentRecipeVersion(sessionId, dayIndex)
+        val ingredientLines = groceryItemDao.getByRecipeVersion(recipeVersion.id)
+            .map { grocery -> grocery.displayText.ifBlank { grocery.originalText } }
+            .ifEmpty { buildRecipeIngredientTexts(recipeVersion) }
+            .filter { it.isNotBlank() }
+        require(ingredientLines.isNotEmpty()) {
+            "Day ${dayIndex + 1} has no ingredient data to add."
+        }
+        val now = System.currentTimeMillis()
+        ingredientLines.forEach { text ->
+            listItemDao.insert(
+                ListItemEntity(listId = listId, text = text, createdAt = now, updatedAt = now),
+            )
+        }
+        listNameDao.updateTimestamp(listId, now)
+        list.name
+    }
+
 
     /**
      * Planner retention pruning runs here before resuming/creating a session so old terminal
@@ -815,6 +853,43 @@ class MealPlanSessionRepository @Inject constructor(
     private suspend fun currentRecipeVersion(day: MealPlanDayEntity): MealPlanRecipeVersionEntity? {
         val version = day.currentRecipeVersion ?: return null
         return recipeVersionDao.getLatestForDay(day.id)?.takeIf { it.version == version }
+    }
+
+    private suspend fun requireCurrentRecipeVersion(
+        sessionId: String,
+        dayIndex: Int,
+    ): Pair<MealPlanDayEntity, MealPlanRecipeVersionEntity> {
+        val day = requireNotNull(dayDao.getBySessionAndIndex(sessionId, dayIndex)) {
+            "Unknown meal-plan day $dayIndex for session $sessionId"
+        }
+        val recipeVersion = requireNotNull(currentRecipeVersion(day)) {
+            "Day ${dayIndex + 1} does not have a recipe yet."
+        }
+        return day to recipeVersion
+    }
+
+    private fun buildRecipeListTexts(recipeVersion: MealPlanRecipeVersionEntity): List<String> = buildList {
+        add("Ingredients")
+        addAll(buildRecipeIngredientTexts(recipeVersion))
+        add("Method")
+        addAll(buildRecipeMethodTexts(recipeVersion))
+    }
+
+    private fun buildRecipeIngredientTexts(recipeVersion: MealPlanRecipeVersionEntity): List<String> =
+        jsonToIngredients(recipeVersion.ingredientsJson).map { ingredient -> ingredient.originalText }
+
+    private fun buildRecipeMethodTexts(recipeVersion: MealPlanRecipeVersionEntity): List<String> =
+        jsonToMethodSteps(recipeVersion.methodStepsJson).map { step -> "${step.stepNumber}. ${step.text}" }
+
+    private suspend fun nextAvailableListName(baseName: String): String {
+        val normalizedBaseName = baseName.trim().ifBlank { "Recipe" }
+        var candidate = normalizedBaseName
+        var suffix = 2
+        while (listNameDao.getByName(candidate) != null) {
+            candidate = "$normalizedBaseName ($suffix)"
+            suffix += 1
+        }
+        return candidate
     }
 
     private fun resolvedRecipeKey(recipeVersion: MealPlanRecipeVersionEntity, proteinTags: List<String>): String =

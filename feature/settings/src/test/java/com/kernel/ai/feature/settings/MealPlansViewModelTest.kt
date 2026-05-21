@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
 import com.kernel.ai.core.memory.mealplan.FavouriteRecipeSummary
 import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
@@ -39,6 +40,7 @@ class MealPlansViewModelTest {
     private val repository: MealPlanSessionRepository = mockk()
     private val recentPlansFlow = MutableStateFlow(emptyList<MealPlanSnapshot>())
     private val favouriteRecipesFlow = MutableStateFlow(emptyList<FavouriteRecipeSummary>())
+    private val availableListsFlow = MutableStateFlow(emptyList<ListNameEntity>())
 
     private lateinit var viewModel: MealPlansViewModel
 
@@ -47,6 +49,7 @@ class MealPlansViewModelTest {
         Dispatchers.setMain(testDispatcher)
         every { repository.observeRecentCompletedPlans(12) } returns recentPlansFlow
         every { repository.observeFavouriteRecipes(50) } returns favouriteRecipesFlow
+        every { repository.observeActiveLists() } returns availableListsFlow
         viewModel = MealPlansViewModel(repository)
     }
 
@@ -63,6 +66,11 @@ class MealPlansViewModelTest {
 
         recentPlansFlow.value = listOf(planSnapshot())
         favouriteRecipesFlow.value = listOf(favouriteRecipe())
+        availableListsFlow.value = listOf(
+            ListNameEntity(id = 6L, name = "Meal Plan 2026-05-19 (MP-001) Shopping List", createdAt = 1_000L, updatedAt = 1_000L),
+            ListNameEntity(id = 8L, name = "Meal Plan Party", createdAt = 1_000L, updatedAt = 1_000L),
+            listEntity(),
+        )
         viewModel.setTab(MealPlansBrowserTab.FAVOURITES)
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -70,6 +78,55 @@ class MealPlansViewModelTest {
         assertEquals(MealPlansBrowserTab.FAVOURITES, state.selectedTab)
         assertEquals(1, state.recentPlans.size)
         assertEquals(1, state.favouriteRecipes.size)
+        assertEquals(listOf("Meal Plan Party", "shopping list"), state.availableLists.map { it.name })
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `recent plan search keeps only matching recipe days`() = runTest {
+        recentPlansFlow.value = listOf(
+            planSnapshot(
+                days = listOf(
+                    planDay(recipeKey = "recipe-1", title = "Chicken Stir Fry"),
+                    planDay(recipeKey = "recipe-2", title = "Tofu Curry", dayIndex = 1),
+                ),
+            ),
+        )
+
+        val states = mutableListOf<MealPlansUiState>()
+        val collectJob = launch { viewModel.uiState.collect { states += it } }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.updateRecentPlansQuery("tofu")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val state = states.last()
+        assertEquals("tofu", state.recentPlansQuery)
+        assertEquals(1, state.recentPlans.size)
+        assertEquals(listOf("Tofu Curry"), state.recentPlans.single().days.map { it.title })
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `favourite search filters favourite recipes by title`() = runTest {
+        recentPlansFlow.value = listOf(planSnapshot())
+        favouriteRecipesFlow.value = listOf(
+            favouriteRecipe(recipeKey = "recipe-1", title = "Chicken Stir Fry"),
+            favouriteRecipe(recipeKey = "recipe-2", title = "Tofu Curry"),
+        )
+
+        val states = mutableListOf<MealPlansUiState>()
+        val collectJob = launch { viewModel.uiState.collect { states += it } }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.updateFavouriteRecipesQuery("chicken")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val state = states.last()
+        assertEquals("chicken", state.favouriteRecipesQuery)
+        assertEquals(listOf("Chicken Stir Fry"), state.favouriteRecipes.map { it.title })
 
         collectJob.cancel()
     }
@@ -113,6 +170,40 @@ class MealPlansViewModelTest {
     }
 
     @Test
+    fun `addRecipeToLists delegates to repository`() = runTest {
+        coEvery { repository.recreateRecipeList("session-1", 0) } returns "Chicken Stir Fry"
+
+        val states = mutableListOf<MealPlansUiState>()
+        val collectJob = launch { viewModel.uiState.collect { states += it } }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.addRecipeToLists("session-1", 0, "recipe-1")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.recreateRecipeList("session-1", 0) }
+        assertFalse("recipe-1" in states.last().pendingRecipeKeys)
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `addIngredientsToList delegates to repository`() = runTest {
+        coEvery { repository.addRecipeIngredientsToList("session-1", 0, 7L) } returns "shopping list"
+
+        val states = mutableListOf<MealPlansUiState>()
+        val collectJob = launch { viewModel.uiState.collect { states += it } }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.addIngredientsToList("session-1", 0, "recipe-1", 7L)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.addRecipeIngredientsToList("session-1", 0, 7L) }
+        assertFalse("recipe-1" in states.last().pendingRecipeKeys)
+
+        collectJob.cancel()
+    }
+
+    @Test
     fun `removeFavourite delegates to repository`() = runTest {
         coEvery { repository.removeFavouriteRecipe("recipe-1") } just Runs
         val states = mutableListOf<MealPlansUiState>()
@@ -128,9 +219,14 @@ class MealPlansViewModelTest {
         collectJob.cancel()
     }
 
-    private fun favouriteRecipe() = FavouriteRecipeSummary(
-        recipeKey = "recipe-1",
-        title = "Chicken Stir Fry",
+    private fun listEntity() = ListNameEntity(id = 7L, name = "shopping list", createdAt = 2_000L, updatedAt = 2_000L)
+
+    private fun favouriteRecipe(
+        recipeKey: String = "recipe-1",
+        title: String = "Chicken Stir Fry",
+    ) = FavouriteRecipeSummary(
+        recipeKey = recipeKey,
+        title = title,
         summary = "Quick bowl",
         proteinTags = listOf("chicken"),
     )
@@ -157,24 +253,29 @@ class MealPlansViewModelTest {
         days = days,
     )
 
-    private fun planDay(isFavourite: Boolean = false) = MealPlanSnapshotDay(
-        id = "day-1",
-        dayIndex = 0,
-        title = "Chicken Stir Fry",
+    private fun planDay(
+        recipeKey: String = "recipe-1",
+        title: String = "Chicken Stir Fry",
+        dayIndex: Int = 0,
+        isFavourite: Boolean = false,
+    ) = MealPlanSnapshotDay(
+        id = "day-${dayIndex + 1}",
+        dayIndex = dayIndex,
+        title = title,
         summary = "Quick bowl",
-        proteinTags = listOf("chicken"),
+        proteinTags = listOf(if (title.contains("tofu", ignoreCase = true)) "tofu" else "chicken"),
         status = com.kernel.ai.core.memory.mealplan.MealPlanDayStatus.PERSISTED,
         currentRecipeVersion = 1,
         attemptCount = 1,
         lastErrorCode = null,
         lastErrorMessage = null,
-        currentRecipe = recipeDraft(),
-        recipeKey = "recipe-1",
+        currentRecipe = recipeDraft(title = title),
+        recipeKey = recipeKey,
         isFavouriteRecipe = isFavourite,
     )
 
-    private fun recipeDraft() = RecipeDraft(
-        title = "Chicken Stir Fry",
+    private fun recipeDraft(title: String = "Chicken Stir Fry") = RecipeDraft(
+        title = title,
         servings = 4,
         ingredients = listOf(
             RecipeDraftIngredient(
