@@ -29,14 +29,22 @@ class KernelAIToolSetTest {
     fun `queryWikipedia delegates to query_wikipedia skill`() = runTest {
         val skill = mockk<Skill>()
         every { skill.name } returns "query_wikipedia"
+<<<<<<< HEAD
      coEvery { skill.execute(any()) } returns SkillResult.DirectReply("Wiki result")
+=======
+        coEvery { skill.execute(any()) } returns SkillResult.DirectReply("Wiki result")
+>>>>>>> cf59109c (fix(#941): bypass model synthesis for direct tool replies)
         every { registry.get("query_wikipedia") } returns skill
 
         val result = toolSet.queryWikipedia("New Zealand")
 
         assertEquals("Wiki result", result["result"])
         assertTrue(toolSet.wasToolCalled())
+<<<<<<< HEAD
       assertTrue(toolSet.lastToolWasDirectReply())
+=======
+        assertTrue(toolSet.lastToolWasDirectReply())
+>>>>>>> cf59109c (fix(#941): bypass model synthesis for direct tool replies)
         assertEquals("query_wikipedia", toolSet.lastToolName())
         assertEquals("{\"query\":\"New Zealand\"}", toolSet.lastToolRequest())
     }
@@ -52,7 +60,7 @@ class KernelAIToolSetTest {
 
         assertEquals("Date/time: Wednesday", result["result"])
         assertTrue(toolSet.wasToolCalled())
-    assertTrue(toolSet.lastToolWasDirectReply())
+assertTrue(toolSet.lastToolWasDirectReply())
         assertEquals("get_system_info", toolSet.lastToolName())
         assertEquals("{}", toolSet.lastToolRequest())
     }
