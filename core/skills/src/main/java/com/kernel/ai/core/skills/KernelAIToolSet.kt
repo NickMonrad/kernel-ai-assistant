@@ -48,6 +48,7 @@ class KernelAIToolSet @Inject constructor(
     @Volatile private var lastToolResult: String? = null
     @Volatile private var lastToolPresentation: ToolPresentation? = null
     @Volatile private var lastToolSpokenSummary: String? = null
+    @Volatile private var lastToolWasDirectReply: Boolean = false
 
     fun resetTurnState() {
         toolCalledInThisTurn = false
@@ -56,6 +57,7 @@ class KernelAIToolSet @Inject constructor(
         lastToolResult = null
         lastToolPresentation = null
         lastToolSpokenSummary = null
+        lastToolWasDirectReply = false
     }
 
     fun wasToolCalled(): Boolean = toolCalledInThisTurn
@@ -64,6 +66,7 @@ class KernelAIToolSet @Inject constructor(
     fun lastToolResult(): String? = lastToolResult
     fun lastToolPresentation(): ToolPresentation? = lastToolPresentation
     fun lastToolSpokenSummary(): String? = lastToolSpokenSummary
+    fun lastToolWasDirectReply(): Boolean = lastToolWasDirectReply
 
     private fun setLastToolCall(name: String, request: String) {
         lastToolName = name
@@ -242,6 +245,7 @@ class KernelAIToolSet @Inject constructor(
             val result = runBlocking {
                 skill.execute(SkillCall(skillName = skillName, arguments = args))
             }
+            lastToolWasDirectReply = result is SkillResult.DirectReply
             lastToolPresentation = when (result) {
                 is SkillResult.Success -> result.presentation
                 is SkillResult.DirectReply -> result.presentation

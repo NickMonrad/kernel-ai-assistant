@@ -57,6 +57,6 @@ class QueryWikipediaSkill @Inject constructor(
         val query = call.arguments["query"]?.trim()
             ?: return SkillResult.Failure(name, "Missing required parameter: query.")
         val result = runner.execute("query-wikipedia", mapOf("query" to query))
-        return SkillResult.Success(result)
+        return SkillResult.DirectReply(result)
     }
 }

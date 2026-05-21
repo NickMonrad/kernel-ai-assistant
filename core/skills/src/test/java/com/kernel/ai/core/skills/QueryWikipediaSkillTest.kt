@@ -7,6 +7,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -26,7 +27,8 @@ class QueryWikipediaSkillTest {
             ),
         )
 
-        assertEquals("Result", (result as SkillResult.Success).content)
+        assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals("Result", (result as SkillResult.DirectReply).content)
         coVerify(exactly = 1) { runner.execute("query-wikipedia", mapOf("query" to "Constantinople")) }
     }
 

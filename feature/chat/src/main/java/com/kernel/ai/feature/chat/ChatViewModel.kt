@@ -1787,7 +1787,11 @@ class ChatViewModel @Inject constructor(
 
                             if (nativeToolCall != null || toolCallResult != null) {
                                 val toolCall = nativeToolCall ?: toolCallResult!!.first
+                                val nativeToolWasDirectReply =
+                                    nativeToolCall != null && kernelAIToolSet.lastToolWasDirectReply()
                                 val resultContent = when {
+                                    nativeToolWasDirectReply ->
+                                        toolCall.resultText
                                     nativeToolCall != null && toolCall.presentation != null && toolCall.isSuccess ->
                                         toolCall.resultText
                                     nativeToolCall != null -> fullContent
