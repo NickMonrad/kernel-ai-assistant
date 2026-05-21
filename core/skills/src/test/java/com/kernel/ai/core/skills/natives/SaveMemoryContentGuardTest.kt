@@ -25,4 +25,12 @@ class SaveMemoryContentGuardTest {
     fun `allows concrete personal facts through`() {
         assertNull(clarificationPromptForSaveMemory("Nick prefers dark mode", "Nick"))
     }
+
+    @Test
+    fun `asks for clarification on blank content`() {
+        assertEquals(
+            "What would you like me to remember?",
+            clarificationPromptForSaveMemory("   ", "Nick"),
+        )
+    }
 }

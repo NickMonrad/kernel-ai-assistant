@@ -736,10 +736,7 @@ class LiteRtInferenceEngine @Inject constructor(
                             current = text,
                             emitted = emittedResponseText.toString(),
                         )
-                        if (responseDelta.isEmpty()) {
-
-                            return
-                        }
+                        if (responseDelta.isEmpty()) return
                         if (firstTokenMs < 0) {
                             firstTokenMs = System.currentTimeMillis() - start
                             Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
