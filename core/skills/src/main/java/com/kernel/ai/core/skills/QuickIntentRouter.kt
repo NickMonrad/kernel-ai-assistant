@@ -995,6 +995,30 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
+                """what\s+day\s+is\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+tomorrow'?s\s+date\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+date\s+is\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
                 """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(time|date|day)\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
