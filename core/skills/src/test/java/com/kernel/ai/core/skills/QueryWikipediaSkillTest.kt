@@ -7,6 +7,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -26,7 +27,8 @@ class QueryWikipediaSkillTest {
             ),
         )
 
-        assertEquals("Result", (result as SkillResult.Success).content)
+        assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals("Result", (result as SkillResult.DirectReply).content)
         coVerify(exactly = 1) { runner.execute("query-wikipedia", mapOf("query" to "Constantinople")) }
     }
 
@@ -34,8 +36,8 @@ class QueryWikipediaSkillTest {
     fun `fullInstructions stay focused on wikipedia and omit forecast guidance`() {
         val instructions = skill.fullInstructions
 
-        assertTrue(instructions.contains("runJs(parameters="))
-        assertTrue(instructions.contains("skill_name\":\"query-wikipedia\""))
+        assertTrue(instructions.contains("queryWikipedia(query="))
+        assertTrue(instructions.contains("Call the queryWikipedia tool directly"))
         assertTrue(instructions.contains("query=\"Constantinople\""))
         assertFalse(instructions.contains("forecast_days (1–7)"))
         assertFalse(instructions.contains("ALWAYS call this tool for weather"))
