@@ -199,7 +199,7 @@ class QuickIntentRouter(
         normalizeImportantDateLabel(raw).takeIf { it.isNotBlank() }
 
     private val importantDateValuePattern =
-        "(?:\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|[a-zA-Z]+\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})"
+        "(?:\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|[a-zA-Z]+\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty(?:-|\\s+)first|twenty(?:-|\\s+)second|twenty(?:-|\\s+)third|twenty(?:-|\\s+)fourth|twenty(?:-|\\s+)fifth|twenty(?:-|\\s+)sixth|twenty(?:-|\\s+)seventh|twenty(?:-|\\s+)eighth|twenty(?:-|\\s+)ninth|thirtieth|thirty(?:-|\\s+)first)(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})"
 
     private val unitConversionValuePattern = "-?\\d+(?:\\.\\d+)?"
     private val unitConversionUnitPattern = UnitConversionEvaluator.supportedRouterRegexPattern()
