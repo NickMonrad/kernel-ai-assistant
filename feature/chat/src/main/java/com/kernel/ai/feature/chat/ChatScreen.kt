@@ -1031,6 +1031,140 @@ private fun InputBar(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     val sendEnabled = text.isNotBlank()
+                    val showControlRow =
+                        text.isBlank() ||
+                            voiceCaptureState != ChatViewModel.VoiceCaptureState.Idle ||
+                            voicePlaybackState != ChatViewModel.VoicePlaybackState.Idle
+                    AnimatedVisibility(
+                        visible = showControlRow,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                    ) {
+                        // Secondary row: attachment, voice controls
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            // Left side: attachment + PTT/Loop
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                // Attachment button — disabled until model supports it
+                                val attachmentSupported = modelCapabilities?.supportsAttachments == true
+                                Surface(
+                                    onClick = { /* TODO: attachment picker */ },
+                                    enabled = attachmentSupported,
+                                    shape = RoundedCornerShape(18.dp),
+                                    color = if (attachmentSupported) {
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    },
+                                    modifier = Modifier.testTag("chat_attachment"),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Attach",
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        tint = if (attachmentSupported) {
+                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                        },
+                                    )
+                                }
+
+                                // PTT / Loop — visible only when idle and no text
+                                AnimatedVisibility(
+                                    visible = !isGenerating &&
+                                        text.isBlank() &&
+                                        voiceCaptureState == ChatViewModel.VoiceCaptureState.Idle &&
+                                        voicePlaybackState == ChatViewModel.VoicePlaybackState.Idle,
+                                    enter = fadeIn(),
+                                    exit = fadeOut(),
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Surface(
+                                            onClick = onStartVoiceInput,
+                                            shape = RoundedCornerShape(18.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            tonalElevation = 1.dp,
+                                            modifier = Modifier.testTag("chat_voice_start"),
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Mic,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp),
+                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                )
+                                                Text(
+                                                    text = "PTT",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                )
+                                            }
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = onStartBackAndForthVoiceInput,
+                                            modifier = Modifier.testTag("chat_voice_start_loop"),
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Repeat,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                            Text(
+                                                text = "Loop",
+                                                modifier = Modifier.padding(start = 4.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Right side: voice stop buttons
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                AnimatedVisibility(
+                                    visible = !isGenerating && voiceCaptureState != ChatViewModel.VoiceCaptureState.Idle,
+                                    enter = fadeIn(),
+                                    exit = fadeOut(),
+                                ) {
+                                    IconButton(
+                                        onClick = onStopVoiceInput,
+                                        modifier = Modifier.testTag("chat_voice_stop_input"),
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "Stop voice input")
+                                    }
+                                }
+
+                                AnimatedVisibility(
+                                    visible = !isGenerating &&
+                                        voiceCaptureState == ChatViewModel.VoiceCaptureState.Idle &&
+                                        voicePlaybackState != ChatViewModel.VoicePlaybackState.Idle,
+                                    enter = fadeIn(),
+                                    exit = fadeOut(),
+                                ) {
+                                    IconButton(
+                                        onClick = onStopVoiceOutput,
+                                        modifier = Modifier.testTag("chat_voice_stop_output"),
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "Stop spoken reply")
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // Primary row: full-width text field with send/cancel trailing icon
                     TextField(
                         value = text,
@@ -1075,131 +1209,6 @@ private fun InputBar(
                             }
                         },
                     )
-
-                    // Secondary row: attachment, voice controls
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        // Left side: attachment + PTT/Loop
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            // Attachment button — disabled until model supports it
-                            val attachmentSupported = modelCapabilities?.supportsAttachments == true
-                            Surface(
-                                onClick = { /* TODO: attachment picker */ },
-                                enabled = attachmentSupported,
-                                shape = RoundedCornerShape(18.dp),
-                                color = if (attachmentSupported) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                },
-                                modifier = Modifier.testTag("chat_attachment"),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = "Attach",
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                    tint = if (attachmentSupported) {
-                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                    },
-                                )
-                            }
-
-                            // PTT / Loop — visible only when idle and no text
-                            AnimatedVisibility(
-                                visible = !isGenerating &&
-                                    text.isBlank() &&
-                                    voiceCaptureState == ChatViewModel.VoiceCaptureState.Idle &&
-                                    voicePlaybackState == ChatViewModel.VoicePlaybackState.Idle,
-                                enter = fadeIn(),
-                                exit = fadeOut(),
-                            ) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Surface(
-                                        onClick = onStartVoiceInput,
-                                        shape = RoundedCornerShape(18.dp),
-                                        color = MaterialTheme.colorScheme.primaryContainer,
-                                        tonalElevation = 1.dp,
-                                        modifier = Modifier.testTag("chat_voice_start"),
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Mic,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp),
-                                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            )
-                                            Text(
-                                                text = "PTT",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            )
-                                        }
-                                    }
-
-                                    OutlinedButton(
-                                        onClick = onStartBackAndForthVoiceInput,
-                                        modifier = Modifier.testTag("chat_voice_start_loop"),
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Repeat,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                        Text(
-                                            text = "Loop",
-                                            modifier = Modifier.padding(start = 4.dp),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Right side: voice stop buttons
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            AnimatedVisibility(
-                                visible = !isGenerating && voiceCaptureState != ChatViewModel.VoiceCaptureState.Idle,
-                                enter = fadeIn(),
-                                exit = fadeOut(),
-                            ) {
-                                IconButton(
-                                    onClick = onStopVoiceInput,
-                                    modifier = Modifier.testTag("chat_voice_stop_input"),
-                                ) {
-                                    Icon(Icons.Default.Close, contentDescription = "Stop voice input")
-                                }
-                            }
-
-                            AnimatedVisibility(
-                                visible = !isGenerating &&
-                                    voiceCaptureState == ChatViewModel.VoiceCaptureState.Idle &&
-                                    voicePlaybackState != ChatViewModel.VoicePlaybackState.Idle,
-                                enter = fadeIn(),
-                                exit = fadeOut(),
-                            ) {
-                                IconButton(
-                                    onClick = onStopVoiceOutput,
-                                    modifier = Modifier.testTag("chat_voice_stop_output"),
-                                ) {
-                                    Icon(Icons.Default.Close, contentDescription = "Stop spoken reply")
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
