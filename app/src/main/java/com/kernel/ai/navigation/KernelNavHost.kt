@@ -527,9 +527,7 @@ fun KernelNavHost(
                     MealPlansScreen(
                         onBack = { navController.popBackStack() },
                         onStartNewMealPlan = {
-                            navController.navigate(buildNewMealPlanChatRoute()) {
-                                popUpTo(ROUTE_CHAT) { inclusive = true }
-                            }
+                            navController.navigate(buildNewMealPlanChatRoute())
                         },
                     )
                 }
