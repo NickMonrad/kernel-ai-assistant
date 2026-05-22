@@ -743,7 +743,10 @@ class QuickIntentRouterTest {
             val result = regexOnlyRouter.route("What day is tomorrow")
             assertRegexMatch(result, "get_time", "What day is tomorrow")
 
-            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            val withPronoun = regexOnlyRouter.route("What day is it tomorrow")
+            assertRegexMatch(withPronoun, "get_time", "What day is it tomorrow")
+
+            val intent = (withPronoun as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals("day_of_week", intent.params["query_type"])
             assertEquals("tomorrow", intent.params["relative_day"])
         }
@@ -753,7 +756,10 @@ class QuickIntentRouterTest {
             val result = regexOnlyRouter.route("What's tomorrow's date")
             assertRegexMatch(result, "get_time", "What's tomorrow's date")
 
-            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            val withArticle = regexOnlyRouter.route("What is the date tomorrow")
+            assertRegexMatch(withArticle, "get_time", "What is the date tomorrow")
+
+            val intent = (withArticle as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals("date", intent.params["query_type"])
             assertEquals("tomorrow", intent.params["relative_day"])
         }
@@ -763,7 +769,10 @@ class QuickIntentRouterTest {
             val result = regexOnlyRouter.route("What was the day yesterday")
             assertRegexMatch(result, "get_time", "What was the day yesterday")
 
-            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            val withPronoun = regexOnlyRouter.route("What day was it yesterday")
+            assertRegexMatch(withPronoun, "get_time", "What day was it yesterday")
+
+            val intent = (withPronoun as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals("day_of_week", intent.params["query_type"])
             assertEquals("yesterday", intent.params["relative_day"])
         }
@@ -773,7 +782,10 @@ class QuickIntentRouterTest {
             val result = regexOnlyRouter.route("What's yesterday's date")
             assertRegexMatch(result, "get_time", "What's yesterday's date")
 
-            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            val withArticle = regexOnlyRouter.route("What was the date yesterday")
+            assertRegexMatch(withArticle, "get_time", "What was the date yesterday")
+
+            val intent = (withArticle as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals("date", intent.params["query_type"])
             assertEquals("yesterday", intent.params["relative_day"])
         }

@@ -995,7 +995,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what\s+day\s+is\s+tomorrow\s*[?!.]*$""",
+                """what\s+day\s+is(?:\s+it)?\s+tomorrow\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow") },
@@ -1019,6 +1019,14 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
+                """what\s+(?:is|was)\s+the\s+date\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
                 """what(?:'s| was| is)\s+the\s+day\s+of\s+the\s+week\s+yesterday\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
@@ -1035,7 +1043,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what\s+(?:was\s+the\s+day|day\s+was)\s+yesterday\s*[?!.]*$""",
+                """what\s+(?:was\s+the\s+day|day\s+was(?:\s+it)?)\s+yesterday\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "yesterday") },
@@ -1052,6 +1060,14 @@ class QuickIntentRouter(
             intentName = "get_time",
             regex = Regex(
                 """what\s+date\s+was\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+(?:was|is)\s+the\s+date\s+yesterday\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "yesterday") },
