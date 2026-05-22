@@ -1936,20 +1936,45 @@ class NativeIntentHandler @Inject constructor(
                 "save_important_date",
                 "Could not parse date '$rawDate' — use a date like '15 March' or '22 June 2018'.",
             )
-
+        val userName = runBlocking { userProfileRepository.getName() }?.trim()?.takeIf { it.isNotBlank() }
+        val storedLabel = resolveStoredImportantDateLabel(label, userName)
         runBlocking {
             importantDateRepository.save(
-                label = label,
+                label = storedLabel,
                 month = parsed.month,
                 day = parsed.day,
                 year = parsed.year,
             )
         }
 
+        val displayDate = formatImportantDate(parsed.month, parsed.day, parsed.year)
         return SkillResult.DirectReply(
-            "I'll remember ${label.trim()} as ${formatImportantDate(parsed.month, parsed.day, parsed.year)}.",
+            buildImportantDateConfirmation(label, storedLabel, displayDate),
         )
     }
+
+    private fun resolveStoredImportantDateLabel(label: String, userName: String?): String {
+        val trimmed = label.trim()
+        if (userName.isNullOrBlank()) return trimmed
+        return when (trimmed.lowercase(Locale.ENGLISH)) {
+            "birthday" -> "$userName's birthday"
+            "anniversary" -> "$userName's anniversary"
+            "wedding anniversary" -> "$userName's wedding anniversary"
+            else -> trimmed
+        }
+    }
+
+    private fun buildImportantDateConfirmation(
+        originalLabel: String,
+        storedLabel: String,
+        displayDate: String,
+    ): String = when (originalLabel.trim().lowercase(Locale.ENGLISH)) {
+        "birthday" -> "I'll remember your birthday is $displayDate."
+        "anniversary" -> "I'll remember your anniversary is $displayDate."
+        "wedding anniversary" -> "I'll remember your wedding anniversary is $displayDate."
+        else -> "I'll remember $storedLabel as $displayDate."
+    }
+
 
     private fun listImportantDates(): SkillResult {
         val today = LocalDate.now()

@@ -993,6 +993,37 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `save important date stores self birthday with profile name and replies in second person`() {
+        val profileRepository = mockk<UserProfileRepository>(relaxed = true)
+        val namedHandler = NativeIntentHandler(
+            context = context,
+            clockRepository = clockRepository,
+            clockAlertController = clockAlertController,
+            listItemDao = listItemDao,
+            listNameDao = listNameDao,
+            contactAliasRepository = contactAliasRepository,
+            importantDateRepository = importantDateRepository,
+            calendarBirthdayLookup = calendarBirthdayLookup,
+            memoryRepository = mockk<MemoryRepository>(relaxed = true),
+            embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
+            cookingConversionService = cookingConversionService,
+            currencyConversionService = currencyConversionService,
+            userProfileRepository = profileRepository,
+        )
+        coEvery { profileRepository.getName() } returns "Nick"
+        every { Log.d(any<String>(), any<String>()) } returns 0
+        coEvery { importantDateRepository.save("Nick's birthday", 4, 3, null) } just Runs
+
+        val result = runBlocking {
+            namedHandler.handle("save_important_date", mapOf("label" to "birthday", "date" to "3rd of April"))
+        }
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals("I'll remember your birthday is 3 April.", reply.content)
+        coVerify(exactly = 1) { importantDateRepository.save("Nick's birthday", 4, 3, null) }
+    }
+
+    @Test
     fun `list important dates returns stored entries`() {
         coEvery { importantDateRepository.getAll() } returns listOf(
             ImportantDateEntity(label = "mum's birthday", normalizedLabel = "mum birthday", month = 3, day = 15),
