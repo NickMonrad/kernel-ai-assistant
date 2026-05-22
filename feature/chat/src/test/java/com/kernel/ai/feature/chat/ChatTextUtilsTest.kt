@@ -235,6 +235,72 @@ class ChatTextUtilsTest {
                 normalizeChatTextForSpeech("a warm bath—like a story—signals bedtime"),
             )
         }
+
+        // ── #912 fraction and unit abbreviation normalization ──────────────────
+
+        @Test
+        fun `bullet with quarter fraction — no minus or slash`() {
+            val result = normalizeChatTextForSpeech("- 1/4 cup breadcrumbs")
+            assertFalse(result.contains("minus"), "should not contain 'minus', got: $result")
+            assertFalse(result.contains("/"), "should not contain '/', got: $result")
+            assertTrue(result.contains("quarter"), "should contain 'quarter', got: $result")
+        }
+
+        @Test
+        fun `bullet with half fraction and tsp abbreviation`() {
+            val result = normalizeChatTextForSpeech("- 1/2 tsp garlic")
+            assertTrue(result.contains("half"), "should contain 'half', got: $result")
+            assertTrue(result.contains("teaspoon"), "should contain 'teaspoon', got: $result")
+        }
+
+        @Test
+        fun `bullet with three quarters fraction`() {
+            val result = normalizeChatTextForSpeech("- 3/4 cup")
+            assertTrue(result.contains("three quarters"), "should contain 'three quarters', got: $result")
+        }
+
+        @Test
+        fun `mixed number one and a half cups`() {
+            val result = normalizeChatTextForSpeech("1 1/2 cups")
+            assertTrue(result.contains("and a half"), "should contain 'and a half', got: $result")
+            assertFalse(result.contains("/"), "should not contain '/', got: $result")
+        }
+
+        @Test
+        fun `unicode half cup`() {
+            val result = normalizeChatTextForSpeech("½ cup")
+            assertTrue(result.contains("half"), "should contain 'half', got: $result")
+        }
+
+        @Test
+        fun `fraction before month name is not converted — date guard`() {
+            val result = normalizeChatTextForSpeech("meeting on 2/3 May")
+            assertFalse(result.contains("two thirds"), "should not convert date fraction, got: $result")
+        }
+
+        @Test
+        fun `fraction before lowercase month name is not converted — date guard`() {
+            val result = normalizeChatTextForSpeech("meeting on 2/3 may")
+            assertFalse(result.contains("two thirds"), "should not convert date fraction, got: $result")
+        }
+
+        @Test
+        fun `fraction before lowercase full month is not converted — date guard`() {
+            val result = normalizeChatTextForSpeech("deadline 1/2 january")
+            assertFalse(result.contains("half"), "should not convert date fraction, got: $result")
+        }
+
+        @Test
+        fun `fraction in dd-mm-yyyy format is not converted — date guard`() {
+            val result = normalizeChatTextForSpeech("deadline 2/3/2024")
+            assertFalse(result.contains("two thirds"), "should not convert date fraction, got: $result")
+        }
+
+        @Test
+        fun `TSP all-caps acronym is not converted to teaspoon`() {
+            val result = normalizeChatTextForSpeech("TSP contribution limits")
+            assertFalse(result.contains("teaspoon"), "should not convert acronym TSP, got: $result")
+        }
     }
 
     @Nested
@@ -279,41 +345,7 @@ class ChatTextUtilsTest {
             assertEquals("Keeorah everyone.", chunk)
         }
 
-        @Test
-        fun `streaming correction repairs grounded percentage chunks when enabled`() {
-            assertEquals(
-                "Battery is at 92%.",
-                maybeCorrectStreamingSpeechChunk(
-                    chunk = "Battery is at 9%.",
-                    groundingContext = "[System: Battery is at 92%]",
-                    correctionEnabled = true,
-                ),
-            )
-        }
 
-        @Test
-        fun `streaming correction leaves chunk unchanged when disabled`() {
-            assertEquals(
-                "Battery is at 9%.",
-                maybeCorrectStreamingSpeechChunk(
-                    chunk = "Battery is at 9%.",
-                    groundingContext = "[System: Battery is at 92%]",
-                    correctionEnabled = false,
-                ),
-            )
-        }
-
-        @Test
-        fun `streaming correction leaves chunk unchanged when grounding context is absent`() {
-            assertEquals(
-                "Battery is at 9%.",
-                maybeCorrectStreamingSpeechChunk(
-                    chunk = "Battery is at 9%.",
-                    groundingContext = null,
-                    correctionEnabled = true,
-                ),
-            )
-        }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -363,6 +395,47 @@ class ChatTextUtilsTest {
         )
         fun `returns false for non-anaphoric queries`(input: String) {
             assertFalse(looksLikeAnaphora(input), "Expected false for '$input'")
+        }
+    }
+
+    @Nested
+    @DisplayName("prefersImmediateConversationContext")
+    inner class ImmediateContextTests {
+        @Test
+        fun `returns true for short pronoun follow up questions`() {
+            assertTrue(prefersImmediateConversationContext("What are they"))
+            assertTrue(prefersImmediateConversationContext("How do they work?"))
+        }
+
+        @Test
+        fun `returns false for long or non pronoun queries`() {
+            assertFalse(prefersImmediateConversationContext("Tell me everything you remember about sweet potatoes and their nutritional profile"))
+            assertFalse(prefersImmediateConversationContext("What time is it"))
+        }
+    }
+
+    @Nested
+    @DisplayName("extractExplicitWikipediaQuery")
+    inner class ExplicitWikipediaQueryTests {
+        @Test
+        fun `preserves identifier text for look up wikipedia for command`() {
+            assertEquals("SM-918B", extractExplicitWikipediaQuery("Look up Wikipedia for SM-918B"))
+        }
+
+        @Test
+        fun `preserves mixed query for on wikipedia command`() {
+            assertEquals("Samsung sm-918b", extractExplicitWikipediaQuery("Look up Samsung sm-918b on Wikipedia"))
+        }
+
+        @Test
+        fun `returns null for non explicit wikipedia queries`() {
+            assertEquals(null, extractExplicitWikipediaQuery("What is sm-918b"))
+        }
+
+        @Test
+        fun `returns null for bare anaphora wikipedia commands`() {
+            assertEquals(null, extractExplicitWikipediaQuery("Search Wikipedia for it"))
+            assertEquals(null, extractExplicitWikipediaQuery("Look up this on Wikipedia"))
         }
     }
 
@@ -457,6 +530,7 @@ class ChatTextUtilsTest {
                 "save this meal plan to my shopping list",
                 "open app settings",
                 "toggle flashlight",
+                "what's the current system info",
                 "note that my password is 1234",
                 "don't forget the meeting",
                 "store my preference",
@@ -554,6 +628,32 @@ class ChatTextUtilsTest {
     }
 
     @Nested
+    @DisplayName("turn instructions")
+    inner class TurnInstructionTests {
+
+        @Test
+        fun `tool turn instruction is omitted on first reply`() {
+            assertEquals(null, toolTurnInstruction(isFirstReply = true))
+        }
+
+        @Test
+        fun `tool turn instruction suppresses greeting on follow up`() {
+            assertEquals(
+                "Do NOT start this reply with a greeting. This is a follow-up tool turn, so answer directly with the tool result.",
+                toolTurnInstruction(isFirstReply = false),
+            )
+        }
+
+        @Test
+        fun `non tool instruction softly prefers reasoning`() {
+            assertEquals(
+                "This looks like a normal conversational or reasoning reply. Prefer answering directly from your own knowledge and reasoning. Only call tools if the user is clearly asking for current, external, or retrieved information.",
+                nonToolTurnInstruction(),
+            )
+        }
+    }
+
+    @Nested
     @DisplayName("looksLikeRawToolCall")
     inner class RawToolCallTests {
 
@@ -576,8 +676,34 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `returns true for leaked skill instructions`() {
+            assertTrue(
+                looksLikeRawToolCall(
+                    """
+                    query_wikipedia: Look up a topic on Wikipedia and return grounded factual context.
+
+                    Instructions:
+                    - Call the run_js tool with the format below.
+
+                    Tool format:
+                    - Call runJs with a single 'parameters' argument.
+                    """.trimIndent(),
+                ),
+            )
+        }
+
+        @Test
         fun `returns false for normal assistant reply`() {
             assertFalse(looksLikeRawToolCall("Here are the three meals I came up with."))
+        }
+
+        @Test
+        fun `returns false for normal response mentioning wikipedia with colon`() {
+            assertFalse(
+                looksLikeRawToolCall(
+                    "On Wikipedia: the week is a unit of time equal to seven days.",
+                ),
+            )
         }
     }
 

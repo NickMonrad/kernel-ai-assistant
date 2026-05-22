@@ -48,6 +48,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.inference.ModelCapabilities
+import com.kernel.ai.core.inference.capabilities
+import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
@@ -83,6 +86,7 @@ fun ModelSettingsScreen(
                 ModelCard(
                     modelName = "Gemma 4 E-2B",
                     settings = settings,
+                    capabilities = KernelModel.GEMMA_4_E2B.capabilities,
                     onSettingsChanged = viewModel::updateE2bSettings,
                     onReset = viewModel::resetE2bToDefaults,
                 )
@@ -94,7 +98,7 @@ fun ModelSettingsScreen(
                 ModelCard(
                     modelName = "Gemma 4 E-4B",
                     settings = settings,
-                    isThinkingCapable = true,
+                    capabilities = KernelModel.GEMMA_4_E4B.capabilities,
                     onSettingsChanged = viewModel::updateE4bSettings,
                     onReset = viewModel::resetE4bToDefaults,
                 )
@@ -137,7 +141,7 @@ fun ModelSettingsScreen(
 private fun ModelCard(
     modelName: String,
     settings: ModelSettingsEntity,
-    isThinkingCapable: Boolean = false,
+    capabilities: ModelCapabilities,
     onSettingsChanged: (ModelSettingsEntity) -> Unit,
     onReset: () -> Unit,
 ) {
@@ -212,8 +216,8 @@ private fun ModelCard(
             },
         )
 
-        // Thinking toggle — only shown for models that produce thinking tokens (E-4B)
-        if (isThinkingCapable) {
+        // Thinking toggle — shown for models that support thinking tokens (Gemma 4 E-2B and E-4B)
+        if (capabilities.supportsThinking) {
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -235,8 +239,10 @@ private fun ModelCard(
                     onCheckedChange = { onSettingsChanged(settings.copy(showThinkingProcess = it)) },
                 )
             }
+        }
 
-            // Grounded facts correction toggle (#681)
+        if (capabilities.supportsSpeculativeDecoding) {
+            // Speculative decoding toggle — available on Gemma 4 conversation models
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -244,43 +250,20 @@ private fun ModelCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Repair grounded facts",
+                        text = "Speculative decoding (MTP)",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        text = "Attempt to fix truncated percentages (9% → 92%) and malformed years in model output. Disabled by default — the repair was replacing correct numbers with years from RAG context.",
+                        text = "Multi-Token Prediction for faster responses. Only effective on Gemma 4 models. Requires app restart.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Switch(
-                    checked = settings.correctGroundedFactsEnabled,
-                    onCheckedChange = { onSettingsChanged(settings.copy(correctGroundedFactsEnabled = it)) },
+                    checked = settings.speculativeDecodingEnabled,
+                    onCheckedChange = { onSettingsChanged(settings.copy(speculativeDecodingEnabled = it)) },
                 )
             }
-        }
-
-        // Speculative decoding toggle — available on all Gemma 4 models
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Speculative decoding (MTP)",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = "Multi-Token Prediction for faster responses. Only effective on Gemma 4 models. Requires app restart.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = settings.speculativeDecodingEnabled,
-                onCheckedChange = { onSettingsChanged(settings.copy(speculativeDecodingEnabled = it)) },
-            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -399,12 +382,12 @@ private fun ModelSettingsScreenPreview() {
             contextWindowSize = 4000,
             temperature = 1.0f,
             topP = 0.95f,
-            correctGroundedFactsEnabled = false,
             speculativeDecodingEnabled = false,
         )
         ModelCard(
             modelName = "Gemma 4 E-2B",
             settings = sampleSettings,
+            capabilities = KernelModel.GEMMA_4_E2B.capabilities,
             onSettingsChanged = {},
             onReset = {},
         )

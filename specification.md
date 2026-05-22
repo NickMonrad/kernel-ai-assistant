@@ -70,7 +70,7 @@ The resident Gemma-4 model handles complex tool calls requiring NLU and reasonin
 * `get_weather_gps` — GPS-based current weather + forecast
 * `run_js{get-weather-city}` — named city weather + forecast via Open-Meteo
 * `get_system_info` — battery, connectivity, device stats
-* `save_memory` — persist notes/facts to Room
+* `save_memory` — persist notes/facts to Room *(simple explicit-content patterns are also intercepted at Tier 2; anaphoric and first-person inputs fall through to E4B — see #937)*
 * `set_timer`, `run_intent` — OS action delegation
 
 ### 4.3 Extensible Skills (WebAssembly)

@@ -7,10 +7,12 @@ package com.kernel.ai.core.memory.rag
  * @param content The message text.
  * @param conversationId The conversation this message belongs to.
  * @param timestamp Unix millis when the message was recorded.
+ * @param score Higher is better. Computed as `1 - distance` from the sqlite-vec match.
  */
 data class MessageSearchResult(
     val role: String,
     val content: String,
     val conversationId: String,
     val timestamp: Long,
+    val score: Float,
 )

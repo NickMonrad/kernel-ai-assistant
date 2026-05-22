@@ -1,11 +1,11 @@
 package com.kernel.ai.navigation
 
-import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.ChatBubble
@@ -49,6 +49,7 @@ import com.kernel.ai.feature.settings.ImportantDatesScreen
 import com.kernel.ai.feature.settings.ListItemsScreen
 import com.kernel.ai.feature.settings.ChatPreferencesScreen
 import com.kernel.ai.feature.settings.ListsScreen
+import com.kernel.ai.feature.settings.MealPlansScreen
 import com.kernel.ai.feature.settings.MemoryScreen
 import com.kernel.ai.feature.settings.ModelManagementScreen
 import com.kernel.ai.feature.settings.ModelSettingsScreen
@@ -57,8 +58,9 @@ import com.kernel.ai.feature.settings.SettingsScreen
 import com.kernel.ai.feature.settings.SidePanelScreen
 import com.kernel.ai.feature.settings.UserProfileScreen
 import com.kernel.ai.feature.settings.VoiceScreen
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.launch
-
 private const val ROUTE_LIST = "conversation_list"
 private const val ROUTE_ACTIONS = "actions"
 private const val ROUTE_ACTIONS_OPEN = "actions?openSheet=true"
@@ -77,6 +79,7 @@ private const val ROUTE_CHAT_PREFERENCES = "settings/chat_preferences"
 private const val ROUTE_CONTACT_ALIASES = "settings/contact_aliases"
 private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
 private const val ROUTE_SIDE_PANEL = "settings/side_panel"
+private const val ROUTE_MEAL_PLANS = "meal_plans"
 private const val ROUTE_LISTS = "lists"
 private const val ROUTE_LIST_ITEMS = "lists/{listId}"
 private const val ROUTE_CONVERT = "convert"
@@ -91,9 +94,34 @@ private const val ARG_WIDGET_VOICE = "widgetVoice"
 private const val STATE_OPEN_SHEET_CONSUMED = "openSheetConsumed"
 private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
 private const val STATE_WIDGET_QUERY_CONSUMED = "widgetQueryConsumed"
+private const val NEW_MEAL_PLAN_INITIAL_QUERY = "plan meals"
 
 /** Routes that show the bottom navigation bar. */
 private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
+
+internal fun buildChatRoute(
+    initialQuery: String? = null,
+    minimalContext: Boolean = false,
+    speakResponse: Boolean = false,
+): String {
+    val encodedQuery = initialQuery?.trim()?.takeIf { it.isNotEmpty() }?.let(::encodeRouteQueryValue)
+    val params = buildList {
+        encodedQuery?.let { add("$ARG_INITIAL_QUERY=$it") }
+        if (minimalContext) add("$ARG_MINIMAL_CONTEXT=true")
+        if (speakResponse) add("$ARG_SPEAK_RESPONSE=true")
+    }
+    return if (params.isEmpty()) ROUTE_CHAT else "$ROUTE_CHAT?${params.joinToString("&")}"
+}
+
+internal fun buildNewMealPlanChatRoute(): String =
+    buildChatRoute(
+        initialQuery = NEW_MEAL_PLAN_INITIAL_QUERY,
+        minimalContext = true,
+    )
+
+internal fun encodeRouteQueryValue(value: String): String =
+    URLEncoder.encode(value, StandardCharsets.UTF_8)
+        .replace("+", "%20")
 
 @Composable
 fun KernelNavHost(
@@ -113,8 +141,7 @@ fun KernelNavHost(
     // ADB test harness: navigate to chat from any screen when chat_input extra is delivered
     LaunchedEffect(initialChatQuery) {
         if (!initialChatQuery.isNullOrBlank()) {
-            val encoded = Uri.encode(initialChatQuery)
-            navController.navigate("$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded") {
+            navController.navigate(buildChatRoute(initialQuery = initialChatQuery)) {
                 popUpTo(ROUTE_LIST)
             }
         }
@@ -125,7 +152,7 @@ fun KernelNavHost(
     // before ActionsScreen's LaunchedEffect fires).
     LaunchedEffect(initialQuickActionQuery, initialQuickActionIsVoice) {
         if (!initialQuickActionQuery.isNullOrBlank()) {
-            val encoded = Uri.encode(initialQuickActionQuery)
+            val encoded = encodeRouteQueryValue(initialQuickActionQuery)
             navController.navigate(
                 "$ROUTE_ACTIONS?$ARG_WIDGET_QUERY=$encoded&$ARG_WIDGET_VOICE=$initialQuickActionIsVoice"
             ) {
@@ -210,6 +237,20 @@ fun KernelNavHost(
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
                         navController.navigate(ROUTE_CONTACT_ALIASES) {
+                            popUpTo(ROUTE_LIST) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                )
+                NavigationDrawerItem(
+                    label = { Text("Meal plans") },
+                    icon = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
+                    selected = currentBaseRoute == ROUTE_MEAL_PLANS,
+                    onClick = {
+                        coroutineScope.launch { drawerState.close() }
+                        navController.navigate(ROUTE_MEAL_PLANS) {
                             popUpTo(ROUTE_LIST) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
@@ -356,9 +397,12 @@ fun KernelNavHost(
                                 backStackEntry.arguments?.putString(ARG_WIDGET_QUERY, "")
                             },
                             onNavigateToChat = { query, speakResponse ->
-                                val encoded = Uri.encode(query)
                                 navController.navigate(
-                                    "$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded&$ARG_MINIMAL_CONTEXT=true&$ARG_SPEAK_RESPONSE=$speakResponse"
+                                    buildChatRoute(
+                                        initialQuery = query,
+                                        minimalContext = true,
+                                        speakResponse = speakResponse,
+                                    ),
                                 )
                             },
                             onNewConversation = {
@@ -476,6 +520,15 @@ fun KernelNavHost(
                 composable(ROUTE_MEMORY) {
                     MemoryScreen(
                         onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(ROUTE_MEAL_PLANS) {
+                    MealPlansScreen(
+                        onBack = { navController.popBackStack() },
+                        onStartNewMealPlan = {
+                            navController.navigate(buildNewMealPlanChatRoute())
+                        },
                     )
                 }
 

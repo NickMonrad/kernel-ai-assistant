@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.kernel.ai.core.memory.entity.MealPlanFavouriteRecipeEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MealPlanFavouriteRecipeDao {
@@ -22,6 +23,12 @@ interface MealPlanFavouriteRecipeDao {
 
     @Query("SELECT recipeKey FROM meal_plan_favourite_recipes WHERE recipeKey IN (:recipeKeys)")
     suspend fun getExistingKeys(recipeKeys: List<String>): List<String>
+
+    @Query("SELECT * FROM meal_plan_favourite_recipes ORDER BY updatedAt DESC")
+    fun observeAll(): Flow<List<MealPlanFavouriteRecipeEntity>>
+
+    @Query("SELECT * FROM meal_plan_favourite_recipes ORDER BY updatedAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int): Flow<List<MealPlanFavouriteRecipeEntity>>
 
     @Query("SELECT * FROM meal_plan_favourite_recipes ORDER BY updatedAt DESC LIMIT :limit")
     suspend fun getRecent(limit: Int): List<MealPlanFavouriteRecipeEntity>

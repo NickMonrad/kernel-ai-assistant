@@ -60,6 +60,8 @@ class MemoryViewModelTest {
         every { memoryRepository.observeEpisodicMemories() } returns episodicMemoriesFlow
         every { memoryRepository.observeAllKiwiMemories() } returns kiwiMemoriesFlow
         every { conversationRepository.observeConversations() } returns conversationsFlow
+        every { embeddingDao.observeCount() } returns MutableStateFlow(0)
+        every { embeddingDao.observeDistinctConversationCount() } returns MutableStateFlow(0)
         viewModel = MemoryViewModel(memoryRepository, conversationRepository, embeddingDao, embeddingEngine)
     }
 
@@ -100,7 +102,7 @@ class MemoryViewModelTest {
             memoryRepository.addCoreMemory(
                 content = "remember this",
                 source = "user",
-                embeddingVector = floatArrayOf(0.1f, 0.2f),
+                embeddingVector = any<FloatArray>(),
             )
         }
     }

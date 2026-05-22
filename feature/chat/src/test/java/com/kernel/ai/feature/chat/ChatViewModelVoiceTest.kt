@@ -19,6 +19,7 @@ import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
+import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanSnapshot
@@ -658,6 +659,7 @@ class ChatViewModelVoiceTest {
             daysCount = 3,
             dietaryRestrictions = emptyList(),
             proteinPreferences = listOf("chicken"),
+            favouriteRecipeMode = FavouriteRecipeMode.NONE,
             activeDayIndex = null,
             pendingGenerationKind = null,
             pendingGenerationDayIndex = null,
@@ -680,6 +682,8 @@ class ChatViewModelVoiceTest {
                     lastErrorCode = null,
                     lastErrorMessage = null,
                     currentRecipe = null,
+                    recipeKey = null,
+                    isFavouriteRecipe = false,
                 ),
             ),
         )

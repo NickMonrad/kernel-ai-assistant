@@ -729,6 +729,88 @@ class QuickIntentRouterTest {
     }
 
         @Test
+        fun `should extract tomorrow weekday query without treating it as today`() {
+            val result = regexOnlyRouter.route("What's the day of the week tomorrow")
+            assertRegexMatch(result, "get_time", "What's the day of the week tomorrow")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("day_of_week", intent.params["query_type"])
+            assertEquals("tomorrow", intent.params["relative_day"])
+        }
+
+        @Test
+        fun `should route short tomorrow weekday query to get_time`() {
+            val result = regexOnlyRouter.route("What day is tomorrow")
+            assertRegexMatch(result, "get_time", "What day is tomorrow")
+
+            val withPronoun = regexOnlyRouter.route("What day is it tomorrow")
+            assertRegexMatch(withPronoun, "get_time", "What day is it tomorrow")
+
+            val intent = (withPronoun as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("day_of_week", intent.params["query_type"])
+            assertEquals("tomorrow", intent.params["relative_day"])
+        }
+
+        @Test
+        fun `should route tomorrow date queries to get_time`() {
+            val result = regexOnlyRouter.route("What's tomorrow's date")
+            assertRegexMatch(result, "get_time", "What's tomorrow's date")
+
+            val withArticle = regexOnlyRouter.route("What's the date tomorrow")
+            assertRegexMatch(withArticle, "get_time", "What's the date tomorrow")
+
+            val intent = (withArticle as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("date", intent.params["query_type"])
+            assertEquals("tomorrow", intent.params["relative_day"])
+        }
+
+        @Test
+        fun `should route yesterday weekday phrasing to get_time`() {
+            val result = regexOnlyRouter.route("What was the day yesterday")
+            assertRegexMatch(result, "get_time", "What was the day yesterday")
+
+            val withPronoun = regexOnlyRouter.route("What day was it yesterday")
+            assertRegexMatch(withPronoun, "get_time", "What day was it yesterday")
+
+            val intent = (withPronoun as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("day_of_week", intent.params["query_type"])
+            assertEquals("yesterday", intent.params["relative_day"])
+        }
+
+        @Test
+        fun `should route yesterday date queries to get_time`() {
+            val result = regexOnlyRouter.route("What's yesterday's date")
+            assertRegexMatch(result, "get_time", "What's yesterday's date")
+
+            val withArticle = regexOnlyRouter.route("What's the date yesterday")
+            assertRegexMatch(withArticle, "get_time", "What's the date yesterday")
+
+            val intent = (withArticle as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("date", intent.params["query_type"])
+            assertEquals("yesterday", intent.params["relative_day"])
+        }
+
+        @Test
+        fun `should route numeric future date queries to get_time`() {
+            val result = regexOnlyRouter.route("What's the date in 2 days")
+            assertRegexMatch(result, "get_time", "What's the date in 2 days")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("date", intent.params["query_type"])
+            assertEquals("2", intent.params["offset_days"])
+        }
+
+        @Test
+        fun `should route numeric past date queries to get_time`() {
+            val result = regexOnlyRouter.route("What was the date 2 days ago")
+            assertRegexMatch(result, "get_time", "What was the date 2 days ago")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("date", intent.params["query_type"])
+            assertEquals("-2", intent.params["offset_days"])
+        }
+
+        @Test
         fun `should extract location for world time query`() {
             val result = regexOnlyRouter.route("what time is it in London right now")
             assertRegexMatch(result, "get_time", "what time is it in London right now")
@@ -1321,6 +1403,15 @@ class QuickIntentRouterTest {
             assertEquals("navigate_to", needsSlot.intent.intentName, "intent for '$input'")
             assertEquals("destination", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
+
+        @ParameterizedTest(name = "Must not steal: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#navigateToMustNotStealPhrases")
+        fun `regex navigation must not steal conversational drive phrasing`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            val isStolen = result is QuickIntentRouter.RouteResult.RegexMatch &&
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.intentName == "navigate_to"
+            assertFalse(isStolen, "'$input' must not route to navigate_to via regex")
+        }
     }
 
     @Nested
@@ -1352,6 +1443,15 @@ class QuickIntentRouterTest {
             val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
             assertEquals("find_nearby", needsSlot.intent.intentName, "intent for '$input'")
             assertEquals("query", needsSlot.missingSlot.name, "missing slot for '$input'")
+        }
+
+        @ParameterizedTest(name = "Must not steal: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#findNearbyMustNotStealPhrases")
+        fun `catch-all must not steal navigation phrases`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            val isStolen = result is QuickIntentRouter.RouteResult.RegexMatch &&
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.intentName == "find_nearby"
+            assertFalse(isStolen, "'$input' must not route to find_nearby via regex")
         }
     }
 
@@ -1799,6 +1899,12 @@ class QuickIntentRouterTest {
             val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
             assertEquals("save_memory", needsSlot.intent.intentName, "intent for '$input'")
             assertEquals("content", needsSlot.missingSlot.name, "missing slot for '$input'")
+        }
+
+        @Test
+        fun `should not route remember about me query to save memory`() {
+            val result = regexOnlyRouter.route("What do you remember about me")
+            assertFallThrough(result, "What do you remember about me")
         }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -2662,12 +2768,29 @@ class QuickIntentRouterTest {
             Arguments.of("directions to the airport", "the airport"),
             Arguments.of("navigate to the beach", "the beach"),
             Arguments.of("drive to the city", "the city"),
+            // E1/E2: "find a route/way/path to X" must route to navigate_to
+            Arguments.of("find a route to the airport", "the airport"),
+            Arguments.of("find a way home", "home"),
+            Arguments.of("find a path to the station", "the station"),
+            Arguments.of("find a shortcut to work", "work"),
+            Arguments.of("find directions to the museum", "the museum"),
+            Arguments.of("find my way home", "home"),
+            Arguments.of("find my way to the airport", "the airport"),
         )
 
         @JvmStatic
         fun navigateToClassifierPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("how do I get to the airport"),
             Arguments.of("I need to find my way to downtown"),
+        )
+
+        @JvmStatic
+        fun navigateToMustNotStealPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("The car wash is 500m from my home. Should I walk or drive there to wash my car"),
+            Arguments.of("Should I drive to work tomorrow or take the train?"),
+            Arguments.of("If I drive to Auckland tomorrow, will traffic be bad?"),
+            Arguments.of("Would it be faster to get directions to the stadium online first?"),
+            Arguments.of("Do I need directions to succeed in this job?"),
         )
 
         @JvmStatic
@@ -2693,12 +2816,53 @@ class QuickIntentRouterTest {
             Arguments.of("find ATMs near me", "ATMs"),
             Arguments.of("show nearby supermarkets", "supermarkets"),
             Arguments.of("show nearby cafes", "cafes"),
+            // "find me the nearest X" — new pattern
+            Arguments.of("find me the nearest wharepaku", "wharepaku"),
+            Arguments.of("find me the nearest cafe", "cafe"),
+            Arguments.of("find me the nearest petrol station", "petrol station"),
+            // D3: "get me the nearest X" must route to find_nearby (not navigate_to)
+            Arguments.of("get me the nearest chemist", "chemist"),
+            Arguments.of("get me the nearest pharmacy", "pharmacy"),
+            Arguments.of("get me the nearest cafe", "cafe"),
+            // "I need to find a/an X" — new pattern
+            Arguments.of("I need to find a gas station", "gas station"),
+            Arguments.of("I need to find a pharmacy", "pharmacy"),
+            Arguments.of("I'm looking for a cafe", "cafe"),
+            Arguments.of("I am looking for an ATM", "ATM"),
+            // Article-capture regression fixes — "find a nearby X" must not capture "a" as query
+            Arguments.of("Find a nearby Pharmacy", "Pharmacy"),
+            Arguments.of("find a nearby cafe", "cafe"),
+            Arguments.of("find the nearby supermarket", "supermarket"),
+            Arguments.of("find an nearby ATM", "ATM"),
+            // Leading article stripped from lazy "find X nearby" pattern
+            Arguments.of("find a chemist nearby", "chemist"),
+            Arguments.of("find a pharmacy near me", "pharmacy"),
+            Arguments.of("find an ATM nearby", "ATM"),
         )
 
         @JvmStatic
         fun findNearbyClassifierPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("where's the closest supermarket"),
             Arguments.of("is there a cafe around here"),
+        )
+
+        @JvmStatic
+        fun findNearbyMustNotStealPhrases(): Stream<Arguments> = Stream.of(
+            // Navigation phrases must not be claimed by the find_nearby catch-all
+            Arguments.of("find a route to the airport"),
+            Arguments.of("find a way home"),
+            Arguments.of("find a path to the station"),
+            Arguments.of("find a shortcut to work"),
+            Arguments.of("find directions to the museum"),
+            Arguments.of("I need to find a route to Auckland"),
+            // D1/D2: "I'm looking for" without article must NOT route to find_nearby
+            Arguments.of("I'm looking for my car keys"),
+            Arguments.of("I'm looking for information about taniwha"),
+            Arguments.of("I am looking for help"),
+            Arguments.of("I'm looking for something to do"),
+            // "I'm looking for a route/way to X" must NOT route to find_nearby (nav phrase)
+            Arguments.of("I'm looking for a route to Auckland"),
+            Arguments.of("I'm looking for a way home"),
         )
 
         // ── Communication ─────────────────────────────────────────────────────────
@@ -3013,14 +3177,20 @@ class QuickIntentRouterTest {
         @JvmStatic
         fun saveMemoryRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("save that we're meeting Tuesday", "we're meeting Tuesday"),
-            Arguments.of("remember that I prefer dark mode", "I prefer dark mode"),
             Arguments.of("remember that my wifi password is 12345", "my wifi password is 12345"),
-            Arguments.of("can you remember that I have a dog named Xena", "I have a dog named Xena"),
             Arguments.of("remember my favourite colour is blue", "my favourite colour is blue"),
             Arguments.of("save to memory: important note", "important note"),
             Arguments.of("can you save to memory that my dog is named Xena", "my dog is named Xena"),
             Arguments.of("note that the gate code is 4567", "the gate code is 4567"),
             Arguments.of("store that my doctor is Dr Smith", "my doctor is Dr Smith"),
+            // First-person "I" patterns — now routed via regex (lookahead no longer excludes I/I'm)
+            Arguments.of("remember that I like dark mode", "I like dark mode"),
+            Arguments.of("remember that I prefer dark mode", "I prefer dark mode"),
+            Arguments.of("remember that I have a dog named Xena", "I have a dog named Xena"),
+            Arguments.of("can you remember that I have a dog named Xena", "I have a dog named Xena"),
+            Arguments.of("note that I prefer email", "I prefer email"),
+            Arguments.of("don't forget that I like dark mode", "I like dark mode"),
+            Arguments.of("make a note that I'm vegetarian", "I'm vegetarian"),
         )
         @JvmStatic
         fun saveMemoryNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
@@ -3062,6 +3232,8 @@ class QuickIntentRouterTest {
             Arguments.of("add an important date for freya's birthday on 22 August", "freya's birthday", "22 August"),
             Arguments.of("can you remember that Emily's birthday is 19 November", "Emily's birthday", "19 November"),
             Arguments.of("add Emily's birthday as an important date on 19th of November", "Emily's birthday", "19th of November"),
+            Arguments.of("remember my birthday is Third of April", "birthday", "Third of April"),
+            Arguments.of("my birthday is on the third of april", "birthday", "third of april"),
         )
 
         @JvmStatic
@@ -3344,6 +3516,12 @@ class QuickIntentRouterTest {
             Arguments.of("what month is this charge for"),
             Arguments.of("what month is this invoice for"),
             Arguments.of("what week is this training on"),
+            // save_memory — anaphoric references must fall to LLM (#937)
+            Arguments.of("save this to memory"),
+            Arguments.of("save it to memory"),
+            Arguments.of("save that to memory"),
+            Arguments.of("save this recipe to memory"),
+            Arguments.of("remember that this is important"),
         )
     }
 

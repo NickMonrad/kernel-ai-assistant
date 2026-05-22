@@ -24,6 +24,8 @@ import com.kernel.ai.core.memory.entity.ContactAliasEntity
 import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.memory.repository.UserProfileRepository
+import com.kernel.ai.core.memory.profile.UserProfileYaml
 import com.kernel.ai.core.skills.SkillResult
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -32,15 +34,19 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.time.LocalDate
 import java.time.LocalTime
@@ -75,6 +81,7 @@ class NativeIntentHandlerTest {
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
         cookingConversionService = cookingConversionService,
         currencyConversionService = currencyConversionService,
+        userProfileRepository = mockk<UserProfileRepository>(relaxed = true),
     )
 
     private fun handleIntent(intentName: String, params: Map<String, String>): SkillResult =
@@ -238,6 +245,91 @@ class NativeIntentHandlerTest {
 
         assertTrue(result is SkillResult.Failure)
         assertTrue((result as SkillResult.Failure).error.contains("couldn't find a timezone", ignoreCase = true))
+    }
+
+    @Test
+    fun `get_time returns tomorrow weekday when relative day is requested`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDay = LocalDate.now().plusDays(1).format(DateTimeFormatter.ofPattern("EEEE"))
+        assertEquals("Tomorrow is $expectedDay", reply.content)
+    }
+
+    @Test
+    fun `get_time returns tomorrow date when relative day date query is requested`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "date", "relative_day" to "tomorrow"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDate = LocalDate.now().plusDays(1).format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
+        assertEquals("Tomorrow is $expectedDate", reply.content)
+    }
+
+    @Test
+    fun `get_time returns yesterday weekday when relative day is requested`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "day_of_week", "relative_day" to "yesterday"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDay = LocalDate.now().minusDays(1).format(DateTimeFormatter.ofPattern("EEEE"))
+        assertEquals("Yesterday was $expectedDay", reply.content)
+    }
+
+    @Test
+    fun `get_time returns yesterday date when relative day date query is requested`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "date", "relative_day" to "yesterday"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDate = LocalDate.now().minusDays(1).format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
+        assertEquals("Yesterday was $expectedDate", reply.content)
+    }
+
+    @Test
+    fun `get_time returns future offset date when offset days are requested`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "date", "offset_days" to "2"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDate = LocalDate.now().plusDays(2).format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
+        assertEquals("In 2 days, it will be $expectedDate", reply.content)
+    }
+
+    @Test
+    fun `get_time returns past offset date when offset days are requested`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "date", "offset_days" to "-2"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDate = LocalDate.now().minusDays(2).format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
+        assertEquals("2 days ago was $expectedDate", reply.content)
+    }
+
+    @Test
+    fun `get_time uses singular day wording for future offset one`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "date", "offset_days" to "1"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDate = LocalDate.now().plusDays(1).format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
+        assertEquals("In 1 day, it will be $expectedDate", reply.content)
+    }
+
+    @Test
+    fun `get_time uses singular day wording for past offset one`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "date", "offset_days" to "-1"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDate = LocalDate.now().minusDays(1).format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
+        assertEquals("1 day ago was $expectedDate", reply.content)
+    }
+
+    @Test
+    fun `get_time world clock future offset avoids duplicated in phrasing`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "date", "location" to "London", "offset_days" to "2"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDate = java.time.Instant.ofEpochMilli(System.currentTimeMillis())
+            .atZone(java.time.ZoneId.of("Europe/London"))
+            .plusDays(2)
+            .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
+        assertEquals("In London, 2 days from now will be $expectedDate", reply.content)
+    }
+
+    @Test
+    fun `save_memory asks for clarification instead of saving short recipe labels`() {
+        val result = handleIntent("save_memory", mapOf("content" to "the pancakes recipe"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals(
+            "Do you want me to remember the full recipe, or a specific fact about it?",
+            reply.content,
+        )
     }
 
     @Test
@@ -911,6 +1003,68 @@ class NativeIntentHandlerTest {
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { importantDateRepository.save("Emily's birthday", 11, 19, null) }
+    }
+
+    @Test
+    fun `save important date accepts ordinal word of month phrasing`() {
+        every { Log.d(any<String>(), any<String>()) } returns 0
+        coEvery { importantDateRepository.save("Emily's birthday", 4, 3, null) } just Runs
+
+        val result = handleIntent("save_important_date", mapOf("label" to "Emily's birthday", "date" to "Third of April"))
+
+        assertTrue(result is SkillResult.DirectReply)
+        assertEquals(
+            "I'll remember Emily's birthday as 3 April.",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 1) { importantDateRepository.save("Emily's birthday", 4, 3, null) }
+    }
+
+    @Test
+    fun `save important date accepts lowercase ordinal word month phrasing`() {
+        every { Log.d(any<String>(), any<String>()) } returns 0
+        coEvery { importantDateRepository.save("Emily's birthday", 4, 3, null) } just Runs
+
+        val result = handleIntent("save_important_date", mapOf("label" to "Emily's birthday", "date" to "third april"))
+
+        assertTrue(result is SkillResult.DirectReply)
+        assertEquals(
+            "I'll remember Emily's birthday as 3 April.",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 1) { importantDateRepository.save("Emily's birthday", 4, 3, null) }
+    }
+
+    @Test
+    fun `save important date stores self birthday with profile name and replies in second person`() {
+        val profileRepository = mockk<UserProfileRepository>(relaxed = true)
+        val namedHandler = NativeIntentHandler(
+            context = context,
+            clockRepository = clockRepository,
+            clockAlertController = clockAlertController,
+            listItemDao = listItemDao,
+            listNameDao = listNameDao,
+            contactAliasRepository = contactAliasRepository,
+            importantDateRepository = importantDateRepository,
+            calendarBirthdayLookup = calendarBirthdayLookup,
+            memoryRepository = mockk<MemoryRepository>(relaxed = true),
+            embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
+            cookingConversionService = cookingConversionService,
+            currencyConversionService = currencyConversionService,
+            userProfileRepository = profileRepository,
+        )
+        coEvery { profileRepository.getName() } returns "Nick"
+        every { Log.d(any<String>(), any<String>()) } returns 0
+        coEvery { importantDateRepository.save("Nick's birthday", 4, 3, null) } just Runs
+
+        val result = runBlocking {
+            namedHandler.handle("save_important_date", mapOf("label" to "birthday", "date" to "3rd of April"))
+        }
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals("I'll remember your birthday is 3 April.", reply.content)
+        assertEquals("I'll remember your birthday is 3 April.", reply.spokenSummary)
+        coVerify(exactly = 1) { importantDateRepository.save("Nick's birthday", 4, 3, null) }
     }
 
     @Test
@@ -1721,6 +1875,9 @@ class NativeIntentHandlerTest {
             Triple("the 3rd of September 2025", 9, 3),
             Triple("a 3rd of March", 3, 3),
             Triple("an 8th of November", 11, 8),
+            Triple("Third of April", 4, 3),
+            Triple("third april", 4, 3),
+            Triple("twenty second of March", 3, 22),
         )
         for ((input, expectedMonth, expectedDay) in cases) {
             val result = method.invoke(handler, input)
@@ -1819,6 +1976,105 @@ class NativeIntentHandlerTest {
         every { cursor.close() } just Runs
 
         return cursor
+    }
+
+    // ── Save Memory ───────────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("Save Memory — pronoun normalisation")
+    inner class SaveMemoryPronounNormalisation {
+
+        private val memoryRepository = mockk<MemoryRepository>(relaxed = true)
+        private val embeddingEngine = mockk<EmbeddingEngine>(relaxed = true)
+        private val profileRepository = mockk<UserProfileRepository>(relaxed = true)
+
+        private fun handlerWithName(name: String?) = NativeIntentHandler(
+            context = context,
+            clockRepository = clockRepository,
+            clockAlertController = clockAlertController,
+            listItemDao = listItemDao,
+            listNameDao = listNameDao,
+            contactAliasRepository = contactAliasRepository,
+            importantDateRepository = importantDateRepository,
+            calendarBirthdayLookup = calendarBirthdayLookup,
+            memoryRepository = memoryRepository,
+            embeddingEngine = embeddingEngine,
+            cookingConversionService = cookingConversionService,
+            currencyConversionService = currencyConversionService,
+            userProfileRepository = profileRepository,
+        ).also {
+            coEvery { profileRepository.getStructured() } returns
+                if (name != null) UserProfileYaml(name = name) else null
+            coEvery { profileRepository.getName() } returns name
+            coEvery { embeddingEngine.embed(any()) } returns floatArrayOf()
+        }
+
+        @Test
+        fun `my is replaced with name possessive`() {
+            val h = handlerWithName("Nick")
+            val contentSlot = slot<String>()
+            coEvery { memoryRepository.addCoreMemory(capture(contentSlot), any(), any(), any(), any(), any(), any(), any(), any()) } returns "row1"
+            runBlocking { h.handle("save_memory", mapOf("content" to "my wifi password is 12345")) }
+            assertEquals("Nick's wifi password is 12345", contentSlot.captured)
+        }
+
+        @Test
+        fun `I'm is replaced with name is`() {
+            val h = handlerWithName("Nick")
+            val contentSlot = slot<String>()
+            coEvery { memoryRepository.addCoreMemory(capture(contentSlot), any(), any(), any(), any(), any(), any(), any(), any()) } returns "row1"
+            runBlocking { h.handle("save_memory", mapOf("content" to "I'm allergic to peanuts")) }
+            assertEquals("Nick is allergic to peanuts", contentSlot.captured)
+        }
+
+        @Test
+        fun `name with dollar sign does not crash`() {
+            val h = handlerWithName("A\$B")
+            val contentSlot = slot<String>()
+            coEvery { memoryRepository.addCoreMemory(capture(contentSlot), any(), any(), any(), any(), any(), any(), any(), any()) } returns "row1"
+            val result = runBlocking { h.handle("save_memory", mapOf("content" to "my name is unusual")) }
+            assertInstanceOf(SkillResult.Success::class.java, result)
+            // Stored content must contain the dollar sign literally, not crash
+            assertTrue(contentSlot.captured.contains("A\$B's"))
+        }
+
+        @Test
+        fun `no profile — content stored verbatim`() {
+            val h = handlerWithName(null)
+            val contentSlot = slot<String>()
+            coEvery { memoryRepository.addCoreMemory(capture(contentSlot), any(), any(), any(), any(), any(), any(), any(), any()) } returns "row1"
+            runBlocking { h.handle("save_memory", mapOf("content" to "my favourite colour is blue")) }
+            assertEquals("my favourite colour is blue", contentSlot.captured)
+        }
+    }
+
+    @Nested
+    @DisplayName("Find Nearby — NZ term translation")
+    inner class FindNearbyNzTranslation {
+
+        @Test
+        fun `gas station is translated to petrol station`() {
+            every { context.startActivity(any()) } just Runs
+            val result = handleIntent("find_nearby", mapOf("query" to "gas station"))
+            assertInstanceOf(SkillResult.Success::class.java, result)
+            assertTrue((result as SkillResult.Success).content.contains("petrol station"), "Expected 'petrol station' in: ${result.content}")
+        }
+
+        @Test
+        fun `wharepaku is translated to toilet`() {
+            every { context.startActivity(any()) } just Runs
+            val result = handleIntent("find_nearby", mapOf("query" to "wharepaku"))
+            assertInstanceOf(SkillResult.Success::class.java, result)
+            assertTrue((result as SkillResult.Success).content.contains("toilet"), "Expected 'toilet' in: ${result.content}")
+        }
+
+        @Test
+        fun `unrecognised term is passed through unchanged`() {
+            every { context.startActivity(any()) } just Runs
+            val result = handleIntent("find_nearby", mapOf("query" to "cafe"))
+            assertInstanceOf(SkillResult.Success::class.java, result)
+            assertTrue((result as SkillResult.Success).content.contains("cafe"), "Expected 'cafe' in: ${result.content}")
+        }
     }
 
     private fun emailCursor(vararg rows: EmailRow): Cursor {

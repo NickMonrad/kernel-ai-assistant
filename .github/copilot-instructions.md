@@ -54,6 +54,17 @@ User input
 └─────────────────────────────┘
 ```
 
+**`save_memory` intent routing** (fix #937, commit `480fafcd`): `save_memory` spans both tiers with deliberate fall-through rules — do not add new patterns without checking these:
+
+| Input | Tier | Reason |
+|-------|------|--------|
+| `save/store/keep [to/in memory [that] \| that] <content>` | **Tier 2** | QuickIntentRouter intercepts and stores directly |
+| `save/store/keep this/it …` | **Tier 3 (E4B)** | Anaphoric — `this`/`it` need LLM context to resolve; falls through |
+| `remember [that] <content>` — content does **not** start with `I`, `I'm`, `this`, `that`, or `it` | **Tier 2** | QuickIntentRouter intercepts |
+| `remember that I …` / `remember that this/that/it …` | **Tier 3 (E4B)** | Negative lookahead excludes first-person & demonstrative openers |
+
+When Tier 2 intercepts, `NativeIntentHandler.saveMemory()` calls `normaliseSaveContent()` before storing: `\bmy\b` → `Name's` and `\bI'm\b` → `Name is`, resolved from `UserProfileRepository.getStructured()?.name`. Bare `I` is **not** replaced — verb conjugation requires the LLM, and those inputs fall through via the negative lookahead above.
+
 **Model inventory:**
 
 | Model | Role | Size | Loading |
@@ -63,11 +74,26 @@ User input
 | FunctionGemma-270M | ~~Intent router~~ **Deprecated** | 289MB | Not loaded at startup; class retained pending #358 cleanup |
 | all-MiniLM-L6-v2 int8 | Zero-shot intent classifier (Tier 2) | ~15MB | Lazy — downloaded via KernelModel on first use; graceful null fallback |
 
+> **Note:** Both E-4B and E-2B support thinking mode (confirmed from HuggingFace model cards). See the "Thinking mode" section below for activation requirements.
+
 - All models use **quantized weights** (INT4/INT8) via LiteRT
 - E4B runs on **GPU (OpenCL / Adreno 740)** — loaded first with full memory headroom
 - `safeTokenCount()` guard: nudges powers-of-2 down ~2.4% to avoid LiteRT `reshape::Eval` buffer-alignment bug on Adreno (4096→4000, 8192→8000)
 - **E4B-first loading:** E4B initialises on GPU before FunctionGemma is considered — prevents lmkd OOM during ~20s GPU kernel compilation peak
 - Backend fallback chain: NPU → GPU → CPU
+
+#### Thinking mode (confirmed in PR #946, branch `feature/941-thinking-enable-context`)
+
+Two requirements are **both** needed to produce thinking tokens — either alone produces zero chain-of-thought:
+
+1. **Channel registration** — `Channel("thought", "<|think|>", "<|/think|>")` must be registered in `ConversationConfig.channels`. This routes tokens between the delimiters to `message.channels["thought"]`.
+2. **`extraContext` flag** — `extraContext = mapOf("enable_thinking" to true)` must be passed in `sendMessageAsync`. This injects the opening `<|think|>` tag via the model's Jinja template. **Without this flag, zero thinking tokens are produced even when the Channel is registered.**
+
+**SDK behaviour quirk:** Even with Channel registration, `message.toString()` still includes thinking content wrapped in the SDK's internal format: `<|channel>thought\n...\n<channel|>`. This must be stripped before emitting `GenerationResult.Token` to avoid leaking raw channel markup into the chat stream. Strip is applied in `LiteRtInferenceEngine.generate()` via `CHANNEL_WRAPPER_RE`.
+
+**E2B also supports thinking** — confirmed from HuggingFace model cards for both Gemma-4 E-4B and E-2B. The settings UI currently exposes the thinking toggle for E4B only; E2B support in settings UI is tracked in a follow-up GitHub issue.
+
+**Background / utility `generateOnce()` calls** (title generation, episodic distillation, user profile extraction) **must explicitly pass `thinkingEnabled = false`**. Omitting this flag silently wastes GPU time on chain-of-thought for non-user-facing tasks.
 
 ### Memory — Local RAG
 

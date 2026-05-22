@@ -199,7 +199,7 @@ class QuickIntentRouter(
         normalizeImportantDateLabel(raw).takeIf { it.isNotBlank() }
 
     private val importantDateValuePattern =
-        "(?:\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|[a-zA-Z]+\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})"
+        "(?:\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|[a-zA-Z]+\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty(?:-|\\s+)first|twenty(?:-|\\s+)second|twenty(?:-|\\s+)third|twenty(?:-|\\s+)fourth|twenty(?:-|\\s+)fifth|twenty(?:-|\\s+)sixth|twenty(?:-|\\s+)seventh|twenty(?:-|\\s+)eighth|twenty(?:-|\\s+)ninth|thirtieth|thirty(?:-|\\s+)first)(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})"
 
     private val unitConversionValuePattern = "-?\\d+(?:\\.\\d+)?"
     private val unitConversionUnitPattern = UnitConversionEvaluator.supportedRouterRegexPattern()
@@ -979,7 +979,135 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(time|date|day)""",
+                """what(?:'s| is)\s+the\s+day\s+of\s+the\s+week\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+day\s+of\s+the\s+week\s+is\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+day\s+is(?:\s+it)?\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+tomorrow'?s\s+date\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+date\s+is\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+is|\s+was)\s+the\s+date\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| was| is)\s+the\s+day\s+of\s+the\s+week\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+day\s+of\s+the\s+week\s+was\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+(?:was\s+the\s+day|day\s+was(?:\s+it)?)\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| was| is)\s+yesterday'?s\s+date\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+date\s+was\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+was|\s+is)\s+the\s+date\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+is)\s+the\s+date\s+in\s+(\d+)\s+days\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "date", "offset_days" to match.groupValues[1]) },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+is)\s+the\s+day(?:\s+of\s+the\s+week)?\s+in\s+(\d+)\s+days\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "day_of_week", "offset_days" to match.groupValues[1]) },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+was|\s+is)\s+the\s+date\s+(\d+)\s+days\s+ago\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "date", "offset_days" to "-${match.groupValues[1]}") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:\s+day\s+was(?:\s+it)?|\s+was\s+the\s+day)(?:\s+of\s+the\s+week)?\s+(\d+)\s+days\s+ago\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "day_of_week", "offset_days" to "-${match.groupValues[1]}") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(time|date|day)\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1016,7 +1144,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what\s+(day|date)\s+is\s+(?:it|today)""",
+                """what\s+(day|date)\s+is\s+(?:it(?:\s+today)?|today)\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1031,7 +1159,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what\s+day\s+of\s+the\s+week\s+(?:is\s+it|it\s+is|are\s+we\s+in)\s*$""",
+                """what\s+day\s+of\s+the\s+week\s+(?:is\s+it|it\s+is|are\s+we\s+in)\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week") },
@@ -2144,7 +2272,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "navigate_to",
             regex = Regex(
-                """(?:navigate|directions?|drive|take\s+me|get\s+me)(?:\s+to)?\s+(.+)""",
+                """^(?:navigate|directions?|drive|take\s+me|get\s+me(?!\s+the\s+nearest))(?:\s+to)?\s+(.+?)\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("destination" to match.groupValues[1].trim()) },
@@ -2164,7 +2292,26 @@ class QuickIntentRouter(
                 ),
             ),
         ),
+        // "find a route/way/path/shortcut to X" / "find my way home" — navigation phrases
+        // blocked from the find_nearby catch-all by negative lookahead; routed here instead.
+        IntentPattern(
+            intentName = "navigate_to",
+            regex = Regex(
+                """^find\s+(?:(?:a|my)\s+)?(?:route|way|path|shortcut|directions?)\s+(?:to\s+)?(.+)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("destination" to match.groupValues[1].trim()) },
+        ),
         // ── Find Nearby (most specific first to avoid greedy mis-capture) ──
+        // "find me the nearest cafe" — verb + me + the nearest + query
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show|get)\s+me\s+the\s+nearest\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
         // "find me nearby cafes" — verb + me + nearby + query
         IntentPattern(
             intentName = "find_nearby",
@@ -2201,6 +2348,16 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
         ),
+        // "find a nearby pharmacy" / "find the nearest cafe" (article before nearby/nearest)
+        // Must precede the lazy "find X nearby" catch-all to avoid capturing "a" as the query.
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show|locate|search\s+for|look\s+for)\s+(?:a|an|the)\s+near(?:by|est)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
         // "find cafes nearby" / "show me petrol stations close by" — general pattern
         IntentPattern(
             intentName = "find_nearby",
@@ -2208,7 +2365,13 @@ class QuickIntentRouter(
                 """(?:find|show\s+me|look\s+for|search\s+for|locate)\s+(.+?)\s+(?:near(?:by|\s+me)|close\s+by|around\s+(?:here|me))""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ ->
+                // Strip leading article (a/an/the) that the lazy match can capture as the whole query
+                // e.g. "find a chemist nearby" → lazy captures "a chemist" → strip "a " → "chemist"
+                val raw = match.groupValues[1].trim()
+                val stripped = raw.replace(Regex("""^(?:a|an|the)\s+""", RegexOption.IGNORE_CASE), "")
+                mapOf("query" to stripped.ifBlank { raw })
+            },
         ),
         // "show me dog parks on the map" / "find cafes on the map"
         IntentPattern(
@@ -2260,6 +2423,34 @@ class QuickIntentRouter(
                     promptTemplate = "What are you looking for?",
                 ),
             ),
+        ),
+        // "I'm looking for a cafe" — assumed nearby. Marked isFallback so non-location queries
+        // like "I'm looking for my car keys" can fall through to the classifier / E4B first.
+        // Note: "I need to" is stripped by INTENT_PREFIX_RE before pattern matching, so
+        // "I need to find a gas station" arrives as "find a gas station" — caught by the
+        // isFallback catch-all below. "I'm looking for" is NOT stripped.
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """I(?:'m|\s+am)\s+looking\s+for\s+(?:a|an)\s+(?!(?:route|way|path|shortcut|directions?)\b)(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+            isFallback = true,
+        ),
+        // "find a gas station" / "find an ATM" — catch-all after prefix strip (e.g. "I need to
+        // find a gas station" → "find a gas station" after INTENT_PREFIX_RE strips "I need to").
+        // Requires article "a/an" to avoid stealing bare "find my way to X" phrases.
+        // Negative lookahead blocks navigation nouns so "find a route/way/path to X" can
+        // fall through to the navigate_to classifier.
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """^find\s+(?:a|an)\s+(?!(?:route|way|path|shortcut|directions?)\b)(.+)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+            isFallback = true,
         ),
 
         // ── Communication ──
@@ -2959,7 +3150,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+)?(.+?)\s+(?:is|as|on)\s+($importantDateValuePattern)$""",
+                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+)?(.+?)\s+(?:is|as|on)(?:\s+the)?\s+($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2973,7 +3164,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^my\s+(.+?)\s+is\s+($importantDateValuePattern)$""",
+                """^my\s+(.+?)\s+is(?:\s+on)?(?:\s+the)?\s+($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3011,7 +3202,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+(?:date|day)(?:\s+for)?\s+(.+?)\s+($importantDateValuePattern)$""",
+                """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+(?:date|day)(?:\s+for)?\s+(.+?)\s+(?:on\s+)?(?:the\s+)?($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3099,31 +3290,48 @@ class QuickIntentRouter(
             paramExtractor = { _, _ -> emptyMap() },
             requiredSlots = slotContract("save_memory"),
         ),
-        // Pattern: "save [to/that/...] memory that X" / "save this to memory: X"
+        // Pattern: "save to memory that X" / "save to memory: X" / "save that X"
+        // NOTE: "save this/it to memory" is intentionally excluded — "this" and "it" are
+        // anaphoric references that require LLM context to resolve (see #937).
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """(?:save|store|keep)\s+(?:(?:to|in)\s+memory(?:\s+that)?|that|this|it)\s*[:\-–]?\s*(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:save|store|keep)\s+(?:(?:to|in)\s+memory(?:\s+that)?|that(?!\s+to\s+memory|\s+in\s+memory))\s*[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ ->
+                // Strip trailing "to/in memory" that can appear when "that" is used as a
+                // demonstrative (e.g. "save that to memory") rather than a conjunction.
+                // Use a regex replace (IGNORE_CASE) because removeSuffix is case-sensitive.
+                val stripped = match.groupValues[1].trim()
+                    .replace(Regex("(?:^|\\s+)(?:to|in)\\s+memory$", RegexOption.IGNORE_CASE), "")
+                    .trim()
+                // Reject single anaphoric tokens that survived stripping (e.g. "save that it to memory").
+                val ANAPHORIC = setOf("it", "this", "that")
+                if (stripped.isBlank() || stripped.lowercase() in ANAPHORIC) emptyMap()
+                else mapOf("content" to stripped)
+            },
             requiredSlots = slotContract("save_memory"),
         ),
         // Pattern: "remember that X" / "remember: X"
+        // Excludes first-person + context-reference openers (I, I'm, this, that, it) —
+        // those need LLM to resolve conjugation and anaphora.
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """remember\s+(?:that\s+)?[:\-–]?\s*(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remember\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(\S.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
             requiredSlots = slotContract("save_memory"),
         ),
         // Pattern: "note that X" / "make a note that X" / "don't forget that X"
+        // First-person ("I prefer X") is now handled by normaliseSaveContent so no longer falls
+        // through to E4B. Only true anaphoric tokens (this/that/it) still fall through.
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """(?:(?:make\s+a\s+)?note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:make\s+a\s+)?note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(\S.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },

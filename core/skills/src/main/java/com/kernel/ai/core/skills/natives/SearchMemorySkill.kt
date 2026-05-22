@@ -99,20 +99,26 @@ After calling searchMemory, incorporate its result into your reply naturally.
                     emptyList()
                 }
                 val memoryResults = runCatching {
-                    ragRepository.searchCoreAndEpisodic(query, topK)
+                    ragRepository.searchCoreAndEpisodic(query, topK, includeSiblingContext = false)
                 }.getOrElse { e ->
                     Log.w(TAG, "searchCoreAndEpisodic failed: ${e.message}", e)
                     emptyList()
                 }
+                val filtered = filterSearchMemoryResults(
+                    query = query,
+                    memoryResults = memoryResults,
+                    messageResults = messageResults,
+                )
                 Log.d(
                     TAG,
                     "SearchMemorySkill: query='${query.take(60)}' conversationId=$conversationId " +
-                        "→ ${memoryResults.size} memory results, ${messageResults.size} message results",
+                        "→ ${memoryResults.size}/${filtered.memoryResults.size} memory results, " +
+                        "${messageResults.size}/${filtered.messageResults.size} message results",
                 )
 
-                if (memoryResults.isEmpty() && messageResults.isEmpty()) {
+                if (filtered.memoryResults.isEmpty() && filtered.messageResults.isEmpty()) {
                     // Success: action result — LLM narration appropriate
-                    return@withContext SkillResult.Success("No memories found matching '$query'.")
+                    return@withContext SkillResult.Success("No relevant memories found matching '$query'.")
                 }
 
                 val fmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
@@ -120,7 +126,7 @@ After calling searchMemory, incorporate its result into your reply naturally.
                 var index = 1
 
                 // Explicitly saved facts first — these are the most direct answer to "what do you remember".
-                memoryResults.forEach { result ->
+                filtered.memoryResults.forEach { result ->
                     val sourceTag = if (result.source == "core") "Core Memory" else "Episodic Memory"
                     val dateStr = if (result.lastAccessedAt > 0L) fmt.format(Date(result.lastAccessedAt)) else "date unknown"
                     sb.appendLine("${index++}. [$sourceTag — $dateStr]")
@@ -128,9 +134,9 @@ After calling searchMemory, incorporate its result into your reply naturally.
                 }
 
                 // Message history results follow.
-                if (messageResults.isNotEmpty()) {
-                    if (memoryResults.isNotEmpty()) sb.appendLine()
-                    messageResults.forEach { result ->
+                if (filtered.messageResults.isNotEmpty()) {
+                    if (filtered.memoryResults.isNotEmpty()) sb.appendLine()
+                    filtered.messageResults.forEach { result ->
                         val role = if (result.role == "user") "You" else "Me"
                         val date = fmt.format(Date(result.timestamp))
                         sb.appendLine("${index++}. [Message — $date — conversation:${result.conversationId.take(8)}]")

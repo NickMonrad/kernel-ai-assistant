@@ -25,6 +25,7 @@ import com.kernel.ai.core.memory.mealplan.RecipeDraftMethodStep
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -470,6 +471,83 @@ class MealPlanSessionRepositoryAndroidTest {
     }
 
     @Test
+    fun observeRecentCompletedPlans_updatesFavouriteFlagsFromCanonicalStore() = runBlocking {
+        val completed = createCompletedSessionWithRecipe("conv-browser")
+
+        val initial = repository.observeRecentCompletedPlans(10).first { it.isNotEmpty() }.single()
+        assertEquals(completed.displayName, initial.displayName)
+        assertFalse(initial.days.single().isFavouriteRecipe)
+
+        val favourited = repository.setRecipeFavourite(completed.sessionId, 0, true)
+        val favouriteKey = requireNotNull(favourited.days.single().recipeKey)
+
+        val favouritedPlans = repository.observeRecentCompletedPlans(10)
+            .first { plans -> plans.single().days.single().isFavouriteRecipe }
+            .single()
+        assertTrue(favouritedPlans.days.single().isFavouriteRecipe)
+        assertEquals(favouriteKey, favouritedPlans.days.single().recipeKey)
+
+        repository.removeFavouriteRecipe(favouriteKey)
+
+        val unfavouritedPlans = repository.observeRecentCompletedPlans(10)
+            .first { plans -> plans.isNotEmpty() && !plans.single().days.single().isFavouriteRecipe }
+            .single()
+        assertFalse(unfavouritedPlans.days.single().isFavouriteRecipe)
+    }
+
+    @Test
+    fun observeFavouriteRecipes_readsCanonicalFavouriteStore() = runBlocking {
+        val completed = createCompletedSessionWithRecipe("conv-favourite-library")
+        val favourited = repository.setRecipeFavourite(completed.sessionId, 0, true)
+        val favouriteKey = requireNotNull(favourited.days.single().recipeKey)
+
+        val favourite = repository.observeFavouriteRecipes(10)
+            .first { it.isNotEmpty() }
+            .single()
+
+        assertEquals(favouriteKey, favourite.recipeKey)
+        assertEquals("Chicken Stir Fry", favourite.title)
+        assertEquals("Quick bowl", favourite.summary)
+        assertEquals(listOf("chicken"), favourite.proteinTags)
+    }
+
+    @Test
+    fun recreateRecipeList_createsStandaloneChecklistListsWithUniqueNames() = runBlocking {
+        val completed = createCompletedSessionWithRecipe("conv-recreate-recipe-list")
+
+        val firstListName = repository.recreateRecipeList(completed.sessionId, 0)
+        val secondListName = repository.recreateRecipeList(completed.sessionId, 0)
+
+        assertEquals("Chicken Stir Fry", firstListName)
+        assertEquals("Chicken Stir Fry (2)", secondListName)
+        val firstListId = requireNotNull(listNameDao.getByName(firstListName)).id
+        val secondListId = requireNotNull(listNameDao.getByName(secondListName)).id
+        val expectedItems = listOf(
+            "Ingredients",
+            "placeholder ingredient",
+            "Method",
+            "1. Slice the vegetables.",
+            "2. Stir-fry everything until glossy.",
+        )
+
+        assertEquals(expectedItems, listItemDao.getByList(firstListId).map { it.text })
+        assertEquals(expectedItems, listItemDao.getByList(secondListId).map { it.text })
+    }
+
+    @Test
+    fun addRecipeIngredientsToList_appendsCanonicalIngredientsToExistingList() = runBlocking {
+        val completed = createCompletedSessionWithRecipe("conv-add-ingredients-list")
+        val now = System.currentTimeMillis()
+        val listId = listNameDao.insertAndGet(ListNameEntity(name = "weeknight shopping", createdAt = now, updatedAt = now))
+        assertTrue(listId > 0L)
+
+        val listName = repository.addRecipeIngredientsToList(completed.sessionId, 0, listId)
+
+        assertEquals("weeknight shopping", listName)
+        assertEquals(listOf("500 g chicken thigh"), listItemDao.getByList(listId).map { it.text })
+    }
+
+    @Test
     fun getRecentMealHistory_reads_recent_terminal_days_from_canonical_session_rows() = runBlocking {
         val completed = repository.startOrResume("conv-history-completed")
         repository.savePlanDraft(
@@ -745,6 +823,39 @@ class MealPlanSessionRepositoryAndroidTest {
         )
     }
 
+    private fun createCompletedSessionWithRecipe(conversationId: String) = runBlocking {
+        val session = repository.startOrResume(conversationId)
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(
+                    dayIndex = 0,
+                    title = "Chicken Stir Fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                ),
+            ),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(
+                title = "Chicken Stir Fry",
+                method = listOf("Slice the vegetables.", "Stir-fry everything until glossy."),
+            ),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(
+                    displayText = "500 g chicken thigh",
+                    quantity = "500",
+                    unit = "g",
+                    ingredientName = "chicken thigh",
+                ),
+            ),
+        )
+        repository.completeSession(session.sessionId)
+    }
+
     private fun tableExists(db: androidx.sqlite.db.SupportSQLiteDatabase, tableName: String): Boolean =
         db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$tableName'").use { cursor ->
             cursor.moveToFirst()
@@ -928,6 +1039,42 @@ class MealPlanSessionRepositoryAndroidTest {
         migratedDb.close()
     }
 
+
+    @Test
+    fun migration46To47_removesGroundedFactsRepairSetting() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 46).apply {
+            execSQL(
+                """
+                INSERT INTO `model_settings` (
+                    `modelId`, `contextWindowSize`, `temperature`, `topP`, `topK`,
+                    `showThinkingProcess`, `correctGroundedFactsEnabled`, `speculativeDecodingEnabled`, `updatedAt`
+                ) VALUES ('gemma_4_e4b', 4000, 1.0, 0.95, 64, 1, 1, 0, 1000)
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            MIGRATION_DB_NAME,
+            47,
+            true,
+            KernelDatabase.MIGRATION_46_47,
+        )
+
+        migratedDb.query("SELECT modelId, topK, showThinkingProcess, speculativeDecodingEnabled FROM `model_settings` WHERE modelId = 'gemma_4_e4b'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("gemma_4_e4b", cursor.getString(0))
+            assertEquals(64, cursor.getInt(1))
+            assertEquals(1, cursor.getInt(2))
+            assertEquals(0, cursor.getInt(3))
+        }
+        migratedDb.query("PRAGMA table_info(`model_settings`)").use { cursor ->
+            while (cursor.moveToNext()) {
+                assertFalse(cursor.getString(1) == "correctGroundedFactsEnabled")
+            }
+        }
+        migratedDb.close()
+    }
     private fun rawQueryInt(sql: String): Int =
         database.openHelper.writableDatabase.query(sql).use { cursor ->
             cursor.moveToFirst()
