@@ -268,7 +268,7 @@ class NativeIntentHandlerTest {
         val result = handleIntent("get_time", mapOf("query_type" to "day_of_week", "relative_day" to "yesterday"))
         val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
         val expectedDay = LocalDate.now().minusDays(1).format(DateTimeFormatter.ofPattern("EEEE"))
-        assertEquals("Yesterday is $expectedDay", reply.content)
+        assertEquals("Yesterday was $expectedDay", reply.content)
     }
 
     @Test
@@ -276,7 +276,7 @@ class NativeIntentHandlerTest {
         val result = handleIntent("get_time", mapOf("query_type" to "date", "relative_day" to "yesterday"))
         val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
         val expectedDate = LocalDate.now().minusDays(1).format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
-        assertEquals("Yesterday is $expectedDate", reply.content)
+        assertEquals("Yesterday was $expectedDate", reply.content)
     }
 
     @Test

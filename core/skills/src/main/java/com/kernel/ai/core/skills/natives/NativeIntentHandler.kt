@@ -741,6 +741,7 @@ class NativeIntentHandler @Inject constructor(
             "yesterday" -> "Yesterday"
             else -> "Today"
         }
+        val relativeDayCopula = if (relativeDay == "yesterday") "was" else "is"
         val location = params["location"]?.trim()?.takeIf { it.isNotBlank() }
         if (location != null) {
             return when (val resolution = WorldClockCatalog.resolve(location)) {
@@ -754,10 +755,10 @@ class NativeIntentHandler @Inject constructor(
                     }
                     when (params["query_type"]) {
                         "date" -> SkillResult.DirectReply(
-                            "In ${resolution.candidate.displayName}, ${relativeDayLabel.lowercase()} is ${targetZoned.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
+                            "In ${resolution.candidate.displayName}, ${relativeDayLabel.lowercase()} $relativeDayCopula ${targetZoned.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
                         )
                         "day_of_week" -> SkillResult.DirectReply(
-                            "In ${resolution.candidate.displayName}, ${relativeDayLabel.lowercase()} is ${targetZoned.format(DateTimeFormatter.ofPattern("EEEE"))}",
+                            "In ${resolution.candidate.displayName}, ${relativeDayLabel.lowercase()} $relativeDayCopula ${targetZoned.format(DateTimeFormatter.ofPattern("EEEE"))}",
                         )
                         else -> SkillResult.DirectReply(
                             "In ${resolution.candidate.displayName}, it's ${zonedNow.format(DateTimeFormatter.ofPattern("h:mm a"))} on ${zonedNow.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
@@ -790,10 +791,10 @@ class NativeIntentHandler @Inject constructor(
                 "It's ${now.format(DateTimeFormatter.ofPattern("h:mm a"))}",
             )
             "date" -> SkillResult.DirectReply(
-                "${relativeDayLabel} is ${targetDateTime.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
+                "${relativeDayLabel} $relativeDayCopula ${targetDateTime.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
             )
             "day_of_week" -> SkillResult.DirectReply(
-                "${relativeDayLabel} is ${targetDateTime.format(DateTimeFormatter.ofPattern("EEEE"))}",
+                "${relativeDayLabel} $relativeDayCopula ${targetDateTime.format(DateTimeFormatter.ofPattern("EEEE"))}",
             )
             "year" -> SkillResult.DirectReply("It's ${now.year}")
             "month" -> SkillResult.DirectReply(
