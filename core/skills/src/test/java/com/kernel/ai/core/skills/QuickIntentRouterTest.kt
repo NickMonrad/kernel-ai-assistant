@@ -2939,6 +2939,10 @@ class QuickIntentRouterTest {
             Arguments.of("how is the weather looking for the next five days", "5", null),
             Arguments.of("7 day weather forecast for Brisbane", "7", "Brisbane"),
             Arguments.of("what's the weather forecast for Paris next 4 days", "4", "Paris"),
+            // #929: "what's the weather for the next N days" — no "forecast" word (was falling through to LLM)
+            Arguments.of("what's the weather for the next 3 days", "3", null),
+            Arguments.of("What's the weather for the next 3 days", "3", null),
+            Arguments.of("what's the weather for the next seven days", "7", null),
         )
 
         @JvmStatic
