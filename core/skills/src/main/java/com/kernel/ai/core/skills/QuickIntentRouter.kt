@@ -1290,7 +1290,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+forecast\s+for\s+([\w\s,]+?)\s+next\s+(\d+)\s+days""",
+                """what(?:'s| is)\s+the\s+weather\s+forecast\s+(?:for|over)\s+([\w\s,]+?)\s+next\s+(\d+)\s+days""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1307,7 +1307,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+for\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)\s+next\s+(\d+)\s+days""",
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)\s+next\s+(\d+)\s+days""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1323,7 +1323,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+for\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1339,7 +1339,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+for\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1359,7 +1359,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+for\s+the\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1380,7 +1380,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:what(?:'s| is)\s+)?(?:the\s+)?(?:weather\s+)?forecast\s+for\s+the\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
+                """(?:what(?:'s| is)\s+)?(?:the\s+)?(?:weather\s+)?forecast\s+(?:for|over)\s+the\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1398,7 +1398,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """how(?:'s|\s+is)\s+(?:the\s+)?weather\s+looking\s+for\s+the\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
+                """how(?:'s|\s+is)\s+(?:the\s+)?weather\s+looking\s+(?:for|over)\s+the\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1416,7 +1416,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(one|two|three|four|five|six|seven|eight|nine|ten)\s+day\s+(?:weather\s+)?forecast\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
+                """(one|two|three|four|five|six|seven|eight|nine|ten)\s+day\s+(?:weather\s+)?forecast\s+(?:in|for|at|over)\s+([\w\s,]+?)\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1436,7 +1436,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+for\s+the\s+next\s+(\d+)\s+days""",
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
