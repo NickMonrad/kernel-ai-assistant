@@ -3070,7 +3070,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+)?(.+?)\s+(?:is|as|on)\s+($importantDateValuePattern)$""",
+                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+)?(.+?)\s+(?:is|as|on)(?:\s+the)?\s+($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3084,7 +3084,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^my\s+(.+?)\s+is\s+($importantDateValuePattern)$""",
+                """^my\s+(.+?)\s+is(?:\s+on)?(?:\s+the)?\s+($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3122,7 +3122,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+(?:date|day)(?:\s+for)?\s+(.+?)\s+($importantDateValuePattern)$""",
+                """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+(?:date|day)(?:\s+for)?\s+(.+?)\s+(?:on\s+)?(?:the\s+)?($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
