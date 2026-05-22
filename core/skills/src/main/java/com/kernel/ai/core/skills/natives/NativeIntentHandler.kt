@@ -2295,7 +2295,9 @@ class NativeIntentHandler @Inject constructor(
 
         return input.replace(Regex("""\b([A-Za-z]{4,})\b""")) { match ->
             val word = match.groupValues[1]
-            if (months.any { it.equals(word, ignoreCase = true) }) return@replace word
+            months.firstOrNull { it.equals(word, ignoreCase = true) }?.let { canonicalMonth ->
+                return@replace canonicalMonth
+            }
             if (word.lowercase() in blocklist) return@replace word
             val maxDist = if (word.length >= 6) 2 else 1
             val best = months

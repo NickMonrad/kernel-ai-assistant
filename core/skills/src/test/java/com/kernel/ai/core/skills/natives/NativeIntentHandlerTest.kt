@@ -978,6 +978,21 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `save important date accepts lowercase ordinal word month phrasing`() {
+        every { Log.d(any<String>(), any<String>()) } returns 0
+        coEvery { importantDateRepository.save("Emily's birthday", 4, 3, null) } just Runs
+
+        val result = handleIntent("save_important_date", mapOf("label" to "Emily's birthday", "date" to "third april"))
+
+        assertTrue(result is SkillResult.DirectReply)
+        assertEquals(
+            "I'll remember Emily's birthday as 3 April.",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 1) { importantDateRepository.save("Emily's birthday", 4, 3, null) }
+    }
+
+    @Test
     fun `list important dates returns stored entries`() {
         coEvery { importantDateRepository.getAll() } returns listOf(
             ImportantDateEntity(label = "mum's birthday", normalizedLabel = "mum birthday", month = 3, day = 15),
@@ -1786,6 +1801,7 @@ class NativeIntentHandlerTest {
             Triple("a 3rd of March", 3, 3),
             Triple("an 8th of November", 11, 8),
             Triple("Third of April", 4, 3),
+            Triple("third april", 4, 3),
             Triple("twenty second of March", 3, 22),
         )
         for ((input, expectedMonth, expectedDay) in cases) {
