@@ -735,7 +735,7 @@ class NativeIntentHandler @Inject constructor(
     // ── Time / Date ───────────────────────────────────────────────────────────
 
     private fun formatRelativeDateReply(label: String, copula: String, value: String): String =
-        if (label.startsWith("In ")) {
+        if (label.startsWith("In ", ignoreCase = true)) {
             "$label, it $copula $value"
         } else {
             "$label $copula $value"
@@ -749,9 +749,11 @@ class NativeIntentHandler @Inject constructor(
             "yesterday" -> -1L
             else -> 0L
         }
+        val offsetDayCount = kotlin.math.abs(dayOffset)
+        val offsetDayUnit = if (offsetDayCount == 1L) "day" else "days"
         val relativeDayLabel = when {
-            offsetDays != null && dayOffset > 0L -> "In $dayOffset days"
-            offsetDays != null && dayOffset < 0L -> "${-dayOffset} days ago"
+            offsetDays != null && dayOffset > 0L -> "In $offsetDayCount $offsetDayUnit"
+            offsetDays != null && dayOffset < 0L -> "$offsetDayCount $offsetDayUnit ago"
             relativeDay == "tomorrow" -> "Tomorrow"
             relativeDay == "yesterday" -> "Yesterday"
             else -> "Today"

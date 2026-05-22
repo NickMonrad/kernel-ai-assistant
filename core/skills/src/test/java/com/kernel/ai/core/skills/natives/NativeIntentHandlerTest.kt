@@ -296,6 +296,22 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `get_time uses singular day wording for future offset one`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "date", "offset_days" to "1"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDate = LocalDate.now().plusDays(1).format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
+        assertEquals("In 1 day, it will be $expectedDate", reply.content)
+    }
+
+    @Test
+    fun `get_time uses singular day wording for past offset one`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "date", "offset_days" to "-1"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDate = LocalDate.now().minusDays(1).format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
+        assertEquals("1 day ago was $expectedDate", reply.content)
+    }
+
+    @Test
     fun `save_memory asks for clarification instead of saving short recipe labels`() {
         val result = handleIntent("save_memory", mapOf("content" to "the pancakes recipe"))
         val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
