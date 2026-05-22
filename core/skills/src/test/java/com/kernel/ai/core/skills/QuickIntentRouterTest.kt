@@ -3107,6 +3107,15 @@ class QuickIntentRouterTest {
             Arguments.of("what's the weather for the next 3 days", "3", null),
             Arguments.of("What's the weather for the next 3 days", "3", null),
             Arguments.of("what's the weather for the next seven days", "7", null),
+            // Location-aware variants (oracle review #972): city before "next N days"
+            Arguments.of("what's the weather for Brisbane next 3 days", "3", "Brisbane"),
+            Arguments.of("what's the weather for Paris next 7 days", "7", "Paris"),
+            // Location-aware variants: city after "next N days in <city>"
+            Arguments.of("what's the weather for the next 3 days in Paris", "3", "Paris"),
+            Arguments.of("what's the weather for the next seven days in Auckland", "7", "Auckland"),
+            // Capitalized word variant (lowercase() fix)
+            Arguments.of("What's the weather for the next Seven days", "7", null),
+            Arguments.of("what's the weather for Brisbane next Seven days", "7", "Brisbane"),
         )
 
         @JvmStatic

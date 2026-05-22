@@ -1302,6 +1302,79 @@ class QuickIntentRouter(
                 }
             },
         ),
+        // ── Location-aware multi-day forecast patterns (must precede generic ones) ──
+        // Digit, location before "next N days": "what's the weather for Brisbane next 3 days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+for\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)\s+next\s+(\d+)\s+days""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[2].takeIf { it != "1" }
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // Digit, location after "next N days in <city>": "what's the weather for the next 3 days in Paris"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+for\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // Word, location before "next N days": "what's the weather for Brisbane next seven days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+for\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                val daysWord = match.groupValues[2].takeIf { it != "one" }
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord.lowercase()] ?: daysWord)
+                }
+            },
+        ),
+        // Word, location after "next N days in <city>": "what's the weather for the next seven days in Paris"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+for\s+the\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                val daysWord = match.groupValues[1].takeIf { it != "one" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord.lowercase()] ?: daysWord)
+                }
+            },
+        ),
         // Multi-day forecast (word): "what's the forecast for the next seven days" /
         // "what's the weather forecast for the next seven days"
         IntentPattern(
@@ -1317,7 +1390,7 @@ class QuickIntentRouter(
                 )
                 val daysWord = match.groupValues[1].takeIf { it != "one" }
                 buildMap<String, String> {
-                    if (daysWord != null) put("forecast_days", wordToNum[daysWord] ?: daysWord)
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord.lowercase()] ?: daysWord)
                 }
             },
         ),
@@ -1335,7 +1408,7 @@ class QuickIntentRouter(
                 )
                 val daysWord = match.groupValues[1].takeIf { it != "one" }
                 buildMap<String, String> {
-                    if (daysWord != null) put("forecast_days", wordToNum[daysWord] ?: daysWord)
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord.lowercase()] ?: daysWord)
                 }
             },
         ),
@@ -1355,27 +1428,7 @@ class QuickIntentRouter(
                 val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
                 buildMap<String, String> {
                     if (location != null) put("location", location)
-                    if (daysWord != null) put("forecast_days", wordToNum[daysWord] ?: daysWord)
-                }
-            },
-        ),
-        // Multi-day forecast (word): "what's the weather forecast for Paris next seven days"
-        IntentPattern(
-            intentName = "get_weather",
-            regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+forecast\s+for\s+([\w\s,]+?)\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, _ ->
-                val wordToNum = mapOf(
-                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
-                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
-                )
-                val daysWord = match.groupValues[2].takeIf { it != "one" }
-                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
-                buildMap<String, String> {
-                    if (location != null) put("location", location)
-                    if (daysWord != null) put("forecast_days", wordToNum[daysWord] ?: daysWord)
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord.lowercase()] ?: daysWord)
                 }
             },
         ),
@@ -1407,7 +1460,7 @@ class QuickIntentRouter(
                 )
                 val daysWord = match.groupValues[1].takeIf { it != "one" }
                 buildMap<String, String> {
-                    if (daysWord != null) put("forecast_days", wordToNum[daysWord] ?: daysWord)
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord.lowercase()] ?: daysWord)
                 }
             },
         ),
