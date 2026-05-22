@@ -312,6 +312,17 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `get_time world clock future offset avoids duplicated in phrasing`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "date", "location" to "London", "offset_days" to "2"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDate = java.time.Instant.ofEpochMilli(System.currentTimeMillis())
+            .atZone(java.time.ZoneId.of("Europe/London"))
+            .plusDays(2)
+            .format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
+        assertEquals("In London, 2 days from now will be $expectedDate", reply.content)
+    }
+
+    @Test
     fun `save_memory asks for clarification instead of saving short recipe labels`() {
         val result = handleIntent("save_memory", mapOf("content" to "the pancakes recipe"))
         val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)

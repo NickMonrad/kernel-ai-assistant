@@ -734,11 +734,19 @@ class NativeIntentHandler @Inject constructor(
 
     // ── Time / Date ───────────────────────────────────────────────────────────
 
-    private fun formatRelativeDateReply(label: String, copula: String, value: String): String =
-        if (label.startsWith("In ", ignoreCase = true)) {
-            "$label, it $copula $value"
-        } else {
-            "$label $copula $value"
+    private fun formatRelativeDateReply(
+        label: String,
+        copula: String,
+        value: String,
+        embedded: Boolean = false,
+    ): String =
+        when {
+            embedded && label.startsWith("In ", ignoreCase = true) ->
+                "${label.substring(3)} from now $copula $value"
+            embedded -> "${label.lowercase()} $copula $value"
+            label.startsWith("In ", ignoreCase = true) ->
+                "$label, it $copula $value"
+            else -> "$label $copula $value"
         }
 
     private fun getTime(params: Map<String, String> = emptyMap()): SkillResult {
@@ -772,10 +780,10 @@ class NativeIntentHandler @Inject constructor(
                     val targetZoned = zonedNow.plusDays(dayOffset)
                     when (params["query_type"]) {
                         "date" -> SkillResult.DirectReply(
-                            "In ${resolution.candidate.displayName}, ${formatRelativeDateReply(relativeDayLabel.lowercase(), relativeDayCopula, targetZoned.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy")))}",
+                            "In ${resolution.candidate.displayName}, ${formatRelativeDateReply(relativeDayLabel, relativeDayCopula, targetZoned.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy")), embedded = true)}",
                         )
                         "day_of_week" -> SkillResult.DirectReply(
-                            "In ${resolution.candidate.displayName}, ${formatRelativeDateReply(relativeDayLabel.lowercase(), relativeDayCopula, targetZoned.format(DateTimeFormatter.ofPattern("EEEE")))}",
+                            "In ${resolution.candidate.displayName}, ${formatRelativeDateReply(relativeDayLabel, relativeDayCopula, targetZoned.format(DateTimeFormatter.ofPattern("EEEE")), embedded = true)}",
                         )
                         else -> SkillResult.DirectReply(
                             "In ${resolution.candidate.displayName}, it's ${zonedNow.format(DateTimeFormatter.ofPattern("h:mm a"))} on ${zonedNow.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
