@@ -1017,9 +1017,10 @@ private fun InputBar(
             }
 
             Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                val sendEnabled = text.isNotBlank()
                 // Primary row: full-width text field with send/cancel trailing icon
                 TextField(
                     value = text,
@@ -1027,25 +1028,39 @@ private fun InputBar(
                     placeholder = { Text("Message Jandal…") },
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 5,
+                    shape = RoundedCornerShape(24.dp),
                     colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
                     ),
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.Sentences,
                         imeAction = ImeAction.Send,
                     ),
-                    keyboardActions = KeyboardActions(onSend = { if (!isGenerating) onSend() }),
+                    keyboardActions = KeyboardActions(onSend = { if (!isGenerating && sendEnabled) onSend() }),
                     trailingIcon = {
                         if (isGenerating) {
                             IconButton(onClick = onCancel) {
                                 Icon(Icons.Default.Close, contentDescription = "Stop generation")
                             }
-                        } else if (text.isNotBlank()) {
-                            IconButton(onClick = onSend) {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                        } else {
+                            IconButton(
+                                onClick = onSend,
+                                enabled = sendEnabled,
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = "Send",
+                                    tint = if (sendEnabled) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                                    },
+                                )
                             }
                         }
                     },
