@@ -851,6 +851,38 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice direct reply keeps explicit spoken summary perspective`() = runTest(dispatcher) {
+        val reminderSkill = mockk<Skill>()
+        val displayText = "I'll remember your birthday is 3 April."
+        val spokenSummary = "I'll remember your birthday is 3 April."
+
+        every { quickIntentRouter.route("remember my birthday is 3rd april") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "save_important_date",
+                    params = mapOf("label" to "birthday", "date" to "3rd april"),
+                ),
+            )
+        every { skillRegistry.get("save_important_date") } returns reminderSkill
+        every { reminderSkill.name } returns "save_important_date"
+        every { reminderSkill.description } returns "Save important date"
+        every { reminderSkill.schema } returns SkillSchema()
+        coEvery { reminderSkill.execute(any()) } returns SkillResult.DirectReply(
+            content = displayText,
+            spokenSummary = spokenSummary,
+        )
+
+        viewModel.executeAction("remember my birthday is 3rd april", InputMode.Voice)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> { it.text == spokenSummary },
+            )
+        }
+    }
+
+    @Test
     fun `typed weather direct reply keeps display result silent`() = runTest(dispatcher) {
         val weatherSkill = mockk<Skill>()
         val displayText =

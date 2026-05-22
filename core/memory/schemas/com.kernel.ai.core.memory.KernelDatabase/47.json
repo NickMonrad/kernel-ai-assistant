@@ -1,12 +1,12 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 40,
-    "identityHash": "2783f0e7e5d426cfd98e27e8fbeef737",
+    "version": 47,
+    "identityHash": "3e10f40438033eba8b1be0f7dd85a7e0",
     "entities": [
       {
         "tableName": "conversations",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `lastDistilledAt` INTEGER, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `lastDistilledAt` INTEGER, `archivedAt` INTEGER, `pinned` INTEGER NOT NULL, `sort_order` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -35,6 +35,23 @@
             "fieldPath": "lastDistilledAt",
             "columnName": "lastDistilledAt",
             "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "archivedAt",
+            "columnName": "archivedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "pinned",
+            "columnName": "pinned",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sort_order",
+            "affinity": "INTEGER",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -505,7 +522,7 @@
       },
       {
         "tableName": "model_settings",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`modelId` TEXT NOT NULL, `contextWindowSize` INTEGER NOT NULL, `temperature` REAL NOT NULL, `topP` REAL NOT NULL, `topK` INTEGER NOT NULL, `showThinkingProcess` INTEGER NOT NULL, `correctGroundedFactsEnabled` INTEGER NOT NULL, `speculativeDecodingEnabled` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`modelId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`modelId` TEXT NOT NULL, `contextWindowSize` INTEGER NOT NULL, `temperature` REAL NOT NULL, `topP` REAL NOT NULL, `topK` INTEGER NOT NULL, `showThinkingProcess` INTEGER NOT NULL, `speculativeDecodingEnabled` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`modelId`))",
         "fields": [
           {
             "fieldPath": "modelId",
@@ -540,12 +557,6 @@
           {
             "fieldPath": "showThinkingProcess",
             "columnName": "showThinkingProcess",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "correctGroundedFactsEnabled",
-            "columnName": "correctGroundedFactsEnabled",
             "affinity": "INTEGER",
             "notNull": true
           },
@@ -1281,7 +1292,7 @@
       },
       {
         "tableName": "meal_plan_sessions",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `conversationId` TEXT NOT NULL, `status` TEXT NOT NULL, `peopleCount` INTEGER, `daysCount` INTEGER, `dietaryRestrictionsJson` TEXT NOT NULL, `proteinPreferencesJson` TEXT NOT NULL, `optionalSlotsJson` TEXT NOT NULL, `activeDayIndex` INTEGER, `pendingGenerationKind` TEXT, `pendingGenerationDayIndex` INTEGER, `pendingGenerationStartedAt` INTEGER, `planVersion` INTEGER NOT NULL, `finalSummaryWritten` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `completedAt` INTEGER, `cancelledAt` INTEGER, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `conversationId` TEXT NOT NULL, `status` TEXT NOT NULL, `peopleCount` INTEGER, `daysCount` INTEGER, `dietaryRestrictionsJson` TEXT NOT NULL, `proteinPreferencesJson` TEXT NOT NULL, `optionalSlotsJson` TEXT NOT NULL, `favouriteRecipeMode` TEXT NOT NULL, `activeDayIndex` INTEGER, `pendingGenerationKind` TEXT, `pendingGenerationDayIndex` INTEGER, `pendingGenerationStartedAt` INTEGER, `displayCode` INTEGER NOT NULL, `planVersion` INTEGER NOT NULL, `finalSummaryWritten` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `completedAt` INTEGER, `cancelledAt` INTEGER, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -1330,6 +1341,12 @@
             "notNull": true
           },
           {
+            "fieldPath": "favouriteRecipeMode",
+            "columnName": "favouriteRecipeMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
             "fieldPath": "activeDayIndex",
             "columnName": "activeDayIndex",
             "affinity": "INTEGER"
@@ -1348,6 +1365,12 @@
             "fieldPath": "pendingGenerationStartedAt",
             "columnName": "pendingGenerationStartedAt",
             "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "displayCode",
+            "columnName": "displayCode",
+            "affinity": "INTEGER",
+            "notNull": true
           },
           {
             "fieldPath": "planVersion",
@@ -1408,6 +1431,15 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_meal_plan_sessions_status` ON `${TABLE_NAME}` (`status`)"
+          },
+          {
+            "name": "index_meal_plan_sessions_displayCode",
+            "unique": true,
+            "columnNames": [
+              "displayCode"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_plan_sessions_displayCode` ON `${TABLE_NAME}` (`displayCode`)"
           }
         ]
       },
@@ -1523,7 +1555,7 @@
       },
       {
         "tableName": "meal_plan_recipe_versions",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `mealPlanSessionId` TEXT NOT NULL, `mealPlanDayId` TEXT NOT NULL, `version` INTEGER NOT NULL, `title` TEXT NOT NULL, `servings` INTEGER NOT NULL, `ingredientsJson` TEXT NOT NULL, `methodStepsJson` TEXT NOT NULL, `rawModelJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`mealPlanDayId`) REFERENCES `meal_plan_days`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `mealPlanSessionId` TEXT NOT NULL, `mealPlanDayId` TEXT NOT NULL, `version` INTEGER NOT NULL, `recipeKey` TEXT NOT NULL, `title` TEXT NOT NULL, `servings` INTEGER NOT NULL, `ingredientsJson` TEXT NOT NULL, `methodStepsJson` TEXT NOT NULL, `rawModelJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`mealPlanDayId`) REFERENCES `meal_plan_days`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -1547,6 +1579,12 @@
             "fieldPath": "version",
             "columnName": "version",
             "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recipeKey",
+            "columnName": "recipeKey",
+            "affinity": "TEXT",
             "notNull": true
           },
           {
@@ -1826,11 +1864,58 @@
             "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_plan_projection_writes_targetKind_targetName_sourceKey_sourceVersion` ON `${TABLE_NAME}` (`targetKind`, `targetName`, `sourceKey`, `sourceVersion`)"
           }
         ]
+      },
+      {
+        "tableName": "meal_plan_favourite_recipes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recipeKey` TEXT NOT NULL, `title` TEXT NOT NULL, `summary` TEXT, `proteinTagsJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`recipeKey`))",
+        "fields": [
+          {
+            "fieldPath": "recipeKey",
+            "columnName": "recipeKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "summary",
+            "columnName": "summary",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "proteinTagsJson",
+            "columnName": "proteinTagsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "recipeKey"
+          ]
+        }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2783f0e7e5d426cfd98e27e8fbeef737')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3e10f40438033eba8b1be0f7dd85a7e0')"
     ]
   }
 }

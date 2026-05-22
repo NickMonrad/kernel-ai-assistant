@@ -410,6 +410,35 @@ internal fun looksLikeAnaphora(text: String): Boolean {
     ).containsMatchIn(lower)
 }
 
+internal fun prefersImmediateConversationContext(text: String): Boolean {
+    val lower = text.lowercase().trim()
+    if (lower.length > 80) return false
+    if (Regex("""^what\s+(?:time|date|day)\s+is\s+(?:it|today)\b""", RegexOption.IGNORE_CASE).containsMatchIn(lower)) {
+        return false
+    }
+    return Regex(
+        """^(?:what|who|how|why|when|where|which)\b.*\b(?:it|they|them|that|this|those|these)\b""",
+        RegexOption.IGNORE_CASE,
+    ).containsMatchIn(lower)
+}
+
+private val BARE_WIKIPEDIA_ANAPHORA_REGEX = Regex(
+    """^(?:it|this|that|these|those|him|her|them|there)\b(?:\s+(?:please|thanks))?$""",
+    RegexOption.IGNORE_CASE,
+)
+
+internal fun extractExplicitWikipediaQuery(text: String): String? {
+    val patterns = listOf(
+        Regex("""^\s*(?:look\s+up|search)\s+wikipedia\s+(?:for\s+)?(.+?)\s*[?!.]*$""", RegexOption.IGNORE_CASE),
+        Regex("""^\s*(?:look\s+up|search)\s+(.+?)\s+on\s+wikipedia\s*[?!.]*$""", RegexOption.IGNORE_CASE),
+        Regex("""^\s*wikipedia\s+(.+?)\s*[?!.]*$""", RegexOption.IGNORE_CASE),
+    )
+    return patterns.firstNotNullOfOrNull { regex ->
+        regex.matchEntire(text)?.groupValues?.getOrNull(1)?.trim()
+            ?.takeIf { it.isNotBlank() && !BARE_WIKIPEDIA_ANAPHORA_REGEX.matches(it) }
+    }
+}
+
 /**
  * Returns true if [text] is a short follow-up like "yes", "continue", or "ok let's do it"
  * and the immediately previous exchange was already in a tool-driven flow.
@@ -465,7 +494,7 @@ internal fun toolTurnInstruction(isFirstReply: Boolean): String? =
     }
 
 internal fun nonToolTurnInstruction(): String =
-    "This looks like a normal conversational or reasoning reply. Prefer answering directly from your own knowledge and reasoning. " +
+"This looks like a normal conversational or reasoning reply. Prefer answering directly from your own knowledge and reasoning. " +
         "Only call tools if the user is clearly asking for current, external, or retrieved information."
 
 /**

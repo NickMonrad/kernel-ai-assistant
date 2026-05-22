@@ -345,41 +345,7 @@ class ChatTextUtilsTest {
             assertEquals("Keeorah everyone.", chunk)
         }
 
-        @Test
-        fun `streaming correction repairs grounded percentage chunks when enabled`() {
-            assertEquals(
-                "Battery is at 92%.",
-                maybeCorrectStreamingSpeechChunk(
-                    chunk = "Battery is at 9%.",
-                    groundingContext = "[System: Battery is at 92%]",
-                    correctionEnabled = true,
-                ),
-            )
-        }
 
-        @Test
-        fun `streaming correction leaves chunk unchanged when disabled`() {
-            assertEquals(
-                "Battery is at 9%.",
-                maybeCorrectStreamingSpeechChunk(
-                    chunk = "Battery is at 9%.",
-                    groundingContext = "[System: Battery is at 92%]",
-                    correctionEnabled = false,
-                ),
-            )
-        }
-
-        @Test
-        fun `streaming correction leaves chunk unchanged when grounding context is absent`() {
-            assertEquals(
-                "Battery is at 9%.",
-                maybeCorrectStreamingSpeechChunk(
-                    chunk = "Battery is at 9%.",
-                    groundingContext = null,
-                    correctionEnabled = true,
-                ),
-            )
-        }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -429,6 +395,47 @@ class ChatTextUtilsTest {
         )
         fun `returns false for non-anaphoric queries`(input: String) {
             assertFalse(looksLikeAnaphora(input), "Expected false for '$input'")
+        }
+    }
+
+    @Nested
+    @DisplayName("prefersImmediateConversationContext")
+    inner class ImmediateContextTests {
+        @Test
+        fun `returns true for short pronoun follow up questions`() {
+            assertTrue(prefersImmediateConversationContext("What are they"))
+            assertTrue(prefersImmediateConversationContext("How do they work?"))
+        }
+
+        @Test
+        fun `returns false for long or non pronoun queries`() {
+            assertFalse(prefersImmediateConversationContext("Tell me everything you remember about sweet potatoes and their nutritional profile"))
+            assertFalse(prefersImmediateConversationContext("What time is it"))
+        }
+    }
+
+    @Nested
+    @DisplayName("extractExplicitWikipediaQuery")
+    inner class ExplicitWikipediaQueryTests {
+        @Test
+        fun `preserves identifier text for look up wikipedia for command`() {
+            assertEquals("SM-918B", extractExplicitWikipediaQuery("Look up Wikipedia for SM-918B"))
+        }
+
+        @Test
+        fun `preserves mixed query for on wikipedia command`() {
+            assertEquals("Samsung sm-918b", extractExplicitWikipediaQuery("Look up Samsung sm-918b on Wikipedia"))
+        }
+
+        @Test
+        fun `returns null for non explicit wikipedia queries`() {
+            assertEquals(null, extractExplicitWikipediaQuery("What is sm-918b"))
+        }
+
+        @Test
+        fun `returns null for bare anaphora wikipedia commands`() {
+            assertEquals(null, extractExplicitWikipediaQuery("Search Wikipedia for it"))
+            assertEquals(null, extractExplicitWikipediaQuery("Look up this on Wikipedia"))
         }
     }
 

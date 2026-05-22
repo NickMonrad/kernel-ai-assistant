@@ -21,6 +21,7 @@ import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
+import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
 import com.kernel.ai.core.memory.mealplan.MealPlanSnapshot
@@ -62,6 +63,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -134,6 +136,18 @@ class ChatViewModelInitTest {
     fun tearDown() {
         Dispatchers.resetMain()
         unmockkStatic(Log::class)
+    }
+
+    @Test
+    fun `eviction reinit does not wait when app is already foregrounded`() {
+        assertFalse(shouldWaitForAppForegroundAfterEviction(androidx.lifecycle.Lifecycle.State.STARTED))
+        assertFalse(shouldWaitForAppForegroundAfterEviction(androidx.lifecycle.Lifecycle.State.RESUMED))
+    }
+
+    @Test
+    fun `eviction reinit waits for foreground when app is backgrounded`() {
+        assertTrue(shouldWaitForAppForegroundAfterEviction(androidx.lifecycle.Lifecycle.State.CREATED))
+        assertTrue(shouldWaitForAppForegroundAfterEviction(androidx.lifecycle.Lifecycle.State.INITIALIZED))
     }
 
     @Test
@@ -335,6 +349,7 @@ class ChatViewModelInitTest {
             daysCount = 3,
             dietaryRestrictions = emptyList(),
             proteinPreferences = listOf("chicken"),
+            favouriteRecipeMode = FavouriteRecipeMode.NONE,
             activeDayIndex = null,
             pendingGenerationKind = null,
             pendingGenerationDayIndex = null,
@@ -357,6 +372,8 @@ class ChatViewModelInitTest {
                     lastErrorCode = null,
                     lastErrorMessage = null,
                     currentRecipe = null,
+                    recipeKey = null,
+                    isFavouriteRecipe = false,
                 ),
             ),
         )

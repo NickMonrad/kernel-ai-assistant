@@ -45,7 +45,9 @@ class MemoryRepositoryImplTest {
         coEvery { episodicDao.getRowIdsOlderThan(any()) } returns emptyList()
         coEvery { episodicDao.deleteOlderThan(any()) } just Runs
         coEvery { episodicDao.count() } returns episodicCount
+        coEvery { episodicDao.markVectorized(any()) } just Runs
         coEvery { coreDao.count() } returns coreCount
+        coEvery { coreDao.markVectorized(any()) } just Runs
     }
 
     // ─────────────────────────────── addEpisodicMemory ───────────────────────────────

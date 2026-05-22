@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 40,
-    "identityHash": "2783f0e7e5d426cfd98e27e8fbeef737",
+    "version": 36,
+    "identityHash": "6d43a73bc8fec38755e320346d601fcd",
     "entities": [
       {
         "tableName": "conversations",
@@ -953,7 +953,7 @@
       },
       {
         "tableName": "important_dates",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `label` TEXT NOT NULL, `normalized_label` TEXT NOT NULL, `month` INTEGER NOT NULL, `day` INTEGER NOT NULL, `year` INTEGER, `created_at` INTEGER NOT NULL, `notification_enabled` INTEGER NOT NULL, `notification_hour` INTEGER, `notification_minute` INTEGER)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `label` TEXT NOT NULL, `normalized_label` TEXT NOT NULL, `month` INTEGER NOT NULL, `day` INTEGER NOT NULL, `year` INTEGER, `created_at` INTEGER NOT NULL)",
         "fields": [
           {
             "fieldPath": "id",
@@ -995,22 +995,6 @@
             "columnName": "created_at",
             "affinity": "INTEGER",
             "notNull": true
-          },
-          {
-            "fieldPath": "notificationEnabled",
-            "columnName": "notification_enabled",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "notificationHour",
-            "columnName": "notification_hour",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "notificationMinute",
-            "columnName": "notification_minute",
-            "affinity": "INTEGER"
           }
         ],
         "primaryKey": {
@@ -1033,7 +1017,7 @@
       },
       {
         "tableName": "list_items",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `listId` INTEGER NOT NULL, `text` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `checked` INTEGER NOT NULL, `dueAt` INTEGER, `isFavourite` INTEGER NOT NULL, `notificationTime` INTEGER, `displayOrder` INTEGER NOT NULL, FOREIGN KEY(`listId`) REFERENCES `lists`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `listId` INTEGER NOT NULL, `text` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `checked` INTEGER NOT NULL, `dueAt` INTEGER, `isFavourite` INTEGER NOT NULL, FOREIGN KEY(`listId`) REFERENCES `lists`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -1081,17 +1065,6 @@
             "columnName": "isFavourite",
             "affinity": "INTEGER",
             "notNull": true
-          },
-          {
-            "fieldPath": "notificationTime",
-            "columnName": "notificationTime",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "displayOrder",
-            "columnName": "displayOrder",
-            "affinity": "INTEGER",
-            "notNull": true
           }
         ],
         "primaryKey": {
@@ -1127,7 +1100,7 @@
       },
       {
         "tableName": "lists",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `pinned` INTEGER NOT NULL, `displayOrder` INTEGER NOT NULL, `archivedAt` INTEGER)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `pinned` INTEGER NOT NULL, `displayOrder` INTEGER NOT NULL)",
         "fields": [
           {
             "fieldPath": "id",
@@ -1164,11 +1137,6 @@
             "columnName": "displayOrder",
             "affinity": "INTEGER",
             "notNull": true
-          },
-          {
-            "fieldPath": "archivedAt",
-            "columnName": "archivedAt",
-            "affinity": "INTEGER"
           }
         ],
         "primaryKey": {
@@ -1830,7 +1798,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2783f0e7e5d426cfd98e27e8fbeef737')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '6d43a73bc8fec38755e320346d601fcd')"
     ]
   }
 }

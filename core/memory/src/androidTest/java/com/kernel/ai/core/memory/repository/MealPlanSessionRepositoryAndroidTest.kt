@@ -1039,6 +1039,42 @@ class MealPlanSessionRepositoryAndroidTest {
         migratedDb.close()
     }
 
+
+    @Test
+    fun migration46To47_removesGroundedFactsRepairSetting() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 46).apply {
+            execSQL(
+                """
+                INSERT INTO `model_settings` (
+                    `modelId`, `contextWindowSize`, `temperature`, `topP`, `topK`,
+                    `showThinkingProcess`, `correctGroundedFactsEnabled`, `speculativeDecodingEnabled`, `updatedAt`
+                ) VALUES ('gemma_4_e4b', 4000, 1.0, 0.95, 64, 1, 1, 0, 1000)
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            MIGRATION_DB_NAME,
+            47,
+            true,
+            KernelDatabase.MIGRATION_46_47,
+        )
+
+        migratedDb.query("SELECT modelId, topK, showThinkingProcess, speculativeDecodingEnabled FROM `model_settings` WHERE modelId = 'gemma_4_e4b'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("gemma_4_e4b", cursor.getString(0))
+            assertEquals(64, cursor.getInt(1))
+            assertEquals(1, cursor.getInt(2))
+            assertEquals(0, cursor.getInt(3))
+        }
+        migratedDb.query("PRAGMA table_info(`model_settings`)").use { cursor ->
+            while (cursor.moveToNext()) {
+                assertFalse(cursor.getString(1) == "correctGroundedFactsEnabled")
+            }
+        }
+        migratedDb.close()
+    }
     private fun rawQueryInt(sql: String): Int =
         database.openHelper.writableDatabase.query(sql).use { cursor ->
             cursor.moveToFirst()
