@@ -791,6 +791,26 @@ class QuickIntentRouterTest {
         }
 
         @Test
+        fun `should route numeric future date queries to get_time`() {
+            val result = regexOnlyRouter.route("What's the date in 2 days")
+            assertRegexMatch(result, "get_time", "What's the date in 2 days")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("date", intent.params["query_type"])
+            assertEquals("2", intent.params["offset_days"])
+        }
+
+        @Test
+        fun `should route numeric past date queries to get_time`() {
+            val result = regexOnlyRouter.route("What was the date 2 days ago")
+            assertRegexMatch(result, "get_time", "What was the date 2 days ago")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("date", intent.params["query_type"])
+            assertEquals("-2", intent.params["offset_days"])
+        }
+
+        @Test
         fun `should extract location for world time query`() {
             val result = regexOnlyRouter.route("what time is it in London right now")
             assertRegexMatch(result, "get_time", "what time is it in London right now")

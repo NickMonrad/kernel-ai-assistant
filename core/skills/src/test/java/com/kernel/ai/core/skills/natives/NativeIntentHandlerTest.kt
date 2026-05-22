@@ -280,6 +280,22 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `get_time returns future offset date when offset days are requested`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "date", "offset_days" to "2"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDate = LocalDate.now().plusDays(2).format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
+        assertEquals("In 2 days, it will be $expectedDate", reply.content)
+    }
+
+    @Test
+    fun `get_time returns past offset date when offset days are requested`() {
+        val result = handleIntent("get_time", mapOf("query_type" to "date", "offset_days" to "-2"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        val expectedDate = LocalDate.now().minusDays(2).format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))
+        assertEquals("2 days ago was $expectedDate", reply.content)
+    }
+
+    @Test
     fun `save_memory asks for clarification instead of saving short recipe labels`() {
         val result = handleIntent("save_memory", mapOf("content" to "the pancakes recipe"))
         val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)

@@ -1075,6 +1075,38 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
+                """what(?:'s|\s+is)\s+the\s+date\s+in\s+(\d+)\s+days\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "date", "offset_days" to match.groupValues[1]) },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+is)\s+the\s+day(?:\s+of\s+the\s+week)?\s+in\s+(\d+)\s+days\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "day_of_week", "offset_days" to match.groupValues[1]) },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+was|\s+is)\s+the\s+date\s+(\d+)\s+days\s+ago\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "date", "offset_days" to "-${match.groupValues[1]}") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:\s+day\s+was(?:\s+it)?|\s+was\s+the\s+day)(?:\s+of\s+the\s+week)?\s+(\d+)\s+days\s+ago\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "day_of_week", "offset_days" to "-${match.groupValues[1]}") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
                 """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(time|date|day)\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),

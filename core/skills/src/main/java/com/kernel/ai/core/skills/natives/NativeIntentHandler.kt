@@ -734,31 +734,46 @@ class NativeIntentHandler @Inject constructor(
 
     // ── Time / Date ───────────────────────────────────────────────────────────
 
+    private fun formatRelativeDateReply(label: String, copula: String, value: String): String =
+        if (label.startsWith("In ")) {
+            "$label, it $copula $value"
+        } else {
+            "$label $copula $value"
+        }
+
     private fun getTime(params: Map<String, String> = emptyMap()): SkillResult {
         val relativeDay = params["relative_day"]?.trim()?.lowercase()
-        val relativeDayLabel = when (relativeDay) {
-            "tomorrow" -> "Tomorrow"
-            "yesterday" -> "Yesterday"
+        val offsetDays = params["offset_days"]?.trim()?.toLongOrNull()
+        val dayOffset = offsetDays ?: when (relativeDay) {
+            "tomorrow" -> 1L
+            "yesterday" -> -1L
+            else -> 0L
+        }
+        val relativeDayLabel = when {
+            offsetDays != null && dayOffset > 0L -> "In $dayOffset days"
+            offsetDays != null && dayOffset < 0L -> "${-dayOffset} days ago"
+            relativeDay == "tomorrow" -> "Tomorrow"
+            relativeDay == "yesterday" -> "Yesterday"
             else -> "Today"
         }
-        val relativeDayCopula = if (relativeDay == "yesterday") "was" else "is"
+        val relativeDayCopula = when {
+            dayOffset < 0L -> "was"
+            offsetDays != null && dayOffset > 0L -> "will be"
+            else -> "is"
+        }
         val location = params["location"]?.trim()?.takeIf { it.isNotBlank() }
         if (location != null) {
             return when (val resolution = WorldClockCatalog.resolve(location)) {
                 is WorldClockResolution.Resolved -> {
                     val zonedNow = Instant.ofEpochMilli(System.currentTimeMillis())
                         .atZone(ZoneId.of(resolution.candidate.zoneId))
-                    val targetZoned = when (relativeDay) {
-                        "tomorrow" -> zonedNow.plusDays(1)
-                        "yesterday" -> zonedNow.minusDays(1)
-                        else -> zonedNow
-                    }
+                    val targetZoned = zonedNow.plusDays(dayOffset)
                     when (params["query_type"]) {
                         "date" -> SkillResult.DirectReply(
-                            "In ${resolution.candidate.displayName}, ${relativeDayLabel.lowercase()} $relativeDayCopula ${targetZoned.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
+                            "In ${resolution.candidate.displayName}, ${formatRelativeDateReply(relativeDayLabel.lowercase(), relativeDayCopula, targetZoned.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy")))}",
                         )
                         "day_of_week" -> SkillResult.DirectReply(
-                            "In ${resolution.candidate.displayName}, ${relativeDayLabel.lowercase()} $relativeDayCopula ${targetZoned.format(DateTimeFormatter.ofPattern("EEEE"))}",
+                            "In ${resolution.candidate.displayName}, ${formatRelativeDateReply(relativeDayLabel.lowercase(), relativeDayCopula, targetZoned.format(DateTimeFormatter.ofPattern("EEEE")))}",
                         )
                         else -> SkillResult.DirectReply(
                             "In ${resolution.candidate.displayName}, it's ${zonedNow.format(DateTimeFormatter.ofPattern("h:mm a"))} on ${zonedNow.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
@@ -779,11 +794,7 @@ class NativeIntentHandler @Inject constructor(
         }
 
         val now = LocalDateTime.now()
-        val targetDateTime = when (relativeDay) {
-            "tomorrow" -> now.plusDays(1)
-            "yesterday" -> now.minusDays(1)
-            else -> now
-        }
+        val targetDateTime = now.plusDays(dayOffset)
         // DirectReply: factual time/date data — LLM wrapping risks corrupting values
         // (e.g. "3:47 PM" → "nearly four o'clock") and adds no value for a simple query.
         return when (params["query_type"]) {
@@ -791,10 +802,10 @@ class NativeIntentHandler @Inject constructor(
                 "It's ${now.format(DateTimeFormatter.ofPattern("h:mm a"))}",
             )
             "date" -> SkillResult.DirectReply(
-                "${relativeDayLabel} $relativeDayCopula ${targetDateTime.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
+                formatRelativeDateReply(relativeDayLabel, relativeDayCopula, targetDateTime.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))),
             )
             "day_of_week" -> SkillResult.DirectReply(
-                "${relativeDayLabel} $relativeDayCopula ${targetDateTime.format(DateTimeFormatter.ofPattern("EEEE"))}",
+                formatRelativeDateReply(relativeDayLabel, relativeDayCopula, targetDateTime.format(DateTimeFormatter.ofPattern("EEEE"))),
             )
             "year" -> SkillResult.DirectReply("It's ${now.year}")
             "month" -> SkillResult.DirectReply(
