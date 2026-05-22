@@ -1948,8 +1948,10 @@ class NativeIntentHandler @Inject constructor(
         }
 
         val displayDate = formatImportantDate(parsed.month, parsed.day, parsed.year)
+        val confirmation = buildImportantDateConfirmation(label, storedLabel, displayDate)
         return SkillResult.DirectReply(
-            buildImportantDateConfirmation(label, storedLabel, displayDate),
+            confirmation,
+            spokenSummary = confirmation,
         )
     }
 

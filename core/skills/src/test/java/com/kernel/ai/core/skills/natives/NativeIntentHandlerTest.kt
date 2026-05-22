@@ -1020,6 +1020,7 @@ class NativeIntentHandlerTest {
 
         val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
         assertEquals("I'll remember your birthday is 3 April.", reply.content)
+        assertEquals("I'll remember your birthday is 3 April.", reply.spokenSummary)
         coVerify(exactly = 1) { importantDateRepository.save("Nick's birthday", 4, 3, null) }
     }
 
