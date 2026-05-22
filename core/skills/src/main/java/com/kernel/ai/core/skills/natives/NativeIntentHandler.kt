@@ -734,18 +734,57 @@ class NativeIntentHandler @Inject constructor(
 
     // ── Time / Date ───────────────────────────────────────────────────────────
 
+    private fun formatRelativeDateReply(
+        label: String,
+        copula: String,
+        value: String,
+        embedded: Boolean = false,
+    ): String =
+        when {
+            embedded && label.startsWith("In ", ignoreCase = true) ->
+                "${label.substring(3)} from now $copula $value"
+            embedded -> "${label.lowercase()} $copula $value"
+            label.startsWith("In ", ignoreCase = true) ->
+                "$label, it $copula $value"
+            else -> "$label $copula $value"
+        }
+
     private fun getTime(params: Map<String, String> = emptyMap()): SkillResult {
+        val relativeDay = params["relative_day"]?.trim()?.lowercase()
+        val offsetDays = params["offset_days"]?.trim()?.toLongOrNull()
+        val dayOffset = offsetDays ?: when (relativeDay) {
+            "tomorrow" -> 1L
+            "yesterday" -> -1L
+            else -> 0L
+        }
+        val offsetDayCount = kotlin.math.abs(dayOffset)
+        val offsetDayUnit = if (offsetDayCount == 1L) "day" else "days"
+        val relativeDayLabel = when {
+            offsetDays != null && dayOffset > 0L -> "In $offsetDayCount $offsetDayUnit"
+            offsetDays != null && dayOffset < 0L -> "$offsetDayCount $offsetDayUnit ago"
+            relativeDay == "tomorrow" -> "Tomorrow"
+            relativeDay == "yesterday" -> "Yesterday"
+            else -> "Today"
+        }
+        val relativeDayCopula = when {
+            dayOffset < 0L -> "was"
+            offsetDays != null && dayOffset > 0L -> "will be"
+            else -> "is"
+        }
         val location = params["location"]?.trim()?.takeIf { it.isNotBlank() }
         if (location != null) {
             return when (val resolution = WorldClockCatalog.resolve(location)) {
                 is WorldClockResolution.Resolved -> {
                     val zonedNow = Instant.ofEpochMilli(System.currentTimeMillis())
                         .atZone(ZoneId.of(resolution.candidate.zoneId))
+                    val targetZoned = zonedNow.plusDays(dayOffset)
                     when (params["query_type"]) {
                         "date" -> SkillResult.DirectReply(
-                            "In ${resolution.candidate.displayName}, today is ${zonedNow.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
+                            "In ${resolution.candidate.displayName}, ${formatRelativeDateReply(relativeDayLabel, relativeDayCopula, targetZoned.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy")), embedded = true)}",
                         )
-
+                        "day_of_week" -> SkillResult.DirectReply(
+                            "In ${resolution.candidate.displayName}, ${formatRelativeDateReply(relativeDayLabel, relativeDayCopula, targetZoned.format(DateTimeFormatter.ofPattern("EEEE")), embedded = true)}",
+                        )
                         else -> SkillResult.DirectReply(
                             "In ${resolution.candidate.displayName}, it's ${zonedNow.format(DateTimeFormatter.ofPattern("h:mm a"))} on ${zonedNow.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
                         )
@@ -765,6 +804,7 @@ class NativeIntentHandler @Inject constructor(
         }
 
         val now = LocalDateTime.now()
+        val targetDateTime = now.plusDays(dayOffset)
         // DirectReply: factual time/date data — LLM wrapping risks corrupting values
         // (e.g. "3:47 PM" → "nearly four o'clock") and adds no value for a simple query.
         return when (params["query_type"]) {
@@ -772,10 +812,10 @@ class NativeIntentHandler @Inject constructor(
                 "It's ${now.format(DateTimeFormatter.ofPattern("h:mm a"))}",
             )
             "date" -> SkillResult.DirectReply(
-                "Today is ${now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))}",
+                formatRelativeDateReply(relativeDayLabel, relativeDayCopula, targetDateTime.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy"))),
             )
             "day_of_week" -> SkillResult.DirectReply(
-                "It's ${now.format(DateTimeFormatter.ofPattern("EEEE"))}",
+                formatRelativeDateReply(relativeDayLabel, relativeDayCopula, targetDateTime.format(DateTimeFormatter.ofPattern("EEEE"))),
             )
             "year" -> SkillResult.DirectReply("It's ${now.year}")
             "month" -> SkillResult.DirectReply(
@@ -1918,20 +1958,47 @@ class NativeIntentHandler @Inject constructor(
                 "save_important_date",
                 "Could not parse date '$rawDate' — use a date like '15 March' or '22 June 2018'.",
             )
-
+        val userName = runBlocking { userProfileRepository.getName() }?.trim()?.takeIf { it.isNotBlank() }
+        val storedLabel = resolveStoredImportantDateLabel(label, userName)
         runBlocking {
             importantDateRepository.save(
-                label = label,
+                label = storedLabel,
                 month = parsed.month,
                 day = parsed.day,
                 year = parsed.year,
             )
         }
 
+        val displayDate = formatImportantDate(parsed.month, parsed.day, parsed.year)
+        val confirmation = buildImportantDateConfirmation(label, storedLabel, displayDate)
         return SkillResult.DirectReply(
-            "I'll remember ${label.trim()} as ${formatImportantDate(parsed.month, parsed.day, parsed.year)}.",
+            confirmation,
+            spokenSummary = confirmation,
         )
     }
+
+    private fun resolveStoredImportantDateLabel(label: String, userName: String?): String {
+        val trimmed = label.trim()
+        if (userName.isNullOrBlank()) return trimmed
+        return when (trimmed.lowercase(Locale.ENGLISH)) {
+            "birthday" -> "$userName's birthday"
+            "anniversary" -> "$userName's anniversary"
+            "wedding anniversary" -> "$userName's wedding anniversary"
+            else -> trimmed
+        }
+    }
+
+    private fun buildImportantDateConfirmation(
+        originalLabel: String,
+        storedLabel: String,
+        displayDate: String,
+    ): String = when (originalLabel.trim().lowercase(Locale.ENGLISH)) {
+        "birthday" -> "I'll remember your birthday is $displayDate."
+        "anniversary" -> "I'll remember your anniversary is $displayDate."
+        "wedding anniversary" -> "I'll remember your wedding anniversary is $displayDate."
+        else -> "I'll remember $storedLabel as $displayDate."
+    }
+
 
     private fun listImportantDates(): SkillResult {
         val today = LocalDate.now()
@@ -2277,7 +2344,9 @@ class NativeIntentHandler @Inject constructor(
 
         return input.replace(Regex("""\b([A-Za-z]{4,})\b""")) { match ->
             val word = match.groupValues[1]
-            if (months.any { it.equals(word, ignoreCase = true) }) return@replace word
+            months.firstOrNull { it.equals(word, ignoreCase = true) }?.let { canonicalMonth ->
+                return@replace canonicalMonth
+            }
             if (word.lowercase() in blocklist) return@replace word
             val maxDist = if (word.length >= 6) 2 else 1
             val best = months
@@ -2289,11 +2358,59 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
+    private fun normalizeOrdinalWordDatePrefix(input: String): String {
+        val normalized = input.lowercase()
+            .replace("-", " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+        val ordinalWords = mapOf(
+            "first" to 1,
+            "second" to 2,
+            "third" to 3,
+            "fourth" to 4,
+            "fifth" to 5,
+            "sixth" to 6,
+            "seventh" to 7,
+            "eighth" to 8,
+            "ninth" to 9,
+            "tenth" to 10,
+            "eleventh" to 11,
+            "twelfth" to 12,
+            "thirteenth" to 13,
+            "fourteenth" to 14,
+            "fifteenth" to 15,
+            "sixteenth" to 16,
+            "seventeenth" to 17,
+            "eighteenth" to 18,
+            "nineteenth" to 19,
+            "twentieth" to 20,
+            "twenty first" to 21,
+            "twenty second" to 22,
+            "twenty third" to 23,
+            "twenty fourth" to 24,
+            "twenty fifth" to 25,
+            "twenty sixth" to 26,
+            "twenty seventh" to 27,
+            "twenty eighth" to 28,
+            "twenty ninth" to 29,
+            "thirtieth" to 30,
+            "thirty first" to 31,
+        )
+        val matched = ordinalWords.entries
+            .sortedByDescending { it.key.length }
+            .firstOrNull { normalized == it.key || normalized.startsWith("${it.key} ") }
+            ?: return input
+        return input.replaceFirst(Regex("""(?i)^${Regex.escape(matched.key)}\b"""), matched.value.toString())
+    }
+
+
     private fun parseImportantDateInput(input: String): ParsedImportantDateInput? {
-        val sanitized = correctMonthSpelling(input).trim()
-            .replace(Regex("""\b(\d{1,2})(st|nd|rd|th)\b""", RegexOption.IGNORE_CASE), "$1")
-            .replace(",", "")
-            .replace(Regex("""^(the|a|an)\s+""", RegexOption.IGNORE_CASE), "")
+        val sanitized = normalizeOrdinalWordDatePrefix(
+            correctMonthSpelling(input).trim()
+                .replace(Regex("""\b(\d{1,2})(st|nd|rd|th)\b""", RegexOption.IGNORE_CASE), "$1")
+                .replace(",", "")
+                .replace(Regex("""^(the|a|an)\s+""", RegexOption.IGNORE_CASE), ""),
+        )
         val fullDateFormatters = listOf(
             DateTimeFormatter.ISO_LOCAL_DATE,
             DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH),
@@ -2482,6 +2599,9 @@ class NativeIntentHandler @Inject constructor(
         return try {
             runBlocking {
                 val userName = userProfileRepository.getName()
+                clarificationPromptForSaveMemory(raw, userName)?.let { prompt ->
+                    return@runBlocking SkillResult.DirectReply(prompt)
+                }
                 val content = normaliseSaveContent(raw, userName)
                 val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
                 memoryRepository.addCoreMemory(
@@ -2489,7 +2609,7 @@ class NativeIntentHandler @Inject constructor(
                     source = "agent",
                     embeddingVector = vector ?: floatArrayOf(),
                 )
-                SkillResult.Success("✓ Saved: \"${content.take(100)}\"")
+                SkillResult.Success("✓ Saved: \"${content.take(100)}\".")
             }
         } catch (e: Exception) {
             Log.e(TAG, "save_memory failed", e)

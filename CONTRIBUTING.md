@@ -163,7 +163,7 @@ Always include the `Co-authored-by` trailer for Copilot-assisted commits.
    ```
 4. **Open PR** via `gh pr create --body-file` (use a file to avoid shell escaping issues with multi-line bodies)
 5. **CI must pass** — "Build & Test" check is required; PRs without a green check cannot merge
-6. **Code review** — run the Copilot code-reviewer agent on non-trivial PRs
+6. **Code review** — run the repository `code-reviewer` agent on non-trivial PRs; GitHub Copilot PR review is optional and does not satisfy this requirement
 7. **Address findings:**
    - **Major** (bugs, data loss risk, crashes, logic errors) → fix on the branch, request scoped re-review
    - **Minor** (cosmetic, trivial, style) → fix and go straight to merge

@@ -1,8 +1,8 @@
 package com.kernel.ai.feature.chat.model
 
+import com.kernel.ai.core.inference.ModelCapabilities
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
-
 sealed interface ChatUiState {
     data object Loading : ChatUiState
 
@@ -17,6 +17,7 @@ sealed interface ChatUiState {
         val isLoadingModel: Boolean = false,
         /** Whether to show the model's thinking process tokens in the chat UI. */
         val showThinkingProcess: Boolean = true,
+        val modelCapabilities: ModelCapabilities? = null,
     ) : ChatUiState
 
     /** Models need to be downloaded before chatting. */

@@ -15,6 +15,7 @@ Shared guidance for any agent working in this repository.
 - Do not overwrite unrelated local changes.
 - Keep output concise and action-focused.
 - Use the default or auto model selection for agent workflows; do not hardcode premium-only model IDs into repo-local prompts or scripts.
+- For PR review, use the repository `code-reviewer` agent workflow; do not substitute GitHub Copilot PR review comments for the required review pass.
 
 ## Repo context
 

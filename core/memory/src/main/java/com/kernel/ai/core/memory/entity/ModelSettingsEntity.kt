@@ -20,10 +20,6 @@ data class ModelSettingsEntity(
     val topK: Int = 64,
     /** Whether to display the model's internal reasoning (thinking tokens) in the chat UI. */
     val showThinkingProcess: Boolean = true,
-    /** Whether to post-process LLM output to repair truncated percentages and malformed years
-     *  from grounding context. Disabled by default (#681) — the Levenshtein-based year repair
-     *  was replacing correct numbers that happened to be close to years in RAG context. */
-    val correctGroundedFactsEnabled: Boolean = false,
     /** Whether to enable MTP (Multi-Token Prediction) speculative decoding. Only effective on
      *  Gemma 4 models that support it. Disabled by default — user must opt in per model. */
     val speculativeDecodingEnabled: Boolean = false,

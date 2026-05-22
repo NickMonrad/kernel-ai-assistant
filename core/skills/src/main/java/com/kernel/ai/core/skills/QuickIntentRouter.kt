@@ -199,7 +199,7 @@ class QuickIntentRouter(
         normalizeImportantDateLabel(raw).takeIf { it.isNotBlank() }
 
     private val importantDateValuePattern =
-        "(?:\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|[a-zA-Z]+\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})"
+        "(?:\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|[a-zA-Z]+\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty(?:-|\\s+)first|twenty(?:-|\\s+)second|twenty(?:-|\\s+)third|twenty(?:-|\\s+)fourth|twenty(?:-|\\s+)fifth|twenty(?:-|\\s+)sixth|twenty(?:-|\\s+)seventh|twenty(?:-|\\s+)eighth|twenty(?:-|\\s+)ninth|thirtieth|thirty(?:-|\\s+)first)(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})"
 
     private val unitConversionValuePattern = "-?\\d+(?:\\.\\d+)?"
     private val unitConversionUnitPattern = UnitConversionEvaluator.supportedRouterRegexPattern()
@@ -979,7 +979,135 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(time|date|day)""",
+                """what(?:'s| is)\s+the\s+day\s+of\s+the\s+week\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+day\s+of\s+the\s+week\s+is\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+day\s+is(?:\s+it)?\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+tomorrow'?s\s+date\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+date\s+is\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+is|\s+was)\s+the\s+date\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| was| is)\s+the\s+day\s+of\s+the\s+week\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+day\s+of\s+the\s+week\s+was\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+(?:was\s+the\s+day|day\s+was(?:\s+it)?)\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| was| is)\s+yesterday'?s\s+date\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+date\s+was\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+was|\s+is)\s+the\s+date\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+is)\s+the\s+date\s+in\s+(\d+)\s+days\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "date", "offset_days" to match.groupValues[1]) },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+is)\s+the\s+day(?:\s+of\s+the\s+week)?\s+in\s+(\d+)\s+days\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "day_of_week", "offset_days" to match.groupValues[1]) },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+was|\s+is)\s+the\s+date\s+(\d+)\s+days\s+ago\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "date", "offset_days" to "-${match.groupValues[1]}") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:\s+day\s+was(?:\s+it)?|\s+was\s+the\s+day)(?:\s+of\s+the\s+week)?\s+(\d+)\s+days\s+ago\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "day_of_week", "offset_days" to "-${match.groupValues[1]}") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(time|date|day)\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1016,7 +1144,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what\s+(day|date)\s+is\s+(?:it|today)""",
+                """what\s+(day|date)\s+is\s+(?:it(?:\s+today)?|today)\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1031,7 +1159,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_time",
             regex = Regex(
-                """what\s+day\s+of\s+the\s+week\s+(?:is\s+it|it\s+is|are\s+we\s+in)\s*$""",
+                """what\s+day\s+of\s+the\s+week\s+(?:is\s+it|it\s+is|are\s+we\s+in)\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week") },
@@ -2112,7 +2240,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "navigate_to",
             regex = Regex(
-                """(?:navigate|directions?|drive|take\s+me|get\s+me(?!\s+the\s+nearest))(?:\s+to)?\s+(.+)""",
+                """^(?:navigate|directions?|drive|take\s+me|get\s+me(?!\s+the\s+nearest))(?:\s+to)?\s+(.+?)\s*[?!.]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("destination" to match.groupValues[1].trim()) },
@@ -2990,7 +3118,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+)?(.+?)\s+(?:is|as|on)\s+($importantDateValuePattern)$""",
+                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+)?(.+?)\s+(?:is|as|on)(?:\s+the)?\s+($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3004,7 +3132,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^my\s+(.+?)\s+is\s+($importantDateValuePattern)$""",
+                """^my\s+(.+?)\s+is(?:\s+on)?(?:\s+the)?\s+($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3042,7 +3170,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_important_date",
             regex = Regex(
-                """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+(?:date|day)(?:\s+for)?\s+(.+?)\s+($importantDateValuePattern)$""",
+                """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+(?:date|day)(?:\s+for)?\s+(.+?)\s+(?:on\s+)?(?:the\s+)?($importantDateValuePattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3136,7 +3264,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """(?:save|store|keep)\s+(?:(?:to|in)\s+memory(?:\s+that)?|that(?!\s+to\s+memory|\s+in\s+memory))\s*[:\-–]?\s*(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:save|store|keep)\s+(?:(?:to|in)\s+memory(?:\s+that)?|that(?!\s+to\s+memory|\s+in\s+memory))\s*[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3159,7 +3287,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """remember\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(\S.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remember\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(\S.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
@@ -3171,7 +3299,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """(?:(?:make\s+a\s+)?note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(\S.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:make\s+a\s+)?note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(\S.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },

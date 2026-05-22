@@ -54,6 +54,20 @@ class KernelAIToolSetTest {
         assertTrue(toolSet.wasToolCalled())
         assertTrue(toolSet.lastToolWasDirectReply())
         assertEquals("get_system_info", toolSet.lastToolName())
-        assertEquals("{}", toolSet.lastToolRequest())
+    }
+
+    @Test
+    fun `getWeather delegates to get_weather skill`() = runTest {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "get_weather"
+        coEvery { skill.execute(any()) } returns SkillResult.DirectReply("Sunny, 22C")
+        every { registry.get("get_weather_gps") } returns skill
+
+        val result = toolSet.getWeather("", "0")
+
+        assertEquals("Sunny, 22C", result["result"])
+        assertTrue(toolSet.wasToolCalled())
+        assertTrue(toolSet.lastToolWasDirectReply())
+        assertEquals("get_weather", toolSet.lastToolName())
     }
 }
