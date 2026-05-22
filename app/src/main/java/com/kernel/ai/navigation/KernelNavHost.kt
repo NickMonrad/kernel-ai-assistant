@@ -1,6 +1,5 @@
 package com.kernel.ai.navigation
 
-import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -59,8 +58,9 @@ import com.kernel.ai.feature.settings.SettingsScreen
 import com.kernel.ai.feature.settings.SidePanelScreen
 import com.kernel.ai.feature.settings.UserProfileScreen
 import com.kernel.ai.feature.settings.VoiceScreen
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.launch
-
 private const val ROUTE_LIST = "conversation_list"
 private const val ROUTE_ACTIONS = "actions"
 private const val ROUTE_ACTIONS_OPEN = "actions?openSheet=true"
@@ -94,9 +94,34 @@ private const val ARG_WIDGET_VOICE = "widgetVoice"
 private const val STATE_OPEN_SHEET_CONSUMED = "openSheetConsumed"
 private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
 private const val STATE_WIDGET_QUERY_CONSUMED = "widgetQueryConsumed"
+private const val NEW_MEAL_PLAN_INITIAL_QUERY = "plan meals"
 
 /** Routes that show the bottom navigation bar. */
 private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS)
+
+internal fun buildChatRoute(
+    initialQuery: String? = null,
+    minimalContext: Boolean = false,
+    speakResponse: Boolean = false,
+): String {
+    val encodedQuery = initialQuery?.trim()?.takeIf { it.isNotEmpty() }?.let(::encodeRouteQueryValue)
+    val params = buildList {
+        encodedQuery?.let { add("$ARG_INITIAL_QUERY=$it") }
+        if (minimalContext) add("$ARG_MINIMAL_CONTEXT=true")
+        if (speakResponse) add("$ARG_SPEAK_RESPONSE=true")
+    }
+    return if (params.isEmpty()) ROUTE_CHAT else "$ROUTE_CHAT?${params.joinToString("&")}"
+}
+
+internal fun buildNewMealPlanChatRoute(): String =
+    buildChatRoute(
+        initialQuery = NEW_MEAL_PLAN_INITIAL_QUERY,
+        minimalContext = true,
+    )
+
+internal fun encodeRouteQueryValue(value: String): String =
+    URLEncoder.encode(value, StandardCharsets.UTF_8)
+        .replace("+", "%20")
 
 @Composable
 fun KernelNavHost(
@@ -116,8 +141,7 @@ fun KernelNavHost(
     // ADB test harness: navigate to chat from any screen when chat_input extra is delivered
     LaunchedEffect(initialChatQuery) {
         if (!initialChatQuery.isNullOrBlank()) {
-            val encoded = Uri.encode(initialChatQuery)
-            navController.navigate("$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded") {
+            navController.navigate(buildChatRoute(initialQuery = initialChatQuery)) {
                 popUpTo(ROUTE_LIST)
             }
         }
@@ -128,7 +152,7 @@ fun KernelNavHost(
     // before ActionsScreen's LaunchedEffect fires).
     LaunchedEffect(initialQuickActionQuery, initialQuickActionIsVoice) {
         if (!initialQuickActionQuery.isNullOrBlank()) {
-            val encoded = Uri.encode(initialQuickActionQuery)
+            val encoded = encodeRouteQueryValue(initialQuickActionQuery)
             navController.navigate(
                 "$ROUTE_ACTIONS?$ARG_WIDGET_QUERY=$encoded&$ARG_WIDGET_VOICE=$initialQuickActionIsVoice"
             ) {
@@ -373,9 +397,12 @@ fun KernelNavHost(
                                 backStackEntry.arguments?.putString(ARG_WIDGET_QUERY, "")
                             },
                             onNavigateToChat = { query, speakResponse ->
-                                val encoded = Uri.encode(query)
                                 navController.navigate(
-                                    "$ROUTE_CHAT?$ARG_INITIAL_QUERY=$encoded&$ARG_MINIMAL_CONTEXT=true&$ARG_SPEAK_RESPONSE=$speakResponse"
+                                    buildChatRoute(
+                                        initialQuery = query,
+                                        minimalContext = true,
+                                        speakResponse = speakResponse,
+                                    ),
                                 )
                             },
                             onNewConversation = {
@@ -499,6 +526,11 @@ fun KernelNavHost(
                 composable(ROUTE_MEAL_PLANS) {
                     MealPlansScreen(
                         onBack = { navController.popBackStack() },
+                        onStartNewMealPlan = {
+                            navController.navigate(buildNewMealPlanChatRoute()) {
+                                popUpTo(ROUTE_CHAT) { inclusive = true }
+                            }
+                        },
                     )
                 }
 
