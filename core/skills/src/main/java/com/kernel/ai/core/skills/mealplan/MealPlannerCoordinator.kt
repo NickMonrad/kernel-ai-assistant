@@ -1278,10 +1278,8 @@ class MealPlannerCoordinator @Inject constructor(
         return try {
             block()
         } finally {
-            withContext(NonCancellable) {
-                activeGenerationMutex.withLock {
-                    activeGenerationCounts.remove(sessionId)
-                }
+            activeGenerationMutex.withLock {
+                activeGenerationCounts.remove(sessionId)
             }
         }
     }
