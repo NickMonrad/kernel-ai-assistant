@@ -123,6 +123,20 @@ class MealPlannerSlotExtractorTest {
         assertEquals(null, extractor.extractProteinPreferences("egg free, eggs"))
         assertEquals(null, extractor.extractProteinPreferences("shellfish free, prawns"))
     }
+    @Test
+    fun `extractCuisinePreferences recognizes cuisine and no preference phrases`() {
+        assertEquals(listOf("italian", "thai"), extractor.extractCuisinePreferences("Italian and Thai"))
+        assertEquals(listOf("bbq and grill"), extractor.extractCuisinePreferences("BBQ"))
+        assertEquals(listOf("15 to 30 minute quick meals"), extractor.extractCuisinePreferences("quick meals"))
+        assertEquals(listOf("no cuisine preference"), extractor.extractCuisinePreferences("Any cuisine is fine"))
+    }
+
+    @Test
+    fun `extract cuisine preference removals and multi day edits`() {
+        assertEquals(listOf("italian", "one pot"), extractor.extractRemovedCuisinePreferences("remove italian and one pot"))
+        assertEquals(listOf(1, 3), extractor.extractReplaceDayIndices("replace days 2 and 4"))
+        assertEquals(listOf(0, 2, 3), extractor.extractRegenerateDayIndices("regenerate days 1, 3-4"))
+    }
 
     @Test
     fun `extractReplaceDayIndex parses one based day number`() {

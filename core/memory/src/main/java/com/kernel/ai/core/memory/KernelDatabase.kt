@@ -84,7 +84,7 @@ import java.time.ZoneId
         MealPlanProjectionWriteEntity::class,
         MealPlanFavouriteRecipeEntity::class,
     ],
-    version = 47,
+    version = 48,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -806,6 +806,12 @@ abstract class KernelDatabase : RoomDatabase() {
                 )
                 db.execSQL("DROP TABLE `model_settings`")
                 db.execSQL("ALTER TABLE `model_settings_new` RENAME TO `model_settings`")
+            }
+        }
+        /** Adds persisted cuisine preferences to meal-plan sessions. */
+        val MIGRATION_47_48 = object : Migration(47, 48) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `meal_plan_sessions` ADD COLUMN `cuisinePreferencesJson` TEXT NOT NULL DEFAULT '[]'")
             }
         }
     }

@@ -147,6 +147,62 @@ class MealPlanSessionRepositoryAndroidTest {
         assertEquals(2, projectionCount(updated.sessionId, "PLAN_SHOPPING_LIST", superseded = null))
         assertEquals(5, projectionCount(updated.sessionId, "RECIPE_LIST", superseded = null))
     }
+    @Test
+    fun persistRecipeDraft_aggregatesNormalizedShoppingProjectionItems() = runBlocking {
+        val session = repository.startOrResume("conv-aggregate")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(dayIndex = 0, title = "Chicken Bowls", summary = "Bowls", proteinTags = listOf("chicken")),
+                MealPlanDraftDay(dayIndex = 1, title = "Chicken Pasta", summary = "Pasta", proteinTags = listOf("chicken")),
+            ),
+        )
+
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(title = "Chicken Bowls", method = listOf("Cook the chicken.", "Build the bowls.")),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh"),
+                grocery(displayText = "2 onions", ingredientName = "onions", normalizationStatus = GroceryNormalizationStatus.OPAQUE),
+            ),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 1,
+            recipeDraft = recipeDraft(title = "Chicken Pasta", method = listOf("Cook the pasta.", "Finish the sauce.")),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "250 g chicken thigh", quantity = "250", unit = "g", ingredientName = "chicken thigh"),
+            ),
+        )
+
+        val shoppingList = listNameDao.getAll().single { it.name.endsWith("Shopping List") }
+        assertEquals(
+            listOf("750 g chicken thigh", "2 onions"),
+            listItemDao.getByList(shoppingList.id).map { it.text },
+        )
+    }
+
+    @Test
+    fun getRecentMealHistory_excludesCancelledSessions() = runBlocking {
+        val completed = repository.startOrResume("conv-history-completed")
+        repository.savePlanDraft(
+            completed.sessionId,
+            listOf(MealPlanDraftDay(dayIndex = 0, title = "Completed Chili", summary = "Hearty", proteinTags = listOf("beef"))),
+        )
+        repository.completeSession(completed.sessionId)
+
+        val cancelled = repository.startOrResume("conv-history-cancelled")
+        repository.savePlanDraft(
+            cancelled.sessionId,
+            listOf(MealPlanDraftDay(dayIndex = 0, title = "Cancelled Curry", summary = "Abandoned", proteinTags = listOf("chicken"))),
+        )
+        repository.cancelSession(cancelled.sessionId)
+
+        assertEquals(listOf("Completed Chili"), repository.getRecentMealHistory(limit = 10).map { it.title })
+    }
 
     @Test
     fun persistRecipeDraft_keeps_failed_days_in_recovery_until_user_retries() = runBlocking {
@@ -892,7 +948,15 @@ class MealPlanSessionRepositoryAndroidTest {
         ingredientName = ingredientName,
         note = null,
         normalizationStatus = normalizationStatus,
-        mergeKey = ingredientName,
+        mergeKey = if (
+            normalizationStatus == GroceryNormalizationStatus.NORMALIZED &&
+            !unit.isNullOrBlank() &&
+            !ingredientName.isNullOrBlank()
+        ) {
+            "${unit.lowercase()}:${ingredientName.lowercase()}"
+        } else {
+            ingredientName
+        },
     )
 
     @Test
@@ -1072,6 +1136,39 @@ class MealPlanSessionRepositoryAndroidTest {
             while (cursor.moveToNext()) {
                 assertFalse(cursor.getString(1) == "correctGroundedFactsEnabled")
             }
+        }
+        migratedDb.close()
+    }
+    @Test
+    fun migration47To48_addsCuisinePreferencesToMealPlanSessions() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 47).apply {
+            execSQL(
+                """
+                INSERT INTO `meal_plan_sessions` (
+                    `id`, `conversationId`, `status`, `peopleCount`, `daysCount`,
+                    `dietaryRestrictionsJson`, `proteinPreferencesJson`, `optionalSlotsJson`,
+                    `favouriteRecipeMode`, `activeDayIndex`, `pendingGenerationKind`, `pendingGenerationDayIndex`,
+                    `pendingGenerationStartedAt`, `displayCode`, `planVersion`, `finalSummaryWritten`,
+                    `createdAt`, `updatedAt`, `completedAt`, `cancelledAt`
+                ) VALUES (
+                    'session-a', 'conv-a', 'PLAN_REVIEW', 2, 3, '[]', '[]', '{}',
+                    'NONE', NULL, NULL, NULL, NULL, 1, 1, 0, 1000, 1000, NULL, NULL
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            MIGRATION_DB_NAME,
+            48,
+            true,
+            KernelDatabase.MIGRATION_47_48,
+        )
+
+        migratedDb.query("SELECT cuisinePreferencesJson FROM `meal_plan_sessions` WHERE id = 'session-a'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("[]", cursor.getString(0))
         }
         migratedDb.close()
     }

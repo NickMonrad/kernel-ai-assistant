@@ -78,10 +78,10 @@ interface MealPlanSessionDao {
         SELECT d.title AS title, d.summary AS summary, d.proteinTagsJson AS proteinTagsJson
         FROM meal_plan_days d
         JOIN meal_plan_sessions s ON s.id = d.mealPlanSessionId
-        WHERE s.status IN ('COMPLETED', 'CANCELLED')
+        WHERE s.status = 'COMPLETED'
           AND d.title IS NOT NULL
           AND TRIM(d.title) != ''
-        ORDER BY COALESCE(s.completedAt, s.cancelledAt, s.updatedAt) DESC, d.dayIndex ASC, d.id ASC
+        ORDER BY COALESCE(s.completedAt, s.updatedAt) DESC, d.dayIndex ASC, d.id ASC
         LIMIT :limit
         """,
     )

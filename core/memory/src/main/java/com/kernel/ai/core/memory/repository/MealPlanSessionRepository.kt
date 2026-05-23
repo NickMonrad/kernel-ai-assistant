@@ -44,6 +44,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
+import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -177,6 +178,7 @@ class MealPlanSessionRepository @Inject constructor(
         daysCount: Int? = null,
         dietaryRestrictions: List<String>? = null,
         proteinPreferences: List<String>? = null,
+        cuisinePreferences: List<String>? = null,
         favouriteRecipeMode: FavouriteRecipeMode? = null,
     ): MealPlanSnapshot = database.withTransaction {
         val session = requireNotNull(sessionDao.getById(sessionId)) { "Unknown meal-plan session: $sessionId" }
@@ -188,6 +190,7 @@ class MealPlanSessionRepository @Inject constructor(
             daysCount = daysCount ?: session.daysCount,
             dietaryRestrictionsJson = dietaryRestrictions?.distinct()?.toJsonArrayString() ?: session.dietaryRestrictionsJson,
             proteinPreferencesJson = proteinPreferences?.distinct()?.toJsonArrayString() ?: session.proteinPreferencesJson,
+            cuisinePreferencesJson = cuisinePreferences?.distinct()?.toJsonArrayString() ?: session.cuisinePreferencesJson,
             favouriteRecipeMode = favouriteRecipeMode?.name ?: session.favouriteRecipeMode,
             updatedAt = System.currentTimeMillis(),
         )
@@ -583,10 +586,11 @@ class MealPlanSessionRepository @Inject constructor(
         val snapshot = requireNotNull(getSession(sessionId))
         val restrictions = snapshot.dietaryRestrictions.takeIf { it.isNotEmpty() }?.joinToString() ?: "no specific dietary restrictions"
         val proteins = snapshot.proteinPreferences.takeIf { it.isNotEmpty() }?.joinToString() ?: "mixed proteins"
+        val cuisines = snapshot.cuisinePreferences.takeIf { it.isNotEmpty() }?.joinToString() ?: "no cuisine preference"
         val daySummary = snapshot.days.joinToString("; ") { day ->
             "Day ${day.dayIndex + 1}: ${day.title ?: "Meal"}"
         }
-        return "Created a ${snapshot.daysCount ?: snapshot.days.size}-day meal plan for ${snapshot.peopleCount ?: 0} people with $restrictions and protein preferences $proteins. Plan: $daySummary."
+        return "Created a ${snapshot.daysCount ?: snapshot.days.size}-day meal plan for ${snapshot.peopleCount ?: 0} people with $restrictions, protein preferences $proteins, and cuisine preferences $cuisines. Plan: $daySummary."
     }
 
     private suspend fun rebuildShoppingProjection(sessionId: String) {
@@ -605,9 +609,9 @@ class MealPlanSessionRepository @Inject constructor(
                 .takeIf { it != -1L }
                 ?: error("Failed to create shopping projection list: $targetName")
             val groceries = groceryItemDao.getCurrentForSession(sessionId)
-            groceries.forEach { grocery ->
+            aggregateShoppingProjectionItems(groceries).forEach { line ->
                 listItemDao.insert(
-                    ListItemEntity(listId = listId, text = grocery.displayText, createdAt = now, updatedAt = now),
+                    ListItemEntity(listId = listId, text = line, createdAt = now, updatedAt = now),
                 )
             }
             projectionWriteDao.insertAll(
@@ -629,6 +633,65 @@ class MealPlanSessionRepository @Inject constructor(
             )
         }
     }
+    private fun aggregateShoppingProjectionItems(groceries: List<MealPlanGroceryItemEntity>): List<String> {
+        val aggregated = LinkedHashMap<String, AggregatedShoppingItem>()
+        val opaqueLines = mutableListOf<String>()
+        groceries.forEach { grocery ->
+            val mergeKey = grocery.mergeKey
+            val quantity = grocery.quantity?.toBigDecimalOrNull()
+            val unit = grocery.unit?.trim()?.takeIf { it.isNotBlank() }
+            val ingredientName = grocery.ingredientName?.trim()?.takeIf { it.isNotBlank() }
+            if (
+                grocery.normalizationStatus == GroceryNormalizationStatus.NORMALIZED.name &&
+                !mergeKey.isNullOrBlank() &&
+                quantity != null &&
+                unit != null &&
+                ingredientName != null
+            ) {
+                val existing = aggregated[mergeKey]
+                if (existing == null) {
+                    aggregated[mergeKey] = AggregatedShoppingItem(
+                        quantity = quantity,
+                        unit = unit,
+                        ingredientName = ingredientName,
+                        note = grocery.note?.trim()?.takeIf { it.isNotBlank() },
+                    )
+                } else {
+                    aggregated[mergeKey] = existing.copy(
+                        quantity = existing.quantity + quantity,
+                        note = existing.note?.takeIf { it == grocery.note?.trim() && it.isNotBlank() },
+                    )
+                }
+            } else {
+                opaqueLines += grocery.displayText.ifBlank { grocery.originalText }
+            }
+        }
+        return buildList {
+            aggregated.values.forEach { item ->
+                add(buildAggregatedShoppingLine(item))
+            }
+            addAll(opaqueLines)
+        }
+    }
+
+    private fun buildAggregatedShoppingLine(item: AggregatedShoppingItem): String = buildString {
+        append(item.quantity.stripTrailingZeros().toPlainString())
+        append(' ')
+        append(item.unit)
+        append(' ')
+        append(item.ingredientName)
+        item.note?.let {
+            append(", ")
+            append(it)
+        }
+    }
+
+    private data class AggregatedShoppingItem(
+        val quantity: BigDecimal,
+        val unit: String,
+        val ingredientName: String,
+        val note: String?,
+    )
 
     private suspend fun rebuildRecipeProjection(
         session: MealPlanSessionEntity,
@@ -757,6 +820,7 @@ class MealPlanSessionRepository @Inject constructor(
                 daysCount = null,
                 dietaryRestrictionsJson = "[]",
                 proteinPreferencesJson = "[]",
+                cuisinePreferencesJson = "[]",
                 optionalSlotsJson = "{}",
                 favouriteRecipeMode = FavouriteRecipeMode.NONE.name,
                 activeDayIndex = null,
@@ -799,6 +863,7 @@ class MealPlanSessionRepository @Inject constructor(
             daysCount = daysCount,
             dietaryRestrictions = jsonArrayToStringList(dietaryRestrictionsJson),
             proteinPreferences = jsonArrayToStringList(proteinPreferencesJson),
+            cuisinePreferences = jsonArrayToStringList(cuisinePreferencesJson),
             favouriteRecipeMode = FavouriteRecipeMode.valueOf(favouriteRecipeMode),
             activeDayIndex = activeDayIndex,
             pendingGenerationKind = pendingGenerationKind?.let(PendingGenerationKind::valueOf),

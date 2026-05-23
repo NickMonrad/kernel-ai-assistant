@@ -46,6 +46,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.play.services.location)
     implementation(libs.tflite)
+    implementation(libs.datastore.preferences)
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)

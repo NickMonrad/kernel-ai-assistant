@@ -163,6 +163,16 @@ class MealPlannerCoordinator @Inject constructor(
             added = proteinPreferences,
             removed = removedProteinPreferences,
         )
+        val removedCuisinePreferences = slotExtractor.extractRemovedCuisinePreferences(text).orEmpty()
+        val cuisinePreferences = slotExtractor.extractCuisinePreferences(
+            text,
+            allowBareNoPreference = missingBefore == listOf("cuisine"),
+        )
+        val updatedCuisinePreferences = mergeUpdatedCuisinePreferences(
+            current = snapshot.cuisinePreferences,
+            added = cuisinePreferences,
+            removed = removedCuisinePreferences,
+        )
         val favouriteRecipeMode = slotExtractor.extractFavouriteRecipeMode(text)
         val mergedDietaryRestrictions = updatedDietaryRestrictions ?: snapshot.dietaryRestrictions
         val mergedProteinPreferences = updatedProteinPreferences ?: snapshot.proteinPreferences
@@ -175,6 +185,7 @@ class MealPlannerCoordinator @Inject constructor(
             daysCount = daysCount,
             dietaryRestrictions = updatedDietaryRestrictions,
             proteinPreferences = if (shouldClearProteinPreferences) emptyList() else updatedProteinPreferences,
+            cuisinePreferences = updatedCuisinePreferences,
             favouriteRecipeMode = favouriteRecipeMode,
         )
         if (shouldClearProteinPreferences) {
@@ -190,7 +201,8 @@ class MealPlannerCoordinator @Inject constructor(
             peopleCount != null ||
                 daysCount != null ||
                 updatedDietaryRestrictions != null ||
-                updatedProteinPreferences != null
+                updatedProteinPreferences != null ||
+                updatedCuisinePreferences != null
         if (hadAllSlotsBefore && !hasStructuralSlotUpdates) {
             if (slotExtractor.isGenerateRecipesRequest(text)) {
                 return generatePlanForReview(updated, onPlannerActivityChanged)
@@ -226,9 +238,9 @@ class MealPlannerCoordinator @Inject constructor(
             )
             return MealPlannerReply(promptForPreferenceEditing(updated))
         }
-        val replaceDayIndex = slotExtractor.extractReplaceDayIndex(text)
-        if (replaceDayIndex != null) {
-            return replaceDayForReview(snapshot, replaceDayIndex, onPlannerActivityChanged)
+        val replaceDayIndices = slotExtractor.extractReplaceDayIndices(text)
+        if (replaceDayIndices != null) {
+            return replaceDaysForReview(snapshot, replaceDayIndices, onPlannerActivityChanged)
         }
         if (slotExtractor.isChangePreferencesRequest(text)) {
             val editable = sessionRepository.returnToSlotCollection(snapshot.sessionId)
@@ -256,8 +268,8 @@ class MealPlannerCoordinator @Inject constructor(
     ): MealPlannerReply {
         val failedDay = snapshot.days.firstOrNull { it.status == MealPlanDayStatus.FAILED }
         val pendingDay = snapshot.days.firstOrNull { it.status != MealPlanDayStatus.PERSISTED && it.status != MealPlanDayStatus.FAILED }
-        val replaceDayIndex = slotExtractor.extractReplaceDayIndex(text)
-        val regenerateDayIndex = slotExtractor.extractRegenerateDayIndex(text)
+        val replaceDayIndices = slotExtractor.extractReplaceDayIndices(text)
+        val regenerateDayIndices = slotExtractor.extractRegenerateDayIndices(text)
         val favouriteRecipeMode = slotExtractor.extractFavouriteRecipeMode(text)
         val favouriteDayIndex = slotExtractor.extractFavouriteDayIndex(text)
         val unfavouriteDayIndex = slotExtractor.extractUnfavouriteDayIndex(text)
@@ -278,10 +290,10 @@ class MealPlannerCoordinator @Inject constructor(
                 snapshot.days.all { day -> day.status == MealPlanDayStatus.DRAFTED }
         }
         if (interruptedReviewReplacementDayIndex != null) {
-            if (slotExtractor.isRetryRequest(text) || replaceDayIndex == interruptedReviewReplacementDayIndex) {
+            if (slotExtractor.isRetryRequest(text) || replaceDayIndices?.singleOrNull() == interruptedReviewReplacementDayIndex) {
                 return replaceDayForReview(snapshot, interruptedReviewReplacementDayIndex, onPlannerActivityChanged)
             }
-            if (replaceDayIndex == null && regenerateDayIndex == null) {
+            if (replaceDayIndices == null && regenerateDayIndices == null) {
                 return MealPlannerReply(replacementRetryPrompt(interruptedReviewReplacementDayIndex))
             }
         }
@@ -291,7 +303,7 @@ class MealPlannerCoordinator @Inject constructor(
                 snapshot.days.all { day -> day.status == MealPlanDayStatus.PERSISTED }
         }
         if (interruptedReplacementDayIndex != null) {
-            if (slotExtractor.isRetryRequest(text) || replaceDayIndex == interruptedReplacementDayIndex) {
+            if (slotExtractor.isRetryRequest(text) || replaceDayIndices?.singleOrNull() == interruptedReplacementDayIndex) {
                 return replaceDayAndGenerateRecipe(
                     snapshot = snapshot,
                     dayIndex = interruptedReplacementDayIndex,
@@ -299,7 +311,7 @@ class MealPlannerCoordinator @Inject constructor(
                     onPlannerActivityChanged = onPlannerActivityChanged,
                 )
             }
-            if (replaceDayIndex == null && regenerateDayIndex == null) {
+            if (replaceDayIndices == null && regenerateDayIndices == null) {
                 return MealPlannerReply(replacementRetryPrompt(interruptedReplacementDayIndex))
             }
         }
@@ -307,7 +319,7 @@ class MealPlannerCoordinator @Inject constructor(
             snapshot.pendingGenerationKind == PendingGenerationKind.RECIPE && snapshot.days.all { day -> day.status == MealPlanDayStatus.PERSISTED }
         }
         if (interruptedRecipeDayIndex != null) {
-            if (slotExtractor.isRetryRequest(text) || regenerateDayIndex == interruptedRecipeDayIndex) {
+            if (slotExtractor.isRetryRequest(text) || regenerateDayIndices?.singleOrNull() == interruptedRecipeDayIndex) {
                 return generateSpecificDayRecipe(
                     snapshot,
                     interruptedRecipeDayIndex,
@@ -317,7 +329,7 @@ class MealPlannerCoordinator @Inject constructor(
                     onPlannerActivityChanged = onPlannerActivityChanged,
                 )
             }
-            if (replaceDayIndex == null && regenerateDayIndex == null) {
+            if (replaceDayIndices == null && regenerateDayIndices == null) {
                 return MealPlannerReply(regenerateRetryPrompt(snapshot, interruptedRecipeDayIndex))
             }
         }
@@ -341,21 +353,17 @@ class MealPlannerCoordinator @Inject constructor(
         if (unfavouriteDayIndex != null) {
             return favouriteManagementMovedToUiReply(snapshot)
         }
-        if (replaceDayIndex != null) {
-            return replaceDayAndGenerateRecipe(
+        if (replaceDayIndices != null) {
+            return replaceDaysAndGenerateRecipes(
                 snapshot = snapshot,
-                dayIndex = replaceDayIndex,
-                intro = "I replaced Day ${replaceDayIndex + 1}. Here’s the updated recipe:\n",
+                dayIndices = replaceDayIndices,
                 onPlannerActivityChanged = onPlannerActivityChanged,
             )
         }
-        if (regenerateDayIndex != null) {
-            return generateSpecificDayRecipe(
-                snapshot,
-                regenerateDayIndex,
-                intro = "I regenerated Day ${regenerateDayIndex + 1}. Here’s the updated recipe:\n",
-                mutationSummary = regenerationChangeMessage(snapshot, regenerateDayIndex),
-                includeCurrentPlanReply = true,
+        if (regenerateDayIndices != null) {
+            return regenerateSpecificDayRecipes(
+                snapshot = snapshot,
+                dayIndices = regenerateDayIndices,
                 onPlannerActivityChanged = onPlannerActivityChanged,
             )
         }
@@ -667,6 +675,29 @@ class MealPlannerCoordinator @Inject constructor(
             }
         return updated.takeUnless { it == current }
     }
+    private fun mergeUpdatedCuisinePreferences(
+        current: List<String>,
+        added: List<String>?,
+        removed: List<String>,
+    ): List<String>? {
+        if (added == null && removed.isEmpty()) return null
+        val filteredAdded = added.orEmpty().filterNot { it in removed }
+        if (filteredAdded.contains("no cuisine preference")) {
+            val updated = listOf("no cuisine preference")
+            return updated.takeUnless { it == current }
+        }
+        val updated = current
+            .filterNot { it == "no cuisine preference" || it in removed }
+            .toMutableList()
+        filteredAdded
+            .filterNot { it == "no cuisine preference" }
+            .forEach { cuisine ->
+                if (cuisine !in updated) {
+                    updated += cuisine
+                }
+            }
+        return updated.takeUnless { it == current }
+    }
     private fun shouldEnforceRecentPatternDiversity(snapshot: MealPlanSnapshot): Boolean {
         val preferredProteins = snapshot.proteinPreferences
             .map(::normalizeProteinTag)
@@ -937,6 +968,155 @@ class MealPlannerCoordinator @Inject constructor(
             groceries = groceries,
         )
         return GeneratedRecipeResult(updated, recipe, day.title ?: recipe.title)
+    }
+    private suspend fun replaceDaysAndGenerateRecipes(
+        snapshot: MealPlanSnapshot,
+        dayIndices: List<Int>,
+        onPlannerActivityChanged: suspend (MealPlannerActivity) -> Unit,
+    ): MealPlannerReply =
+        withSessionGeneration(
+            sessionId = snapshot.sessionId,
+            onBusy = { MealPlannerReply(generationInProgressMessage(snapshot)) },
+        ) {
+            val orderedDays = dayIndices.distinct().sorted()
+            var currentSnapshot = snapshot
+            val completedDays = mutableListOf<Int>()
+            val reply = StringBuilder()
+            orderedDays.forEachIndexed { index, dayIndex ->
+                val batchStep = index + 1
+                val generationSnapshot = try {
+                    prepareReplacementGeneration(currentSnapshot, dayIndex)
+                } catch (e: IllegalArgumentException) {
+                    return@withSessionGeneration batchEditFailureReply("replace", completedDays, dayIndex, currentSnapshot.days.size, e.message, currentSnapshot)
+                }
+                onPlannerActivityChanged(replacingDayActivity(generationSnapshot, dayIndex, batchStep, orderedDays.size))
+                val replaced = try {
+                    generateReplacementDayInternal(generationSnapshot, dayIndex, markPendingGeneration = false)
+                } catch (e: IllegalArgumentException) {
+                    return@withSessionGeneration batchEditFailureReply("replace", completedDays, dayIndex, currentSnapshot.days.size, e.message, currentSnapshot)
+                } catch (e: MealPlanValidationException) {
+                    return@withSessionGeneration batchEditFailureReply("replace", completedDays, dayIndex, currentSnapshot.days.size, e.message, currentSnapshot)
+                }
+                onPlannerActivityChanged(generatingRecipeActivity(replaced, dayIndex, replaced.days.size, batchStep, orderedDays.size))
+                val recipeResult = try {
+                    generateAndPersistRecipe(replaced, dayIndex, markPendingGeneration = false)
+                } catch (e: MealPlanValidationException) {
+                    return@withSessionGeneration batchEditFailureReply("replace", completedDays, dayIndex, currentSnapshot.days.size, e.message, currentSnapshot)
+                }
+                if (reply.isNotEmpty()) {
+                    reply.append("\n\n")
+                }
+                reply.append("I replaced Day ${dayIndex + 1}. Here’s the updated recipe:\n")
+                reply.append(formatRecipeSection(dayIndex, recipeResult.recipe))
+                reply.append("\n\n")
+                reply.append(replacementChangeMessage(currentSnapshot, recipeResult.snapshot, dayIndex))
+                currentSnapshot = recipeResult.snapshot
+                completedDays += dayIndex
+            }
+            reply.append("\n\n")
+            reply.append(currentPlanReply(currentSnapshot))
+            MealPlannerReply(reply.toString().trim())
+        }
+
+    private suspend fun regenerateSpecificDayRecipes(
+        snapshot: MealPlanSnapshot,
+        dayIndices: List<Int>,
+        onPlannerActivityChanged: suspend (MealPlannerActivity) -> Unit,
+    ): MealPlannerReply =
+        withSessionGeneration(
+            sessionId = snapshot.sessionId,
+            onBusy = { MealPlannerReply(generationInProgressMessage(snapshot)) },
+        ) {
+            val orderedDays = dayIndices.distinct().sorted()
+            var currentSnapshot = snapshot
+            val completedDays = mutableListOf<Int>()
+            val reply = StringBuilder()
+            orderedDays.forEachIndexed { index, dayIndex ->
+                val batchStep = index + 1
+                val generationSnapshot = try {
+                    prepareRecipeGeneration(currentSnapshot, dayIndex)
+                } catch (e: MealPlanValidationException) {
+                    return@withSessionGeneration batchEditFailureReply("regenerate", completedDays, dayIndex, currentSnapshot.days.size, e.message, currentSnapshot)
+                }
+                onPlannerActivityChanged(generatingRecipeActivity(generationSnapshot, dayIndex, generationSnapshot.days.size, batchStep, orderedDays.size))
+                val recipeResult = try {
+                    generateAndPersistRecipe(generationSnapshot, dayIndex, markPendingGeneration = false)
+                } catch (e: MealPlanValidationException) {
+                    return@withSessionGeneration batchEditFailureReply("regenerate", completedDays, dayIndex, currentSnapshot.days.size, e.message, currentSnapshot)
+                }
+                if (reply.isNotEmpty()) {
+                    reply.append("\n\n")
+                }
+                reply.append("I regenerated Day ${dayIndex + 1}. Here’s the updated recipe:\n")
+                reply.append(formatRecipeSection(dayIndex, recipeResult.recipe))
+                reply.append("\n\n")
+                reply.append(regenerationChangeMessage(currentSnapshot, dayIndex))
+                currentSnapshot = recipeResult.snapshot
+                completedDays += dayIndex
+            }
+            reply.append("\n\n")
+            reply.append(currentPlanReply(currentSnapshot))
+            MealPlannerReply(reply.toString().trim())
+        }
+
+    private suspend fun replaceDaysForReview(
+        snapshot: MealPlanSnapshot,
+        dayIndices: List<Int>,
+        onPlannerActivityChanged: suspend (MealPlannerActivity) -> Unit,
+    ): MealPlannerReply =
+        withSessionGeneration(
+            sessionId = snapshot.sessionId,
+            onBusy = { MealPlannerReply(generationInProgressMessage(snapshot)) },
+        ) {
+            val orderedDays = dayIndices.distinct().sorted()
+            var currentSnapshot = snapshot
+            val completedDays = mutableListOf<Int>()
+            orderedDays.forEachIndexed { index, dayIndex ->
+                try {
+                    onPlannerActivityChanged(replacingPlanDayActivity(currentSnapshot, dayIndex, index + 1, orderedDays.size))
+                    currentSnapshot = generateReplacementDayInternal(currentSnapshot, dayIndex)
+                    completedDays += dayIndex
+                } catch (e: IllegalArgumentException) {
+                    return@withSessionGeneration batchEditFailureReply("replace", completedDays, dayIndex, currentSnapshot.days.size, e.message, currentSnapshot)
+                } catch (e: MealPlanValidationException) {
+                    return@withSessionGeneration batchEditFailureReply("replace", completedDays, dayIndex, currentSnapshot.days.size, e.message, currentSnapshot)
+                }
+            }
+            val summary = if (completedDays.size == 1) {
+                replacementChangeMessage(snapshot, currentSnapshot, completedDays.single())
+            } else {
+                "Updated plan: ${formatDaySelection(completedDays)} replaced."
+            }
+            MealPlannerReply("$summary\n\n${currentPlanReply(currentSnapshot)}")
+        }
+
+    private fun batchEditFailureReply(
+        action: String,
+        completedDays: List<Int>,
+        failedDayIndex: Int,
+        totalDays: Int,
+        detail: String?,
+        snapshot: MealPlanSnapshot,
+    ): MealPlannerReply {
+        val intro = if (completedDays.isEmpty()) {
+            when (action) {
+                "replace" -> replacementFailureMessage(failedDayIndex, totalDays, detail)
+                else -> "I couldn't regenerate Day ${failedDayIndex + 1}: ${detail ?: "Try again."}"
+            }
+        } else {
+            "I completed ${formatDaySelection(completedDays)} but couldn't $action Day ${failedDayIndex + 1}: ${detail ?: "Try again."}"
+        }
+        return MealPlannerReply("$intro\n\n${currentPlanReply(snapshot)}".trim())
+    }
+
+    private fun formatDaySelection(dayIndices: List<Int>): String {
+        val labels = dayIndices.distinct().sorted().map { "Day ${it + 1}" }
+        return when (labels.size) {
+            0 -> "no days"
+            1 -> labels.single()
+            2 -> "${labels[0]} and ${labels[1]}"
+            else -> labels.dropLast(1).joinToString(", ") + ", and " + labels.last()
+        }
     }
 
     private suspend fun replaceDayAndGenerateRecipe(
@@ -1278,7 +1458,7 @@ class MealPlannerCoordinator @Inject constructor(
             if (snapshot.days.isEmpty()) {
                 "I still need to rebuild your meal plan draft. You can say 'generate recipes' to try again, 'change preferences' to edit the plan details, 'show current plan' to inspect what I have, or 'cancel' to stop."
             } else {
-                "You're reviewing the draft meal plan. You can say 'show current plan' to inspect it again, 'generate recipes' to build the recipe details, 'replace day 1' to swap one meal, 'change preferences' to edit people, days, dietary needs, or proteins, or 'cancel' to stop."
+                "You're reviewing the draft meal plan. You can say 'show current plan' to inspect it again, 'generate recipes' to build the recipe details, 'replace day 1' to swap one meal, 'change preferences' to edit people, days, dietary needs, proteins, or cuisines, or 'cancel' to stop."
             }
         MealPlanSessionStatus.RECIPES_IN_PROGRESS,
         MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY -> activeOrRecoveryHelpPrompt(snapshot, generationActive)
@@ -1297,7 +1477,8 @@ class MealPlannerCoordinator @Inject constructor(
                 appendLine("- 5 days")
                 appendLine("- gluten free, kid friendly, no coriander")
                 appendLine("- chicken, salmon")
-                appendLine("- 4 people, 5 days, chicken")
+                appendLine("- italian, thai, one pot")
+                appendLine("- 4 people, 5 days, chicken, italian")
                 appendLine("- remove gluten free")
                 appendLine("- remove no chicken")
                 append("Then say 'generate' to rebuild the plan, 'show current plan' to inspect it, or 'cancel' to stop.")
@@ -1307,7 +1488,7 @@ class MealPlannerCoordinator @Inject constructor(
             appendLine("Here’s what you can tell me at this step:")
             missing.forEach { slot -> appendLine(collectingHelpLine(snapshot, slot)) }
             appendLine()
-            append("You can combine details in one reply, for example '4 people, 5 days, gluten free, chicken'.")
+            append("You can combine details in one reply, for example '4 people, 5 days, gluten free, chicken, italian'.")
         }
     }
 
@@ -1316,6 +1497,7 @@ class MealPlannerCoordinator @Inject constructor(
         "days" -> "- Day-count examples: '4 days', '7 days'."
         "dietary" -> "- Dietary, allergen, or ingredient examples: '${fullDietarySuggestions().joinToString("', '")}', or a custom exclusion like 'no coriander'."
         "protein" -> "- Protein examples: '${compatibleProteinSuggestions(snapshot.dietaryRestrictions).joinToString("', '")}'."
+        "cuisine" -> "- Cuisine examples: '${fullCuisineSuggestions().joinToString("', '")}'."
         else -> "- ${humanizeSlot(slot)}"
     }
 
@@ -1362,7 +1544,7 @@ class MealPlannerCoordinator @Inject constructor(
         append("Current plan details: ")
         append(buildKnownBits(snapshot).ifEmpty { listOf("no saved details yet") }.joinToString(", "))
         append(".\n\n")
-        append("Reply with any updated people count, days, dietary requirements, allergens, ingredients to avoid, or protein preferences. Say 'help' for examples or 'cancel' to stop.")
+        append("Reply with any updated people count, days, dietary requirements, allergens, ingredients to avoid, protein preferences, or cuisine preferences. Say 'help' for examples or 'cancel' to stop.")
     }
 
     private fun buildKnownBits(snapshot: MealPlanSnapshot): List<String> = buildList {
@@ -1370,7 +1552,7 @@ class MealPlannerCoordinator @Inject constructor(
         snapshot.daysCount?.let { add("$it days") }
         if (snapshot.dietaryRestrictions.isNotEmpty()) add(snapshot.dietaryRestrictions.joinToString())
         if (snapshot.proteinPreferences.isNotEmpty()) add(snapshot.proteinPreferences.joinToString())
-
+        if (snapshot.cuisinePreferences.isNotEmpty()) add("cuisines: ${snapshot.cuisinePreferences.joinToString()}")
     }
 
     private fun missingSlots(snapshot: MealPlanSnapshot): List<String> = buildList {
@@ -1378,6 +1560,7 @@ class MealPlannerCoordinator @Inject constructor(
         if (snapshot.daysCount == null) add("days")
         if (snapshot.dietaryRestrictions.isEmpty()) add("dietary")
         if (snapshot.proteinPreferences.isEmpty()) add("protein")
+        if (snapshot.cuisinePreferences.isEmpty()) add("cuisine")
     }
 
     private fun missingSlotPrompt(slot: String): String = when (slot) {
@@ -1385,6 +1568,7 @@ class MealPlannerCoordinator @Inject constructor(
         "days" -> "- How many days do you want to plan for?"
         "dietary" -> "- Any dietary requirements, allergens, or ingredients to avoid?"
         "protein" -> "- What protein preferences should I use?"
+        "cuisine" -> "- Any cuisine or meal-style preferences?"
         else -> "- $slot"
     }
 
@@ -1409,10 +1593,10 @@ class MealPlannerCoordinator @Inject constructor(
         )
 
     private fun planReviewActionsPrompt(): String =
-        "Say 'generate recipes', 'replace day 2', 'change preferences', 'help' for more options, or 'cancel'."
+        "Say 'generate recipes', 'replace day 2', 'replace days 2 and 4', 'change preferences', 'help' for more options, or 'cancel'."
 
     private fun readyToFinalizePrompt(): String =
-        "Say 'show current plan', 'replace day 1', 'regenerate day 2', 'done meal planning', or 'help' for more options."
+        "Say 'show current plan', 'replace day 1', 'replace days 2 and 4', 'regenerate day 2', 'done meal planning', or 'help' for more options."
 
     private fun statusPrompt(snapshot: MealPlanSnapshot): String = when (snapshot.status) {
         MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS -> {
@@ -1493,8 +1677,13 @@ class MealPlannerCoordinator @Inject constructor(
 
     private fun buildPlanSummary(snapshot: MealPlanSnapshot): String = buildString {
         append("Here’s the meal plan I built for ${snapshot.peopleCount} people over ${snapshot.daysCount} days")
-        if (snapshot.dietaryRestrictions.isNotEmpty()) {
-            append(" (${snapshot.dietaryRestrictions.joinToString()})")
+        val preferenceBits = buildList {
+            if (snapshot.dietaryRestrictions.isNotEmpty()) add(snapshot.dietaryRestrictions.joinToString())
+            if (snapshot.proteinPreferences.isNotEmpty()) add("proteins: ${snapshot.proteinPreferences.joinToString()}")
+            if (snapshot.cuisinePreferences.isNotEmpty()) add("cuisines: ${snapshot.cuisinePreferences.joinToString()}")
+        }
+        if (preferenceBits.isNotEmpty()) {
+            append(" (${preferenceBits.joinToString("; ")})")
         }
         append(":\n")
         snapshot.days.sortedBy { it.dayIndex }.forEach { day ->
@@ -1555,7 +1744,8 @@ Rules:
             appendLine("Date: $now")
             appendLine("Dietary requirements: ${snapshot.dietaryRestrictions.ifEmpty { listOf("none provided") }.joinToString()}")
             appendLine("Protein preferences: ${snapshot.proteinPreferences.ifEmpty { listOf("no preference provided") }.joinToString()}")
-            appendLine("Use practical weeknight meal ideas suitable for Australia/New Zealand households.")
+            appendLine("Cuisine preferences: ${snapshot.cuisinePreferences.ifEmpty { listOf("no preference provided") }.joinToString()}")
+            appendLine("Use practical weeknight meal ideas suitable for Australia/New Zealand households and prefer New Zealand wording such as capsicum, coriander, kumara, and paua where relevant.")
             if (recentHistoryBlock.isNotBlank()) {
                 appendLine()
                 append(recentHistoryBlock)
@@ -1603,9 +1793,10 @@ Generate the full recipe for Day ${dayIndex + 1}.
 Servings: ${snapshot.peopleCount}
 Dietary requirements: ${snapshot.dietaryRestrictions.ifEmpty { listOf("none provided") }.joinToString()}
 Protein preferences: ${snapshot.proteinPreferences.ifEmpty { listOf("no preference provided") }.joinToString()}
+Cuisine preferences: ${snapshot.cuisinePreferences.ifEmpty { listOf("no preference provided") }.joinToString()}
 Dish title: ${day.title}
 Dish summary: ${day.summary ?: ""}
-Provide a practical dinner recipe with a concise ingredient list and clear numbered method steps.
+Provide a practical Australia/New Zealand dinner recipe with a concise ingredient list, clear numbered method steps, and New Zealand wording such as capsicum, coriander, kumara, and paua where relevant.
 """.trimIndent()
     }
 
@@ -1668,6 +1859,7 @@ Rules:
             appendLine(currentDays.sortedBy { it.dayIndex }.joinToString("\n") { day -> "Day ${day.dayIndex + 1}: ${day.title}" })
             appendLine("Dietary requirements: ${snapshot.dietaryRestrictions.ifEmpty { listOf("none provided") }.joinToString()}")
             appendLine("Protein preferences: ${snapshot.proteinPreferences.ifEmpty { listOf("no preference provided") }.joinToString()}")
+            appendLine("Cuisine preferences: ${snapshot.cuisinePreferences.ifEmpty { listOf("no preference provided") }.joinToString()}")
             if (recentHistoryBlock.isNotBlank()) {
                 appendLine()
                 appendLine(recentHistoryBlock)
@@ -1678,7 +1870,7 @@ Rules:
             }
             appendLine()
             appendLine("Return one alternative day that fits the plan without duplicating '$currentTitle' or clashing with the surrounding days.")
-            append("Remember: this is user-visible Day ${dayIndex + 1}, but the JSON day_index must be zero-based and equal $dayIndex.")
+            append("Remember: this is user-visible Day ${dayIndex + 1}, but the JSON day_index must be zero-based and equal $dayIndex. Prefer New Zealand wording where relevant.")
         }.trim()
     }
 
@@ -1755,10 +1947,14 @@ Rules:
         snapshot: MealPlanSnapshot,
         dayIndex: Int,
         totalDays: Int,
+        batchStep: Int? = null,
+        batchTotal: Int? = null,
     ): MealPlannerActivity = MealPlannerActivity(
-        title = "Generating recipe ${dayIndex + 1} of $totalDays",
-        subtitle = snapshot.days.firstOrNull { it.dayIndex == dayIndex }?.title?.let { "$it. Say 'help' for options." }
-            ?: "Building the recipe for Day ${dayIndex + 1}. Say 'help' for options.",
+        title = batchStep?.let { "Generating recipe ${it} of ${batchTotal ?: 1}" } ?: "Generating recipe ${dayIndex + 1} of $totalDays",
+        subtitle = snapshot.days.firstOrNull { it.dayIndex == dayIndex }?.title?.let { title ->
+            batchStep?.let { "$title (${it}/${batchTotal ?: 1}). Say 'help' for options." }
+                ?: "$title. Say 'help' for options."
+        } ?: "Building the recipe for Day ${dayIndex + 1}. Say 'help' for options.",
         state = MealPlannerActivityState.WORKING,
         suggestions = listOf(
             suggestion("Show current plan", "show current plan"),
@@ -1767,10 +1963,16 @@ Rules:
         ),
     )
 
-    private fun replacingDayActivity(snapshot: MealPlanSnapshot, dayIndex: Int): MealPlannerActivity = MealPlannerActivity(
-        title = "Updating Day ${dayIndex + 1}",
-        subtitle = snapshot.days.firstOrNull { it.dayIndex == dayIndex }?.title?.let {
-            "Replacing $it and regenerating its recipe. Say 'help' for options."
+    private fun replacingDayActivity(
+        snapshot: MealPlanSnapshot,
+        dayIndex: Int,
+        batchStep: Int? = null,
+        batchTotal: Int? = null,
+    ): MealPlannerActivity = MealPlannerActivity(
+        title = batchStep?.let { "Updating day ${it} of ${batchTotal ?: 1}" } ?: "Updating Day ${dayIndex + 1}",
+        subtitle = snapshot.days.firstOrNull { it.dayIndex == dayIndex }?.title?.let { title ->
+            val prefix = batchStep?.let { "Step ${it}/${batchTotal ?: 1}: " }.orEmpty()
+            "${prefix}Replacing $title and regenerating its recipe. Say 'help' for options."
         } ?: "Replacing Day ${dayIndex + 1} and regenerating its recipe. Say 'help' for options.",
         state = MealPlannerActivityState.WORKING,
         suggestions = listOf(
@@ -1780,10 +1982,16 @@ Rules:
         ),
     )
 
-    private fun replacingPlanDayActivity(snapshot: MealPlanSnapshot, dayIndex: Int): MealPlannerActivity = MealPlannerActivity(
-        title = "Updating Day ${dayIndex + 1}",
-        subtitle = snapshot.days.firstOrNull { it.dayIndex == dayIndex }?.title?.let {
-            "Replacing $it in your plan. Say 'help' for options."
+    private fun replacingPlanDayActivity(
+        snapshot: MealPlanSnapshot,
+        dayIndex: Int,
+        batchStep: Int? = null,
+        batchTotal: Int? = null,
+    ): MealPlannerActivity = MealPlannerActivity(
+        title = batchStep?.let { "Updating day ${it} of ${batchTotal ?: 1}" } ?: "Updating Day ${dayIndex + 1}",
+        subtitle = snapshot.days.firstOrNull { it.dayIndex == dayIndex }?.title?.let { title ->
+            val prefix = batchStep?.let { "Step ${it}/${batchTotal ?: 1}: " }.orEmpty()
+            "${prefix}Replacing $title in your plan. Say 'help' for options."
         } ?: "Replacing Day ${dayIndex + 1} in your plan. Say 'help' for options.",
         state = MealPlannerActivityState.WORKING,
         suggestions = listOf(
@@ -1798,6 +2006,7 @@ Rules:
         "days" -> "number of days"
         "dietary" -> "dietary requirements"
         "protein" -> "protein preferences"
+        "cuisine" -> "cuisine preferences"
         else -> slot
     }
     private fun planReviewSuggestions(snapshot: MealPlanSnapshot): List<MealPlannerSuggestion> = buildList {
@@ -1813,6 +2022,7 @@ Rules:
     private fun collectingSuggestions(snapshot: MealPlanSnapshot, missing: List<String>): List<MealPlannerSuggestion> {
         val proteinOnlyMissing = missing == listOf("protein")
         val dietaryOnlyMissing = missing == listOf("dietary")
+        val cuisineOnlyMissing = missing == listOf("cuisine")
         return buildList {
             if ("people" in missing) {
                 add(suggestion("2 people", "2 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
@@ -1858,6 +2068,22 @@ Rules:
                     )
                 }
             }
+            if ("cuisine" in missing) {
+                val cuisineSuggestions = if (cuisineOnlyMissing) {
+                    fullCuisineSuggestions()
+                } else {
+                    starterCuisineSuggestions()
+                }
+                cuisineSuggestions.forEach { cuisine ->
+                    add(
+                        suggestion(
+                            cuisine.replaceFirstChar { ch -> ch.titlecase() },
+                            cuisine,
+                            composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA,
+                        ),
+                    )
+                }
+            }
             add(suggestion("Help", "help"))
             add(suggestion("Cancel plan", "cancel plan"))
         }.distinctBy(MealPlannerSuggestion::command)
@@ -1886,6 +2112,27 @@ Rules:
             "paleo",
             "keto",
             "halal",
+        )
+    private fun starterCuisineSuggestions(): List<String> =
+        listOf("no cuisine preference", "italian", "mexican", "15 to 30 minute quick meals")
+
+    private fun fullCuisineSuggestions(): List<String> =
+        listOf(
+            "no cuisine preference",
+            "italian",
+            "chinese",
+            "mexican",
+            "indian",
+            "thai",
+            "vietnamese",
+            "japanese",
+            "korean",
+            "mediterranean",
+            "pub food",
+            "15 to 30 minute quick meals",
+            "bbq and grill",
+            "slow cooker",
+            "one pot",
         )
 
     private fun compatibleProteinSuggestions(dietaryRestrictions: List<String>): List<String> {
