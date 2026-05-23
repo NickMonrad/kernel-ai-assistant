@@ -2054,7 +2054,7 @@ Rules:
                 val proteinSuggestions = if (proteinOnlyMissing) {
                     compatibleProteinSuggestions(snapshot.dietaryRestrictions)
                 } else {
-                    listOf("chicken", "beef mince", "fish", "tofu", "eggs")
+                    listOf("chicken", "beef mince", "beef", "lamb", "pork", "fish", "salmon", "tuna", "prawns", "tofu", "eggs", "chickpeas")
                 }
                 proteinSuggestions.forEach { protein ->
                     add(
