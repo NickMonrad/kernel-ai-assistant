@@ -13,6 +13,7 @@ import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -245,7 +246,11 @@ class GetWeatherSkill @Inject constructor(
 
         // Determine cache key based on query type
         val cacheKey = when {
-            !location.isNullOrBlank() -> "loc:$location"
+            !location.isNullOrBlank() -> when {
+                dayParam == "tomorrow" -> "loc:$location:tomorrow"
+                forecastDays > 0 -> "loc:$location:forecast:$forecastDays"
+                else -> "loc:$location:current"
+            }
             dayParam == "tomorrow" -> "gps:tomorrow"
             forecastDays > 0 -> "gps:forecast:$forecastDays"
             else -> "gps:current"
@@ -265,6 +270,8 @@ class GetWeatherSkill @Inject constructor(
                 !location.isNullOrBlank() -> fetchByLocationName(location, forecastDays, cacheKey = cacheKey)
                 else -> fetchByDeviceLocation(forecastDays, cacheKey = cacheKey)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Live weather fetch failed, falling back to cache", e)
             null
@@ -1064,6 +1071,8 @@ class GetWeatherSkill @Inject constructor(
         repeat(RETRY_MAX_ATTEMPTS + 1) { attempt ->
             try {
                 return body()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 lastException = e
                 if (attempt < RETRY_MAX_ATTEMPTS) {

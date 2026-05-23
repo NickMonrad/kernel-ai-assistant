@@ -15,7 +15,7 @@ import com.kernel.ai.core.memory.mealplan.RecentMealHistoryEntry
 import com.kernel.ai.core.memory.mealplan.RecipeDraft
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
-import kotlinx.coroutines.NonCancellable
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -37,8 +37,7 @@ class MealPlannerCoordinator @Inject constructor(
     private val embeddingEngine: EmbeddingEngine,
     private val memoryRepository: MemoryRepository,
 ) {
-    private val activeGenerationCounts = mutableMapOf<String, Int>()
-    private val activeGenerationMutex = Mutex()
+    private val activeGenerationCounts = ConcurrentHashMap<String, Int>()
     private val shownResumePromptsBySessionId = mutableMapOf<String, String>()
     private val shownResumePromptsMutex = Mutex()
 
@@ -1260,27 +1259,21 @@ class MealPlannerCoordinator @Inject constructor(
         }
     }
 
-    private suspend fun isGenerationActive(sessionId: String): Boolean = activeGenerationMutex.withLock {
+    private fun isGenerationActive(sessionId: String): Boolean =
         (activeGenerationCounts[sessionId] ?: 0) > 0
-    }
 
     private suspend fun <T> withSessionGeneration(
         sessionId: String,
         onBusy: () -> T,
         block: suspend () -> T,
     ): T {
-        activeGenerationMutex.withLock {
-            if ((activeGenerationCounts[sessionId] ?: 0) > 0) {
-                return onBusy()
-            }
-            activeGenerationCounts[sessionId] = 1
+        if (activeGenerationCounts.putIfAbsent(sessionId, 1) != null) {
+            return onBusy()
         }
         return try {
             block()
         } finally {
-            activeGenerationMutex.withLock {
-                activeGenerationCounts.remove(sessionId)
-            }
+            activeGenerationCounts.remove(sessionId)
         }
     }
 
