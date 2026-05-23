@@ -3103,6 +3103,45 @@ class QuickIntentRouterTest {
             Arguments.of("how is the weather looking for the next five days", "5", null),
             Arguments.of("7 day weather forecast for Brisbane", "7", "Brisbane"),
             Arguments.of("what's the weather forecast for Paris next 4 days", "4", "Paris"),
+            // #929: "what's the weather for the next N days" — no "forecast" word (was falling through to LLM)
+            Arguments.of("what's the weather for the next 3 days", "3", null),
+            Arguments.of("What's the weather for the next 3 days", "3", null),
+            Arguments.of("what's the weather for the next seven days", "7", null),
+            // Location-aware variants (oracle review #972): city before "next N days"
+            Arguments.of("what's the weather for Brisbane next 3 days", "3", "Brisbane"),
+            Arguments.of("what's the weather for Paris next 7 days", "7", "Paris"),
+            // Location-aware variants: city after "next N days in <city>"
+            // Location-aware forecast: "what's the weather forecast for the next N days in <city>"
+            Arguments.of("what's the weather forecast for the next 3 days in Paris", "3", "Paris"),
+            Arguments.of("what's the weather forecast for the next 5 days in Auckland", "5", "Auckland"),
+            Arguments.of("what's the weather for the next 3 days in Paris", "3", "Paris"),
+            Arguments.of("what's the weather for the next seven days in Auckland", "7", "Auckland"),
+            // Capitalized word variant (lowercase() fix)
+            Arguments.of("What's the weather for the next Seven days", "7", null),
+            Arguments.of("what's the weather for Brisbane next Seven days", "7", "Brisbane"),
+            // "over" preposition variants
+            Arguments.of("how's the weather over the next 3 days", "3", null),
+            Arguments.of("how is the weather over the next 5 days", "5", null),
+            Arguments.of("what's the weather looking like over the next 3 days", "3", null),
+            Arguments.of("what's the weather looking like over the next 5 days", "5", null),
+            // "over" preposition word-form: "what's the weather over the next few days" (#972)
+            Arguments.of("what's the weather over the next few days", "3", null),
+            Arguments.of("what's the weather over the next seven days", "7", null),
+            // "how's" word-form: "how's the weather for/over the next few/seven days" (Nick bug report)
+            Arguments.of("how's the weather for the next few days", "3", null),
+            Arguments.of("how's the weather over the next few days", "3", null),
+            Arguments.of("how's the weather for the next seven days", "7", null),
+            Arguments.of("how is the weather over the next few days", "3", null),
+            // "how's" location-aware word-form
+            Arguments.of("how's the weather for the next few days in Auckland", "3", "Auckland"),
+            Arguments.of("how's the weather over the next seven days in Melbourne", "7", "Melbourne"),
+            // Location-aware "over" variants
+            Arguments.of("how's the weather over the next 3 days in Paris", "3", "Paris"),
+            Arguments.of("what's the weather looking like over the next 5 days in Auckland", "5", "Auckland"),
+            Arguments.of("how's the weather looking over the next 3 days in Melbourne", "3", "Melbourne"),
+            // Location-aware "over" word-form: "what's the weather over the next few days in <city>" (#972)
+            Arguments.of("what's the weather over the next few days in Auckland", "3", "Auckland"),
+            Arguments.of("what's the weather over the next seven days in Melbourne", "7", "Melbourne"),
         )
 
         @JvmStatic
@@ -3112,6 +3151,14 @@ class QuickIntentRouterTest {
             Arguments.of("is it raining"),
             Arguments.of("do I need an umbrella"),
             Arguments.of("chance of rain"),
+            // "over" preposition rain variants
+            Arguments.of("is it going to rain over the next 5 days"),
+            Arguments.of("is it going to rain over the next 3 days"),
+            Arguments.of("is it going to rain over the next few days"),
+            // Location-aware rain-over variants
+            Arguments.of("is it going to rain over the next 5 days in Brisbane"),
+            Arguments.of("is it going to rain over the next few days in Auckland"),
+            Arguments.of("is it going to rain over the next 3 days in Perth"),
         )
         @JvmStatic
         fun weatherTomorrowRegexPhrases(): Stream<Arguments> = Stream.of(
@@ -3125,6 +3172,14 @@ class QuickIntentRouterTest {
             Arguments.of("is it going to be cloudy tomorrow", "tomorrow", null),
             Arguments.of("what's the weather in Brisbane tomorrow", "tomorrow", "Brisbane"),
             Arguments.of("tomorrow weather in Auckland", "tomorrow", "Auckland"),
+            // New tomorrow patterns (missing from existing set)
+            Arguments.of("what's the weather looking like tomorrow", "tomorrow", null),
+            Arguments.of("how's the weather looking tomorrow", "tomorrow", null),
+            // Location-aware tomorrow variants
+            Arguments.of("what's the weather looking like tomorrow in Wellington", "tomorrow", "Wellington"),
+            Arguments.of("how's the weather looking tomorrow in Melbourne", "tomorrow", "Melbourne"),
+            Arguments.of("how's the weather tomorrow in Sydney", "tomorrow", "Sydney"),
+            Arguments.of("is it going to rain tomorrow in Perth", "tomorrow", "Perth"),
         )
 
         @JvmStatic
