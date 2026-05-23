@@ -117,4 +117,36 @@ class MealPlanQuantityValidatorTest {
         assertEquals(GroceryNormalizationStatus.OPAQUE, groceries.single().normalizationStatus)
         assertEquals("1 onion, sliced", groceries.single().displayText)
     }
+    // ── Merge key plural normalization ──────────────────────────────────────────
+
+    @Test
+    fun `normalizeMergeKey handles -ies plurals`() {
+        assertEquals("berry", MealPlanQuantityValidator.normalizeMergeKey("berries"))
+        assertEquals("cherry", MealPlanQuantityValidator.normalizeMergeKey("cherries"))
+        assertEquals("strawberry", MealPlanQuantityValidator.normalizeMergeKey("strawberries"))
+    }
+
+    @Test
+    fun `normalizeMergeKey handles -es plurals`() {
+        assertEquals("tomato", MealPlanQuantityValidator.normalizeMergeKey("tomatoes"))
+        assertEquals("potato", MealPlanQuantityValidator.normalizeMergeKey("potatoes"))
+        assertEquals("kumara", MealPlanQuantityValidator.normalizeMergeKey("kumaras"))
+    }
+
+    @Test
+    fun `normalizeMergeKey handles simple -s plurals`() {
+        assertEquals("capsicum", MealPlanQuantityValidator.normalizeMergeKey("capsicums"))
+        assertEquals("onion", MealPlanQuantityValidator.normalizeMergeKey("onions"))
+        assertEquals("carrot", MealPlanQuantityValidator.normalizeMergeKey("carrots"))
+    }
+
+    @Test
+    fun `normalizeMergeKey merges -es and -s forms`() {
+        // tomatoes and tomato should produce the same merge key
+        assertEquals(MealPlanQuantityValidator.normalizeMergeKey("tomato"), MealPlanQuantityValidator.normalizeMergeKey("tomatoes"))
+        // berries and berry should produce the same merge key
+        assertEquals(MealPlanQuantityValidator.normalizeMergeKey("berry"), MealPlanQuantityValidator.normalizeMergeKey("berries"))
+        // kumara and kumaras should produce the same merge key
+        assertEquals(MealPlanQuantityValidator.normalizeMergeKey("kumara"), MealPlanQuantityValidator.normalizeMergeKey("kumaras"))
+    }
 }

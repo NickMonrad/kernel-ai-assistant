@@ -281,7 +281,7 @@ class GetWeatherSkill @Inject constructor(
         freshResult?.let { return it }
 
         // Step 3: Fresh fetch failed — try stale cache
-        getCachedWeatherJson(cacheKey)?.let { cachedJson ->
+        getRawCachedWeatherJson(cacheKey)?.let { cachedJson ->
             // Re-parse the cached JSON using the same parsers
             return try {
                 if (dayParam == "tomorrow") {
@@ -488,7 +488,7 @@ class GetWeatherSkill @Inject constructor(
         displayName: String?,
         days: Int,
         cacheKey: String,
-    ): SkillResult =
+    ): SkillResult? =
         withContext(Dispatchers.IO) {
             // Check cache first
             getCachedWeatherJson(cacheKey)?.let { cachedJson ->
@@ -507,10 +507,7 @@ class GetWeatherSkill @Inject constructor(
                     }
                     response.body?.string() ?: throw IllegalStateException("Empty forecast response")
                 }
-            } ?: return@withContext SkillResult.Failure(
-                name,
-                "Forecast service unavailable. Please try again later.",
-            )
+            } ?: return@withContext null
 
             cacheWeatherJson(cacheKey, body)
             parseForecastResponse(body, displayName)
@@ -664,7 +661,7 @@ class GetWeatherSkill @Inject constructor(
         days: Int,
         dayIndex: Int,
         cacheKey: String,
-    ): SkillResult = withContext(Dispatchers.IO) {
+    ): SkillResult? = withContext(Dispatchers.IO) {
         // Check cache first
         getCachedWeatherJson(cacheKey)?.let { cachedJson ->
             return@withContext parseForecastDayResponse(cachedJson, displayName, dayIndex)
@@ -682,10 +679,7 @@ class GetWeatherSkill @Inject constructor(
                 }
                 response.body?.string() ?: throw IllegalStateException("Empty forecast response")
             }
-        } ?: return@withContext SkillResult.Failure(
-            name,
-            "Forecast service unavailable. Please try again later.",
-        )
+        } ?: return@withContext null
 
         cacheWeatherJson(cacheKey, body)
         parseForecastDayResponse(body, displayName, dayIndex)
@@ -812,7 +806,7 @@ class GetWeatherSkill @Inject constructor(
         lon: Double,
         displayName: String?,
         cacheKey: String,
-    ): SkillResult =
+    ): SkillResult? =
         withContext(Dispatchers.IO) {
             // Check cache first
             getCachedWeatherJson(cacheKey)?.let { cachedJson ->
@@ -835,10 +829,7 @@ class GetWeatherSkill @Inject constructor(
                     }
                     response.body?.string() ?: throw IllegalStateException("Empty weather response")
                 }
-            } ?: return@withContext SkillResult.Failure(
-                name,
-                "Weather service unavailable. Please try again later.",
-            )
+            } ?: return@withContext null
 
             // Cache the raw JSON
             cacheWeatherJson(cacheKey, weatherBody)
@@ -1044,6 +1035,21 @@ class GetWeatherSkill @Inject constructor(
             json
         } catch (e: Exception) {
             Log.w(TAG, "Cache read failed for key: $cacheKey", e)
+            null
+        }
+    }
+    /** Retrieve cached weather JSON regardless of TTL. Returns null if cache miss. Used for stale fallback. */
+    private suspend fun getRawCachedWeatherJson(cacheKey: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val prefs = weatherStore.data.first()
+            val storedKey: String? = prefs[WEATHER_CACHE_LOCATION_KEY]
+            val json: String? = prefs[WEATHER_CACHE_JSON_KEY]
+
+            // Verify cache is for this location (no TTL check — stale data is better than nothing)
+            if (storedKey != cacheKey) return@withContext null
+            json
+        } catch (e: Exception) {
+            Log.w(TAG, "Raw cache read failed for key: $cacheKey", e)
             null
         }
     }

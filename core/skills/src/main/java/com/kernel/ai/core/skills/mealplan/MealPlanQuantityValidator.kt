@@ -164,7 +164,7 @@ class MealPlanQuantityValidator @Inject constructor() {
         UNKNOWN,
     }
 
-    private companion object {
+    internal companion object {
         val PROTEIN_KEYWORDS = listOf("chicken", "beef", "pork", "lamb", "fish", "salmon", "tuna", "tofu", "beans", "lentils", "egg")
         val VEGETABLE_KEYWORDS = listOf("carrot", "capsicum", "broccoli", "onion", "tomato", "courgette", "zucchini", "bean", "pea", "spinach", "kumara", "potato")
         val GRAIN_KEYWORDS = listOf("rice", "pasta", "noodle", "quinoa", "couscous", "oat")
@@ -194,6 +194,10 @@ class MealPlanQuantityValidator @Inject constructor() {
             normalized = DESCRIPTION_STRIP_RE.replace(normalized, "").trim()
             // Strip trailing comma + descriptor (e.g. "capsicum, diced")
             normalized = normalized.replace(Regex(",\\s*\\w+$"), "").trim()
+            // Handle -ies → -y (berries → berry, cherries → cherry)
+            normalized = normalized.replace(Regex("^(\\w+)ies$"), "$1y")
+            // Handle -es plurals (tomatoes → tomato, potatoes → potato)
+            normalized = normalized.replace(Regex("^(\\w+)es$"), "$1")
             // Strip trailing 's' for simple plurals (capsicums → capsicum)
             normalized = normalized.replace(Regex("^(\\w+)s\\b$"), "$1")
             return normalized
