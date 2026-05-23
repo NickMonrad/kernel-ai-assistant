@@ -2018,73 +2018,99 @@ Rules:
     }
 
     private fun collectingSuggestions(snapshot: MealPlanSnapshot, missing: List<String>): List<MealPlannerSuggestion> {
-        val proteinOnlyMissing = missing == listOf("protein")
-        val dietaryOnlyMissing = missing == listOf("dietary")
-        val cuisineOnlyMissing = missing == listOf("cuisine")
+        val topSlot = missing.firstOrNull()
         return buildList {
-            if ("people" in missing) {
-                add(suggestion("2 people", "2 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-                if (missing.size == 1) {
-                    add(suggestion("4 people", "4 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-                }
-            }
-            if ("days" in missing) {
-                add(suggestion("4 days", "4 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-                if (missing.size == 1) {
-                    add(suggestion("7 days", "7 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-                }
-            }
-            if ("dietary" in missing) {
-                val dietarySuggestions = if (dietaryOnlyMissing) {
-                    fullDietarySuggestions()
-                } else {
-                    starterDietarySuggestions()
-                }
-                dietarySuggestions.forEach { dietary ->
-                    add(
-                        suggestion(
-                            dietary.replaceFirstChar { ch -> ch.titlecase() },
-                            dietary,
-                            composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA,
-                        ),
-                    )
-                }
-            }
-            if ("protein" in missing) {
-                val proteinSuggestions = if (proteinOnlyMissing) {
-                    compatibleProteinSuggestions(snapshot.dietaryRestrictions)
-                } else {
-                    listOf("chicken", "beef mince", "beef", "lamb", "pork", "fish", "salmon", "tuna", "prawns", "tofu", "eggs", "chickpeas")
-                }
-                proteinSuggestions.forEach { protein ->
-                    add(
-                        suggestion(
-                            protein.replaceFirstChar { ch -> ch.titlecase() },
-                            protein,
-                            composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA,
-                        ),
-                    )
-                }
-            }
-            if ("cuisine" in missing) {
-                val cuisineSuggestions = if (cuisineOnlyMissing) {
-                    fullCuisineSuggestions()
-                } else {
-                    starterCuisineSuggestions()
-                }
-                cuisineSuggestions.forEach { cuisine ->
-                    add(
-                        suggestion(
-                            cuisine.replaceFirstChar { ch -> ch.titlecase() },
-                            cuisine,
-                            composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA,
-                        ),
-                    )
-                }
-            }
+            if ("people" in missing) addPeopleSuggestions(topSlot == "people")
+            if ("days" in missing) addDaysSuggestions(topSlot == "days")
+            if ("dietary" in missing) addDietarySuggestions(topSlot == "dietary")
+            if ("protein" in missing) addProteinSuggestions(snapshot.dietaryRestrictions, topSlot == "protein")
+            if ("cuisine" in missing) addCuisineSuggestions(topSlot == "cuisine")
             add(suggestion("Help", "help"))
             add(suggestion("Cancel plan", "cancel plan"))
         }.distinctBy(MealPlannerSuggestion::command)
+    }
+
+    private fun MutableList<MealPlannerSuggestion>.addPeopleSuggestions(isTop: Boolean) {
+        add(suggestion("2 people", "2 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        if (isTop) {
+            add(suggestion("3 people", "3 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("4 people", "4 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("6 people", "6 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("8 people", "8 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        } else {
+            add(suggestion("4 people", "4 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        }
+    }
+
+    private fun MutableList<MealPlannerSuggestion>.addDaysSuggestions(isTop: Boolean) {
+        add(suggestion("4 days", "4 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        if (isTop) {
+            add(suggestion("3 days", "3 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("5 days", "5 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("7 days", "7 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("14 days", "14 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        } else {
+            add(suggestion("7 days", "7 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        }
+    }
+
+    private fun MutableList<MealPlannerSuggestion>.addDietarySuggestions(isTop: Boolean) {
+        add(suggestion("no dietary requirements", "no dietary requirements", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        if (isTop) {
+            add(suggestion("kid friendly", "kid friendly", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("gluten free", "gluten free", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("nut free", "nut free", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("vegetarian", "vegetarian", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("vegan", "vegan", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        } else {
+            add(suggestion("kid friendly", "kid friendly", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("gluten free", "gluten free", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        }
+    }
+
+    private fun MutableList<MealPlannerSuggestion>.addProteinSuggestions(dietaryRestrictions: List<String>, isTop: Boolean) {
+        val allOptions = listOf(
+            "chicken",
+            "beef mince",
+            "beef",
+            "lamb",
+            "pork",
+            "fish",
+            "salmon",
+            "tuna",
+            "prawns",
+            "tofu",
+            "eggs",
+            "chickpeas",
+            "no protein preference",
+        )
+        val compatible = allOptions.filter { protein ->
+            protein == "no protein preference" ||
+                detectProteinPreferenceConflicts(dietaryRestrictions, listOf(protein)).isEmpty()
+        }
+        if (isTop) {
+            compatible.take(6).forEach { protein ->
+                add(suggestion(protein.replaceFirstChar { ch -> ch.titlecase() }, protein, composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            }
+        } else {
+            compatible.take(3).forEach { protein ->
+                add(suggestion(protein.replaceFirstChar { ch -> ch.titlecase() }, protein, composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            }
+        }
+    }
+
+    private fun MutableList<MealPlannerSuggestion>.addCuisineSuggestions(isTop: Boolean) {
+        add(suggestion("no cuisine preference", "no cuisine preference", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        if (isTop) {
+            add(suggestion("italian", "italian", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("mexican", "mexican", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("indian", "indian", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("thai", "thai", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("japanese", "japanese", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        } else {
+            add(suggestion("italian", "italian", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("mexican", "mexican", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        }
     }
 
     private fun starterDietarySuggestions(): List<String> =

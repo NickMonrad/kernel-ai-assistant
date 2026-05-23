@@ -1314,7 +1314,13 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("2 people", "4 days", "no dietary requirements", "kid friendly", "gluten free", "nut free", "chicken", "beef mince", "beef", "lamb", "pork", "fish", "salmon", "tuna", "prawns", "tofu", "eggs", "chickpeas", "help", "cancel plan"),
+            listOf(
+                "2 people", "3 people", "4 people", "6 people", "8 people",
+                "4 days", "7 days",
+                "no dietary requirements", "kid friendly", "gluten free",
+                "chicken", "beef mince", "beef",
+                "help", "cancel plan",
+            ),
             activity?.suggestions?.map { it.command },
         )
     }
@@ -1343,26 +1349,8 @@ class MealPlannerCoordinatorTest {
 
         assertEquals(
             listOf(
-                "chicken",
-                "beef mince",
-                "beef",
-                "turkey",
-                "pork",
-                "lamb",
-                "fish",
-                "salmon",
-                "tuna",
-                "tofu",
-                "lentils",
-                "beans",
-                "eggs",
-                "no protein preference",
-                "snapper",
-                "prawns",
-                "chickpeas",
-                "halloumi",
-                "help",
-                "cancel plan",
+                "chicken", "beef mince", "beef", "lamb", "pork", "fish",
+                "help", "cancel plan",
             ),
             activity?.suggestions?.map { it.command },
         )
@@ -1380,26 +1368,8 @@ class MealPlannerCoordinatorTest {
 
         assertEquals(
             listOf(
-                "no dietary requirements",
-                "kid friendly",
-                "gluten free",
-                "celiac safe",
-                "dairy free",
-                "egg free",
-                "peanut free",
-                "nut free",
-                "soy free",
-                "fish free",
-                "shellfish free",
-                "sesame free",
-                "vegetarian",
-                "vegan",
-                "pescatarian",
-                "paleo",
-                "keto",
-                "halal",
-                "help",
-                "cancel plan",
+                "no dietary requirements", "kid friendly", "gluten free", "nut free", "vegetarian", "vegan",
+                "help", "cancel plan",
             ),
             activity?.suggestions?.map { it.command },
         )
@@ -1417,15 +1387,8 @@ class MealPlannerCoordinatorTest {
 
         assertEquals(
             listOf(
-                "tofu",
-                "lentils",
-                "beans",
-                "eggs",
-                "no protein preference",
-                "chickpeas",
-                "halloumi",
-                "help",
-                "cancel plan",
+                "tofu", "eggs", "chickpeas", "no protein preference",
+                "help", "cancel plan",
             ),
             activity?.suggestions?.map { it.command },
         )
