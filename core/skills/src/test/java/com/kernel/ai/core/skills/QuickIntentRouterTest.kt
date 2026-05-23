@@ -3124,10 +3124,16 @@ class QuickIntentRouterTest {
             Arguments.of("how is the weather over the next 5 days", "5", null),
             Arguments.of("what's the weather looking like over the next 3 days", "3", null),
             Arguments.of("what's the weather looking like over the next 5 days", "5", null),
+            // "over" preposition word-form: "what's the weather over the next few days" (#972)
+            Arguments.of("what's the weather over the next few days", "3", null),
+            Arguments.of("what's the weather over the next seven days", "7", null),
             // Location-aware "over" variants
             Arguments.of("how's the weather over the next 3 days in Paris", "3", "Paris"),
             Arguments.of("what's the weather looking like over the next 5 days in Auckland", "5", "Auckland"),
             Arguments.of("how's the weather looking over the next 3 days in Melbourne", "3", "Melbourne"),
+            // Location-aware "over" word-form: "what's the weather over the next few days in <city>" (#972)
+            Arguments.of("what's the weather over the next few days in Auckland", "3", "Auckland"),
+            Arguments.of("what's the weather over the next seven days in Melbourne", "7", "Melbourne"),
         )
 
         @JvmStatic

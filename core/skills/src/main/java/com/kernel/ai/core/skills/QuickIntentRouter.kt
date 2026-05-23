@@ -1452,7 +1452,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(few|one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1464,7 +1464,7 @@ class QuickIntentRouter(
                 val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
                 buildMap<String, String> {
                     if (location != null) put("location", location)
-                    if (daysWord != null) put("forecast_days", wordToNum[daysWord.lowercase()] ?: daysWord)
+                    if (daysWord != null) put("forecast_days", when (daysWord.lowercase()) { "few" -> "3"; else -> wordToNum[daysWord.lowercase()] ?: daysWord })
                 }
             },
         ),
@@ -1543,7 +1543,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+for\s+the\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s*$""",
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(few|one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1553,7 +1553,7 @@ class QuickIntentRouter(
                 )
                 val daysWord = match.groupValues[1].takeIf { it != "one" }
                 buildMap<String, String> {
-                    if (daysWord != null) put("forecast_days", wordToNum[daysWord.lowercase()] ?: daysWord)
+                    if (daysWord != null) put("forecast_days", when (daysWord.lowercase()) { "few" -> "3"; else -> wordToNum[daysWord.lowercase()] ?: daysWord })
                 }
             },
         ),
