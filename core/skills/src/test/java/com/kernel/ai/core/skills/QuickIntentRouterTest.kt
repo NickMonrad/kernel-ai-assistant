@@ -3116,6 +3116,15 @@ class QuickIntentRouterTest {
             // Capitalized word variant (lowercase() fix)
             Arguments.of("What's the weather for the next Seven days", "7", null),
             Arguments.of("what's the weather for Brisbane next Seven days", "7", "Brisbane"),
+            // "over" preposition variants
+            Arguments.of("how's the weather over the next 3 days", "3", null),
+            Arguments.of("how is the weather over the next 5 days", "5", null),
+            Arguments.of("what's the weather looking like over the next 3 days", "3", null),
+            Arguments.of("what's the weather looking like over the next 5 days", "5", null),
+            // Location-aware "over" variants
+            Arguments.of("how's the weather over the next 3 days in Paris", "3", "Paris"),
+            Arguments.of("what's the weather looking like over the next 5 days in Auckland", "5", "Auckland"),
+            Arguments.of("how's the weather looking over the next 3 days in Melbourne", "3", "Melbourne"),
         )
 
         @JvmStatic
@@ -3125,6 +3134,14 @@ class QuickIntentRouterTest {
             Arguments.of("is it raining"),
             Arguments.of("do I need an umbrella"),
             Arguments.of("chance of rain"),
+            // "over" preposition rain variants
+            Arguments.of("is it going to rain over the next 5 days"),
+            Arguments.of("is it going to rain over the next 3 days"),
+            Arguments.of("is it going to rain over the next few days"),
+            // Location-aware rain-over variants
+            Arguments.of("is it going to rain over the next 5 days in Brisbane"),
+            Arguments.of("is it going to rain over the next few days in Auckland"),
+            Arguments.of("is it going to rain over the next 3 days in Perth"),
         )
         @JvmStatic
         fun weatherTomorrowRegexPhrases(): Stream<Arguments> = Stream.of(
@@ -3138,6 +3155,14 @@ class QuickIntentRouterTest {
             Arguments.of("is it going to be cloudy tomorrow", "tomorrow", null),
             Arguments.of("what's the weather in Brisbane tomorrow", "tomorrow", "Brisbane"),
             Arguments.of("tomorrow weather in Auckland", "tomorrow", "Auckland"),
+            // New tomorrow patterns (missing from existing set)
+            Arguments.of("what's the weather looking like tomorrow", "tomorrow", null),
+            Arguments.of("how's the weather looking tomorrow", "tomorrow", null),
+            // Location-aware tomorrow variants
+            Arguments.of("what's the weather looking like tomorrow in Wellington", "tomorrow", "Wellington"),
+            Arguments.of("how's the weather looking tomorrow in Melbourne", "tomorrow", "Melbourne"),
+            Arguments.of("how's the weather tomorrow in Sydney", "tomorrow", "Sydney"),
+            Arguments.of("is it going to rain tomorrow in Perth", "tomorrow", "Perth"),
         )
 
         @JvmStatic
