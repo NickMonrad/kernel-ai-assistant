@@ -1479,8 +1479,8 @@ class MealPlannerCoordinatorTest {
 
         val reply = coordinator.ingestUserMessage("conv", "replace day 6")
 
-        assertTrue(reply.content.contains("only has 2 days", ignoreCase = true))
-        assertTrue(reply.content.contains("Day 1 to Day 2", ignoreCase = true))
+        assertTrue(reply.content.contains("can only replace", ignoreCase = true))
+        assertTrue(reply.content.contains("6", ignoreCase = true))
         assertFalse(reply.content.contains("Invalid day index", ignoreCase = true))
         coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
     }

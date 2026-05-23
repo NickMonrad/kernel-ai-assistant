@@ -978,6 +978,13 @@ class MealPlannerCoordinator @Inject constructor(
             onBusy = { MealPlannerReply(generationInProgressMessage(snapshot)) },
         ) {
             val orderedDays = dayIndices.distinct().sorted()
+            val validIndices = orderedDays.filter { it in snapshot.days.indices }
+            if (validIndices.size != orderedDays.size) {
+                val invalid = orderedDays - validIndices.toSet()
+                return@withSessionGeneration MealPlannerReply(
+                    "I can only replace days 1–${snapshot.days.size}. Days ${invalid.joinToString(", ") { "${it + 1}" }} don't exist in this plan."
+                )
+            }
             var currentSnapshot = snapshot
             val completedDays = mutableListOf<Int>()
             val reply = StringBuilder()
@@ -1027,6 +1034,13 @@ class MealPlannerCoordinator @Inject constructor(
             onBusy = { MealPlannerReply(generationInProgressMessage(snapshot)) },
         ) {
             val orderedDays = dayIndices.distinct().sorted()
+            val validIndices = orderedDays.filter { it in snapshot.days.indices }
+            if (validIndices.size != orderedDays.size) {
+                val invalid = orderedDays - validIndices.toSet()
+                return@withSessionGeneration MealPlannerReply(
+                    "I can only regenerate days 1–${snapshot.days.size}. Days ${invalid.joinToString(", ") { "${it + 1}" }} don't exist in this plan."
+                )
+            }
             var currentSnapshot = snapshot
             val completedDays = mutableListOf<Int>()
             val reply = StringBuilder()
@@ -1068,6 +1082,13 @@ class MealPlannerCoordinator @Inject constructor(
             onBusy = { MealPlannerReply(generationInProgressMessage(snapshot)) },
         ) {
             val orderedDays = dayIndices.distinct().sorted()
+            val validIndices = orderedDays.filter { it in snapshot.days.indices }
+            if (validIndices.size != orderedDays.size) {
+                val invalid = orderedDays - validIndices.toSet()
+                return@withSessionGeneration MealPlannerReply(
+                    "I can only replace days 1–${snapshot.days.size}. Days ${invalid.joinToString(", ") { "${it + 1}" }} don't exist in this plan."
+                )
+            }
             var currentSnapshot = snapshot
             val completedDays = mutableListOf<Int>()
             orderedDays.forEachIndexed { index, dayIndex ->

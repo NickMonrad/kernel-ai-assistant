@@ -310,13 +310,10 @@ class GetWeatherSkill @Inject constructor(
         forecastDays: Int = 0,
         targetDay: Boolean = false,
         cacheKey: String,
-    ): SkillResult {
+    ): SkillResult? {
         val resolvedLocationName = resolveIndirectLocationReference(locationName) ?: locationName
         val coordinates = geocodeLocation(resolvedLocationName)
-            ?: return SkillResult.Failure(
-                name,
-                "Couldn't find location: $resolvedLocationName. Please try a different city or location name.",
-            )
+            ?: return null
 
         return if (forecastDays > 0) {
             if (targetDay) {
@@ -406,20 +403,14 @@ class GetWeatherSkill @Inject constructor(
 
     // ── Location ──────────────────────────────────────────────────────────────
 
-    private suspend fun fetchByDeviceLocation(forecastDays: Int = 0, targetDay: Boolean = false, cacheKey: String): SkillResult {
+    private suspend fun fetchByDeviceLocation(forecastDays: Int = 0, targetDay: Boolean = false, cacheKey: String): SkillResult? {
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            return SkillResult.Failure(
-                name,
-                "Location permission not granted. Try asking about weather in a specific city.",
-            )
+            return null
         }
         val loc = getLastKnownLocation()
-            ?: return SkillResult.Failure(
-                name,
-                "Couldn't get device location. Try asking about a specific city.",
-            )
+            ?: return null
         val displayName = reverseGeocode(loc.latitude, loc.longitude)
         return if (forecastDays > 0) {
             if (targetDay) {
