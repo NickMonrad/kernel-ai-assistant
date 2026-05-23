@@ -1529,7 +1529,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days\s*$""",
+                """(?:what|how)(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1543,7 +1543,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(few|one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s*$""",
+                """(?:what|how)(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(few|one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1562,7 +1562,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
+                """(?:what|how)(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1578,15 +1578,19 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+for\s+the\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
+                """(?:what|how)(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(few|one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
                 val daysWord = match.groupValues[1].takeIf { it != "one" }
                 val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
                 buildMap<String, String> {
                     if (location != null) put("location", location)
-                    if (daysWord != null) put("forecast_days", daysWord.lowercase())
+                    if (daysWord != null) put("forecast_days", when (daysWord.lowercase()) { "few" -> "3"; else -> wordToNum[daysWord.lowercase()] ?: daysWord })
                 }
             },
         ),

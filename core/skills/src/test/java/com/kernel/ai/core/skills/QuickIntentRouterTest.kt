@@ -3127,6 +3127,14 @@ class QuickIntentRouterTest {
             // "over" preposition word-form: "what's the weather over the next few days" (#972)
             Arguments.of("what's the weather over the next few days", "3", null),
             Arguments.of("what's the weather over the next seven days", "7", null),
+            // "how's" word-form: "how's the weather for/over the next few/seven days" (Nick bug report)
+            Arguments.of("how's the weather for the next few days", "3", null),
+            Arguments.of("how's the weather over the next few days", "3", null),
+            Arguments.of("how's the weather for the next seven days", "7", null),
+            Arguments.of("how is the weather over the next few days", "3", null),
+            // "how's" location-aware word-form
+            Arguments.of("how's the weather for the next few days in Auckland", "3", "Auckland"),
+            Arguments.of("how's the weather over the next seven days in Melbourne", "7", "Melbourne"),
             // Location-aware "over" variants
             Arguments.of("how's the weather over the next 3 days in Paris", "3", "Paris"),
             Arguments.of("what's the weather looking like over the next 5 days in Auckland", "5", "Auckland"),
