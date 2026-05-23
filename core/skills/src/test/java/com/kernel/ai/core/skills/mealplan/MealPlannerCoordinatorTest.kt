@@ -1314,7 +1314,7 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("2 people", "4 days", "no dietary requirements", "kid friendly", "gluten free", "nut free", "chicken", "help", "cancel plan"),
+            listOf("2 people", "4 days", "no dietary requirements", "kid friendly", "gluten free", "nut free", "chicken", "beef mince", "fish", "tofu", "eggs", "help", "cancel plan"),
             activity?.suggestions?.map { it.command },
         )
     }
