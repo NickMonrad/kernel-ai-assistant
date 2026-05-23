@@ -3111,6 +3111,9 @@ class QuickIntentRouterTest {
             Arguments.of("what's the weather for Brisbane next 3 days", "3", "Brisbane"),
             Arguments.of("what's the weather for Paris next 7 days", "7", "Paris"),
             // Location-aware variants: city after "next N days in <city>"
+            // Location-aware forecast: "what's the weather forecast for the next N days in <city>"
+            Arguments.of("what's the weather forecast for the next 3 days in Paris", "3", "Paris"),
+            Arguments.of("what's the weather forecast for the next 5 days in Auckland", "5", "Auckland"),
             Arguments.of("what's the weather for the next 3 days in Paris", "3", "Paris"),
             Arguments.of("what's the weather for the next seven days in Auckland", "7", "Auckland"),
             // Capitalized word variant (lowercase() fix)

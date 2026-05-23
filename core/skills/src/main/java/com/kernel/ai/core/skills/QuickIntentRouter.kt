@@ -1256,6 +1256,22 @@ class QuickIntentRouter(
                 }
             },
         ),
+        // "what's the weather forecast for the next N days in <city>"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+)?(?:the\s+)?(?:weather\s+)?forecast\s+for\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
         // Multi-day forecast (digit): "how's the weather looking for the next 5 days"
         IntentPattern(
             intentName = "get_weather",
@@ -1709,7 +1725,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """(?:will\s+it\s+rain(?:\s+today|\s+tonight|\s+tomorrow)?\s*$|is\s+it\s+(?:going\s+to|gonna)\s+rain(?:\s+today|\s+tonight|\s+tomorrow)?\s*$|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain(?:\s+today|\s+tonight|\s+tomorrow)?)""",
+"""(?:will\s+it\s+rain(?:\s+today|\s+tonight)?\s*$|is\s+it\s+(?:going\s+to|gonna)\s+rain(?:\s+today|\s+tonight)?\s*$|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain(?:\s+today|\s+tonight)?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
