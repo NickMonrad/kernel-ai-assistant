@@ -3150,6 +3150,8 @@ class QuickIntentRouterTest {
             Arguments.of("what's the weather looking like for the next 3 days", "3", null),
             Arguments.of("What's the weather looking like for the next few days", "3", null),
             Arguments.of("what's the weather looking like for the next seven days", "7", null),
+            // "looking like over" variant (symmetry with "looking like for")
+            Arguments.of("what's the weather looking like over the next 3 days", "3", null),
             // Location-aware "like" and "looking like for" variants
             Arguments.of("what's the weather like for the next 3 days in Auckland", "3", "Auckland"),
             Arguments.of("what's the weather looking like for the next few days in Wellington", "3", "Wellington"),
