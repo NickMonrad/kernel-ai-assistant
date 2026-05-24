@@ -42,6 +42,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONException
 import org.json.JSONObject
 import javax.inject.Inject
@@ -950,169 +951,181 @@ class LiteRtInferenceEngine @Inject constructor(
         val timeoutMs = 60_000L
 
         try {
-            if (shouldSwapConfig) {
-                currentConfig = requestedConfig
-                safeClose(conversation, "conversation")
+            // Acquire mutex FIRST — prevents closing shared conversation while another
+            // thread (e.g. generateOnce) is using it.
+            var acquired = false
+            for (attempt in 0 until 20) {
+                if (generationMutex.tryLock()) {
+                    acquired = true
+                    break
+                }
+                Log.d(TAG, "generateStructuredOnce: mutex busy, retry ${attempt + 1}/20")
+                delay(250L)
+            }
+            if (!acquired) {
+                Log.w(TAG, "generateStructuredOnce: failed to acquire mutex after 5s — engine busy")
+                return@withContext ""
             }
 
-            val eng = engine ?: return@withContext ""
-            val convConfig = buildConversationConfig(_activeBackend.value ?: BackendType.CPU, requestedConfig)
-
-            // Isolate to synthetic tool only — no other tools interfere with constrained decoding.
-            val convConfigWithTool = convConfig.copy(
-                tools = listOf(syntheticToolProvider),
-                automaticToolCalling = false,
-            )
-
-            // With automaticToolCalling=false, the model's tool call is returned directly
-            // to the callback instead of being auto-executed.
-            // Enable constrained decoding for synthetic tool calls.
-            // buildConversationConfig only sets this when config.toolProvider is non-null,
-            // but generateStructuredOnce adds tools via convConfig.copy() — so we set it
-            // explicitly here. Must be set before createConversation() (Gallery pattern).
-            ExperimentalFlags.enableConversationConstrainedDecoding = true
             try {
-                val conv = try {
-                    eng.createConversation(convConfigWithTool)
-                } catch (e: Exception) {
-                    Log.w(TAG, "generateStructuredOnce: conversation creation failed", e)
-                    resetExperimentalFlags()
-                    return@withContext ""
+                // Now safe to swap config and close shared conversation
+                if (shouldSwapConfig) {
+                    currentConfig = requestedConfig
+                    safeClose(conversation, "conversation")
                 }
 
-                var acquired = false
-                for (attempt in 0 until 20) {
-                    if (generationMutex.tryLock()) {
-                        acquired = true
-                        break
-                    }
-                    Log.d(TAG, "generateStructuredOnce: mutex busy, retry ${attempt + 1}/20")
-                    delay(250L)
-                }
-                if (!acquired) {
-                    Log.w(TAG, "generateStructuredOnce: failed to acquire mutex after 5s — engine busy")
-                    safeClose(conv, "structured-conv")
-                    resetExperimentalFlags()
-                    return@withContext ""
-                }
+                val eng = engine ?: return@withContext ""
+                val convConfig = buildConversationConfig(_activeBackend.value ?: BackendType.CPU, requestedConfig)
 
-                _isGenerating.value = true
-                InferenceGenerationService.start(context)
+                // Isolate to synthetic tool only — no other tools interfere with constrained decoding.
+                val convConfigWithTool = convConfig.copy(
+                    tools = listOf(syntheticToolProvider),
+                    automaticToolCalling = false,
+                )
+
+                // With automaticToolCalling=false, the model's tool call is returned directly
+                // to the callback instead of being auto-executed.
+                // Enable constrained decoding for synthetic tool calls.
+                // buildConversationConfig only sets this when config.toolProvider is non-null,
+                // but generateStructuredOnce adds tools via convConfig.copy() — so we set it
+                // explicitly here. Must be set before createConversation() (Gallery pattern).
+                ExperimentalFlags.enableConversationConstrainedDecoding = true
                 try {
-                    val latch = CompletableDeferred<String>()
-                    var capturedToolJson: String? = null
-                    val jsonAccumulator = JsonObjectAccumulator()
-                    val responseBuilder = StringBuilder()
+                    val conv = try {
+                        eng.createConversation(convConfigWithTool)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "generateStructuredOnce: conversation creation failed", e)
+                        resetExperimentalFlags()
+                        return@withContext ""
+                    }
 
-                    conv.sendMessageAsync(
-                        Contents.of(Content.Text(prompt)),
-                        object : MessageCallback {
-                            override fun onMessage(message: Message) {
-                                if (capturedToolJson != null) return
+                    _isGenerating.value = true
+                    InferenceGenerationService.start(context)
+                    try {
+                        val latch = CompletableDeferred<String>()
+                        val finished = AtomicBoolean(false)
+                        val capturedToolJson = AtomicReference<String?>(null)
+                        val jsonAccumulator = JsonObjectAccumulator()
+                        val responseBuilder = StringBuilder()
 
-                                // Priority 1: tool call matching spec
-                                val toolCalls = message.toolCalls
-                                if (toolCalls.isNotEmpty()) {
-                                    Log.d(
-                                        TAG,
-                                        "generateStructuredOnce: received ${toolCalls.size} tool call(s) — first='${toolCalls.firstOrNull()?.name}'",
-                                    )
-                                    if (toolCalls.size == 1) {
-                                        val call = toolCalls.single()
-                                        if (call.name == spec.toolName) {
-                                            Log.d(
-                                                TAG,
-                                                "generateStructuredOnce: matched tool call '${call.name}', arguments length=${call.arguments?.toString()?.length ?: 0}",
-                                            )
-                                            capturedToolJson = call.arguments.toString()
-                                            latch.complete(capturedToolJson!!)
-                                            return
+                        conv.sendMessageAsync(
+                            Contents.of(Content.Text(prompt)),
+                            object : MessageCallback {
+                                override fun onMessage(message: Message) {
+                                    if (finished.get()) return
+
+                                    // Priority 1: tool call matching spec
+                                    val toolCalls = message.toolCalls
+                                    if (toolCalls.isNotEmpty()) {
+                                        Log.d(
+                                            TAG,
+                                            "generateStructuredOnce: received ${toolCalls.size} tool call(s) — first='${toolCalls.firstOrNull()?.name}'",
+                                        )
+                                        if (toolCalls.size == 1) {
+                                            val call = toolCalls.single()
+                                            if (call.name == spec.toolName) {
+                                                Log.d(
+                                                    TAG,
+                                                    "generateStructuredOnce: matched tool call '${call.name}', arguments length=${call.arguments?.toString()?.length ?: 0}",
+                                                )
+                                                // Serialize Map → proper JSON (not Kotlin Map.toString())
+                                                capturedToolJson.set(JSONObject(call.arguments).toString())
+                                                if (finished.compareAndSet(false, true)) {
+                                                    latch.complete(capturedToolJson.get()!!)
+                                                }
+                                                return
+                                            } else {
+                                                Log.d(
+                                                    TAG,
+                                                    "generateStructuredOnce: tool call name mismatch — expected='${spec.toolName}', got='${call.name}'",
+                                                )
+                                            }
                                         } else {
-                                            Log.d(
+                                            Log.w(
                                                 TAG,
-                                                "generateStructuredOnce: tool call name mismatch — expected='${spec.toolName}', got='${call.name}'",
+                                                "generateStructuredOnce: multiple tool calls (${toolCalls.size}), expected exactly one — failing",
                                             )
                                         }
-                                    } else {
+                                    }
+
+                                    // Priority 2: accumulate text for JSON extraction fallback
+                                    val text = message.toString()
+                                    if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
+                                        responseBuilder.append(text)
                                         Log.d(
                                             TAG,
-                                            "generateStructuredOnce: multiple tool calls (${toolCalls.size}), ignoring",
+                                            "generateStructuredOnce: text chunk appended, total=${responseBuilder.length}",
                                         )
+                                        jsonAccumulator.append(text)?.let { json ->
+                                            Log.d(
+                                                TAG,
+                                                "generateStructuredOnce: JSON object extracted from text, length=${json.length}",
+                                            )
+                                            capturedToolJson.set(json)
+                                            if (finished.compareAndSet(false, true)) {
+                                                latch.complete(json)
+                                            }
+                                        }
                                     }
                                 }
 
-                                // Priority 2: accumulate text for JSON extraction fallback
-                                val text = message.toString()
-                                if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
-                                    responseBuilder.append(text)
-                                    Log.d(
-                                        TAG,
-                                        "generateStructuredOnce: text chunk appended, total=${responseBuilder.length}",
-                                    )
-                                    jsonAccumulator.append(text)?.let { json ->
-                                        Log.d(
+                                override fun onDone() {
+                                    if (finished.compareAndSet(false, true)) {
+                                        if (capturedToolJson.get() != null) return
+                                        Log.w(
                                             TAG,
-                                            "generateStructuredOnce: JSON object extracted from text, length=${json.length}",
+                                            "generateStructuredOnce: model returned no tool call or JSON for '${spec.toolName}'",
                                         )
-                                        capturedToolJson = json
-                                        latch.complete(json)
+                                        if (responseBuilder.isNotEmpty()) {
+                                            Log.d(
+                                                TAG,
+                                                "generateStructuredOnce: onDone with ${responseBuilder.length} chars of text but no JSON",
+                                            )
+                                        }
+                                        latch.complete("")
                                     }
                                 }
-                            }
 
-                            override fun onDone() {
-                                if (capturedToolJson != null) return
-                                Log.w(
-                                    TAG,
-                                    "generateStructuredOnce: model returned no tool call or JSON for '${spec.toolName}'",
-                                )
-                                if (responseBuilder.isNotEmpty()) {
-                                    Log.d(
-                                        TAG,
-                                        "generateStructuredOnce: onDone with ${responseBuilder.length} chars of text but no JSON",
-                                    )
+                                override fun onError(throwable: Throwable) {
+                                    if (finished.compareAndSet(false, true)) {
+                                        Log.e(
+                                            TAG,
+                                            "generateStructuredOnce: error during structured generation",
+                                            throwable,
+                                        )
+                                        latch.completeExceptionally(throwable)
+                                    }
                                 }
-                                latch.complete("")
-                            }
+                            },
+                            if (requestedThinkingEnabled) mapOf("enable_thinking" to true) else emptyMap(),
+                        )
 
-                            override fun onError(throwable: Throwable) {
-                                if (capturedToolJson == null) {
-                                    Log.e(
-                                        TAG,
-                                        "generateStructuredOnce: error during structured generation",
-                                        throwable,
-                                    )
-                                    latch.completeExceptionally(throwable)
-                                }
-                            }
-                        },
-                        if (requestedThinkingEnabled) mapOf("enable_thinking" to true) else emptyMap(),
-                    )
-
-                    var result: String? = null
-                    try {
-                        result = withTimeout(timeoutMs) { latch.await() }
-                    } catch (e: TimeoutCancellationException) {
-                        try { conv.cancelProcess() } catch (ce: Exception) {}
-                        Log.w(TAG, "generateStructuredOnce: timed out after ${timeoutMs / 1000}s")
-                        result = ""
+                        var result: String? = null
+                        try {
+                            result = withTimeout(timeoutMs) { latch.await() }
+                        } catch (e: TimeoutCancellationException) {
+                            try { conv.cancelProcess() } catch (ce: Exception) {}
+                            Log.w(TAG, "generateStructuredOnce: timed out after ${timeoutMs / 1000}s")
+                            result = ""
+                        }
+                        Log.d(
+                            TAG,
+                            "generateStructuredOnce: completed — result length=${result?.length ?: 0}, wasToolCall=${result?.let { it != "" } ?: false}",
+                        )
+                        result
+                    } finally {
+                        _isGenerating.value = false
+                        InferenceGenerationService.stop(context)
+                        safeClose(conv, "structured-conv")
                     }
-                    Log.d(
-                        TAG,
-                        "generateStructuredOnce: completed — result length=${result?.length ?: 0}, wasToolCall=${result?.let { it != "" } ?: false}",
-                    )
-                    result
                 } finally {
-                    _isGenerating.value = false
-                    InferenceGenerationService.stop(context)
-                    generationMutex.unlock()
-                    safeClose(conv, "structured-conv")
+                    resetExperimentalFlags()
+                    if (shouldSwapConfig) {
+                        resetConversationForConfig(config)
+                    }
                 }
             } finally {
-                resetExperimentalFlags()
-                if (shouldSwapConfig) {
-                    resetConversationForConfig(config)
-                }
+                generationMutex.unlock()
             }
         } catch (e: Exception) {
             Log.w(TAG, "generateStructuredOnce: error", e)
