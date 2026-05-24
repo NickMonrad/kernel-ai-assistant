@@ -86,23 +86,32 @@ data class StructuredOutputSpec(
         /**
          * Canonical schema for a single meal-plan day (replacement-day generation).
          *
-         * Matches [MealPlanJsonParser.parseSinglePlanDay] contract: day_index,
-         * title, summary, and protein_tags.
+         * Matches [MealPlanJsonParser.parseSinglePlanDay] contract: wrapped in a
+         * {days: [...]} array so the parser can extract the single day.
          */
         val ReplacementDay = StructuredOutputSpec(
             toolName = "emit_replacement_day",
-            toolDescription = "Emit a single replacement meal-plan day.",
+            toolDescription = "Emit a single replacement meal-plan day wrapped in a days array.",
             jsonSchema = """
 {
   "type": "object",
-  "required": ["day_index", "title", "summary", "protein_tags"],
+  "required": ["days"],
   "properties": {
-    "day_index": {"type": "integer"},
-    "title": {"type": "string"},
-    "summary": {"type": "string"},
-    "protein_tags": {
+    "days": {
       "type": "array",
-      "items": {"type": "string"}
+      "items": {
+        "type": "object",
+        "required": ["day_index", "title", "summary", "protein_tags"],
+        "properties": {
+          "day_index": {"type": "integer"},
+          "title": {"type": "string"},
+          "summary": {"type": "string"},
+          "protein_tags": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      }
     }
   }
 }

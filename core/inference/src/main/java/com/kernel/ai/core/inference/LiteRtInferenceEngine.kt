@@ -955,9 +955,9 @@ class LiteRtInferenceEngine @Inject constructor(
             val eng = engine ?: return@withContext ""
             val convConfig = buildConversationConfig(_activeBackend.value ?: BackendType.CPU, requestedConfig)
 
-            // Inject our synthetic tool into the conversation config
+            // Isolate to synthetic tool only — no other tools interfere with constrained decoding.
             val convConfigWithTool = convConfig.copy(
-                tools = listOf(syntheticToolProvider) + (convConfig.tools ?: emptyList()),
+                tools = listOf(syntheticToolProvider),
                 automaticToolCalling = false,
             )
 
@@ -1002,19 +1002,25 @@ class LiteRtInferenceEngine @Inject constructor(
                         object : MessageCallback {
                             override fun onMessage(message: Message) {
                                 if (capturedToolJson != null) return
-                                // With automaticToolCalling=false, the model returns its tool
-                                // call directly. The arguments ARE the constrained JSON.
                                 val toolCalls = message.toolCalls
-                                if (toolCalls.isNotEmpty()) {
-                                    val args = toolCalls.first().arguments
-                                    capturedToolJson = args.toString()
-                                    latch.complete(capturedToolJson!!)
-                                }
+                                if (toolCalls.size != 1) return
+                                val call = toolCalls.single()
+                                if (call.name != spec.toolName) return
+                                capturedToolJson = call.arguments.toString()
+                                latch.complete(capturedToolJson!!)
                             }
 
                             override fun onDone() {
-                                // Model returned no tool call — fallback to content.
-                                // This shouldn't happen with constrained decoding, but handle it.
+                                // No tool call arrived — constrained decoding should prevent this,
+                                // but complete the latch with an error so the caller doesn't
+                                // wait the full timeout.
+                                if (capturedToolJson == null) {
+                                    latch.completeExceptionally(
+                                        IllegalStateException(
+                                            "generateStructuredOnce: model returned no tool call for '${spec.toolName}'",
+                                        ),
+                                    )
+                                }
                             }
 
                             override fun onError(throwable: Throwable) {
