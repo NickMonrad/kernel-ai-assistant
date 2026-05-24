@@ -78,6 +78,31 @@ interface InferenceEngine {
         thinkingEnabled: Boolean? = null,
         stopOnFirstJsonObject: Boolean = false,
     ): String
+    /**
+     * Generate a response for [prompt] using an **isolated conversation** with
+     * **schema-constrained decoding**. The model is forced to produce JSON that
+     * matches [spec]'s [StructuredOutputSpec.jsonSchema] — no post-hoc parsing
+     * or repair is needed.
+     *
+     * Implementation: creates a synthetic one-shot OpenAPI tool call, enables
+     * constrained decoding for the conversation, calls the model with
+     * [automaticToolCalling] = false, and extracts the guaranteed-valid JSON
+     * from [com.google.ai.edge.litertlm.Message.toolCalls].single().arguments.
+     *
+     * @param spec The JSON schema to constrain generation against.
+     * @param systemPrompt Optional system prompt. The synthetic tool description
+     *   is injected alongside this prompt.
+     * @param thinkingEnabled Pass false for bounded JSON generation paths that
+     *   should skip reasoning tokens and respond directly.
+     *
+     * Returns guaranteed-valid JSON string on success, empty string on error.
+     */
+    suspend fun generateStructuredOnce(
+        prompt: String,
+        spec: StructuredOutputSpec,
+        systemPrompt: String? = null,
+        thinkingEnabled: Boolean? = null,
+    ): String
 
     /**
      * Clear the conversation context window and start fresh.

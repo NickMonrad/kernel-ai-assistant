@@ -135,7 +135,7 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = listOf("chicken"),
             )
         } returns ready
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson()
         coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
 
         val reply = coordinator.ingestUserMessage("conv", "low lactose, chicken")
@@ -173,7 +173,7 @@ class MealPlannerCoordinatorTest {
                 proteinTags = listOf("chicken"),
             ),
         )
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returnsMany listOf(
             planJson(),
             "{}",
             replacementJson(dayIndex = 0, title = "Chicken schnitzel", proteinTag = "chicken"),
@@ -187,16 +187,16 @@ class MealPlannerCoordinatorTest {
 
         assertEquals(listOf("Chicken schnitzel", "Beef bowls"), savedDays.map { it.title })
         assertTrue(reply.content.contains("Chicken schnitzel", ignoreCase = true))
-        coVerify(exactly = 3) { inferenceEngine.generateOnce(any(), any(), false, true) }
+        coVerify(exactly = 3) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
         coVerify {
-            inferenceEngine.generateOnce(
+            inferenceEngine.generateStructuredOnce(
                 match {
                     it.contains("Recent meals to avoid repeating", ignoreCase = true) &&
                         it.contains("Lemon chicken", ignoreCase = true)
                 },
                 any(),
+                any(),
                 false,
-                true,
             )
         }
     }
@@ -227,7 +227,7 @@ class MealPlannerCoordinatorTest {
                 proteinTags = listOf("chicken"),
             ),
         )
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returnsMany listOf(
             planJson(
                 day0Title = "Garlic chicken stir fry",
                 day0Summary = "Fast skillet dinner",
@@ -271,7 +271,7 @@ class MealPlannerCoordinatorTest {
                 proteinTags = listOf("chicken"),
             ),
         )
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson(
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson(
             day0Title = "Garlic chicken stir fry",
             day0Summary = "Fast skillet dinner",
             day0Protein = "chicken",
@@ -288,7 +288,7 @@ class MealPlannerCoordinatorTest {
 
         assertEquals(listOf("Garlic chicken stir fry", "Lemon chicken tray bake"), savedDays.take(2).map { it.title })
         assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
-        coVerify(exactly = 1) { inferenceEngine.generateOnce(any(), any(), false, true) }
+        coVerify(exactly = 1) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
     }
 
     @Test
@@ -326,7 +326,7 @@ class MealPlannerCoordinatorTest {
                 proteinTags = listOf("beef"),
             ),
         )
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returnsMany listOf(
             planJson(
                 day0Title = "Garlic chicken skillet",
                 day0Summary = "Fast stovetop dinner",
@@ -368,7 +368,7 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = listOf("chicken", "beef"),
             )
         } returns ready
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returnsMany listOf(
             planJson(
                 day0Title = "Chicken stir fry",
                 day0Summary = "Quick dinner",
@@ -419,7 +419,7 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = null,
             )
         } returns ready
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson()
         coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
 
         val reply = coordinator.ingestUserMessage("conv", "No dietary requirements")
@@ -458,7 +458,7 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = null,
             )
         } returns ready
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson()
         coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
 
         val reply = coordinator.ingestUserMessage("conv", "No restrictions")
@@ -497,7 +497,7 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = null,
             )
         } returns ready
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson()
         coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
 
         val reply = coordinator.ingestUserMessage("conv", "No requirements")
@@ -536,7 +536,7 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = listOf("no protein preference"),
             )
         } returns ready
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson()
         coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
 
         val reply = coordinator.ingestUserMessage("conv", "Any")
@@ -574,7 +574,7 @@ class MealPlannerCoordinatorTest {
 
         assertTrue(reply.content.contains("don't fit vegetarian", ignoreCase = true))
         assertTrue(reply.content.contains("no protein preference", ignoreCase = true))
-        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), false, true) }
+        coVerify(exactly = 0) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
     }
 
     @Test
@@ -606,7 +606,7 @@ class MealPlannerCoordinatorTest {
         assertTrue(reply.content.contains("egg free", ignoreCase = true))
         assertTrue(reply.content.contains("What protein preferences should I use?", ignoreCase = true))
         assertFalse(reply.content.contains("don't fit egg free", ignoreCase = true))
-        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), false, true) }
+        coVerify(exactly = 0) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
     }
 
     @Test
@@ -638,7 +638,7 @@ class MealPlannerCoordinatorTest {
         assertTrue(reply.content.contains("gluten free", ignoreCase = true))
         assertTrue(reply.content.contains("egg free", ignoreCase = true))
         assertFalse(reply.content.contains("no gluten free", ignoreCase = true))
-        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), false, true) }
+        coVerify(exactly = 0) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
     }
 
     @Test
@@ -659,7 +659,7 @@ class MealPlannerCoordinatorTest {
 
         coEvery { sessionRepository.getActiveSession("conv") } returns planReview
         coEvery { sessionRepository.getSession("session-1") } returns planReview
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(recipeJson("Lemon chicken"), recipeJson("Beef bowls"))
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returnsMany listOf(recipeJson("Lemon chicken"), recipeJson("Beef bowls"))
         coEvery { sessionRepository.persistRecipeDraft("session-1", 0, any(), any(), any()) } returns afterDay1
         coEvery { sessionRepository.persistRecipeDraft("session-1", 1, any(), any(), any()) } returns completed
 
@@ -685,7 +685,7 @@ class MealPlannerCoordinatorTest {
 
         coEvery { sessionRepository.getActiveSession("conv") } returns planReview
         coEvery { sessionRepository.getSession("session-1") } returns planReview
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns recipeJson("Lemon chicken")
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns recipeJson("Lemon chicken")
         coEvery { sessionRepository.persistRecipeDraft("session-1", 0, any(), any(), any()) } returns cancelled
 
         val reply = coordinator.ingestUserMessage("conv", "generate recipes", onPlannerMessage = { emitted += it })
@@ -712,7 +712,7 @@ class MealPlannerCoordinatorTest {
 
         coEvery { sessionRepository.getActiveSession("conv") } returns planReview
         coEvery { sessionRepository.getSession("session-1") } returns planReview
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(recipeJson("Lemon chicken"), recipeJson("Beef bowls"))
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returnsMany listOf(recipeJson("Lemon chicken"), recipeJson("Beef bowls"))
         coEvery { sessionRepository.persistRecipeDraft("session-1", 0, any(), any(), any()) } returns afterDay1
         coEvery { sessionRepository.persistRecipeDraft("session-1", 1, any(), any(), any()) } returns completed
 
@@ -745,7 +745,7 @@ class MealPlannerCoordinatorTest {
         assertTrue(reply.content.contains("Day 1: Lemon chicken", ignoreCase = true))
         assertTrue(reply.content.contains("Day 2: Turkey bowls", ignoreCase = true))
         assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
-        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { inferenceEngine.generateStructuredOnce(any(), any(), any(), any()) }
     }
     @Test
     fun `plan review change preferences returns to editable slot collection`() = runTest {
@@ -796,7 +796,7 @@ class MealPlannerCoordinatorTest {
                 favouriteRecipeMode = FavouriteRecipeMode.PREFER,
             )
         }
-        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { inferenceEngine.generateStructuredOnce(any(), any(), any(), any()) }
     }
 
     @Test
@@ -834,7 +834,7 @@ class MealPlannerCoordinatorTest {
         )
         val activities = mutableListOf<MealPlannerActivity>()
         coEvery { sessionRepository.getActiveSession("conv") } returns planReview
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns replacementJson(dayIndex = 0, title = "Turkey skillet")
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns replacementJson(dayIndex = 0, title = "Turkey skillet")
         coEvery { sessionRepository.replaceDayDraft("session-1", 0, "Turkey skillet", any(), any(), false) } returns replaced
 
         coordinator.ingestUserMessage(
@@ -885,7 +885,7 @@ class MealPlannerCoordinatorTest {
 
         assertTrue(reply.content.contains("current plan details", ignoreCase = true))
         coVerify(exactly = 0) { sessionRepository.markPendingGeneration("session-1", PendingGenerationKind.PLAN) }
-        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { inferenceEngine.generateStructuredOnce(any(), any(), any(), any()) }
     }
     @Test
     fun `collecting state can remove a single dietary restriction while preserving others`() = runTest {
@@ -908,7 +908,7 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = null,
             )
         } returns reviewed
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson()
         coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
 
         val reply = coordinator.ingestUserMessage("conv", "Remove gluten free")
@@ -939,7 +939,7 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = null,
             )
         } returns reviewed
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson()
         coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
 
         val reply = coordinator.ingestUserMessage("conv", "Remove no gluten free")
@@ -971,7 +971,7 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = null,
             )
         } returns reviewed
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson()
         coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
 
         coordinator.ingestUserMessage("conv", "Remove no chicken")
@@ -1009,7 +1009,7 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = null,
             )
         } returns reviewed
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson()
         coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
 
         coordinator.ingestUserMessage("conv", "Remove no chicken")
@@ -1049,7 +1049,7 @@ class MealPlannerCoordinatorTest {
 
         assertTrue(reply.content.contains("dietary requirements", ignoreCase = true))
         assertFalse(reply.content.contains("no dietary requirements", ignoreCase = true))
-        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), false, true) }
+        coVerify(exactly = 0) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
     }
 
     @Test
@@ -1072,7 +1072,7 @@ class MealPlannerCoordinatorTest {
 
         assertTrue(reply.content.contains("Current plan details", ignoreCase = true))
         assertFalse(reply.content.contains("saved favourites preferred", ignoreCase = true))
-        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { inferenceEngine.generateStructuredOnce(any(), any(), any(), any()) }
     }
 
     @Test
@@ -1096,7 +1096,7 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = listOf("salmon"),
             )
         } returns reviewed
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson()
         coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
 
         coordinator.ingestUserMessage("conv", "remove beef and add salmon")
@@ -1159,14 +1159,14 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = null,
             )
         } returns collecting
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns planJson()
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson()
         coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
 
         val reply = coordinator.ingestUserMessage("conv", "generate")
 
         assertTrue(reply.content.contains("Day 1: Lemon chicken", ignoreCase = true))
         assertTrue(reply.content.contains("generate recipes", ignoreCase = true))
-        coVerify(exactly = 1) { inferenceEngine.generateOnce(any(), any(), false, true) }
+        coVerify(exactly = 1) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
     }
     @Test
     fun `interrupted recipe generation requires explicit resume`() = runTest {
@@ -1223,7 +1223,7 @@ class MealPlannerCoordinatorTest {
             ),
         )
         coEvery { sessionRepository.getActiveSession("conv") } returns interrupted
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns replacementJson(dayIndex = 1, title = "Pan-Seared Chicken")
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns replacementJson(dayIndex = 1, title = "Pan-Seared Chicken")
         coEvery { sessionRepository.replaceDayDraft("session-1", 0, "Pan-Seared Chicken", any(), any(), false) } returns replaced
 
         val reply = coordinator.ingestUserMessage("conv", "retry")
@@ -1257,7 +1257,7 @@ class MealPlannerCoordinatorTest {
             ),
         )
         coEvery { sessionRepository.getActiveSession("conv") } returns interrupted
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returnsMany listOf(
             replacementJson(dayIndex = 1, title = "Pan-Seared Chicken"),
             recipeJson("Pan-Seared Chicken"),
         )
@@ -1421,7 +1421,7 @@ class MealPlannerCoordinatorTest {
         assertTrue(reply.content.contains("Day 1: Chicken stir-fry", ignoreCase = true))
         assertTrue(reply.content.contains("Day 2: Chicken curry", ignoreCase = true))
         assertTrue(reply.content.contains("done meal planning", ignoreCase = true))
-        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { inferenceEngine.generateStructuredOnce(any(), any(), any(), any()) }
     }
     @Test
     fun `interrupted regenerate day prompts for retry`() = runTest {
@@ -1455,7 +1455,7 @@ class MealPlannerCoordinatorTest {
             ),
         )
         coEvery { sessionRepository.getActiveSession("conv") } returns active
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returnsMany listOf(
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returnsMany listOf(
             replacementJson(dayIndex = 2, title = "Turkey skillet"),
             recipeJson("Turkey skillet"),
         )
@@ -1482,7 +1482,7 @@ class MealPlannerCoordinatorTest {
         assertTrue(reply.content.contains("can only replace", ignoreCase = true))
         assertTrue(reply.content.contains("6", ignoreCase = true))
         assertFalse(reply.content.contains("Invalid day index", ignoreCase = true))
-        coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { inferenceEngine.generateStructuredOnce(any(), any(), any(), any()) }
     }
 
     @Test
@@ -1495,7 +1495,7 @@ class MealPlannerCoordinatorTest {
             ),
         )
         coEvery { sessionRepository.getActiveSession("conv") } returns active
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns recipeJson("Chicken curry")
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns recipeJson("Chicken curry")
         coEvery { sessionRepository.persistRecipeDraft("session-1", 1, any(), any(), any()) } returns persisted
 
         val reply = coordinator.ingestUserMessage("conv", "regenerate day 2")
@@ -1529,7 +1529,7 @@ class MealPlannerCoordinatorTest {
             )
         } returns ready
         coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns ready
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } coAnswers {
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } coAnswers {
             started.complete(Unit)
             release.await()
             ""
@@ -1566,12 +1566,12 @@ class MealPlannerCoordinatorTest {
 
         coEvery { sessionRepository.getActiveSession("conv") } returns failed
         coEvery { sessionRepository.markGenerationFailure("session-1", 0, "RECIPE_NO_OUTPUT", "The model did not return a recipe.") } returns failed
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns ""
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns ""
 
         val reply = coordinator.ingestUserMessage("conv", "regenerate day 1")
 
         assertTrue(reply.content.contains("didn't return a recipe", ignoreCase = true))
-        coVerify(exactly = 1) { inferenceEngine.generateOnce(any(), any(), false, true) }
+        coVerify(exactly = 1) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
     }
 
     @Test
@@ -1597,7 +1597,7 @@ class MealPlannerCoordinatorTest {
             )
         } returns ready
         coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns failedPlan
-        coEvery { inferenceEngine.generateOnce(any(), any(), false, true) } returns ""
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns ""
 
         val first = coordinator.ingestUserMessage("conv", "low lactose, chicken")
         val second = coordinator.ingestUserMessage("conv", "hello")
