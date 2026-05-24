@@ -910,6 +910,7 @@ class LiteRtInferenceEngine @Inject constructor(
         }
     }
     @OptIn(ExperimentalApi::class)
+    internal val STRUCTURED_LOG_TAG = "LiteRtInferenceEngine"
     override suspend fun generateStructuredOnce(
         prompt: String,
         spec: StructuredOutputSpec,
@@ -917,9 +918,12 @@ class LiteRtInferenceEngine @Inject constructor(
         thinkingEnabled: Boolean?,
     ): String = withContext(LlmDispatcher) {
         val config = currentConfig ?: return@withContext ""
+        Log.d(
+            STRUCTURED_LOG_TAG,
+            "generateStructuredOnce: spec='${spec.toolName}', schemaLen=${spec.jsonSchema.length}, thinking=$thinkingEnabled",
+        )
         val requestedSystemPrompt = systemPrompt?.takeIf { it.isNotBlank() }
         val requestedThinkingEnabled = thinkingEnabled ?: config.thinkingEnabled
-
         // Build a synthetic OpenAPI tool from the spec.
         // The synthetic tool echoes its input back, so the model sees:
         // 1. Its own tool call with arguments
@@ -968,7 +972,7 @@ class LiteRtInferenceEngine @Inject constructor(
             // The system prompt instructs the model to output JSON; the tool schema guides
             // tool selection. If the model produces text instead, the fallback path parses it.
 
-            return@withContext try {
+            try {
                 val conv = try {
                     eng.createConversation(convConfigWithTool)
                 } catch (e: Exception) {
@@ -1005,24 +1009,52 @@ class LiteRtInferenceEngine @Inject constructor(
                         Contents.of(Content.Text(prompt)),
                         object : MessageCallback {
                             override fun onMessage(message: Message) {
+                                if (capturedToolJson != null) return
+
                                 // Priority 1: tool call matching spec
-                                if (capturedToolJson == null) {
-                                    val toolCalls = message.toolCalls
+                                val toolCalls = message.toolCalls
+                                if (toolCalls.isNotEmpty()) {
+                                    Log.d(
+                                        STRUCTURED_LOG_TAG,
+                                        "generateStructuredOnce: received ${toolCalls.size} tool call(s) — first='${toolCalls.firstOrNull()?.name}'",
+                                    )
                                     if (toolCalls.size == 1) {
                                         val call = toolCalls.single()
                                         if (call.name == spec.toolName) {
+                                            Log.d(
+                                                STRUCTURED_LOG_TAG,
+                                                "generateStructuredOnce: matched tool call '${call.name}', arguments length=${call.arguments?.toString()?.length ?: 0}",
+                                            )
                                             capturedToolJson = call.arguments.toString()
                                             latch.complete(capturedToolJson!!)
                                             return
+                                        } else {
+                                            Log.d(
+                                                STRUCTURED_LOG_TAG,
+                                                "generateStructuredOnce: tool call name mismatch — expected='${spec.toolName}', got='${call.name}'",
+                                            )
                                         }
+                                    } else {
+                                        Log.d(
+                                            STRUCTURED_LOG_TAG,
+                                            "generateStructuredOnce: multiple tool calls (${toolCalls.size}), ignoring",
+                                        )
                                     }
                                 }
+
                                 // Priority 2: accumulate text for JSON extraction fallback
-                                if (capturedToolJson == null) {
-                                    val text = message.toString()
-                                    if (text.isEmpty() || text.startsWith("<ctrl")) return
+                                val text = message.toString()
+                                if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
                                     responseBuilder.append(text)
+                                    Log.d(
+                                        STRUCTURED_LOG_TAG,
+                                        "generateStructuredOnce: text chunk appended, total=${responseBuilder.length}",
+                                    )
                                     jsonAccumulator.append(text)?.let { json ->
+                                        Log.d(
+                                            STRUCTURED_LOG_TAG,
+                                            "generateStructuredOnce: JSON object extracted from text, length=${json.length}",
+                                        )
                                         capturedToolJson = json
                                         latch.complete(json)
                                     }
@@ -1031,14 +1063,26 @@ class LiteRtInferenceEngine @Inject constructor(
 
                             override fun onDone() {
                                 if (capturedToolJson != null) return
-                                // No tool call and no JSON found in streaming — return empty.
-                                // The caller will report failure.
-                                Log.w(TAG, "generateStructuredOnce: model returned no tool call or JSON for '${spec.toolName}'")
+                                Log.w(
+                                    TAG,
+                                    "generateStructuredOnce: model returned no tool call or JSON for '${spec.toolName}'",
+                                )
+                                if (responseBuilder.isNotEmpty()) {
+                                    Log.d(
+                                        STRUCTURED_LOG_TAG,
+                                        "generateStructuredOnce: onDone with ${responseBuilder.length} chars of text but no JSON",
+                                    )
+                                }
                                 latch.complete("")
                             }
 
                             override fun onError(throwable: Throwable) {
                                 if (capturedToolJson == null) {
+                                    Log.e(
+                                        TAG,
+                                        "generateStructuredOnce: error during structured generation",
+                                        throwable,
+                                    )
                                     latch.completeExceptionally(throwable)
                                 }
                             }
@@ -1046,13 +1090,19 @@ class LiteRtInferenceEngine @Inject constructor(
                         if (requestedThinkingEnabled) mapOf("enable_thinking" to true) else emptyMap(),
                     )
 
+                    var result: String? = null
                     try {
-                        withTimeout(timeoutMs) { latch.await() }
+                        result = withTimeout(timeoutMs) { latch.await() }
                     } catch (e: TimeoutCancellationException) {
                         try { conv.cancelProcess() } catch (ce: Exception) {}
                         Log.w(TAG, "generateStructuredOnce: timed out after ${timeoutMs / 1000}s")
-                        ""
+                        result = ""
                     }
+                    Log.d(
+                        STRUCTURED_LOG_TAG,
+                        "generateStructuredOnce: completed — result length=${result?.length ?: 0}, wasToolCall=${result?.let { it != "" } ?: false}",
+                    )
+                    result
                 } finally {
                     _isGenerating.value = false
                     InferenceGenerationService.stop(context)
