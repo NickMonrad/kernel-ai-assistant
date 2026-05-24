@@ -1722,7 +1722,8 @@ class MealPlannerCoordinator @Inject constructor(
 
     private fun buildPlanSystemPrompt(): String = """
 You generate a high-level meal plan for a local-first Android assistant.
-Output ONLY valid JSON with this exact shape:
+You MUST call the tool `emit_meal_plan` with your plan as the single argument.
+The argument must be a JSON object with this exact shape:
 {
   "days": [
     {
@@ -1772,7 +1773,8 @@ Rules:
 
     private fun buildRecipeSystemPrompt(): String = """
 You generate one recipe day for a local-first Android assistant.
-Output ONLY valid JSON with this exact shape:
+You MUST call the tool `emit_recipe` with your recipe as the single argument.
+The argument must be a JSON object with this exact shape:
 {
   "title": "...",
   "servings": 4,
@@ -1815,7 +1817,8 @@ Provide a practical Australia/New Zealand dinner recipe with a concise ingredien
 
     private fun buildReplacementDaySystemPrompt(dayIndex: Int): String = """
 You generate a replacement high-level meal-plan day for a local-first Android assistant.
-Output ONLY valid JSON with this exact shape:
+You MUST call the tool `emit_replacement_day` with your replacement day as the single argument.
+The argument must be a JSON object with this exact shape:
 {
   "days": [
     {
