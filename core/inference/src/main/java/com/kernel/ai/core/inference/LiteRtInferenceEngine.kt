@@ -962,9 +962,11 @@ class LiteRtInferenceEngine @Inject constructor(
             )
 
             // With automaticToolCalling=false, the model's tool call is returned directly
-            // to the callback instead of being auto-executed. The synthetic tool's
-            // arguments ARE the constrained JSON — no post-hoc parsing needed.
-            ExperimentalFlags.enableConversationConstrainedDecoding = true
+            // to the callback instead of being auto-executed.
+            // NOTE: ExperimentalFlags.enableConversationConstrainedDecoding is NOT set here
+            // — it constrains text output, not tool calls, and breaks the synthetic tool path.
+            // The system prompt instructs the model to output JSON; the tool schema guides
+            // tool selection. If the model produces text instead, the fallback path parses it.
 
             return@withContext try {
                 val conv = try {
@@ -996,31 +998,43 @@ class LiteRtInferenceEngine @Inject constructor(
                 try {
                     val latch = CompletableDeferred<String>()
                     var capturedToolJson: String? = null
+                    val jsonAccumulator = JsonObjectAccumulator()
+                    val responseBuilder = StringBuilder()
 
                     conv.sendMessageAsync(
                         Contents.of(Content.Text(prompt)),
                         object : MessageCallback {
                             override fun onMessage(message: Message) {
-                                if (capturedToolJson != null) return
-                                val toolCalls = message.toolCalls
-                                if (toolCalls.size != 1) return
-                                val call = toolCalls.single()
-                                if (call.name != spec.toolName) return
-                                capturedToolJson = call.arguments.toString()
-                                latch.complete(capturedToolJson!!)
+                                // Priority 1: tool call matching spec
+                                if (capturedToolJson == null) {
+                                    val toolCalls = message.toolCalls
+                                    if (toolCalls.size == 1) {
+                                        val call = toolCalls.single()
+                                        if (call.name == spec.toolName) {
+                                            capturedToolJson = call.arguments.toString()
+                                            latch.complete(capturedToolJson!!)
+                                            return
+                                        }
+                                    }
+                                }
+                                // Priority 2: accumulate text for JSON extraction fallback
+                                if (capturedToolJson == null) {
+                                    val text = message.toString()
+                                    if (text.isEmpty() || text.startsWith("<ctrl")) return
+                                    responseBuilder.append(text)
+                                    jsonAccumulator.append(text)?.let { json ->
+                                        capturedToolJson = json
+                                        latch.complete(json)
+                                    }
+                                }
                             }
 
                             override fun onDone() {
-                                // No tool call arrived — constrained decoding should prevent this,
-                                // but complete the latch with an error so the caller doesn't
-                                // wait the full timeout.
-                                if (capturedToolJson == null) {
-                                    latch.completeExceptionally(
-                                        IllegalStateException(
-                                            "generateStructuredOnce: model returned no tool call for '${spec.toolName}'",
-                                        ),
-                                    )
-                                }
+                                if (capturedToolJson != null) return
+                                // No tool call and no JSON found in streaming — return empty.
+                                // The caller will report failure.
+                                Log.w(TAG, "generateStructuredOnce: model returned no tool call or JSON for '${spec.toolName}'")
+                                latch.complete("")
                             }
 
                             override fun onError(throwable: Throwable) {
