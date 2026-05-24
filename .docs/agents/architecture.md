@@ -30,13 +30,14 @@ User input
 |--------|---------|
 | `:app` | Entry point, Hilt DI, navigation, splash |
 | `:core:inference` | LiteRT-LM engine wrapper, model manager, hardware tier detection |
+| `:core:voice` | STT, TTS, voice mode, push-to-talk |
 | `:core:memory` | sqlite-vec JNI, EmbeddingGemma, RAG pipeline |
 | `:core:wasm` | Chicory Wasm host, bridge functions, resource limiting |
 | `:core:ui` | Shared Compose components, Material 3 theme |
 | `:core:skills` | SkillInterface, SkillRegistry, JSON schema generation |
 | `:feature:chat` | Chat screen, conversation list, ChatViewModel |
 | `:feature:settings` | Memory management, skill store, model info, persona config |
-| `:feature:onboarding` | First-launch model download flow |
+`:feature:onboarding` | ~~First-launch model download~~ (dormant) |
 | `:feature:widget` | Glance homescreen widget, VoiceCommandActivity |
 | `:feature:convert` | Text conversion utilities |
 

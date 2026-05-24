@@ -34,6 +34,7 @@ Priority order:
 - Do not rewrite working code for style preferences alone
 - Do not perform broad formatting-only diffs
 - Do not overwrite unrelated local changes
+- Do not hardcode model-specific or premium-only assumptions into repo-local prompts or scripts
 
 ## Working style
 

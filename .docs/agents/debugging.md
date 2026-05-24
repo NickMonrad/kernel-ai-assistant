@@ -22,7 +22,7 @@ adb exec-out screencap -p > screenshot.png
 adb devices
 
 # Launch specific activity
-adb shell am start -n com.nickmonrad.kernelai/.ui.MainActivity
+adb shell am start -n com.kernel.ai/.MainActivity
 ```
 
 ## Log filtering

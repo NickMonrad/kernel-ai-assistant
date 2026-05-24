@@ -15,7 +15,7 @@ Load this when you encounter blockers or unexpected behavior.
 |---------|-----------|
 | Cannot build | Check `./gradlew assembleDebug` output; verify SDK/NDK paths |
 | Cannot run tests | Verify MockK setup; check that interfaces are mocked, not implementations |
-| Model download fails | Verify network; check `scripts/download-models.sh` for auth issues |
+Model download fails | Verify network; check model assets in `app/src/main/assets/models/` |
 | Device not connected | Use `adb devices`; try USB debugging on S23 Ultra |
 | CI fails (no GPU) | Expected — CI cannot run inference; check lint/unit tests only |
 | LSP unavailable | Fall back to `search` + `read` for code intelligence |

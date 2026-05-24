@@ -9,8 +9,8 @@ Load this when navigating unfamiliar modules.
 |------|---------|
 | `AGENTS.md` | Shared agent workflow and tool guidance |
 | `.github/copilot-instructions.md` | Authoritative architecture and repo conventions |
-| `specification.md` | Detailed technical spec, module breakdown, API contracts |
-| `ROADMAP.md` | Product roadmap and phase tracking |
+| `docs/SPECIFICATION.md` | Detailed technical spec, module breakdown, API contracts |
+| `docs/ROADMAP.md` | Product roadmap and phase tracking |
 | `CONTRIBUTING.md` | Contributor guidelines |
 
 ### Agent configuration
@@ -39,7 +39,7 @@ Load this when navigating unfamiliar modules.
 |------|---------|
 | `feature/chat/` | Chat screen, conversation list, ChatViewModel |
 | `feature/settings/` | Memory management, skill store, model info |
-| `feature/onboarding/` | First-launch model download flow |
+| `feature/onboarding/` | ~~First-launch model download flow~~ (dormant) |
 | `feature/widget/` | Glance homescreen widget, VoiceCommandActivity |
 | `feature/convert/` | Text conversion utilities |
 
@@ -54,6 +54,5 @@ Load this when navigating unfamiliar modules.
 ### Scripts & config
 | Path | Purpose |
 |------|---------|
-| `scripts/download-models.sh` | Download models from HuggingFace |
 | `gradle/libs.versions.toml` | Version catalog |
 | `settings.gradle.kts` | Module configuration |
