@@ -1314,7 +1314,13 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertEquals(
-            listOf("2 people", "4 days", "no dietary requirements", "kid friendly", "gluten free", "nut free", "chicken", "help", "cancel plan"),
+            listOf(
+                "2 people", "3 people", "4 people", "6 people", "8 people",
+                "4 days", "7 days",
+                "no dietary requirements", "kid friendly", "gluten free",
+                "chicken", "beef mince", "beef",
+                "help", "cancel plan",
+            ),
             activity?.suggestions?.map { it.command },
         )
     }
@@ -1343,26 +1349,8 @@ class MealPlannerCoordinatorTest {
 
         assertEquals(
             listOf(
-                "chicken",
-                "beef mince",
-                "beef",
-                "turkey",
-                "pork",
-                "lamb",
-                "fish",
-                "salmon",
-                "tuna",
-                "tofu",
-                "lentils",
-                "beans",
-                "eggs",
-                "no protein preference",
-                "snapper",
-                "prawns",
-                "chickpeas",
-                "halloumi",
-                "help",
-                "cancel plan",
+                "chicken", "beef mince", "beef", "lamb", "pork", "fish",
+                "help", "cancel plan",
             ),
             activity?.suggestions?.map { it.command },
         )
@@ -1380,26 +1368,8 @@ class MealPlannerCoordinatorTest {
 
         assertEquals(
             listOf(
-                "no dietary requirements",
-                "kid friendly",
-                "gluten free",
-                "celiac safe",
-                "dairy free",
-                "egg free",
-                "peanut free",
-                "nut free",
-                "soy free",
-                "fish free",
-                "shellfish free",
-                "sesame free",
-                "vegetarian",
-                "vegan",
-                "pescatarian",
-                "paleo",
-                "keto",
-                "halal",
-                "help",
-                "cancel plan",
+                "no dietary requirements", "kid friendly", "gluten free", "nut free", "vegetarian", "vegan",
+                "help", "cancel plan",
             ),
             activity?.suggestions?.map { it.command },
         )
@@ -1417,15 +1387,8 @@ class MealPlannerCoordinatorTest {
 
         assertEquals(
             listOf(
-                "tofu",
-                "lentils",
-                "beans",
-                "eggs",
-                "no protein preference",
-                "chickpeas",
-                "halloumi",
-                "help",
-                "cancel plan",
+                "tofu", "eggs", "chickpeas", "no protein preference",
+                "help", "cancel plan",
             ),
             activity?.suggestions?.map { it.command },
         )
@@ -1516,8 +1479,8 @@ class MealPlannerCoordinatorTest {
 
         val reply = coordinator.ingestUserMessage("conv", "replace day 6")
 
-        assertTrue(reply.content.contains("only has 2 days", ignoreCase = true))
-        assertTrue(reply.content.contains("Day 1 to Day 2", ignoreCase = true))
+        assertTrue(reply.content.contains("can only replace", ignoreCase = true))
+        assertTrue(reply.content.contains("6", ignoreCase = true))
         assertFalse(reply.content.contains("Invalid day index", ignoreCase = true))
         coVerify(exactly = 0) { inferenceEngine.generateOnce(any(), any(), any(), any()) }
     }
@@ -1693,6 +1656,7 @@ class MealPlannerCoordinatorTest {
         daysCount = null,
         dietaryRestrictions = emptyList(),
         proteinPreferences = emptyList(),
+        cuisinePreferences = listOf("no cuisine preference"),
         favouriteRecipeMode = FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,
@@ -1715,6 +1679,7 @@ class MealPlannerCoordinatorTest {
         daysCount = 2,
         dietaryRestrictions = listOf("low lactose"),
         proteinPreferences = listOf("chicken"),
+        cuisinePreferences = listOf("italian"),
         favouriteRecipeMode = FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,
@@ -1761,6 +1726,7 @@ class MealPlannerCoordinatorTest {
         daysCount = 2,
         dietaryRestrictions = listOf("low lactose"),
         proteinPreferences = listOf("chicken"),
+        cuisinePreferences = listOf("italian"),
         favouriteRecipeMode = FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,

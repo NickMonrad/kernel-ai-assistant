@@ -77,7 +77,7 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 |- 🔒 **Blank response guard** — retries without RAG before showing fallback when LiteRT produces 0 tokens; keeps chat awake during load and generation (#839/#841, PRs #840/#842)
 |- 🎙️ **Homescreen Glance widget** — quick actions and voice from the launcher via GlanceAppWidget; VoiceCommandActivity and WidgetTextInputActivity with task isolation (#617, PR #847)
 |- 🔧 **Audio quality fixes** — AudioTrack tail cutoff prevention via hardware-latency silence padding; expectedSlotPromptSpeech normalisation to match TTS output; SID=0 clamp for single-speaker voices; aye pronunciation correction (#837/#828/#810, PRs #838/#836/#811)
-- 🍽️ **Deterministic meal planner** — app-owned meal-planning sessions with bounded JSON generation, draft-plan approval, progressive recipe reveal, visible `x of y` progress, interruption-safe resume, quantity sanity validation, and quick-action/chat handoff (#859/#869, PRs #864/#875)
+- 🍽️ **Deterministic meal planner** — app-owned meal-planning sessions with bounded JSON generation, draft-plan approval, progressive recipe reveal, visible `x of y` progress, interruption-safe resume, quantity sanity validation, cuisine preferences, Kiwi wording normalization, batch day replace/regenerate, and quick-action/chat handoff (#859/#869/#931/#932/#971, PRs #864/#875/this PR)
 - 📚 **Meal plans browser** — drawer-accessible Recent plans and Favourites tabs with recipe search, canonical favourite toggles, recipe re-add to Lists, and ingredient export into existing user lists (#933, PR #934)
 
 ### Coming Soon

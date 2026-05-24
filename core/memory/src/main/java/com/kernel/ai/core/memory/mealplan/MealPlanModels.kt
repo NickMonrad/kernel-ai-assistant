@@ -113,6 +113,7 @@ data class MealPlanSnapshot(
     val daysCount: Int?,
     val dietaryRestrictions: List<String>,
     val proteinPreferences: List<String>,
+    val cuisinePreferences: List<String>,
     val favouriteRecipeMode: FavouriteRecipeMode,
     val activeDayIndex: Int?,
     val pendingGenerationKind: PendingGenerationKind?,

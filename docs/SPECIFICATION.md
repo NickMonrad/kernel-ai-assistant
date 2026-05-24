@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-05-21 (PR #946 spec sync: thinking-mode/tool-turn hardening, direct native tool wrappers, DirectReply bypass notes, known QIR/anaphora follow-up gaps; PR #934 meal plans browser: recent/favourites tabs, recipe search, list export actions; prior: PR #925 deterministic meal planner architecture, planner status surface, friendly meal-plan IDs, conversation title sync, Room v45; PR #924 conversation management — archive, pin, drag-to-reorder, swipe gestures, multi-select, ArchiveCleanupWorker; PR #834 voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, important dates, world clock, colloquial weather QIR; PR #848 currency #831; PR #847 widget #617; PR #845 aye fix #843)
+> **Last updated:** 2026-05-23 (meal planner follow-ups: cuisine preferences #971, NZ wording normalization #932, batch multi-day replace/regenerate #931; prior: PR #946 spec sync: thinking-mode/tool-turn hardening, direct native tool wrappers, DirectReply bypass notes, known QIR/anaphora follow-up gaps; PR #934 meal plans browser: recent/favourites tabs, recipe search, list export actions; prior: PR #925 deterministic meal planner architecture, planner status surface, friendly meal-plan IDs, conversation title sync, Room v45; PR #924 conversation management — archive, pin, drag-to-reorder, swipe gestures, multi-select, ArchiveCleanupWorker; PR #834 voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, important dates, world clock, colloquial weather QIR; PR #848 currency #831; PR #847 widget #617; PR #845 aye fix #843)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -856,7 +856,7 @@ Planner writes that transition state are wrapped in `database.withTransaction`, 
 The planner's canonical data does **not** live in generic list tables or RAG memory.
 
 Primary Room tables:
-- `meal_plan_sessions` — one planner session per active conversation handoff, with counts, dietary restrictions, protein preferences, optional slots, pending-generation metadata, and a stable `displayCode`
+- `meal_plan_sessions` — one planner session per active conversation handoff, with counts, dietary restrictions, protein preferences, cuisine preferences, optional slots, pending-generation metadata, and a stable `displayCode`
 - `meal_plan_days` — one row per day in the plan, tracking title, summary, protein tags, attempts, and per-day status
 - `meal_plan_recipe_versions` — immutable-ish recipe versions per day with structured ingredients and method steps
 - `meal_plan_grocery_items` — canonical grocery rows plus normalization metadata
@@ -871,21 +871,24 @@ Required slots today:
 - day count
 - dietary restrictions
 - protein preferences
+- cuisine preferences
 
 Supported preference handling includes:
 - explicit dietary/lifestyle values such as vegetarian, vegan, pescatarian, halal, paleo, keto, low lactose, gluten free, celiac safe, and kid friendly
 - allergen-style constraints such as dairy free, egg free, peanut free, nut free, soy free, fish free, shellfish free, and sesame free
 - freeform ingredient exclusions captured from phrases like `no aubergines` or `without coriander`
+- cuisine / meal-style preferences such as Italian, Chinese, Mexican, Indian, Thai, Vietnamese, Japanese, Korean, Mediterranean, pub food, 15 to 30 minute quick meals, BBQ and grill, slow cooker, one pot, and explicit `no cuisine preference`
 
-Dietary requirements, allergens, and ingredient exclusions are treated as **strict requirements** in both plan-generation and recipe-generation prompts. Protein selections are checked against the active dietary rules; incompatible protein choices are cleared and the user is prompted for a compatible replacement instead of silently generating an invalid plan.
+Dietary requirements, allergens, and ingredient exclusions are treated as **strict requirements** in both plan-generation and recipe-generation prompts. Protein selections are checked against the active dietary rules; incompatible protein choices are cleared and the user is prompted for a compatible replacement instead of silently generating an invalid plan. Cuisine preferences are plan-wide soft guidance that shape both plan and recipe generation.
 
 #### 4.3.4 Generation guardrails and projections
 
 The LLM is used only for bounded structured output. Kotlin owns enforcement:
 - JSON-first parsing for plan days and recipes, with fenced-block fallback only when needed
 - quantity sanity checks and cooking-measure normalization so absurd amounts are rejected instead of being projected into lists
-- deterministic grocery normalization and merge-key generation before shopping projection writes
-- recent-plan history retrieval and bounded self-repair loops to reduce exact repeats and obvious same-protein/same-shape duplication without making soft variety preferences block generation entirely
+- deterministic grocery normalization and merge-key generation before shopping projection writes, with aggregated normalized shopping-list lines
+- parse-time New Zealand wording normalization for generated titles, ingredients, and method text
+- recent-plan history retrieval from completed plans only, plus bounded self-repair loops to reduce exact repeats and obvious same-protein/same-shape duplication without making soft variety preferences block generation entirely
 
 Recipe projections now write lightweight cooking checklists: each recipe list contains an `Ingredients` section followed by a `Method` section with numbered steps. Shopping and recipe lists are derived artifacts only; the planner can rebuild or delete them from canonical planner rows.
 
@@ -900,8 +903,8 @@ Two activity tones exist:
 That surface also publishes planner-smart-reply commands such as:
 - `generate recipes`
 - `show current plan`
-- `replace day N`
-- `regenerate day N`
+- `replace day N` / `replace days N and M`
+- `regenerate day N` / `regenerate days N-M`
 - `change preferences`
 - `done meal planning`
 

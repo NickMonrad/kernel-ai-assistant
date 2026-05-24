@@ -95,6 +95,45 @@ class MealPlannerSlotExtractor @Inject constructor() {
             .toList()
             .takeIf { it.isNotEmpty() }
     }
+    fun extractCuisinePreferences(text: String, allowBareNoPreference: Boolean = false): List<String>? {
+        val normalized = normalizeWords(text)
+        val additionPayload = extractAdditionPayload(normalized) ?: return null
+        return extractCuisinePreferencesFromNormalized(additionPayload, allowBareNoPreference)
+    }
+
+    fun extractRemovedCuisinePreferences(text: String): List<String>? {
+        val normalized = normalizeWords(text)
+        val removalPayload = extractRemovalPayload(normalized) ?: return null
+        return splitExclusionTerms(removalPayload)
+            .mapNotNull(::normalizeRemovedCuisinePreference)
+            .distinct()
+            .takeIf { it.isNotEmpty() }
+    }
+
+    private fun extractCuisinePreferencesFromNormalized(
+        normalized: String,
+        allowBareNoPreference: Boolean,
+    ): List<String>? {
+        if (
+            Regex("\\b(?:any\\s+cuisine(?:\\s+is\\s+fine)?|no\\s+cuisine\\s+preferences?|no\\s+cuisine\\s+preference|no\\s+preferences?|surprise me)\\b").containsMatchIn(normalized) ||
+                (allowBareNoPreference && normalized.matches(Regex("^\\s*(?:none|any)\\s*[.!?]*$")))
+        ) {
+            return listOf(NO_CUISINE_PREFERENCE)
+        }
+        return CUISINE_KEYWORDS
+            .filter { keyword -> keyword.pattern.containsMatchIn(normalized) }
+            .map { it.canonical }
+            .distinct()
+            .takeIf { it.isNotEmpty() }
+    }
+
+    private fun normalizeRemovedCuisinePreference(rawTerm: String): String? {
+        val cleaned = cleanPreferenceTerm(rawTerm) ?: return null
+        if (cleaned == NO_CUISINE_PREFERENCE) {
+            return cleaned
+        }
+        return extractCuisinePreferencesFromNormalized(cleaned, allowBareNoPreference = false)?.firstOrNull()
+    }
 
     private fun extractProteinPreferencesFromNormalized(
         normalized: String,
@@ -226,6 +265,39 @@ class MealPlannerSlotExtractor @Inject constructor() {
             else -> normalizedExcluded == protein
         }
     }
+    fun extractReplaceDayIndices(text: String): List<Int>? =
+        extractDayIndices(text, Regex("\\b(?:replace|swap|change)\\s+days?\\s+([\\d\\sand,\\-]+)\\b", RegexOption.IGNORE_CASE))
+
+    fun extractRegenerateDayIndices(text: String): List<Int>? =
+        extractDayIndices(text, Regex("\\b(?:regenerate|redo|retry)\\s+days?\\s+([\\d\\sand,\\-]+)\\b", RegexOption.IGNORE_CASE))
+
+    private fun extractDayIndices(text: String, pattern: Regex): List<Int>? {
+        val normalized = normalizeWords(text)
+        val selection = pattern.find(normalized)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        val indices = DAY_SELECTION_TOKEN.findAll(selection)
+            .flatMap { match ->
+                val token = match.value.replace(" ", "")
+                if ('-' in token) {
+                    val parts = token.split('-', limit = 2)
+                    val start = parts.getOrNull(0)?.toIntOrNull()
+                    val end = parts.getOrNull(1)?.toIntOrNull()
+                    if (start == null || end == null || start <= 0 || end <= 0) {
+                        emptySequence()
+                    } else {
+                        val range = if (start <= end) start..end else end..start
+                        range.asSequence()
+                    }
+                } else {
+                    val day = token.toIntOrNull()
+                    if (day == null || day <= 0) emptySequence() else sequenceOf(day)
+                }
+            }
+            .map { it - 1 }
+            .distinct()
+            .sorted()
+            .toList()
+        return indices.takeIf { it.isNotEmpty() }
+    }
 
     fun isCancelRequest(text: String): Boolean =
         Regex("\\b(?:cancel|nevermind|never mind|forget it|abort)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
@@ -237,12 +309,10 @@ class MealPlannerSlotExtractor @Inject constructor() {
         ).matches(text.trim())
 
     fun extractReplaceDayIndex(text: String): Int? =
-        Regex("\\b(?:replace|swap|change)\\s+day\\s+(\\d+)\\b", RegexOption.IGNORE_CASE)
-            .find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.minus(1)
+        extractReplaceDayIndices(text)?.singleOrNull()
 
     fun extractRegenerateDayIndex(text: String): Int? =
-        Regex("\\b(?:regenerate|redo|retry)\\s+day\\s+(\\d+)\\b", RegexOption.IGNORE_CASE)
-            .find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.minus(1)
+        extractRegenerateDayIndices(text)?.singleOrNull()
 
     fun isGenerateRecipesRequest(text: String): Boolean {
         val normalized = text.trim()
@@ -309,6 +379,7 @@ class MealPlannerSlotExtractor @Inject constructor() {
         )
         const val NO_DIETARY_REQUIREMENTS = "no dietary requirements"
         const val NO_PROTEIN_PREFERENCE = "no protein preference"
+        const val NO_CUISINE_PREFERENCE = "no cuisine preference"
 
         val DIETARY_PATTERNS = listOf(
             Regex("\\b(?:kid friendly|kid-friendly|family friendly|family-friendly)\\b") to "kid friendly",
@@ -393,6 +464,23 @@ class MealPlannerSlotExtractor @Inject constructor() {
             "shellfish",
             "sesame",
         )
+        val CUISINE_KEYWORDS = listOf(
+            CuisineKeyword("italian", Regex("\\bitalian\\b")),
+            CuisineKeyword("chinese", Regex("\\bchinese\\b")),
+            CuisineKeyword("mexican", Regex("\\bmexican\\b")),
+            CuisineKeyword("indian", Regex("\\bindian\\b")),
+            CuisineKeyword("thai", Regex("\\bthai\\b")),
+            CuisineKeyword("vietnamese", Regex("\\bvietnamese\\b")),
+            CuisineKeyword("japanese", Regex("\\bjapanese\\b")),
+            CuisineKeyword("korean", Regex("\\bkorean\\b")),
+            CuisineKeyword("mediterranean", Regex("\\bmediterranean\\b")),
+            CuisineKeyword("pub food", Regex("\\bpub food\\b")),
+            CuisineKeyword("15 to 30 minute quick meals", Regex("\\b(?:15\\s*(?:to|-|–)\\s*30\\s+minute\\s+(?:quick\\s+)?meals?|quick meals?)\\b")),
+            CuisineKeyword("bbq and grill", Regex("\\b(?:bbq|barbecue|barbeque)(?:\\s+and\\s+grill|\\s+grill(?:ed)?)?\\b|\\bgrill(?:ed)?\\b")),
+            CuisineKeyword("slow cooker", Regex("\\bslow cooker\\b")),
+            CuisineKeyword("one pot", Regex("\\b(?:one|1)[ -]?pot\\b")),
+        )
+        val DAY_SELECTION_TOKEN = Regex("\\d+\\s*-\\s*\\d+|\\d+")
         val PROTEIN_KEYWORDS = listOf(
             ProteinKeyword("chicken", Regex("\\bchicken\\b")),
             ProteinKeyword("beef mince", Regex("\\bbeef mince\\b")),
@@ -414,6 +502,10 @@ class MealPlannerSlotExtractor @Inject constructor() {
         )
 
         data class ProteinKeyword(
+            val canonical: String,
+            val pattern: Regex,
+        )
+        data class CuisineKeyword(
             val canonical: String,
             val pattern: Regex,
         )

@@ -53,8 +53,8 @@ class MealPlanJsonParser @Inject constructor() {
             val item = daysArray.getJSONObject(index)
             MealPlanDraftDay(
                 dayIndex = item.optInt("day_index", -1),
-                title = item.optString("title").trim(),
-                summary = item.optString("summary").trim().takeIf { it.isNotBlank() },
+                title = normalizeKiwiWording(item.optString("title").trim()),
+                summary = normalizeKiwiWording(item.optString("summary").trim()).takeIf { it.isNotBlank() },
                 proteinTags = jsonArrayToStrings(item.optJSONArray("protein_tags")),
             )
         }
@@ -69,7 +69,7 @@ class MealPlanJsonParser @Inject constructor() {
     }
     fun parseRecipeDraft(raw: String, expectedServings: Int): RecipeDraft {
         val obj = parseRootObject(raw)
-        val title = obj.optString("title").trim()
+        val title = normalizeKiwiWording(obj.optString("title").trim())
         if (title.isBlank()) {
             throw MealPlanValidationException("Recipe JSON must include a non-blank title.")
         }
@@ -88,7 +88,7 @@ class MealPlanJsonParser @Inject constructor() {
         val ingredients = List(ingredientsArray.length()) { index ->
             when (val item = ingredientsArray.get(index)) {
                 is JSONObject -> {
-                    val originalText = item.optString("original_text").trim()
+                    val originalText = normalizeKiwiWording(item.optString("original_text").trim())
                     if (originalText.isBlank()) {
                         throw MealPlanValidationException("Each ingredient must include original_text.")
                     }
@@ -96,12 +96,12 @@ class MealPlanJsonParser @Inject constructor() {
                         originalText = originalText,
                         amount = item.optNullableString("amount"),
                         unit = item.optNullableString("unit"),
-                        item = item.optNullableString("item"),
-                        note = item.optNullableString("note"),
+                        item = item.optNullableString("item")?.let(::normalizeKiwiWording),
+                        note = item.optNullableString("note")?.let(::normalizeKiwiWording),
                     )
                 }
                 is String -> {
-                    val originalText = item.trim()
+                    val originalText = normalizeKiwiWording(item.trim())
                     if (originalText.isBlank()) {
                         throw MealPlanValidationException("Each ingredient string must be non-blank.")
                     }
@@ -125,14 +125,14 @@ class MealPlanJsonParser @Inject constructor() {
             when (val item = methodArray.get(index)) {
                 is JSONObject -> {
                     val number = item.optInt("step_number", index + 1)
-                    val text = item.optString("text").trim()
+                    val text = normalizeKiwiWording(item.optString("text").trim())
                     if (text.isBlank()) {
                         throw MealPlanValidationException("Each method step must include text.")
                     }
                     RecipeDraftMethodStep(number, text)
                 }
                 is String -> {
-                    val text = item.trim()
+                    val text = normalizeKiwiWording(item.trim())
                     if (text.isBlank()) {
                         throw MealPlanValidationException("Each method step string must be non-blank.")
                     }
@@ -183,6 +183,33 @@ class MealPlanJsonParser @Inject constructor() {
 
     private fun JSONObject.optNullableString(key: String): String? =
         optString(key).trim().takeIf { it.isNotBlank() && it != "null" }
+
+    private fun normalizeKiwiWording(text: String): String {
+        if (text.isBlank()) return text
+        return KIWI_WORD_REPLACEMENTS.fold(text) { acc, replacement ->
+            replacement.pattern.replace(acc) { match ->
+                replacement.applyCase(match.value)
+            }
+        }
+    }
 }
 
 class MealPlanValidationException(message: String) : IllegalArgumentException(message)
+private data class KiwiWordReplacement(
+    val pattern: Regex,
+    val replacement: String,
+) {
+    fun applyCase(source: String): String = when {
+        source.all { !it.isLetter() || it.isUpperCase() } -> replacement.uppercase()
+        source.firstOrNull()?.isUpperCase() == true -> replacement.replaceFirstChar { it.titlecase() }
+        else -> replacement
+    }
+}
+private val KIWI_WORD_REPLACEMENTS = listOf(
+    KiwiWordReplacement(Regex("\\bbell peppers\\b", RegexOption.IGNORE_CASE), "capsicums"),
+    KiwiWordReplacement(Regex("\\bbell pepper\\b", RegexOption.IGNORE_CASE), "capsicum"),
+    KiwiWordReplacement(Regex("\\bcilantro\\b", RegexOption.IGNORE_CASE), "coriander"),
+    KiwiWordReplacement(Regex("\\bsweet potatoes\\b", RegexOption.IGNORE_CASE), "kumara"),
+    KiwiWordReplacement(Regex("\\bsweet potato\\b", RegexOption.IGNORE_CASE), "kumara"),
+    KiwiWordReplacement(Regex("\\babalone\\b", RegexOption.IGNORE_CASE), "paua"),
+)

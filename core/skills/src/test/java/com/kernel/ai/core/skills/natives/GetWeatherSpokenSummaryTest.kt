@@ -1,46 +1,45 @@
 package com.kernel.ai.core.skills.natives
 
-import io.mockk.mockk
-import okhttp3.OkHttpClient
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
+/**
+ * Tests for GetWeatherSkill spoken-summary top-level functions.
+ *
+ * These functions are top-level internal so they can be tested directly in JVM unit tests.
+ */
 class GetWeatherSpokenSummaryTest {
-    private val skill = GetWeatherSkill(
-        context = mockk(relaxed = true),
-        httpClient = mockk<OkHttpClient>(),
-    )
 
     @Test
     fun `locationForSpeech strips country code from reverse-geocoded label`() {
-        assertEquals("Brisbane", skill.locationForSpeech("Brisbane, AU"))
+        assertEquals("Brisbane", locationForSpeech("Brisbane, AU"))
     }
 
     @Test
     fun `locationForSpeech returns bare city name unchanged`() {
-        assertEquals("Auckland", skill.locationForSpeech("Auckland"))
+        assertEquals("Auckland", locationForSpeech("Auckland"))
     }
 
     @Test
     fun `locationForSpeech returns placeholder for null`() {
-        assertEquals("your location", skill.locationForSpeech(null))
+        assertEquals("your location", locationForSpeech(null))
     }
 
     @Test
     fun `locationForSpeech returns placeholder for blank`() {
-        assertEquals("your location", skill.locationForSpeech("   "))
+        assertEquals("your location", locationForSpeech("   "))
     }
 
     @Test
     fun `locationForSpeech handles multi-part label by taking only first segment`() {
-        assertEquals("Murrumba Downs", skill.locationForSpeech("Murrumba Downs, QLD, AU"))
+        assertEquals("Murrumba Downs", locationForSpeech("Murrumba Downs, QLD, AU"))
     }
 
     @Test
     fun `buildCurrentWeatherSpoken produces natural current-conditions sentence`() {
-        val spoken = skill.buildCurrentWeatherSpoken(
+        val spoken = buildCurrentWeatherSpoken(
             locationLabel = "Brisbane, AU",
             description = "Partly cloudy",
             temp = 25.0,
@@ -56,7 +55,7 @@ class GetWeatherSpokenSummaryTest {
 
     @Test
     fun `buildCurrentWeatherSpoken omits feels-like when NaN`() {
-        val spoken = skill.buildCurrentWeatherSpoken(
+        val spoken = buildCurrentWeatherSpoken(
             locationLabel = "Sydney",
             description = "Clear sky",
             temp = 22.0,
@@ -70,7 +69,7 @@ class GetWeatherSpokenSummaryTest {
 
     @Test
     fun `buildCurrentWeatherSpoken omits high-low when both null`() {
-        val spoken = skill.buildCurrentWeatherSpoken(
+        val spoken = buildCurrentWeatherSpoken(
             locationLabel = "Melbourne",
             description = "Rain",
             temp = 18.0,
@@ -84,7 +83,7 @@ class GetWeatherSpokenSummaryTest {
 
     @Test
     fun `buildCurrentWeatherSpoken omits high when only min available`() {
-        val spoken = skill.buildCurrentWeatherSpoken(
+        val spoken = buildCurrentWeatherSpoken(
             locationLabel = "Canberra",
             description = "Fog",
             temp = 10.0,
@@ -98,7 +97,7 @@ class GetWeatherSpokenSummaryTest {
 
     @Test
     fun `buildCurrentWeatherSpoken skips unknown description`() {
-        val spoken = skill.buildCurrentWeatherSpoken(
+        val spoken = buildCurrentWeatherSpoken(
             locationLabel = "GPS location",
             description = "Unknown",
             temp = 20.0,
@@ -111,7 +110,7 @@ class GetWeatherSpokenSummaryTest {
 
     @Test
     fun `buildCurrentWeatherSpoken rounds temperature to nearest integer`() {
-        val spoken = skill.buildCurrentWeatherSpoken(
+        val spoken = buildCurrentWeatherSpoken(
             locationLabel = "Perth",
             description = "Clear sky",
             temp = 25.6,
@@ -127,7 +126,7 @@ class GetWeatherSpokenSummaryTest {
 
     @Test
     fun `buildCurrentWeatherSpoken does not contain degree symbol`() {
-        val spoken = skill.buildCurrentWeatherSpoken(
+        val spoken = buildCurrentWeatherSpoken(
             locationLabel = "Darwin",
             description = "Overcast",
             temp = 31.0,
@@ -144,7 +143,7 @@ class GetWeatherSpokenSummaryTest {
             Triple("Mon 2 Jun", "Partly cloudy", Pair(25.0, 18.0)),
             Triple("Tue 3 Jun", "Rain", Pair(22.0, 15.0)),
         )
-        val spoken = skill.buildMultiDayForecastSpoken("Brisbane, AU", days)
+        val spoken = buildMultiDayForecastSpoken("Brisbane, AU", days)
         assertEquals(
             "Brisbane 2-day forecast. Mon 2 Jun: partly cloudy, high 25 degrees, low 18 degrees. Tue 3 Jun: rain, high 22 degrees, low 15 degrees.",
             spoken,
@@ -156,7 +155,7 @@ class GetWeatherSpokenSummaryTest {
         val days = (1..7).map { i ->
             Triple("Day $i", "Clear sky", Pair(25.0, 18.0))
         }
-        val spoken = skill.buildMultiDayForecastSpoken("Sydney", days)
+        val spoken = buildMultiDayForecastSpoken("Sydney", days)
         assertTrue(spoken.contains("3-day forecast"))
         assertFalse(spoken.contains("Day 4"))
     }
@@ -166,7 +165,7 @@ class GetWeatherSpokenSummaryTest {
         val days = listOf(
             Triple("Mon", "Clear sky", Pair(null as Double?, null as Double?)),
         )
-        val spoken = skill.buildMultiDayForecastSpoken("Hobart", days)
+        val spoken = buildMultiDayForecastSpoken("Hobart", days)
         assertFalse(spoken.contains("high"))
         assertFalse(spoken.contains("low"))
         assertTrue(spoken.contains("clear sky"))
@@ -174,7 +173,7 @@ class GetWeatherSpokenSummaryTest {
 
     @Test
     fun `buildSingleDayForecastSpoken produces natural tomorrow sentence`() {
-        val spoken = skill.buildSingleDayForecastSpoken(
+        val spoken = buildSingleDayForecastSpoken(
             locationLabel = "Brisbane, AU",
             dayLabel = "Tomorrow",
             description = "Rain",
