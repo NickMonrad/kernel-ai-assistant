@@ -1006,6 +1006,7 @@ class LiteRtInferenceEngine @Inject constructor(
                         val finished = AtomicBoolean(false)
                         val capturedToolJson = AtomicReference<String?>(null)
                         val jsonAccumulator = JsonObjectAccumulator()
+                        val TEXT_FALLBACK_MAX_CHARS = 2000
                         val responseBuilder = StringBuilder()
 
                         conv.sendMessageAsync(
@@ -1056,6 +1057,19 @@ class LiteRtInferenceEngine @Inject constructor(
                                             TAG,
                                             "generateStructuredOnce: text chunk appended, total=${responseBuilder.length}",
                                         )
+                                        // Fail fast: if model generates too much text without calling the tool
+                                        // or producing JSON, cancel to avoid 60s timeout.
+                                        if (responseBuilder.length > TEXT_FALLBACK_MAX_CHARS && capturedToolJson.get() == null) {
+                                            Log.w(
+                                                TAG,
+                                                "generateStructuredOnce: model generated ${responseBuilder.length} chars of text without tool call or JSON — cancelling",
+                                            )
+                                            try { conv.cancelProcess() } catch (ce: Exception) {}
+                                            if (finished.compareAndSet(false, true)) {
+                                                latch.complete("")
+                                            }
+                                            return
+                                        }
                                         jsonAccumulator.append(text)?.let { json ->
                                             Log.d(
                                                 TAG,
