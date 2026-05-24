@@ -1741,7 +1741,7 @@ Rules:
 - summaries must be short and plain
 - treat dietary requirements, allergens, and ingredient exclusions as strict requirements
 - prefer novelty by default across recent meal plans and within the current draft
-- avoid exact repeats and obvious same-protein same-cooking-style repeats unless the user explicitly asks for familiar meals
+- NEVER use the same protein AND cooking style for more than one day in the same plan
 - do not include ingredients, quantities, steps, markdown, commentary, or code fences
 """.trimIndent()
 
@@ -1758,6 +1758,7 @@ Rules:
             appendLine("Date: $now")
             appendLine("Dietary requirements: ${snapshot.dietaryRestrictions.ifEmpty { listOf("none provided") }.joinToString()}")
             appendLine("Protein preferences: ${snapshot.proteinPreferences.ifEmpty { listOf("no preference provided") }.joinToString()}")
+            appendLine("Constraint: each day must use a unique protein+cooking-style combination — no two days can share both the same protein AND the same cooking style.")
             appendLine("Cuisine preferences: ${snapshot.cuisinePreferences.ifEmpty { listOf("no preference provided") }.joinToString()}")
             appendLine("Use practical weeknight meal ideas suitable for Australia/New Zealand households and prefer New Zealand wording such as capsicum, coriander, and kumara where relevant.")
             if (recentHistoryBlock.isNotBlank()) {
@@ -1833,7 +1834,7 @@ Rules:
 - output exactly one replacement day object
 - day_index is zero-based, so user-visible Day ${dayIndex + 1} must use day_index $dayIndex
 - do not repeat the existing day title verbatim if you can avoid it
-- avoid obvious near-duplicates with the same protein and cooking style
+- NEVER use the same protein AND cooking style as any other day in the plan
 - treat dietary requirements, allergens, and ingredient exclusions as strict requirements
 - do not include ingredients, quantities, steps, markdown, commentary, or code fences
 """.trimIndent()
@@ -1885,6 +1886,18 @@ Rules:
                 appendLine(favouritePromptBlock)
             }
             appendLine()
+            // List existing protein+cooking-style patterns to avoid.
+            val existingPatterns = currentDays
+                .filter { it.dayIndex != dayIndex }
+                .mapNotNull { day ->
+                    val protein = proteinSignature(day.proteinTags, day.title)
+                    val shape = mealShape(day.title, day.summary)
+                    if (protein != null && shape != null) "$protein::$shape" else null
+                }
+                .distinct()
+            if (existingPatterns.isNotEmpty()) {
+                appendLine("Existing days use these protein + cooking-style patterns: ${existingPatterns.joinToString(", ")}. Do NOT reuse any of them.")
+            }
             appendLine("Return one alternative day that fits the plan without duplicating '$currentTitle' or clashing with the surrounding days.")
             append("Remember: this is user-visible Day ${dayIndex + 1}, but the JSON day_index must be zero-based and equal $dayIndex. Prefer New Zealand wording where relevant.")
         }.trim()
