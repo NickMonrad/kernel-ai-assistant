@@ -910,7 +910,7 @@ class LiteRtInferenceEngine @Inject constructor(
         }
     }
     @OptIn(ExperimentalApi::class)
-    internal val STRUCTURED_LOG_TAG = "LiteRtInferenceEngine"
+    internal val TAG = "LiteRtInferenceEngine"
     override suspend fun generateStructuredOnce(
         prompt: String,
         spec: StructuredOutputSpec,
@@ -919,7 +919,7 @@ class LiteRtInferenceEngine @Inject constructor(
     ): String = withContext(LlmDispatcher) {
         val config = currentConfig ?: return@withContext ""
         Log.d(
-            STRUCTURED_LOG_TAG,
+            TAG,
             "generateStructuredOnce: spec='${spec.toolName}', schemaLen=${spec.jsonSchema.length}, thinking=$thinkingEnabled",
         )
         val requestedSystemPrompt = systemPrompt?.takeIf { it.isNotBlank() }
@@ -967,11 +967,11 @@ class LiteRtInferenceEngine @Inject constructor(
 
             // With automaticToolCalling=false, the model's tool call is returned directly
             // to the callback instead of being auto-executed.
-            // NOTE: ExperimentalFlags.enableConversationConstrainedDecoding is NOT set here
-            // — it constrains text output, not tool calls, and breaks the synthetic tool path.
-            // The system prompt instructs the model to output JSON; the tool schema guides
-            // tool selection. If the model produces text instead, the fallback path parses it.
-
+            // Enable constrained decoding for synthetic tool calls.
+            // buildConversationConfig only sets this when config.toolProvider is non-null,
+            // but generateStructuredOnce adds tools via convConfig.copy() — so we set it
+            // explicitly here. Must be set before createConversation() (Gallery pattern).
+            ExperimentalFlags.enableConversationConstrainedDecoding = true
             try {
                 val conv = try {
                     eng.createConversation(convConfigWithTool)
@@ -1015,14 +1015,14 @@ class LiteRtInferenceEngine @Inject constructor(
                                 val toolCalls = message.toolCalls
                                 if (toolCalls.isNotEmpty()) {
                                     Log.d(
-                                        STRUCTURED_LOG_TAG,
+                                        TAG,
                                         "generateStructuredOnce: received ${toolCalls.size} tool call(s) — first='${toolCalls.firstOrNull()?.name}'",
                                     )
                                     if (toolCalls.size == 1) {
                                         val call = toolCalls.single()
                                         if (call.name == spec.toolName) {
                                             Log.d(
-                                                STRUCTURED_LOG_TAG,
+                                                TAG,
                                                 "generateStructuredOnce: matched tool call '${call.name}', arguments length=${call.arguments?.toString()?.length ?: 0}",
                                             )
                                             capturedToolJson = call.arguments.toString()
@@ -1030,13 +1030,13 @@ class LiteRtInferenceEngine @Inject constructor(
                                             return
                                         } else {
                                             Log.d(
-                                                STRUCTURED_LOG_TAG,
+                                                TAG,
                                                 "generateStructuredOnce: tool call name mismatch — expected='${spec.toolName}', got='${call.name}'",
                                             )
                                         }
                                     } else {
                                         Log.d(
-                                            STRUCTURED_LOG_TAG,
+                                            TAG,
                                             "generateStructuredOnce: multiple tool calls (${toolCalls.size}), ignoring",
                                         )
                                     }
@@ -1047,12 +1047,12 @@ class LiteRtInferenceEngine @Inject constructor(
                                 if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
                                     responseBuilder.append(text)
                                     Log.d(
-                                        STRUCTURED_LOG_TAG,
+                                        TAG,
                                         "generateStructuredOnce: text chunk appended, total=${responseBuilder.length}",
                                     )
                                     jsonAccumulator.append(text)?.let { json ->
                                         Log.d(
-                                            STRUCTURED_LOG_TAG,
+                                            TAG,
                                             "generateStructuredOnce: JSON object extracted from text, length=${json.length}",
                                         )
                                         capturedToolJson = json
@@ -1069,7 +1069,7 @@ class LiteRtInferenceEngine @Inject constructor(
                                 )
                                 if (responseBuilder.isNotEmpty()) {
                                     Log.d(
-                                        STRUCTURED_LOG_TAG,
+                                        TAG,
                                         "generateStructuredOnce: onDone with ${responseBuilder.length} chars of text but no JSON",
                                     )
                                 }
@@ -1099,7 +1099,7 @@ class LiteRtInferenceEngine @Inject constructor(
                         result = ""
                     }
                     Log.d(
-                        STRUCTURED_LOG_TAG,
+                        TAG,
                         "generateStructuredOnce: completed — result length=${result?.length ?: 0}, wasToolCall=${result?.let { it != "" } ?: false}",
                     )
                     result
