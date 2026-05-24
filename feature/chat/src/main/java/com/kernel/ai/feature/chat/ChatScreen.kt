@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -1038,7 +1039,7 @@ private fun InputBar(
                     AnimatedVisibility(
                         visible = showControlRow,
                         enter = fadeIn(),
-                        exit = fadeOut(),
+                        exit = shrinkVertically(),
                     ) {
                         // Secondary row: attachment, voice controls
                         Row(

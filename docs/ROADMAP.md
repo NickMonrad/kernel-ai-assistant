@@ -389,12 +389,18 @@ Deterministic meal planning now has its v1 foundation merged. The next phases ar
 | [#859](https://github.com/NickMonrad/kernel-ai-assistant/issues/859) | Deterministic meal planner foundation | ✅ Done — PR #864 | 🔴 High |
 | [#869](https://github.com/NickMonrad/kernel-ai-assistant/issues/869) | Meal planner phase 2 — progressive reveal + interruption-safe generation | ✅ Done — PR #875 | 🔴 High |
 | [#933](https://github.com/NickMonrad/kernel-ai-assistant/issues/933) | Recent meal plans and favourite recipes browser | ✅ Done — PR #934 | 🟡 Medium |
+| [#971](https://github.com/NickMonrad/kernel-ai-assistant/issues/971) | Cuisine-type preferences for meal planning | ✅ Done — this PR | 🟡 Medium |
+| [#932](https://github.com/NickMonrad/kernel-ai-assistant/issues/932) | Kiwi recipe wording / localisation pass | ✅ Done — this PR | 🟡 Medium |
+| [#931](https://github.com/NickMonrad/kernel-ai-assistant/issues/931) | Batch replace / regenerate multiple meal-plan days | ✅ Done — this PR | 🟡 Medium |
 | [#235](https://github.com/NickMonrad/kernel-ai-assistant/issues/235) | Artifact entity — persistent structured documents in Room DB | ⬜ Pending | 🟡 Medium |
 | [#43](https://github.com/NickMonrad/kernel-ai-assistant/issues/43) | Recipe skill datasources & regional produce | ⬜ Pending | 🟢 Low |
 
-**Current state after PR #934:**
+**Current state after this PR:**
 
 - Shipped: app-owned meal-planner session/day/recipe/grocery tables, bounded JSON generation, draft approval before recipe generation, progressive per-day recipe reveal, visible `Generating recipe x of y` status, interruption-safe resume prompts, deterministic shopping/recipe projections, and quick-action/widget handoff into chat.
+- Shipped: cuisine preferences as a persisted plan-level slot with smart-reply chips, explicit `no cuisine preference`, help examples, and prompt wiring through plan generation, recipe generation, and replacement flows.
+- Shipped: New Zealand recipe wording normalization for generated plan/recipe text (`capsicum`, `coriander`, `kumara`, `paua`) plus stronger AU/NZ prompt guidance.
+- Shipped: batch `replace days ...` / `regenerate days ...` parsing for comma, `and`, and range syntax, with ordered execution and stop-on-first-failure partial progress.
 - Shipped: a drawer-accessible Meal plans browser with Recent plans and Favourites tabs, recipe-name search, canonical favourite toggles outside chat, and export actions to recreate recipe lists or append ingredients into existing user lists.
 - Later platform/data phases stay separate by design: #235 expands durable structured artifacts; #43 adds recipe grounding and regional produce data.
 

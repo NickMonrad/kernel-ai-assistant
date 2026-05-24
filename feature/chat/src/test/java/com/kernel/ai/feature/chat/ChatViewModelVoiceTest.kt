@@ -659,6 +659,7 @@ class ChatViewModelVoiceTest {
             daysCount = 3,
             dietaryRestrictions = emptyList(),
             proteinPreferences = listOf("chicken"),
+            cuisinePreferences = emptyList(),
             favouriteRecipeMode = FavouriteRecipeMode.NONE,
             activeDayIndex = null,
             pendingGenerationKind = null,

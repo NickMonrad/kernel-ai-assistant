@@ -27,7 +27,7 @@ class MealPlanQuantityValidator @Inject constructor() {
                 ingredientName = item,
                 note = ingredient.note,
                 normalizationStatus = GroceryNormalizationStatus.OPAQUE,
-                mergeKey = item?.lowercase(),
+                mergeKey = item?.let(::normalizeMergeKey),
             )
         }
 
@@ -70,7 +70,7 @@ class MealPlanQuantityValidator @Inject constructor() {
             ingredientName = item,
             note = ingredient.note,
             normalizationStatus = GroceryNormalizationStatus.NORMALIZED,
-            mergeKey = "$normalizedUnit:${item.lowercase()}",
+            mergeKey = "$normalizedUnit:${normalizeMergeKey(item)}",
         )
     }
 
@@ -164,7 +164,7 @@ class MealPlanQuantityValidator @Inject constructor() {
         UNKNOWN,
     }
 
-    private companion object {
+    internal companion object {
         val PROTEIN_KEYWORDS = listOf("chicken", "beef", "pork", "lamb", "fish", "salmon", "tuna", "tofu", "beans", "lentils", "egg")
         val VEGETABLE_KEYWORDS = listOf("carrot", "capsicum", "broccoli", "onion", "tomato", "courgette", "zucchini", "bean", "pea", "spinach", "kumara", "potato")
         val GRAIN_KEYWORDS = listOf("rice", "pasta", "noodle", "quinoa", "couscous", "oat")
@@ -186,5 +186,21 @@ class MealPlanQuantityValidator @Inject constructor() {
             "inch",
             "inches",
         )
+        val DESCRIPTION_STRIP_RE = Regex(",\\s*(diced|chopped|minced|sliced|grated|crushed|whole|halved|quartered|cubed|finely|coarsely|roughly|thinly|thickly)\\b")
+
+        fun normalizeMergeKey(item: String): String {
+            var normalized = item.lowercase().trim()
+            // Strip prep descriptors so "garlic, minced" → "garlic"
+            normalized = DESCRIPTION_STRIP_RE.replace(normalized, "").trim()
+            // Strip trailing comma + descriptor (e.g. "capsicum, diced")
+            normalized = normalized.replace(Regex(",\\s*\\w+$"), "").trim()
+            // Handle -ies → -y (berries → berry, cherries → cherry)
+            normalized = normalized.replace(Regex("^(\\w+)ies$"), "$1y")
+            // Handle -es plurals (tomatoes → tomato, potatoes → potato)
+            normalized = normalized.replace(Regex("^(\\w+)es$"), "$1")
+            // Strip trailing 's' for simple plurals (capsicums → capsicum)
+            normalized = normalized.replace(Regex("^(\\w+)s\\b$"), "$1")
+            return normalized
+        }
     }
 }

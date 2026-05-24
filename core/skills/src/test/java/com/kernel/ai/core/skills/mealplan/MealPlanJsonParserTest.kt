@@ -133,6 +133,35 @@ class MealPlanJsonParserTest {
         assertEquals(1, result.methodSteps.first().stepNumber)
         assertEquals("Heat the oven to 220C.", result.methodSteps.first().text)
     }
+    @Test
+    fun `parseRecipeDraft normalizes kiwi wording across title ingredients and method`() {
+        val result = parser.parseRecipeDraft(
+            raw = """
+                {
+                  "title": "Bell Pepper and Cilantro Sweet Potato Bake",
+                  "servings": 4,
+                  "ingredients": [
+                    {"original_text": "2 bell peppers", "amount": "2", "unit": null, "item": "bell pepper", "note": "sliced with cilantro"},
+                    "1 sweet potato",
+                    "200 g abalone"
+                  ],
+                  "method_steps": [
+                    "Cook the bell peppers with cilantro.",
+                    "Roast the sweet potato until tender."
+                  ]
+                }
+            """.trimIndent(),
+            expectedServings = 4,
+        )
+
+        assertEquals("Capsicum and Coriander Kumara Bake", result.title)
+        assertEquals("2 capsicums", result.ingredients[0].originalText)
+        assertEquals("capsicum", result.ingredients[0].item)
+        assertEquals("sliced with coriander", result.ingredients[0].note)
+        assertEquals("1 kumara", result.ingredients[1].originalText)
+        assertEquals("200 g paua", result.ingredients[2].originalText)
+        assertEquals("Cook the capsicums with coriander.", result.methodSteps[0].text)
+    }
 
     @Test
     fun `parseRecipeDraft rejects servings mismatch`() {
