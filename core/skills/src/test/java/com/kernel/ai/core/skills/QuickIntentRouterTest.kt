@@ -3142,6 +3142,17 @@ class QuickIntentRouterTest {
             // Location-aware "over" word-form: "what's the weather over the next few days in <city>" (#972)
             Arguments.of("what's the weather over the next few days in Auckland", "3", "Auckland"),
             Arguments.of("what's the weather over the next seven days in Melbourne", "7", "Melbourne"),
+            // "like" preposition variants: "what's the weather like for the next N days" (#974 follow-up)
+            Arguments.of("what's the weather like for the next 3 days", "3", null),
+            Arguments.of("What's the weather like for the next few days", "3", null),
+            Arguments.of("what's the weather like for the next seven days", "7", null),
+            // "looking like for" variant: "what's the weather looking like for the next N days" (#974 follow-up)
+            Arguments.of("what's the weather looking like for the next 3 days", "3", null),
+            Arguments.of("What's the weather looking like for the next few days", "3", null),
+            Arguments.of("what's the weather looking like for the next seven days", "7", null),
+            // Location-aware "like" and "looking like for" variants
+            Arguments.of("what's the weather like for the next 3 days in Auckland", "3", "Auckland"),
+            Arguments.of("what's the weather looking like for the next few days in Wellington", "3", "Wellington"),
         )
 
         @JvmStatic
@@ -3159,6 +3170,11 @@ class QuickIntentRouterTest {
             Arguments.of("is it going to rain over the next 5 days in Brisbane"),
             Arguments.of("is it going to rain over the next few days in Auckland"),
             Arguments.of("is it going to rain over the next 3 days in Perth"),
+            // "in" preposition rain variants: "is it going to rain in the next N days" (#974 follow-up)
+            Arguments.of("is it going to rain in the next 3 days"),
+            Arguments.of("is it going to rain in the next few days"),
+            Arguments.of("is it going to rain in the next 5 days in Brisbane"),
+            Arguments.of("is it going to rain in the next few days in Auckland"),
         )
         @JvmStatic
         fun weatherTomorrowRegexPhrases(): Stream<Arguments> = Stream.of(

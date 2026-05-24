@@ -1757,7 +1757,7 @@ Rules:
             appendLine("Dietary requirements: ${snapshot.dietaryRestrictions.ifEmpty { listOf("none provided") }.joinToString()}")
             appendLine("Protein preferences: ${snapshot.proteinPreferences.ifEmpty { listOf("no preference provided") }.joinToString()}")
             appendLine("Cuisine preferences: ${snapshot.cuisinePreferences.ifEmpty { listOf("no preference provided") }.joinToString()}")
-            appendLine("Use practical weeknight meal ideas suitable for Australia/New Zealand households and prefer New Zealand wording such as capsicum, coriander, kumara, and paua where relevant.")
+            appendLine("Use practical weeknight meal ideas suitable for Australia/New Zealand households and prefer New Zealand wording such as capsicum, coriander, and kumara where relevant.")
             if (recentHistoryBlock.isNotBlank()) {
                 appendLine()
                 append(recentHistoryBlock)
@@ -1808,7 +1808,7 @@ Protein preferences: ${snapshot.proteinPreferences.ifEmpty { listOf("no preferen
 Cuisine preferences: ${snapshot.cuisinePreferences.ifEmpty { listOf("no preference provided") }.joinToString()}
 Dish title: ${day.title}
 Dish summary: ${day.summary ?: ""}
-Provide a practical Australia/New Zealand dinner recipe with a concise ingredient list, clear numbered method steps, and New Zealand wording such as capsicum, coriander, kumara, and paua where relevant.
+Provide a practical Australia/New Zealand dinner recipe with a concise ingredient list, clear numbered method steps, and New Zealand wording such as capsicum, coriander, and kumara where relevant.
 """.trimIndent()
     }
 
