@@ -265,6 +265,7 @@ class MealPlansViewModelTest {
         daysCount = days.size,
         dietaryRestrictions = listOf("no dietary requirements"),
         proteinPreferences = listOf("chicken"),
+        cuisinePreferences = listOf(),
         favouriteRecipeMode = FavouriteRecipeMode.NONE,
         activeDayIndex = null,
         pendingGenerationKind = null,

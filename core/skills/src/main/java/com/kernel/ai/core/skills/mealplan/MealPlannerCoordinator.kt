@@ -3,6 +3,7 @@ package com.kernel.ai.core.skills.mealplan
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.StructuredOutputSpec
 import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
 import com.kernel.ai.core.memory.mealplan.FavouriteRecipeSummary
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
@@ -395,11 +396,11 @@ class MealPlannerCoordinator @Inject constructor(
             onPlannerActivityChanged(generatingPlanActivity(snapshot))
             val recentHistory = sessionRepository.getRecentMealHistory(RECENT_MEAL_HISTORY_LIMIT)
             val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
-            val rawPlan = inferenceEngine.generateOnce(
+            val rawPlan = inferenceEngine.generateStructuredOnce(
                 prompt = buildPlanUserPrompt(snapshot, recentHistory, favouriteRecipes),
+                spec = StructuredOutputSpec.MealPlan,
                 systemPrompt = buildPlanSystemPrompt(),
                 thinkingEnabled = false,
-                stopOnFirstJsonObject = true,
             )
             if (rawPlan.isBlank()) {
                 sessionRepository.markGenerationFailure(
@@ -490,11 +491,11 @@ class MealPlannerCoordinator @Inject constructor(
         val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
         val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
         repeat(MAX_DAY_VARIETY_REPAIR_ATTEMPTS) {
-            val raw = inferenceEngine.generateOnce(
+            val raw = inferenceEngine.generateStructuredOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, currentDays, dayIndex, recentHistory, favouriteRecipes),
+                spec = StructuredOutputSpec.ReplacementDay,
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
                 thinkingEnabled = false,
-                stopOnFirstJsonObject = true,
             )
             if (raw.isBlank()) {
                 return@repeat
@@ -932,11 +933,11 @@ class MealPlannerCoordinator @Inject constructor(
         if (markPendingGeneration) {
             sessionRepository.markPendingGeneration(snapshot.sessionId, PendingGenerationKind.RECIPE, dayIndex)
         }
-        val rawRecipe = inferenceEngine.generateOnce(
+        val rawRecipe = inferenceEngine.generateStructuredOnce(
             prompt = buildRecipeUserPrompt(snapshot, dayIndex),
+            spec = StructuredOutputSpec.Recipe,
             systemPrompt = buildRecipeSystemPrompt(),
             thinkingEnabled = false,
-            stopOnFirstJsonObject = true,
         )
         if (rawRecipe.isBlank()) {
             sessionRepository.markGenerationFailure(
@@ -1216,11 +1217,11 @@ class MealPlannerCoordinator @Inject constructor(
             val recentHistory = sessionRepository.getRecentMealHistory(RECENT_MEAL_HISTORY_LIMIT)
             val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
             val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
-            val raw = inferenceEngine.generateOnce(
+            val raw = inferenceEngine.generateStructuredOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, dayIndex, recentHistory, favouriteRecipes),
+                spec = StructuredOutputSpec.ReplacementDay,
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
                 thinkingEnabled = false,
-                stopOnFirstJsonObject = true,
             )
             if (raw.isBlank()) {
                 throw MealPlanValidationException("The model didn't return a replacement day.")
@@ -1721,7 +1722,8 @@ class MealPlannerCoordinator @Inject constructor(
 
     private fun buildPlanSystemPrompt(): String = """
 You generate a high-level meal plan for a local-first Android assistant.
-Output ONLY valid JSON with this exact shape:
+You MUST call the tool `emit_meal_plan` with your plan as the single argument.
+The argument must be a JSON object with this exact shape:
 {
   "days": [
     {
@@ -1739,7 +1741,7 @@ Rules:
 - summaries must be short and plain
 - treat dietary requirements, allergens, and ingredient exclusions as strict requirements
 - prefer novelty by default across recent meal plans and within the current draft
-- avoid exact repeats and obvious same-protein same-cooking-style repeats unless the user explicitly asks for familiar meals
+- NEVER use the same protein AND cooking style for more than one day in the same plan
 - do not include ingredients, quantities, steps, markdown, commentary, or code fences
 """.trimIndent()
 
@@ -1756,6 +1758,7 @@ Rules:
             appendLine("Date: $now")
             appendLine("Dietary requirements: ${snapshot.dietaryRestrictions.ifEmpty { listOf("none provided") }.joinToString()}")
             appendLine("Protein preferences: ${snapshot.proteinPreferences.ifEmpty { listOf("no preference provided") }.joinToString()}")
+            appendLine("Constraint: each day must use a unique protein+cooking-style combination — no two days can share both the same protein AND the same cooking style.")
             appendLine("Cuisine preferences: ${snapshot.cuisinePreferences.ifEmpty { listOf("no preference provided") }.joinToString()}")
             appendLine("Use practical weeknight meal ideas suitable for Australia/New Zealand households and prefer New Zealand wording such as capsicum, coriander, and kumara where relevant.")
             if (recentHistoryBlock.isNotBlank()) {
@@ -1771,7 +1774,8 @@ Rules:
 
     private fun buildRecipeSystemPrompt(): String = """
 You generate one recipe day for a local-first Android assistant.
-Output ONLY valid JSON with this exact shape:
+You MUST call the tool `emit_recipe` with your recipe as the single argument.
+The argument must be a JSON object with this exact shape:
 {
   "title": "...",
   "servings": 4,
@@ -1814,7 +1818,8 @@ Provide a practical Australia/New Zealand dinner recipe with a concise ingredien
 
     private fun buildReplacementDaySystemPrompt(dayIndex: Int): String = """
 You generate a replacement high-level meal-plan day for a local-first Android assistant.
-Output ONLY valid JSON with this exact shape:
+You MUST call the tool `emit_replacement_day` with your replacement day as the single argument.
+The argument must be a JSON object with this exact shape:
 {
   "days": [
     {
@@ -1829,7 +1834,7 @@ Rules:
 - output exactly one replacement day object
 - day_index is zero-based, so user-visible Day ${dayIndex + 1} must use day_index $dayIndex
 - do not repeat the existing day title verbatim if you can avoid it
-- avoid obvious near-duplicates with the same protein and cooking style
+- NEVER use the same protein AND cooking style as any other day in the plan
 - treat dietary requirements, allergens, and ingredient exclusions as strict requirements
 - do not include ingredients, quantities, steps, markdown, commentary, or code fences
 """.trimIndent()
@@ -1881,6 +1886,18 @@ Rules:
                 appendLine(favouritePromptBlock)
             }
             appendLine()
+            // List existing protein+cooking-style patterns to avoid.
+            val existingPatterns = currentDays
+                .filter { it.dayIndex != dayIndex }
+                .mapNotNull { day ->
+                    val protein = proteinSignature(day.proteinTags, day.title)
+                    val shape = mealShape(day.title, day.summary)
+                    if (protein != null && shape != null) "$protein::$shape" else null
+                }
+                .distinct()
+            if (existingPatterns.isNotEmpty()) {
+                appendLine("Existing days use these protein + cooking-style patterns: ${existingPatterns.joinToString(", ")}. Do NOT reuse any of them.")
+            }
             appendLine("Return one alternative day that fits the plan without duplicating '$currentTitle' or clashing with the surrounding days.")
             append("Remember: this is user-visible Day ${dayIndex + 1}, but the JSON day_index must be zero-based and equal $dayIndex. Prefer New Zealand wording where relevant.")
         }.trim()
