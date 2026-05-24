@@ -951,7 +951,8 @@ class LiteRtInferenceEngine @Inject constructor(
 
         try {
             if (shouldSwapConfig) {
-                resetConversationForConfig(requestedConfig)
+                currentConfig = requestedConfig
+                safeClose(conversation, "conversation")
             }
 
             val eng = engine ?: return@withContext ""
