@@ -3,6 +3,7 @@ package com.kernel.ai.core.skills.mealplan
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.StructuredOutputSpec
 import com.kernel.ai.core.memory.mealplan.FavouriteRecipeMode
 import com.kernel.ai.core.memory.mealplan.FavouriteRecipeSummary
 import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
@@ -395,11 +396,11 @@ class MealPlannerCoordinator @Inject constructor(
             onPlannerActivityChanged(generatingPlanActivity(snapshot))
             val recentHistory = sessionRepository.getRecentMealHistory(RECENT_MEAL_HISTORY_LIMIT)
             val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
-            val rawPlan = inferenceEngine.generateOnce(
+            val rawPlan = inferenceEngine.generateStructuredOnce(
                 prompt = buildPlanUserPrompt(snapshot, recentHistory, favouriteRecipes),
+                spec = StructuredOutputSpec.MealPlan,
                 systemPrompt = buildPlanSystemPrompt(),
                 thinkingEnabled = false,
-                stopOnFirstJsonObject = true,
             )
             if (rawPlan.isBlank()) {
                 sessionRepository.markGenerationFailure(
@@ -490,11 +491,11 @@ class MealPlannerCoordinator @Inject constructor(
         val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
         val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
         repeat(MAX_DAY_VARIETY_REPAIR_ATTEMPTS) {
-            val raw = inferenceEngine.generateOnce(
+            val raw = inferenceEngine.generateStructuredOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, currentDays, dayIndex, recentHistory, favouriteRecipes),
+                spec = StructuredOutputSpec.ReplacementDay,
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
                 thinkingEnabled = false,
-                stopOnFirstJsonObject = true,
             )
             if (raw.isBlank()) {
                 return@repeat
@@ -932,11 +933,11 @@ class MealPlannerCoordinator @Inject constructor(
         if (markPendingGeneration) {
             sessionRepository.markPendingGeneration(snapshot.sessionId, PendingGenerationKind.RECIPE, dayIndex)
         }
-        val rawRecipe = inferenceEngine.generateOnce(
+        val rawRecipe = inferenceEngine.generateStructuredOnce(
             prompt = buildRecipeUserPrompt(snapshot, dayIndex),
+            spec = StructuredOutputSpec.Recipe,
             systemPrompt = buildRecipeSystemPrompt(),
             thinkingEnabled = false,
-            stopOnFirstJsonObject = true,
         )
         if (rawRecipe.isBlank()) {
             sessionRepository.markGenerationFailure(
@@ -1216,11 +1217,11 @@ class MealPlannerCoordinator @Inject constructor(
             val recentHistory = sessionRepository.getRecentMealHistory(RECENT_MEAL_HISTORY_LIMIT)
             val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
             val enforceRecentPatternDiversity = shouldEnforceRecentPatternDiversity(snapshot)
-            val raw = inferenceEngine.generateOnce(
+            val raw = inferenceEngine.generateStructuredOnce(
                 prompt = buildReplacementDayUserPrompt(snapshot, dayIndex, recentHistory, favouriteRecipes),
+                spec = StructuredOutputSpec.ReplacementDay,
                 systemPrompt = buildReplacementDaySystemPrompt(dayIndex),
                 thinkingEnabled = false,
-                stopOnFirstJsonObject = true,
             )
             if (raw.isBlank()) {
                 throw MealPlanValidationException("The model didn't return a replacement day.")

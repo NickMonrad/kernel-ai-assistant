@@ -21,6 +21,8 @@ import com.google.ai.edge.litertlm.Channel
 import com.google.ai.edge.litertlm.Capabilities
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
+import com.google.ai.edge.litertlm.OpenApiTool
+import com.google.ai.edge.litertlm.tool
 import com.google.ai.edge.litertlm.ToolProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -905,6 +907,147 @@ class LiteRtInferenceEngine @Inject constructor(
             if (shouldSwapConfig) {
                 resetConversationForConfig(config)
             }
+        }
+    }
+    @OptIn(ExperimentalApi::class)
+    override suspend fun generateStructuredOnce(
+        prompt: String,
+        spec: StructuredOutputSpec,
+        systemPrompt: String?,
+        thinkingEnabled: Boolean?,
+    ): String = withContext(LlmDispatcher) {
+        val config = currentConfig ?: return@withContext ""
+        val requestedSystemPrompt = systemPrompt?.takeIf { it.isNotBlank() }
+        val requestedThinkingEnabled = thinkingEnabled ?: config.thinkingEnabled
+
+        // Build a synthetic OpenAPI tool from the spec.
+        // The synthetic tool echoes its input back, so the model sees:
+        // 1. Its own tool call with arguments
+        // 2. The same arguments echoed back as tool response
+        // This is effectively a no-op for the model, but enables constrained decoding
+        // via the tool-calling path.
+        val syntheticToolProvider = tool(
+            object : OpenApiTool {
+                private val desc = JSONObject().apply {
+                    put("name", spec.toolName)
+                    if (spec.toolDescription.isNotBlank()) put("description", spec.toolDescription)
+                    put("parameters", JSONObject(spec.jsonSchema))
+                }.toString()
+
+                override fun getToolDescriptionJsonString(): String = desc
+
+                override fun execute(paramsJsonString: String): String = paramsJsonString
+            },
+        )
+
+        val requestedConfig = config.copy(
+            systemPrompt = requestedSystemPrompt ?: config.systemPrompt,
+            thinkingEnabled = requestedThinkingEnabled,
+        )
+        val shouldSwapConfig = requestedConfig != config
+        val timeoutMs = 60_000L
+
+        try {
+            if (shouldSwapConfig) {
+                resetConversationForConfig(requestedConfig)
+            }
+
+            val eng = engine ?: return@withContext ""
+            val convConfig = buildConversationConfig(_activeBackend.value ?: BackendType.CPU, requestedConfig)
+
+            // Inject our synthetic tool into the conversation config
+            val convConfigWithTool = convConfig.copy(
+                tools = listOf(syntheticToolProvider) + (convConfig.tools ?: emptyList()),
+                automaticToolCalling = false,
+            )
+
+            // With automaticToolCalling=false, the model's tool call is returned directly
+            // to the callback instead of being auto-executed. The synthetic tool's
+            // arguments ARE the constrained JSON — no post-hoc parsing needed.
+            ExperimentalFlags.enableConversationConstrainedDecoding = true
+
+            return@withContext try {
+                val conv = try {
+                    eng.createConversation(convConfigWithTool)
+                } catch (e: Exception) {
+                    Log.w(TAG, "generateStructuredOnce: conversation creation failed", e)
+                    resetExperimentalFlags()
+                    return@withContext ""
+                }
+
+                var acquired = false
+                for (attempt in 0 until 20) {
+                    if (generationMutex.tryLock()) {
+                        acquired = true
+                        break
+                    }
+                    Log.d(TAG, "generateStructuredOnce: mutex busy, retry ${attempt + 1}/20")
+                    delay(250L)
+                }
+                if (!acquired) {
+                    Log.w(TAG, "generateStructuredOnce: failed to acquire mutex after 5s — engine busy")
+                    safeClose(conv, "structured-conv")
+                    resetExperimentalFlags()
+                    return@withContext ""
+                }
+
+                _isGenerating.value = true
+                InferenceGenerationService.start(context)
+                try {
+                    val latch = CompletableDeferred<String>()
+                    var capturedToolJson: String? = null
+
+                    conv.sendMessageAsync(
+                        Contents.of(Content.Text(prompt)),
+                        object : MessageCallback {
+                            override fun onMessage(message: Message) {
+                                if (capturedToolJson != null) return
+                                // With automaticToolCalling=false, the model returns its tool
+                                // call directly. The arguments ARE the constrained JSON.
+                                val toolCalls = message.toolCalls
+                                if (toolCalls.isNotEmpty()) {
+                                    val args = toolCalls.first().arguments
+                                    capturedToolJson = args.toString()
+                                    latch.complete(capturedToolJson!!)
+                                }
+                            }
+
+                            override fun onDone() {
+                                // Model returned no tool call — fallback to content.
+                                // This shouldn't happen with constrained decoding, but handle it.
+                            }
+
+                            override fun onError(throwable: Throwable) {
+                                if (capturedToolJson == null) {
+                                    latch.completeExceptionally(throwable)
+                                }
+                            }
+                        },
+                        if (requestedThinkingEnabled) mapOf("enable_thinking" to true) else emptyMap(),
+                    )
+
+                    try {
+                        withTimeout(timeoutMs) { latch.await() }
+                    } catch (e: TimeoutCancellationException) {
+                        try { conv.cancelProcess() } catch (ce: Exception) {}
+                        Log.w(TAG, "generateStructuredOnce: timed out after ${timeoutMs / 1000}s")
+                        ""
+                    }
+                } finally {
+                    _isGenerating.value = false
+                    InferenceGenerationService.stop(context)
+                    generationMutex.unlock()
+                    safeClose(conv, "structured-conv")
+                }
+            } finally {
+                resetExperimentalFlags()
+                if (shouldSwapConfig) {
+                    resetConversationForConfig(config)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "generateStructuredOnce: error", e)
+            ""
         }
     }
 
