@@ -909,8 +909,6 @@ class LiteRtInferenceEngine @Inject constructor(
             }
         }
     }
-    @OptIn(ExperimentalApi::class)
-    internal val TAG = "LiteRtInferenceEngine"
     override suspend fun generateStructuredOnce(
         prompt: String,
         spec: StructuredOutputSpec,
