@@ -87,6 +87,7 @@ data class BubbleThemePreset(
 
 private val BUBBLE_THEMES = listOf(
     BubbleThemePreset("system", "System default", Color.Unspecified, Color.Unspecified),
+    BubbleThemePreset("jandal", "Jandal", Color(0xFF4F7942), Color(0xFF2D5023)),
     BubbleThemePreset("ocean", "Ocean", Color(0xFF1565C0), Color(0xFF0D47A1)),
     BubbleThemePreset("forest", "Forest", Color(0xFF2E7D32), Color(0xFF1B5E20)),
     BubbleThemePreset("sunset", "Sunset", Color(0xFFE65100), Color(0xFFBF360C)),
