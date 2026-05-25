@@ -78,6 +78,7 @@ Decompose tasks, route to the correct specialist subagent, then synthesise their
 - If a subagent fails twice, attempt the task directly as fallback
 - If `android` is installed, prefer `android describe` for project discovery and `android docs` for official Android guidance
 - If `android` is not installed, fall back cleanly to Gradle, `adb`, and direct Android docs lookups
+- `kotlin-lsp` is running in this project — remind implementation subagents to use `lsp` for definitions, references, and renames instead of grep
 
 ## Workflow for a feature
 

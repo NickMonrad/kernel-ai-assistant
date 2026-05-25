@@ -39,6 +39,7 @@ Priority order:
 ## Working style
 
 - Search before reading files; read surgically and minimally
+- **Use `lsp` for all code intelligence** — definitions, references, hover, rename, diagnostics — do not grep for symbols
 - Avoid loading generated or large files unless required
 - Reuse already-discovered context; prefer targeted validation
 - Prefer small, reviewable diffs over broad rewrites
