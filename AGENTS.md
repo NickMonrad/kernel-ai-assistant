@@ -2,69 +2,90 @@
 
 Shared guidance for any agent working in this repository.
 
+## Repository identity
+
+Kernel AI Assistant is:
+
+- Android-native, local-first, fully on-device inference via LiteRT
+- Kotlin-hosted; Wasm guest-capable only
+- Test device: Samsung Galaxy S23 Ultra
+
 ## Start here
 
-1. Read `.github/copilot-instructions.md` for the authoritative architecture and repo conventions.
-2. If you are an OpenCode role agent, also read the matching file in `.opencode/agents/`.
-3. Search first, then read surgically. Do not open large files end-to-end unless you have to.
+1. `.github/copilot-instructions.md` — authoritative architecture and repo conventions
+2. Relevant files under `.docs/agents/` (load on demand)
+3. Matching role guidance under `.opencode/agents/` if applicable
+
+## Operating priorities
+
+Priority order:
+
+1. Preserve correctness and app stability
+2. Minimize context and token usage
+3. Prefer small, reversible changes
+4. Avoid unnecessary file reads
+5. Follow existing architecture and conventions
+6. Prefer local tooling over web research
+
+## Hard constraints
+
+- Do not introduce cloud inference dependencies
+- Do not migrate core Kotlin architecture to another language
+- Do not rewrite working code for style preferences alone
+- Do not perform broad formatting-only diffs
+- Do not overwrite unrelated local changes
+- Do not hardcode model-specific or premium-only assumptions into repo-local prompts or scripts
 
 ## Working style
 
-- Prefer small, reviewable diffs over broad rewrites.
-- Stay on the current branch unless the owner asks for a new one.
-- Do not overwrite unrelated local changes.
-- Keep output concise and action-focused.
-- Use the default or auto model selection for agent workflows; do not hardcode premium-only model IDs into repo-local prompts or scripts.
-- For PR review, use the repository `code-reviewer` agent workflow; do not substitute GitHub Copilot PR review comments for the required review pass.
+- Search before reading files; read surgically and minimally
+- Avoid loading generated or large files unless required
+- Reuse already-discovered context; prefer targeted validation
+- Prefer small, reviewable diffs over broad rewrites
+- Match surrounding code style and conventions
+- Avoid unrelated refactors alongside functional changes
+- Keep outputs concise and action-focused
 
-## Repo context
+## Validation policy
 
-- Android-native, local-first assistant.
-- All inference stays on-device through LiteRT.
-- Kotlin is the host language; Wasm is guest-only.
-- Test device: Samsung Galaxy S23 Ultra.
+Prefer targeted unit tests → module builds → instrumentation tests → full app build.
 
-## Search-first workflow
+## Decision heuristics
 
-- Start with targeted file search.
-- Read only the files needed for the current slice.
-- Validate the exact module(s) you changed instead of thrashing the whole repo when a narrower command exists.
-- If you need a scratch branch or isolated edits, prefer a worktree under `/tmp`.
+When multiple approaches are valid:
 
-## Android CLI policy
+- Prefer consistency with existing code
+- Prefer simpler implementations
+- Prefer explicitness over cleverness
+- Prefer reversible changes
+- Prefer local reasoning over broad rewrites
 
-The official Android CLI is useful here, but it is **optional** and may not be installed on every machine.
+## Android tooling
 
-The official installer currently comes from Google's `dl.google.com/android/cli/latest/...` path. Do not confuse that with unofficial third-party `android-cli` wrappers on GitHub.
+**Preferred:** Official `android` CLI when available. **Fallbacks:** Gradle, `adb`, `developer.android.com` docs.
 
-When `android` is available, prefer it for:
+## Debugging defaults
 
-- `android describe --project_dir=<repo>` — quick project metadata and build artifact discovery
-- `android docs search ...` / `android docs fetch ...` — official Android guidance without web browsing noise
-- `android layout --pretty` — structured UI inspection from a connected device or emulator
-- `android screen capture --output=...` — screenshot capture for agent-driven debugging
-- `android run --apks=...` — APK deployment when you already know the artifact path
+- Build from repo root using Gradle
+- `adb logcat -s KernelAI` for app logs
+- Physical-device validation for GPU/NPU/permission flows
 
-Fallbacks when `android` is unavailable:
+## When blocked
 
-- Use Gradle for builds
-- Use `adb` for install, logcat, shell, and device control
-- Use `developer.android.com` docs directly for official guidance
+1. State the blocker clearly
+2. Propose the smallest next action
+3. Avoid speculative rewrites
+4. Prefer partial progress over broad guessing
 
-When available, `android init` should be used to install the official `android-cli` skill into detected agents, including OpenCode and Copilot on this machine.
+## GitHub issue standards
 
-## Android debugging defaults
-
-- Build with Gradle from the repo root.
-- Use `adb logcat -s KernelAI` for app logs.
-- Prefer physical-device validation for GPU/NPU and permission flows.
-- Use explicit activities/services when testing Android launches.
-
+When creating or reshaping issues, normalize metadata immediately: type, go-state, priority, size, milestone/phase, roadmap label, domain labels. Parent/epic for multi-track work; decompose into child issues; use `go:needs-research` when architecture is open.
 ## Documentation sync
 
-If you change agent workflow or setup guidance, keep these aligned:
+Keep these aligned when updating workflows or conventions:
 
 - `AGENTS.md`
-- `.opencode/agents/*.md`
+- `.docs/agents/*`
+- `.opencode/agents/*`
 - `README.md`
-- `.github/copilot-instructions.md` when architecture or hard conventions change
+- `.github/copilot-instructions.md` (when architecture or hard conventions change)
