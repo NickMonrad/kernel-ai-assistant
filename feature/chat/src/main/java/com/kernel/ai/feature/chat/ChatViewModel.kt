@@ -34,6 +34,7 @@ import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
+import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
@@ -133,6 +134,7 @@ class ChatViewModel @Inject constructor(
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
     private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
+    private val chatPreferences: ChatPreferences,
 ) : ViewModel() {
     private enum class SubmitMode { Text, Voice }
 
@@ -214,6 +216,7 @@ class ChatViewModel @Inject constructor(
      *  [activeContextWindowSize] to cap KV cache memory growth (#543). */
     private var turnsSinceReset = 0
 
+    private val activeModelState = MutableStateFlow<KernelModel?>(null)
     /** The model currently loaded into the inference engine; used for the [Runtime] context block. */
     private var activeModel: KernelModel? = null
 
@@ -270,6 +273,49 @@ class ChatViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _showThinkingProcess = MutableStateFlow(true)
+    /** Combined visual customisation prefs, updated from ChatPreferences. */
+    private val visualPrefs: StateFlow<VisualPrefs> = combine(
+        chatPreferences.fontSize,
+        chatPreferences.bubbleTheme,
+        chatPreferences.userFontColor,
+        chatPreferences.assistantFontColor,
+        chatPreferences.wallpaperType,
+        chatPreferences.wallpaperColor,
+        chatPreferences.wallpaperImageUri,
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        VisualPrefs(
+            fontSize = values[0] as Int,
+            bubbleTheme = values[1] as String,
+            userFontColor = values[2] as Long?,
+            assistantFontColor = values[3] as Long?,
+            wallpaperType = values[4] as String,
+            wallpaperColor = values[5] as Long?,
+            wallpaperImageUri = values[6] as String?,
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, VisualPrefs())
+
+
+    private data class VisualPrefs(
+        val fontSize: Int = 1,
+        val bubbleTheme: String = "system",
+        val userFontColor: Long? = null,
+        val assistantFontColor: Long? = null,
+        val wallpaperType: String = "none",
+        val wallpaperColor: Long? = null,
+        val wallpaperImageUri: String? = null,
+    )
+    /** Maps bubble theme preset key to (userBubbleColor, assistantBubbleColor) ARGB longs. */
+    private fun bubbleThemeColors(theme: String): Pair<Long?, Long?> =
+        when (theme) {
+            "ocean" -> Pair(0xFF1565C0, 0xFF0D47A1)
+            "forest" -> Pair(0xFF2E7D32, 0xFF1B5E20)
+            "sunset" -> Pair(0xFFE65100, 0xFFBF360C)
+            "mono" -> Pair(0xFF424242, 0xFF212121)
+            "lavender" -> Pair(0xFF7B1FA2, 0xFF4A148C)
+            "jandal" -> Pair(0xFF4F7942, 0xFF2D5023)
+            else -> null to null // system = use dynamic colour
+        }
 
     /** Ensures at most one concurrent Gemma-4 initialisation attempt. */
     private val gemma4InitMutex = Mutex()
@@ -307,7 +353,8 @@ class ChatViewModel @Inject constructor(
         InputState(messages, inputText, error, title, isSpeakingResponse)
     }
 
-    val uiState: StateFlow<ChatUiState> = combine(
+    /** Base uiState without visual prefs (5-input combine). */
+    private val baseUiState: StateFlow<ChatUiState> = combine(
         engineState,
         downloadManager.downloadStates,
         inputState,
@@ -350,8 +397,44 @@ class ChatViewModel @Inject constructor(
                 isLoadingModel = engine.isLoadingModel,
                 showThinkingProcess = showThinking,
                 modelCapabilities = activeModel?.capabilities,
+                temperature = activeModel?.let { modelSettingsRepository.getSettings(it.modelId).temperature } ?: 0.7f,
+                topP = activeModel?.let { modelSettingsRepository.getSettings(it.modelId).topP } ?: 0.9f,
+                topK = activeModel?.let { modelSettingsRepository.getSettings(it.modelId).topK } ?: 64,
+                // ---- Visual customisation (#906) — filled from visualPrefs below ----
+                fontSize = 1,
+                bubbleTheme = "system",
+                bubbleThemeUserColor = null,
+                bubbleThemeAssistantColor = null,
+                userFontColor = null,
+                assistantFontColor = null,
+                wallpaperType = "none",
+                wallpaperColor = null,
+                wallpaperImageUri = null,
             )
         }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ChatUiState.Loading,
+    )
+
+    /** Merges base uiState with visual prefs so changes emit immediately. */
+    val uiState: StateFlow<ChatUiState> = combine(
+        baseUiState,
+        visualPrefs,
+    ) { base, vp ->
+        if (base !is ChatUiState.Ready) return@combine base
+        base.copy(
+            fontSize = vp.fontSize,
+            bubbleTheme = vp.bubbleTheme,
+            bubbleThemeUserColor = bubbleThemeColors(vp.bubbleTheme).first,
+            bubbleThemeAssistantColor = bubbleThemeColors(vp.bubbleTheme).second,
+            userFontColor = vp.userFontColor,
+            assistantFontColor = vp.assistantFontColor,
+            wallpaperType = vp.wallpaperType,
+            wallpaperColor = vp.wallpaperColor,
+            wallpaperImageUri = vp.wallpaperImageUri,
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -718,6 +801,7 @@ class ChatViewModel @Inject constructor(
             val preferred = downloadManager.preferredConversationModel()
             val modelPath = downloadManager.getModelPath(preferred) ?: return
             activeModel = preferred
+            activeModelState.value = preferred
             try {
                 // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
                 // embeddingEngine.close() removed — it silently broke search_memory (#445)
@@ -770,7 +854,8 @@ class ChatViewModel @Inject constructor(
 
             val preferred = downloadManager.preferredConversationModel()
             val modelPath = downloadManager.getModelPath(preferred) ?: return
-         activeModel = preferred
+            activeModel = preferred
+            activeModelState.value = preferred
             try {
                 // EmbeddingGemma uses CPU only (no GPU conflict with Gemma-4).
                 // embeddingEngine.close() removed — it silently broke search_memory (#445)
@@ -1017,6 +1102,7 @@ class ChatViewModel @Inject constructor(
         pendingVoiceReply = false
         voiceOutputController.stop()
         _voicePlaybackState.value = VoicePlaybackState.Idle
+        _speakingMessageId.value = null
     }
 
     /**
@@ -1034,6 +1120,8 @@ class ChatViewModel @Inject constructor(
             pendingVoiceReply = false
             voiceOutputController.stop()
             _speakingMessageId.value = null
+            _isSpeakingResponse.value = false
+            _voicePlaybackState.value = VoicePlaybackState.Idle
             return
         }
         // New message — stop any previous speaker-button playback and start fresh
@@ -2028,6 +2116,7 @@ class ChatViewModel @Inject constructor(
         voiceOutputController.stop()
         _isSpeakingResponse.value = false
         _voicePlaybackState.value = VoicePlaybackState.Idle
+        _speakingMessageId.value = null
     }
 
     fun getConversationAsText(): String {
@@ -2408,6 +2497,57 @@ class ChatViewModel @Inject constructor(
 
     private fun looksLikeRawToolCall(response: String): Boolean =
         com.kernel.ai.feature.chat.looksLikeRawToolCall(response)
+    /** Current active model, exposed for in-chat settings controls. */
+    val currentModel: StateFlow<KernelModel?> =
+        activeModelState.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Set thinking mode for the current model. Requires app restart to take effect. */
+    fun setThinkingEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val model = activeModel ?: return@launch
+            val settings = modelSettingsRepository.getSettings(model.modelId)
+            modelSettingsRepository.saveSettings(settings.copy(showThinkingProcess = enabled))
+            // Update the running engine immediately if ready
+            if (inferenceEngine.isReady.value) {
+                _showThinkingProcess.value = enabled
+            }
+        }
+    }
+
+    /** Set temperature for the current model. Requires app restart to take effect. */
+    fun setTemperature(temp: Float) {
+        viewModelScope.launch {
+            val model = activeModel ?: return@launch
+            val settings = modelSettingsRepository.getSettings(model.modelId)
+            modelSettingsRepository.saveSettings(settings.copy(temperature = temp))
+        }
+    }
+
+    /** Set top-P for the current model. Requires app restart to take effect. */
+    fun setTopP(topP: Float) {
+        viewModelScope.launch {
+            val model = activeModel ?: return@launch
+            val settings = modelSettingsRepository.getSettings(model.modelId)
+            modelSettingsRepository.saveSettings(settings.copy(topP = topP))
+        }
+    }
+
+    /** Set top-K for the current model. Requires app restart to take effect. */
+    fun setTopK(topK: Int) {
+        viewModelScope.launch {
+            val model = activeModel ?: return@launch
+            val settings = modelSettingsRepository.getSettings(model.modelId)
+            modelSettingsRepository.saveSettings(settings.copy(topK = topK))
+        }
+    }
+
+    /** Reset current model settings to hardware-aware defaults. */
+    fun resetModelSettings() {
+        viewModelScope.launch {
+            val model = activeModel ?: return@launch
+            modelSettingsRepository.resetToDefaults(model.modelId)
+        }
+    }
 }
 
 /** C2 correction prepended to the prompt when a hallucination retry is attempted (#487). */

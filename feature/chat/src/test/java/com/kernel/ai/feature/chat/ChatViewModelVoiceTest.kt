@@ -110,6 +110,7 @@ class ChatViewModelVoiceTest {
     private val jandalPersona: JandalPersona = mockk(relaxed = true)
     private val nzTruthSeedingService: NzTruthSeedingService = mockk(relaxed = true)
     private val verboseLoggingPreferenceUseCase: VerboseLoggingPreferenceUseCase = mockk(relaxed = true)
+    private val chatPreferences: com.kernel.ai.core.memory.prefs.ChatPreferences = mockk(relaxed = true)
 
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
@@ -717,7 +718,7 @@ class ChatViewModelVoiceTest {
     }
 
 
-    private fun createViewModel(): ChatViewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+    private fun createViewModel(): ChatViewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
     inferenceEngine = inferenceEngine,
     downloadManager = downloadManager,
     conversationRepository = conversationRepository,

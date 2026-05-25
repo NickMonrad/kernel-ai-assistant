@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -21,6 +22,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,9 +41,11 @@ fun ToolPresentationContent(
     presentation: ToolPresentation,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    onSpeak: (() -> Unit)? = null,
+    isSpeaking: Boolean = false,
 ) {
     when (presentation) {
-        is ToolPresentation.Weather -> WeatherPresentationCard(presentation, modifier, compact)
+        is ToolPresentation.Weather -> WeatherPresentationCard(presentation, modifier, compact, onSpeak, isSpeaking)
         is ToolPresentation.Status -> StatusPresentationCard(presentation, modifier)
         is ToolPresentation.ListPreview -> ListPreviewPresentationCard(presentation, modifier, compact)
         is ToolPresentation.ComputedResult -> ComputedResultPresentationCard(presentation, modifier)
@@ -49,6 +57,8 @@ private fun WeatherPresentationCard(
     presentation: ToolPresentation.Weather,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    onSpeak: (() -> Unit)? = null,
+    isSpeaking: Boolean = false,
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -161,6 +171,31 @@ private fun WeatherPresentationCard(
                 ) {
                     presentation.forecast.forEach { day ->
                         ForecastDayCard(day, modifier = Modifier.width(100.dp))
+                    }
+                }
+            }
+            if (onSpeak != null) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    IconButton(
+                        onClick = onSpeak,
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (isSpeaking) {
+                                Icons.AutoMirrored.Filled.VolumeUp
+                            } else {
+                                Icons.AutoMirrored.Outlined.VolumeUp
+                            },
+                            contentDescription = if (isSpeaking) "Stop speaking" else "Speak weather",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(
+                                alpha = if (isSpeaking) 1f else 0.6f,
+                            ),
+                        )
                     }
                 }
             }
