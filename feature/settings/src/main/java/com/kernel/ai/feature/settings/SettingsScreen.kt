@@ -220,7 +220,7 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .clickable { onNavigateToChatPreferences() },
                 headlineContent = { Text("Chat Preferences") },
-                supportingContent = { Text("Auto-delete archived conversations") },
+                supportingContent = { Text("Font size, bubble theme, colours, wallpaper") },
                 leadingContent = { Icon(Icons.Default.Forum, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
