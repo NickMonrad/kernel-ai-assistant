@@ -1238,14 +1238,18 @@ private fun InputBar(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    val sendEnabled = text.isNotBlank()
+                    var draftText by rememberSaveable { mutableStateOf(text) }
+                    LaunchedEffect(text) {
+                        if (draftText != text) draftText = text
+                    }
+                    val sendEnabled = draftText.isNotBlank()
                     val showControlRow =
-                        text.isBlank() ||
+                        draftText.isBlank() ||
                             voiceCaptureState != ChatViewModel.VoiceCaptureState.Idle ||
                             voicePlaybackState != ChatViewModel.VoicePlaybackState.Idle
                     // Secondary row: attachment, voice controls
-                    // Use plain if — AnimatedVisibility with shrinkVertically animates
-                    // layout height during typing, displacing the TextField cursor.
+                    // Keep the draft local so whole-screen recomposition can't move the cursor.
+                    // The control row still hides immediately when the draft becomes non-blank.
                     if (showControlRow) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1285,7 +1289,7 @@ private fun InputBar(
                                 // PTT / Loop — visible only when idle and no text
                                 AnimatedVisibility(
                                     visible = !isGenerating &&
-                                        text.isBlank() &&
+                                        draftText.isBlank() &&
                                         voiceCaptureState == ChatViewModel.VoiceCaptureState.Idle &&
                                         voicePlaybackState == ChatViewModel.VoicePlaybackState.Idle,
                                     enter = fadeIn(),
@@ -1375,8 +1379,11 @@ private fun InputBar(
                     }
                     // Primary row: full-width text field with send/cancel trailing icon
                     TextField(
-                        value = text,
-                        onValueChange = onTextChanged,
+                        value = draftText,
+                        onValueChange = { newText ->
+                            draftText = newText
+                            onTextChanged(newText)
+                        },
                         placeholder = { Text("Message Jandal…") },
                         modifier = Modifier.fillMaxWidth(),
                         maxLines = 5,

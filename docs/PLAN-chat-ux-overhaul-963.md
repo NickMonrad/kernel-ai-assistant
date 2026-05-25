@@ -44,10 +44,10 @@ Implement remaining child issues: #911, #952, #906, #962.
 - `showAttachmentPicker` passed from `ChatContent` → `InputBar` via callback
 
 ### #980 — Cursor jump + control row visibility regression
-- Replaced `AnimatedVisibility(visible = showControlRow, exit = shrinkVertically())` with plain `if (showControlRow) { ... }`
-- Restored original `showControlRow` logic: `text.isBlank() || voiceCaptureState != Idle || voicePlaybackState != Idle`
-- `AnimatedVisibility` with `shrinkVertically()` animates layout height on first keystroke, displacing the TextField cursor
-- Plain `if` toggles visibility instantly with no layout animation
+- Moved the input field to local `draftText` state via `rememberSaveable`
+- Synced `draftText` back to `ChatViewModel.onInputChanged()` on every edit
+- Kept `showControlRow` driven by `draftText.isBlank()` so the PTT/Loop row still hides immediately
+- This isolates the cursor from whole-screen recomposition while preserving the existing draft sync
 ## Key Decisions
 - **Scope resolution**: `showAttachmentPicker` state passed from `ChatContent` to `InputBar` via `onShowAttachmentPickerChange` callback
 - **Attachment logic in InputBar**: Activity result contracts and picker UI live in `InputBar` where they're used, not in `ChatContent`
