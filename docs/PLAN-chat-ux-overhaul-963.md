@@ -1,10 +1,10 @@
 # Plan: Chat UX Overhaul (Issue #963)
 
 ## Scope
-Implement remaining child issues: #911, #952, #906, #961, #962.
+Implement remaining child issues: #911, #952, #906, #962.
 
 ## Implementation Order
-`#911 → #952 → #906 → #961 → #962`
+#911 → #952 → #906 → #962
 
 ## Completed
 
@@ -33,12 +33,6 @@ Implement remaining child issues: #911, #952, #906, #961, #962.
 
 **ChatContent**: Wallpaper background computation.
 
-### #961 — In-chat model settings controls
-- `activeModelState` MutableStateFlow + `currentModel` StateFlow in `ChatViewModel`
-- Methods: `setThinkingEnabled`, `setTemperature`, `setTopP`, `setTopK`, `resetModelSettings`
-- `ChatUiState.Ready` extended with `temperature`, `topP`, `topK`
-- `showModelSettings` state variable in `ChatScreen`
-- `ModalBottomSheet` with `ModelSettingsDragHandle` and `ModelSettingsSheet` composables
 
 ### #962 — Functional attachment picker
 - `AttachmentType` enum (Image, Audio, File, None)

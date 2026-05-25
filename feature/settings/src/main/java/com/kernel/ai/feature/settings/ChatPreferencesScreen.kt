@@ -55,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -287,21 +288,18 @@ fun ChatPreferencesScreen(
                 }
                 "image" -> {
                     wallpaperImageUri?.let { uri ->
-                        Box(
+                        AsyncImage(
+                            model = Uri.parse(uri),
+                            contentDescription = "Wallpaper preview",
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(80.dp)
                                 .padding(horizontal = 16.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = "Image preview",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                                .clip(RoundedCornerShape(8.dp)),
+                            contentScale = ContentScale.Crop,
+                            placeholder = null,
+                            error = null,
+                        )
                 }
                 }
             }

@@ -305,6 +305,16 @@ class ChatViewModel @Inject constructor(
         val wallpaperColor: Long? = null,
         val wallpaperImageUri: String? = null,
     )
+    /** Maps bubble theme preset key to (userBubbleColor, assistantBubbleColor) ARGB longs. */
+    private fun bubbleThemeColors(theme: String): Pair<Long?, Long?> =
+        when (theme) {
+            "ocean" -> Pair(0xFF1565C0, 0xFF0D47A1)
+            "forest" -> Pair(0xFF2E7D32, 0xFF1B5E20)
+            "sunset" -> Pair(0xFFE65100, 0xFFBF360C)
+            "mono" -> Pair(0xFF424242, 0xFF212121)
+            "lavender" -> Pair(0xFF7B1FA2, 0xFF4A148C)
+            else -> null to null // system = use dynamic colour
+        }
 
     /** Ensures at most one concurrent Gemma-4 initialisation attempt. */
     private val gemma4InitMutex = Mutex()
@@ -342,7 +352,8 @@ class ChatViewModel @Inject constructor(
         InputState(messages, inputText, error, title, isSpeakingResponse)
     }
 
-    val uiState: StateFlow<ChatUiState> = combine(
+    /** Base uiState without visual prefs (5-input combine). */
+    private val baseUiState: StateFlow<ChatUiState> = combine(
         engineState,
         downloadManager.downloadStates,
         inputState,
@@ -388,18 +399,41 @@ class ChatViewModel @Inject constructor(
                 temperature = activeModel?.let { modelSettingsRepository.getSettings(it.modelId).temperature } ?: 0.7f,
                 topP = activeModel?.let { modelSettingsRepository.getSettings(it.modelId).topP } ?: 0.9f,
                 topK = activeModel?.let { modelSettingsRepository.getSettings(it.modelId).topK } ?: 64,
-                // ---- Visual customisation (#906) ----
-                fontSize = visualPrefs.value.fontSize,
-                bubbleTheme = visualPrefs.value.bubbleTheme,
+                // ---- Visual customisation (#906) — filled from visualPrefs below ----
+                fontSize = 1,
+                bubbleTheme = "system",
                 bubbleThemeUserColor = null,
                 bubbleThemeAssistantColor = null,
-                userFontColor = visualPrefs.value.userFontColor,
-                assistantFontColor = visualPrefs.value.assistantFontColor,
-                wallpaperType = visualPrefs.value.wallpaperType,
-                wallpaperColor = visualPrefs.value.wallpaperColor,
-                wallpaperImageUri = visualPrefs.value.wallpaperImageUri,
+                userFontColor = null,
+                assistantFontColor = null,
+                wallpaperType = "none",
+                wallpaperColor = null,
+                wallpaperImageUri = null,
             )
         }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ChatUiState.Loading,
+    )
+
+    /** Merges base uiState with visual prefs so changes emit immediately. */
+    val uiState: StateFlow<ChatUiState> = combine(
+        baseUiState,
+        visualPrefs,
+    ) { base, vp ->
+        if (base !is ChatUiState.Ready) return@combine base
+        base.copy(
+            fontSize = vp.fontSize,
+            bubbleTheme = vp.bubbleTheme,
+            bubbleThemeUserColor = bubbleThemeColors(vp.bubbleTheme).first,
+            bubbleThemeAssistantColor = bubbleThemeColors(vp.bubbleTheme).second,
+            userFontColor = vp.userFontColor,
+            assistantFontColor = vp.assistantFontColor,
+            wallpaperType = vp.wallpaperType,
+            wallpaperColor = vp.wallpaperColor,
+            wallpaperImageUri = vp.wallpaperImageUri,
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -1067,6 +1101,7 @@ class ChatViewModel @Inject constructor(
         pendingVoiceReply = false
         voiceOutputController.stop()
         _voicePlaybackState.value = VoicePlaybackState.Idle
+        _speakingMessageId.value = null
     }
 
     /**
@@ -1084,6 +1119,8 @@ class ChatViewModel @Inject constructor(
             pendingVoiceReply = false
             voiceOutputController.stop()
             _speakingMessageId.value = null
+            _isSpeakingResponse.value = false
+            _voicePlaybackState.value = VoicePlaybackState.Idle
             return
         }
         // New message — stop any previous speaker-button playback and start fresh

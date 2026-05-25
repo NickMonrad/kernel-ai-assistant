@@ -107,6 +107,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -123,6 +126,10 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -158,6 +165,8 @@ import kotlin.math.roundToInt
 import kotlin.ranges.ClosedFloatingPointRange
 import androidx.compose.runtime.mutableFloatStateOf
 import com.kernel.ai.core.inference.ModelCapabilities
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.verticalScroll
 
 internal fun shouldKeepChatScreenAwake(
@@ -456,6 +465,22 @@ private fun ChatContent(
     // Show scroll-to-bottom button whenever there is content below the visible area.
     val showScrollToBottom by remember { derivedStateOf { listState.canScrollForward } }
     // ---- Visual customisation (#906) wallpaper background ----
+    val context = LocalContext.current
+    val wallpaperPainter = remember(state.wallpaperType, state.wallpaperImageUri) {
+        val uriStr = state.wallpaperImageUri ?: return@remember null
+        try {
+            val uri = Uri.parse(uriStr)
+            val bitmap = with(context.contentResolver) {
+                openInputStream(uri)?.use { stream ->
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                    BitmapFactory.decodeStream(stream, null, opts)
+                }
+            }
+            bitmap?.let { BitmapPainter(it.asImageBitmap()) }
+        } catch (_: Exception) {
+            null
+        }
+    }
     val wallpaperBackground = when (state.wallpaperType) {
         "color" -> state.wallpaperColor?.let { Color(it) }
         else -> null
@@ -504,14 +529,24 @@ private fun ChatContent(
             )
         },
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .imePadding()
-                // InputBar handles nav bar padding when visible; add it here for archived (read-only) view.
-                .then(if (isArchived) Modifier.navigationBarsPadding() else Modifier)
-                .then(if (wallpaperBackground != null) Modifier.background(wallpaperBackground) else Modifier),
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Wallpaper image behind content
+            wallpaperPainter?.let { painter ->
+                Image(
+                    painter = painter,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .imePadding()
+                    // InputBar handles nav bar padding when visible; add it here for archived (read-only) view.
+                    .then(if (isArchived) Modifier.navigationBarsPadding() else Modifier)
+                    .then(if (wallpaperBackground != null) Modifier.background(wallpaperBackground) else Modifier),
         ) {
             if (isArchived) {
                 Box(
@@ -547,6 +582,8 @@ private fun ChatContent(
                                 fontSize = state.fontSize,
                                 userFontColor = state.userFontColor,
                                 assistantFontColor = state.assistantFontColor,
+                                bubbleThemeUserColor = state.bubbleThemeUserColor,
+                                bubbleThemeAssistantColor = state.bubbleThemeAssistantColor,
                             )
                         }
                         if (state.isLoadingModel) {
@@ -690,8 +727,10 @@ private fun ChatContent(
                     modelCapabilities = state.modelCapabilities,
                     showAttachmentPicker = showAttachmentPicker,
                     onShowAttachmentPickerChange = { showAttachmentPicker = it },
+                    fontSize = state.fontSize,
                 )
             }
+        }
         }
     }
 
@@ -736,6 +775,8 @@ private fun MessageBubble(
     fontSize: Int = 1,
     userFontColor: Long? = null,
     assistantFontColor: Long? = null,
+    bubbleThemeUserColor: Long? = null,
+    bubbleThemeAssistantColor: Long? = null,
 ) {
     // ---- Visual customisation (#906) ----
     val fontSizeStyle = when (fontSize) {
@@ -747,9 +788,11 @@ private fun MessageBubble(
     val assistantTextColor = assistantFontColor?.let { Color(it) }
     val isUser = message.role == ChatMessage.Role.USER
     val bubbleColor = if (isUser) {
-        MaterialTheme.colorScheme.primaryContainer
+        bubbleThemeUserColor?.let { Color(it) }
+            ?: MaterialTheme.colorScheme.primaryContainer
     } else {
-        MaterialTheme.colorScheme.surfaceVariant
+        bubbleThemeAssistantColor?.let { Color(it) }
+            ?: MaterialTheme.colorScheme.surfaceVariant
     }
     val richPresentation = message.toolCall?.presentation
     val surfacedFallbackLinks = if (!isUser && richPresentation == null && message.toolCall != null) {
@@ -986,6 +1029,7 @@ private fun InputBar(
     modelCapabilities: com.kernel.ai.core.inference.ModelCapabilities? = null,
     showAttachmentPicker: Boolean,
     onShowAttachmentPickerChange: (Boolean) -> Unit,
+    fontSize: Int = 1,
 ) {
     val context = LocalContext.current
     var pendingAttachmentUri by remember { mutableStateOf<Uri?>(null) }
@@ -1198,10 +1242,7 @@ private fun InputBar(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     val sendEnabled = text.isNotBlank()
-                    val showControlRow =
-                        text.isBlank() ||
-                            voiceCaptureState != ChatViewModel.VoiceCaptureState.Idle ||
-                            voicePlaybackState != ChatViewModel.VoicePlaybackState.Idle
+                    val showControlRow = true
                     AnimatedVisibility(
                         visible = showControlRow,
                         enter = fadeIn(),
@@ -1342,6 +1383,7 @@ private fun InputBar(
                         modifier = Modifier.fillMaxWidth(),
                         maxLines = 5,
                         shape = RoundedCornerShape(12.dp),
+                        textStyle = TextStyle(fontSize = (12 * fontSize).sp),
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
