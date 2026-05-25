@@ -50,6 +50,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -336,6 +337,7 @@ fun ChatScreen(
                         snackbarHostState.showSnackbar("Conversation copied")
                     }
                 },
+                onNavigateToSettings = onNavigateToSettings,
                 showModelSettings = showModelSettings,
                 onShowModelSettingsChange = { showModelSettings = it },
             )
@@ -417,6 +419,7 @@ private fun ChatContent(
     onSpeakMessage: (String, String) -> Unit,
     snackbarHostState: SnackbarHostState,
     onCopyMessage: (String) -> Unit,
+    onNavigateToSettings: () -> Unit,
     onCopyAll: () -> Unit,
     showModelSettings: Boolean,
     onShowModelSettingsChange: (Boolean) -> Unit,
@@ -493,6 +496,9 @@ private fun ChatContent(
                     }
                     IconButton(onClick = { onShowModelSettingsChange(true) }) {
                         Icon(Icons.Default.Tune, contentDescription = "Model settings")
+                    }
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Chat settings")
                     }
                 },
             )
@@ -832,6 +838,8 @@ private fun MessageBubble(
                 modifier = Modifier
                     .padding(bottom = 4.dp)
                     .widthIn(max = 320.dp),
+                onSpeak = onSpeak,
+                isSpeaking = isSpeaking,
             )
         }
 
@@ -1774,8 +1782,7 @@ private fun ToolCallChip(toolCall: ToolCallInfo, modifier: Modifier = Modifier) 
     var expanded by remember { mutableStateOf(false) }
     val toolLinks = remember(toolCall.requestJson, toolCall.resultText) {
         collectAdditionalUrls(
-            visibleText = "",
-            toolCall.resultText,
+            visibleText = toolCall.resultText,
             toolCall.requestJson,
         )
     }

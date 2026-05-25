@@ -2078,6 +2078,7 @@ class ChatViewModel @Inject constructor(
         voiceOutputController.stop()
         _isSpeakingResponse.value = false
         _voicePlaybackState.value = VoicePlaybackState.Idle
+        _speakingMessageId.value = null
     }
 
     fun getConversationAsText(): String {
