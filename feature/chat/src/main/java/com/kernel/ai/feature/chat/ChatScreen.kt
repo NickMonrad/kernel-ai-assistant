@@ -464,6 +464,7 @@ private fun ChatContent(
     // ---- Visual customisation (#906) wallpaper background ----
     val context = LocalContext.current
     val wallpaperPainter = remember(state.wallpaperType, state.wallpaperImageUri) {
+        if (state.wallpaperType != "image") return@remember null
         val uriStr = state.wallpaperImageUri ?: return@remember null
         try {
             val uri = Uri.parse(uriStr)
