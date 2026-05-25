@@ -1239,13 +1239,14 @@ private fun InputBar(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     val sendEnabled = text.isNotBlank()
-                    val showControlRow = true
-                    AnimatedVisibility(
-                        visible = showControlRow,
-                        enter = fadeIn(),
-                        exit = shrinkVertically(),
-                    ) {
-                        // Secondary row: attachment, voice controls
+                    val showControlRow =
+                        text.isBlank() ||
+                            voiceCaptureState != ChatViewModel.VoiceCaptureState.Idle ||
+                            voicePlaybackState != ChatViewModel.VoicePlaybackState.Idle
+                    // Secondary row: attachment, voice controls
+                    // Use plain if — AnimatedVisibility with shrinkVertically animates
+                    // layout height during typing, displacing the TextField cursor.
+                    if (showControlRow) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1370,7 +1371,7 @@ private fun InputBar(
                                     }
                                 }
                             }
-                        }
+                    }
                     }
                     // Primary row: full-width text field with send/cancel trailing icon
                     TextField(
