@@ -68,6 +68,7 @@ dependencies {
     debugImplementation(libs.compose.ui.test.manifest)
     androidTestImplementation("androidx.test:runner:1.5.2")
     androidTestImplementation("androidx.test:rules:1.5.0")
+    androidTestImplementation(libs.compose.material.icons)
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)

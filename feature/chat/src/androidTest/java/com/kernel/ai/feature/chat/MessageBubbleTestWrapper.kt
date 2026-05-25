@@ -2,6 +2,7 @@ package com.kernel.ai.feature.chat
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,14 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -79,10 +74,8 @@ fun MessageBubbleTestWrapper(
                         style = MaterialTheme.typography.labelSmall.copy(fontStyle = FontStyle.Italic),
                         color = MaterialTheme.colorScheme.outline,
                     )
-                    Icon(
-                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (expanded) "Collapse thinking" else "Expand thinking",
-                        tint = MaterialTheme.colorScheme.outline,
+                    Text(
+                        text = if (expanded) "▼" else "▶",
                         modifier = Modifier.size(14.dp),
                     )
                 }
@@ -149,26 +142,12 @@ private fun ToolCallChipTestWrapper(toolCall: ToolCallInfo, modifier: Modifier =
         AssistChip(
             onClick = { expanded = !expanded },
             leadingIcon = {
-                Icon(
-                    imageVector = if (toolCall.isSuccess) {
-                        androidx.compose.material.icons.outlined.CheckCircle
-                    } else {
-                        androidx.compose.material.icons.outlined.ErrorOutline
-                    },
-                    contentDescription = if (toolCall.isSuccess) "Tool succeeded" else "Tool failed",
-                    modifier = Modifier.size(AssistChipDefaults.IconSize),
-                    tint = if (toolCall.isSuccess) {
-                        Color(0xFF4CAF50)
-                    } else {
-                        Color(0xFFF44336)
-                    },
-                )
+                Box(modifier = Modifier.size(AssistChipDefaults.IconSize))
             },
             label = { Text(toolCall.skillName, style = MaterialTheme.typography.labelMedium) },
             trailingIcon = {
-                Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
+                Text(
+                    text = if (expanded) "▼" else "▶",
                     modifier = Modifier.size(16.dp),
                 )
             },
@@ -221,11 +200,7 @@ private fun ToolCallChipTestWrapper(toolCall: ToolCallInfo, modifier: Modifier =
                                 clipboardManager.setText(AnnotatedString(text))
                             },
                             leadingIcon = {
-                                Icon(
-                                    Icons.Default.ContentCopy,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                )
+                                Text("📋", modifier = Modifier.size(16.dp))
                             },
                             label = { Text("Copy") },
                         )
