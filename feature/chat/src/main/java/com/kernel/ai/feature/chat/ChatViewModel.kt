@@ -313,6 +313,7 @@ class ChatViewModel @Inject constructor(
             "sunset" -> Pair(0xFFE65100, 0xFFBF360C)
             "mono" -> Pair(0xFF424242, 0xFF212121)
             "lavender" -> Pair(0xFF7B1FA2, 0xFF4A148C)
+            "jandal" -> Pair(0xFF4F7942, 0xFF2D5023)
             else -> null to null // system = use dynamic colour
         }
 
