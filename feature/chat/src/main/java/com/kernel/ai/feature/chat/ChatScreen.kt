@@ -107,9 +107,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1383,7 +1380,11 @@ private fun InputBar(
                         modifier = Modifier.fillMaxWidth(),
                         maxLines = 5,
                         shape = RoundedCornerShape(12.dp),
-                        textStyle = TextStyle(fontSize = (12 * fontSize).sp),
+                        textStyle = when (fontSize) {
+                            0 -> MaterialTheme.typography.bodySmall
+                            2 -> MaterialTheme.typography.bodyLarge
+                            else -> MaterialTheme.typography.bodyMedium
+                        },
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
