@@ -274,31 +274,26 @@ class ChatViewModel @Inject constructor(
 
     private val _showThinkingProcess = MutableStateFlow(true)
     /** Combined visual customisation prefs, updated from ChatPreferences. */
-    private val _visualPrefs = MutableStateFlow(VisualPrefs())
-    private val _visualPrefsJob = viewModelScope.launch {
-        // Combine first 5 prefs
-        combine(
-            chatPreferences.fontSize,
-            chatPreferences.bubbleTheme,
-            chatPreferences.userFontColor,
-            chatPreferences.assistantFontColor,
-            chatPreferences.wallpaperType,
-        ) { fontSize, bubbleTheme, userFontColor, assistantFontColor, wallpaperType ->
-            _visualPrefs.value.copy(
-                fontSize = fontSize,
-                bubbleTheme = bubbleTheme,
-                userFontColor = userFontColor,
-                assistantFontColor = assistantFontColor,
-                wallpaperType = wallpaperType,
-            )
-        }.collect { _visualPrefs.value = it }
-    }
-    private val _wallpaperJob = viewModelScope.launch {
-        // Combine remaining 2 prefs
-        combine(chatPreferences.wallpaperColor, chatPreferences.wallpaperImageUri) { color, uri ->
-            _visualPrefs.value.copy(wallpaperColor = color, wallpaperImageUri = uri)
-        }.collect { _visualPrefs.value = it }
-    }
+    private val visualPrefs: StateFlow<VisualPrefs> = combine(
+        chatPreferences.fontSize,
+        chatPreferences.bubbleTheme,
+        chatPreferences.userFontColor,
+        chatPreferences.assistantFontColor,
+        chatPreferences.wallpaperType,
+        chatPreferences.wallpaperColor,
+        chatPreferences.wallpaperImageUri,
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        VisualPrefs(
+            fontSize = values[0] as Int,
+            bubbleTheme = values[1] as String,
+            userFontColor = values[2] as Long?,
+            assistantFontColor = values[3] as Long?,
+            wallpaperType = values[4] as String,
+            wallpaperColor = values[5] as Long?,
+            wallpaperImageUri = values[6] as String?,
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, VisualPrefs())
 
 
     private data class VisualPrefs(
@@ -394,15 +389,15 @@ class ChatViewModel @Inject constructor(
                 topP = activeModel?.let { modelSettingsRepository.getSettings(it.modelId).topP } ?: 0.9f,
                 topK = activeModel?.let { modelSettingsRepository.getSettings(it.modelId).topK } ?: 64,
                 // ---- Visual customisation (#906) ----
-                fontSize = _visualPrefs.value.fontSize,
-                bubbleTheme = _visualPrefs.value.bubbleTheme,
+                fontSize = visualPrefs.value.fontSize,
+                bubbleTheme = visualPrefs.value.bubbleTheme,
                 bubbleThemeUserColor = null,
                 bubbleThemeAssistantColor = null,
-                userFontColor = _visualPrefs.value.userFontColor,
-                assistantFontColor = _visualPrefs.value.assistantFontColor,
-                wallpaperType = _visualPrefs.value.wallpaperType,
-                wallpaperColor = _visualPrefs.value.wallpaperColor,
-                wallpaperImageUri = _visualPrefs.value.wallpaperImageUri,
+                userFontColor = visualPrefs.value.userFontColor,
+                assistantFontColor = visualPrefs.value.assistantFontColor,
+                wallpaperType = visualPrefs.value.wallpaperType,
+                wallpaperColor = visualPrefs.value.wallpaperColor,
+                wallpaperImageUri = visualPrefs.value.wallpaperImageUri,
             )
         }
     }.stateIn(
