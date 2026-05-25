@@ -1,0 +1,5 @@
+{
+  "kotlin-lsp": {
+    "warmupTimeoutMs": 90000
+  }
+}
