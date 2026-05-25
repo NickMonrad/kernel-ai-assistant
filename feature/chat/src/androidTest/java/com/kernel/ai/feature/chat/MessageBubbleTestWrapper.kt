@@ -17,6 +17,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -139,66 +142,92 @@ private fun ToolCallChipTestWrapper(toolCall: ToolCallInfo, modifier: Modifier =
         )
     }
     val clipboardManager = LocalClipboardManager.current
-    Surface(
-        modifier = modifier.fillMaxWidth().testTag("tool_chip"),
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 1.dp,
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("🔧", style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = if (toolCall.isSuccess) toolCall.skillName else "⚠ ${toolCall.skillName}",
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.weight(1f),
+    val hasRichPresentation = toolCall.presentation != null
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Mirrors ChatScreen.ToolCallChip (#952): AssistChip with proper icons
+        AssistChip(
+            onClick = { expanded = !expanded },
+            leadingIcon = {
+                Icon(
+                    imageVector = if (toolCall.isSuccess) {
+                        androidx.compose.material.icons.outlined.CheckCircle
+                    } else {
+                        androidx.compose.material.icons.outlined.ErrorOutline
+                    },
+                    contentDescription = if (toolCall.isSuccess) "Tool succeeded" else "Tool failed",
+                    modifier = Modifier.size(AssistChipDefaults.IconSize),
+                    tint = if (toolCall.isSuccess) {
+                        Color(0xFF4CAF50)
+                    } else {
+                        Color(0xFFF44336)
+                    },
                 )
+            },
+            label = { Text(toolCall.skillName, style = MaterialTheme.typography.labelMedium) },
+            trailingIcon = {
                 Icon(
                     imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     contentDescription = if (expanded) "Collapse" else "Expand",
                     modifier = Modifier.size(16.dp),
                 )
-            }
-            if (expanded) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "Request: ${toolCall.requestJson}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Result: ${toolCall.resultText}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (toolLinks.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
-                    ToolLinkList(urls = toolLinks)
-                }
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    IconButton(
-                        onClick = {
-                            val text = "[Tool: ${toolCall.skillName}]\nRequest: ${toolCall.requestJson}\nResult: ${toolCall.resultText}"
-                            clipboardManager.setText(AnnotatedString(text))
-                        },
-                        modifier = Modifier.size(28.dp),
+            },
+            modifier = Modifier.testTag("tool_chip"),
+        )
+
+        // Expanded: rich presentation or raw text fallback
+        AnimatedVisibility(visible = expanded) {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 1.dp,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    if (hasRichPresentation) {
+                        ToolPresentationContent(
+                            presentation = toolCall.presentation!!,
+                            compact = true,
+                        )
+                    } else {
+                        Text(
+                            text = "Request: ${toolCall.requestJson}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Result: ${toolCall.resultText}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    if (toolLinks.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        ToolLinkList(urls = toolLinks)
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
                     ) {
-                        Icon(
-                            Icons.Default.ContentCopy,
-                            contentDescription = "Copy tool call",
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        AssistChip(
+                            onClick = {
+                                val text = "[Tool: ${toolCall.skillName}]\n" +
+                                    "Request: ${toolCall.requestJson}\n" +
+                                    "Result: ${toolCall.resultText}"
+                                clipboardManager.setText(AnnotatedString(text))
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.ContentCopy,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            label = { Text("Copy") },
                         )
                     }
                 }

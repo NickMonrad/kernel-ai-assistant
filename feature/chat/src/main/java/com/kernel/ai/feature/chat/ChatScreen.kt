@@ -18,6 +18,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,6 +54,7 @@ import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Mic
@@ -61,8 +63,14 @@ import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material3.ListItem
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -84,6 +92,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -112,6 +121,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
@@ -123,11 +137,8 @@ import androidx.compose.ui.semantics.semantics
 import android.Manifest
 import android.content.pm.PackageManager
 import android.util.Log
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.feature.chat.R
@@ -140,6 +151,13 @@ import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
 import com.kernel.ai.feature.chat.model.ToolCallInfo
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import kotlin.math.roundToInt
+import kotlin.ranges.ClosedFloatingPointRange
+import androidx.compose.runtime.mutableFloatStateOf
+import com.kernel.ai.core.inference.ModelCapabilities
+import androidx.compose.foundation.verticalScroll
 
 internal fun shouldKeepChatScreenAwake(
     uiState: ChatUiState,
@@ -165,6 +183,8 @@ internal fun shouldShowInlineGenerationIndicator(state: ChatUiState.Ready): Bool
         state.messages.lastOrNull()?.role == ChatMessage.Role.USER &&
         state.messages.none { it.role == ChatMessage.Role.ASSISTANT && it.isStreaming }
 
+/** Attachment type for the in-chat attachment picker (#962). */
+private enum class AttachmentType { Image, Audio, File }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -216,6 +236,7 @@ fun ChatScreen(
             }
         }
     }
+    var showModelSettings by remember { mutableStateOf(false) }
 
     when (val state = uiState) {
         is ChatUiState.Loading -> LoadingContent()
@@ -315,7 +336,57 @@ fun ChatScreen(
                         snackbarHostState.showSnackbar("Conversation copied")
                     }
                 },
+                showModelSettings = showModelSettings,
+                onShowModelSettingsChange = { showModelSettings = it },
             )
+            if (showModelSettings && state.modelCapabilities != null && viewModel.currentModel.value != null) {
+                val currentModel by viewModel.currentModel.collectAsStateWithLifecycle()
+                val capabilities = state.modelCapabilities
+                var temp by remember { mutableFloatStateOf(viewModel.uiState.value.let { s ->
+                    if (s is ChatUiState.Ready) s.temperature else 0.7f
+                }) }
+                var topP by remember { mutableFloatStateOf(viewModel.uiState.value.let { s ->
+                    if (s is ChatUiState.Ready) s.topP else 0.9f
+                }) }
+                var topK by remember { mutableIntStateOf(viewModel.uiState.value.let { s ->
+                    if (s is ChatUiState.Ready) s.topK else 64
+                }) }
+                var showThinking by remember { mutableStateOf(state.showThinkingProcess) }
+
+                ModalBottomSheet(
+                    onDismissRequest = { showModelSettings = false },
+                    dragHandle = { ModelSettingsDragHandle() },
+                ) {
+                    ModelSettingsSheet(
+                        model = currentModel!!,
+                        capabilities = capabilities,
+                        temperature = temp,
+                        onTemperatureChange = {
+                            temp = it
+                            viewModel.setTemperature(it)
+                        },
+                        topP = topP,
+                        onTopPChange = {
+                            topP = it
+                            viewModel.setTopP(it)
+                        },
+                        topK = topK,
+                        onTopKChange = {
+                            topK = it
+                            viewModel.setTopK(it)
+                        },
+                        showThinking = showThinking,
+                        onShowThinkingChange = {
+                            showThinking = it
+                            viewModel.setThinkingEnabled(it)
+                        },
+                        onReset = {
+                            viewModel.resetModelSettings()
+                            showModelSettings = false
+                        },
+                    )
+                }
+            }
         }
     }
 }
@@ -347,10 +418,13 @@ private fun ChatContent(
     snackbarHostState: SnackbarHostState,
     onCopyMessage: (String) -> Unit,
     onCopyAll: () -> Unit,
+    showModelSettings: Boolean,
+    onShowModelSettingsChange: (Boolean) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
+    var showAttachmentPicker by remember { mutableStateOf(false) }
     val loopListeningCueState = when (voiceCaptureState) {
         ChatViewModel.VoiceCaptureState.Idle -> LoopListeningCueState.Idle
         is ChatViewModel.VoiceCaptureState.Preparing -> LoopListeningCueState.Preparing
@@ -378,6 +452,11 @@ private fun ChatContent(
 
     // Show scroll-to-bottom button whenever there is content below the visible area.
     val showScrollToBottom by remember { derivedStateOf { listState.canScrollForward } }
+    // ---- Visual customisation (#906) wallpaper background ----
+    val wallpaperBackground = when (state.wallpaperType) {
+        "color" -> state.wallpaperColor?.let { Color(it) }
+        else -> null
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -398,6 +477,8 @@ private fun ChatContent(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                // #911: voice-only stop — uses Close icon, not the Stop icon
+                // reserved for inference cancel in the TextField trailingIcon.
                 actions = {
                     AnimatedVisibility(visible = state.isSpeakingResponse) {
                         IconButton(onClick = onStopVoicePlayback) {
@@ -410,6 +491,9 @@ private fun ChatContent(
                     IconButton(onClick = onNewConversation) {
                         Icon(Icons.Default.Add, contentDescription = "New conversation")
                     }
+                    IconButton(onClick = { onShowModelSettingsChange(true) }) {
+                        Icon(Icons.Default.Tune, contentDescription = "Model settings")
+                    }
                 },
             )
         },
@@ -420,7 +504,8 @@ private fun ChatContent(
                 .padding(innerPadding)
                 .imePadding()
                 // InputBar handles nav bar padding when visible; add it here for archived (read-only) view.
-                .then(if (isArchived) Modifier.navigationBarsPadding() else Modifier),
+                .then(if (isArchived) Modifier.navigationBarsPadding() else Modifier)
+                .then(if (wallpaperBackground != null) Modifier.background(wallpaperBackground) else Modifier),
         ) {
             if (isArchived) {
                 Box(
@@ -453,6 +538,9 @@ private fun ChatContent(
                                 showThinkingProcess = state.showThinkingProcess,
                                 isSpeaking = speakingMessageId == message.id,
                                 onSpeak = { onSpeakMessage(message.id, message.toolCall?.spokenSummary ?: message.content) },
+                                fontSize = state.fontSize,
+                                userFontColor = state.userFontColor,
+                                assistantFontColor = state.assistantFontColor,
                             )
                         }
                         if (state.isLoadingModel) {
@@ -594,6 +682,8 @@ private fun ChatContent(
                     onStopVoiceOutput = onStopVoiceOutput,
                     modifier = Modifier.navigationBarsPadding(),
                     modelCapabilities = state.modelCapabilities,
+                    showAttachmentPicker = showAttachmentPicker,
+                    onShowAttachmentPickerChange = { showAttachmentPicker = it },
                 )
             }
         }
@@ -637,7 +727,18 @@ private fun MessageBubble(
     showThinkingProcess: Boolean = true,
     isSpeaking: Boolean = false,
     onSpeak: () -> Unit = {},
+    fontSize: Int = 1,
+    userFontColor: Long? = null,
+    assistantFontColor: Long? = null,
 ) {
+    // ---- Visual customisation (#906) ----
+    val fontSizeStyle = when (fontSize) {
+        0 -> MaterialTheme.typography.bodySmall
+        2 -> MaterialTheme.typography.bodyLarge
+        else -> MaterialTheme.typography.bodyMedium
+    }
+    val userTextColor = userFontColor?.let { Color(it) }
+    val assistantTextColor = assistantFontColor?.let { Color(it) }
     val isUser = message.role == ChatMessage.Role.USER
     val bubbleColor = if (isUser) {
         MaterialTheme.colorScheme.primaryContainer
@@ -765,7 +866,7 @@ private fun MessageBubble(
                         ) {
                             Text(
                                 text = message.content,
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = fontSizeStyle.let { if (userTextColor != null) it.copy(color = userTextColor) else it },
                                 modifier = Modifier.weight(1f, fill = false),
                             )
                         }
@@ -775,7 +876,10 @@ private fun MessageBubble(
                             val contentColor = LocalContentColor.current
                             MarkdownContent(
                                 text = message.content,
-                                style = MaterialTheme.typography.bodyMedium.copy(color = contentColor),
+                                style = fontSizeStyle.let { style ->
+                                    val baseColor = if (assistantTextColor != null) assistantTextColor else LocalContentColor.current
+                                    style.copy(color = baseColor)
+                                },
                                 onLongPress = { showMenu = true },
                             )
                             if (surfacedFallbackLinks.isNotEmpty()) {
@@ -872,7 +976,61 @@ private fun InputBar(
     onStopVoiceOutput: () -> Unit,
     modifier: Modifier = Modifier,
     modelCapabilities: com.kernel.ai.core.inference.ModelCapabilities? = null,
+    showAttachmentPicker: Boolean,
+    onShowAttachmentPickerChange: (Boolean) -> Unit,
 ) {
+    val context = LocalContext.current
+    var pendingAttachmentUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingAttachmentType by remember { mutableStateOf<AttachmentType?>(null) }
+
+    fun sendPendingAttachment() {
+        val uri = pendingAttachmentUri ?: return
+        val type = pendingAttachmentType ?: return
+        val displayName = uri.getFileName(context) ?: "attachment"
+        val prefix = when (type) {
+            AttachmentType.Image -> "📷 [Image: $displayName] "
+            AttachmentType.Audio -> "🎵 [Audio: $displayName] "
+            AttachmentType.File -> "📎 [File: $displayName] "
+            else -> "📎 [File: $displayName] "
+        }
+        onTextChanged(prefix + text.trimStart())
+        pendingAttachmentUri = null
+        pendingAttachmentType = null
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+        onResult = { uri ->
+            if (uri != null) {
+                pendingAttachmentUri = uri
+                pendingAttachmentType = AttachmentType.Image
+                sendPendingAttachment()
+            }
+            onShowAttachmentPickerChange(false)
+        },
+    )
+    val audioPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            if (uri != null) {
+                pendingAttachmentUri = uri
+                pendingAttachmentType = AttachmentType.Audio
+                sendPendingAttachment()
+            }
+            onShowAttachmentPickerChange(false)
+        },
+    )
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            if (uri != null) {
+                pendingAttachmentUri = uri
+                pendingAttachmentType = AttachmentType.File
+                sendPendingAttachment()
+            }
+            onShowAttachmentPickerChange(false)
+        },
+    )
     val status = remember(voiceCaptureState, voicePlaybackState, voiceMode, mealPlannerActivity) {
         when (voiceCaptureState) {
             ChatViewModel.VoiceCaptureState.Idle -> when (voicePlaybackState) {
@@ -1055,7 +1213,7 @@ private fun InputBar(
                                 // Attachment button — disabled until model supports it
                                 val attachmentSupported = modelCapabilities?.supportsAttachments == true
                                 Surface(
-                                    onClick = { /* TODO: attachment picker */ },
+                                    onClick = { if (attachmentSupported) onShowAttachmentPickerChange(true) },
                                     enabled = attachmentSupported,
                                     shape = RoundedCornerShape(18.dp),
                                     color = if (attachmentSupported) {
@@ -1131,7 +1289,9 @@ private fun InputBar(
                                 }
                             }
 
-                            // Right side: voice stop buttons
+                            // Right side: voice-only stop buttons (#911).
+                            // Close icon = safe/reversible. Inference cancel uses
+                            // a distinct Stop icon + errorContainer background in TextField trailingIcon.
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1186,12 +1346,27 @@ private fun InputBar(
                             capitalization = KeyboardCapitalization.Sentences,
                             imeAction = ImeAction.Send,
                         ),
-                        keyboardActions = KeyboardActions(onSend = { if (!isGenerating && sendEnabled) onSend() }),
-                        trailingIcon = {
-                            if (isGenerating) {
-                                IconButton(onClick = onCancel) {
-                                    Icon(Icons.Default.Close, contentDescription = "Stop generation")
-                                }
+                    // Design contract (#911): the trailing icon is ONLY for
+                    // inference/generation cancel — destructive action.
+                    // Voice/TTS stop uses separate Close-icon surfaces elsewhere.
+                    // Visual distinction: Stop icon + errorContainer background
+                    // vs the plain Close-icon IconButtons used for voice stops.
+                    keyboardActions = KeyboardActions(onSend = { if (!isGenerating && sendEnabled) onSend() }),
+                    trailingIcon = {
+                        if (isGenerating) {
+                            Surface(
+                                onClick = onCancel,
+                                shape = RoundedCornerShape(18.dp),
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                modifier = Modifier.testTag("chat_cancel_generation"),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Stop,
+                                    contentDescription = "Cancel response",
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                            }
                             } else {
                                 IconButton(
                                     onClick = onSend,
@@ -1212,6 +1387,83 @@ private fun InputBar(
                     )
                 }
             }
+        }
+    }
+    if (showAttachmentPicker) {
+        AttachmentPickerBottomSheet(
+            onDismiss = { onShowAttachmentPickerChange(false) },
+            onImageSelected = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+            onAudioSelected = { audioPicker.launch("audio/*") },
+            onFileSelected = { filePicker.launch("*/*") },
+        )
+    }
+}
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AttachmentPickerBottomSheet(
+    onDismiss: () -> Unit,
+    onImageSelected: () -> Unit,
+    onAudioSelected: () -> Unit,
+    onFileSelected: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        dragHandle = { ModelSettingsDragHandle() },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text(
+                text = "Attach",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            AttachmentPickerOption(
+                icon = Icons.Default.Image,
+                label = "Photo or video",
+                onClick = onImageSelected,
+            )
+            AttachmentPickerOption(
+                icon = Icons.Default.Mic,
+                label = "Audio",
+                onClick = onAudioSelected,
+            )
+            AttachmentPickerOption(
+                icon = Icons.Default.AttachFile,
+                label = "File",
+                onClick = onFileSelected,
+            )
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun AttachmentPickerOption(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(Modifier.width(16.dp))
+            Text(label, style = MaterialTheme.typography.bodyLarge)
         }
     }
 }
@@ -1528,70 +1780,268 @@ private fun ToolCallChip(toolCall: ToolCallInfo, modifier: Modifier = Modifier) 
         )
     }
     val clipboardManager = LocalClipboardManager.current
-    Surface(
-        modifier = modifier.fillMaxWidth().testTag("tool_chip"),
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 1.dp,
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("🔧", style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = if (toolCall.isSuccess) toolCall.skillName else "⚠ ${toolCall.skillName}",
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.weight(1f),
+    val hasRichPresentation = toolCall.presentation != null
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Collapsed state: Material 3 AssistChip with proper icons (#952)
+        AssistChip(
+            onClick = { expanded = !expanded },
+            leadingIcon = {
+                Icon(
+                    imageVector = if (toolCall.isSuccess) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
+                    contentDescription = if (toolCall.isSuccess) "Tool succeeded" else "Tool failed",
+                    modifier = Modifier.size(AssistChipDefaults.IconSize),
+                    tint = if (toolCall.isSuccess) Color(0xFF4CAF50) else Color(0xFFF44336),
                 )
+            },
+            label = { Text(toolCall.skillName, style = MaterialTheme.typography.labelMedium) },
+            trailingIcon = {
                 Icon(
                     imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     contentDescription = if (expanded) "Collapse" else "Expand",
                     modifier = Modifier.size(16.dp),
                 )
-            }
-            if (expanded) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "Request: ${toolCall.requestJson}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Result: ${toolCall.resultText}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (toolLinks.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
-                    ToolLinkList(urls = toolLinks)
-                }
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    IconButton(
-                        onClick = {
-                            val text = "[Tool: ${toolCall.skillName}]\nRequest: ${toolCall.requestJson}\nResult: ${toolCall.resultText}"
-                            clipboardManager.setText(AnnotatedString(text))
-                        },
-                        modifier = Modifier.size(28.dp),
+            },
+            modifier = Modifier.testTag("tool_chip"),
+        )
+
+        // Expanded: rich presentation or raw text fallback
+        AnimatedVisibility(visible = expanded) {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 1.dp,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    if (hasRichPresentation) {
+                        ToolPresentationContent(
+                            presentation = toolCall.presentation!!,
+                            compact = true,
+                        )
+                    } else {
+                        Text(
+                            text = "Request: ${toolCall.requestJson}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Result: ${toolCall.resultText}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    if (toolLinks.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        ToolLinkList(urls = toolLinks)
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
                     ) {
-                        Icon(
-                            Icons.Default.ContentCopy,
-                            contentDescription = "Copy tool call",
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        AssistChip(
+                            onClick = {
+                                val text = "[Tool: ${toolCall.skillName}]\n" +
+                                    "Request: ${toolCall.requestJson}\n" +
+                                    "Result: ${toolCall.resultText}"
+                                clipboardManager.setText(AnnotatedString(text))
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.ContentCopy,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            label = { Text("Copy") },
                         )
                     }
                 }
             }
         }
     }
+}
+
+// ─────────────────── In-chat model settings sheet ───────────────────
+
+@Composable
+private fun ModelSettingsDragHandle() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(32.dp)
+                .height(4.dp)
+                .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(2.dp)),
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelSettingsSheet(
+    model: KernelModel,
+    capabilities: ModelCapabilities,
+    temperature: Float,
+    onTemperatureChange: (Float) -> Unit,
+    topP: Float,
+    onTopPChange: (Float) -> Unit,
+    topK: Int,
+    onTopKChange: (Int) -> Unit,
+    showThinking: Boolean,
+    onShowThinkingChange: (Boolean) -> Unit,
+    onReset: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxHeight(0.7f)
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.Tune,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = model.displayName,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Temperature
+        _SliderRow(
+            label = "Temperature",
+            valueLabel = "%.1f".format(temperature),
+            value = temperature,
+            valueRange = 0.1f..2.0f,
+            steps = 18,
+            onValueChangeFinished = { newVal ->
+                val snapped = (newVal * 10).roundToInt() / 10f
+                onTemperatureChange(snapped)
+            },
+        )
+
+        // Top-P
+        _SliderRow(
+            label = "Top-P",
+            valueLabel = "%.2f".format(topP),
+            value = topP,
+            valueRange = 0.0f..1.0f,
+            steps = 19,
+            onValueChangeFinished = { newVal ->
+                val snapped = (newVal * 20).roundToInt() / 20f
+                onTopPChange(snapped)
+            },
+        )
+
+        // Top-K
+        _SliderRow(
+            label = "Top-K",
+            valueLabel = "$topK",
+            value = topK.toFloat(),
+            valueRange = 1f..100f,
+            steps = 98,
+            onValueChangeFinished = { newVal ->
+                onTopKChange(newVal.roundToInt())
+            },
+        )
+
+        // Thinking toggle
+        if (capabilities.supportsThinking) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Thinking mode",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = "Enable chain-of-thought reasoning. Disabling saves tokens and speeds up responses.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = showThinking,
+                    onCheckedChange = onShowThinkingChange,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Reset button
+        OutlinedButton(
+            onClick = onReset,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Reset to defaults")
+        }
+
+        Spacer(Modifier.height(32.dp))
+    }
+}
+
+@Composable
+private fun _SliderRow(
+    label: String,
+    valueLabel: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onValueChangeFinished: (Float) -> Unit,
+) {
+    var temp by remember { mutableFloatStateOf(value) }
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text = label, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = valueLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Slider(
+            value = temp,
+            onValueChange = { temp = it },
+            onValueChangeFinished = {
+                onValueChangeFinished(temp)
+            },
+            valueRange = valueRange,
+            steps = steps,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        )
+    }
+}
+
+@Suppress("SameParameterValue")
+private fun Uri.getFileName(context: android.content.Context): String? {
+    var name: String? = null
+    context.contentResolver.query(this, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+        if (idx >= 0 && cursor.moveToFirst()) {
+            name = cursor.getString(idx)
+        }
+    }
+    return name
 }
