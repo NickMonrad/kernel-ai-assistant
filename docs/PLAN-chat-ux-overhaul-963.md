@@ -43,6 +43,11 @@ Implement remaining child issues: #911, #952, #906, #962.
 - Picker moved to `InputBar` scope (was incorrectly in `ChatContent`)
 - `showAttachmentPicker` passed from `ChatContent` → `InputBar` via callback
 
+### #980 — Cursor jump + control row visibility regression
+- Replaced `AnimatedVisibility(visible = showControlRow, exit = shrinkVertically())` with plain `if (showControlRow) { ... }`
+- Restored original `showControlRow` logic: `text.isBlank() || voiceCaptureState != Idle || voicePlaybackState != Idle`
+- `AnimatedVisibility` with `shrinkVertically()` animates layout height on first keystroke, displacing the TextField cursor
+- Plain `if` toggles visibility instantly with no layout animation
 ## Key Decisions
 - **Scope resolution**: `showAttachmentPicker` state passed from `ChatContent` to `InputBar` via `onShowAttachmentPickerChange` callback
 - **Attachment logic in InputBar**: Activity result contracts and picker UI live in `InputBar` where they're used, not in `ChatContent`
