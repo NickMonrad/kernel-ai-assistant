@@ -34,11 +34,15 @@ Priority order:
 - Do not rewrite working code for style preferences alone
 - Do not perform broad formatting-only diffs
 - Do not overwrite unrelated local changes
+- Once on a branch, do not switch away from it or check out a different branch mid-session without an explicit owner instruction
+- Do not commit or stage files that belong to another session's branch or task
 - Do not hardcode model-specific or premium-only assumptions into repo-local prompts or scripts
 
 ## Working style
 
 - Search before reading files; read surgically and minimally
+- At session start, note the current branch (`git branch --show-current`); stay on it for the entire session — create a new feature branch from `main` only when the task explicitly calls for one
+- **Use `lsp` for all code intelligence** — definitions, references, hover, rename, diagnostics — do not grep for symbols
 - Avoid loading generated or large files unless required
 - Reuse already-discovered context; prefer targeted validation
 - Prefer small, reviewable diffs over broad rewrites
