@@ -102,6 +102,12 @@ private val WALLPAPER_COLORS = listOf(
     Color(0xFF533483) to "Plum",
     Color(0xFF2D2D2D) to "Charcoal",
     Color(0xFF1B4332) to "Forest dark",
+    Color(0xFF2D5023) to "Fern green",
+    Color(0xFF1A1040) to "Paua deep",
+    Color(0xFF0D7A7A) to "Paua teal",
+    Color(0xFF111111) to "AMOLED black",
+    Color(0xFF2C1810) to "Warm brown",
+    Color(0xFF1A2332) to "Slate",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
