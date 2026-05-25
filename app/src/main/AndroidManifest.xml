@@ -206,6 +206,35 @@
                 android:resource="@xml/kernel_widget_info" />
         </receiver>
 
+        <!--
+            Jandal as Android Default Digital Assistant.
+
+            Registering JandalVoiceInteractionService with BIND_VOICE_INTERACTION permission
+            makes Jandal appear in Settings → Default Apps → Digital Assistant. Once selected:
+            - Long-press Home / Side-key triggers JandalVoiceInteractionSession
+            - The OS grants privileged background mic access (bypasses battery saver restrictions)
+            - createAlwaysOnHotwordDetector() becomes available for the wake word service (#985)
+        -->
+        <service
+            android:name=".assistant.JandalVoiceInteractionService"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/interaction_service_config" />
+        </service>
+        <!-- Session service — creates JandalVoiceInteractionSession per activation.
+             The system binds to this service when a session is requested; BIND_VOICE_INTERACTION
+             prevents any other app from binding to it. -->
+        <service
+            android:name=".assistant.JandalVoiceInteractionSessionService"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true" />
+
+
         <!-- VoiceCommandService — foundational execution seam for widget + future wake word -->
         <service
             android:name="com.kernel.ai.feature.widget.VoiceCommandService"

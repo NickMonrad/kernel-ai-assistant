@@ -56,6 +56,8 @@ data class VoiceUiState(
     val selectedKokoroVoice: SherpaKokoroVoice = SherpaKokoroVoice.KokoroMultiLangInt8,
     val kokoroActiveSpeakerId: Int = 0,
     val isSelectedKokoroVoiceDownloaded: Boolean = false,
+    /** True when Jandal is the system's Default Digital Assistant (RoleManager.ROLE_ASSISTANT). */
+    val isDefaultAssistant: Boolean = false,
 )
 
 @HiltViewModel
@@ -311,5 +313,12 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             voiceOutputPreferences.setKokoroActiveSpeakerId(sid)
         }
+    }
+    /**
+     * Called from VoiceScreen on every resume to keep the assistant-role badge in sync.
+     * [RoleManager.isRoleHeld] is a synchronous, cheap system call — no coroutine needed.
+     */
+    fun refreshAssistantStatus(isRoleHeld: Boolean) {
+        _uiState.update { it.copy(isDefaultAssistant = isRoleHeld) }
     }
 }

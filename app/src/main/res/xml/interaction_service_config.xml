@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    VoiceInteractionService configuration for Jandal as the system Default Digital Assistant.
+
+    sessionService: JandalVoiceInteractionSessionService creates VoiceInteractionSession instances
+                    on each activation. It must be declared as a <service> in AndroidManifest.xml.
+    supportsAssist: true — allows Jandal to receive assist-context (app/window info).
+    supportsLaunchVoiceAssistFromKeyguard: true — enables lock-screen activation.
+    supportsLocalInteraction: true — assistant handles queries directly on device.
+-->
+<voice-interaction-service
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.kernel.ai.assistant.JandalVoiceInteractionSessionService"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="true"
+    android:supportsLocalInteraction="true" />
