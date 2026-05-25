@@ -74,6 +74,18 @@ Use these when the `android` command is available:
 
 Fallback to Gradle + `adb` when Android CLI is unavailable.
 
+## Code intelligence
+
+`kotlin-lsp` is configured and running. Prefer it over grep for all symbol-level work:
+
+- Go to definition: `lsp definition`
+- Find all usages before touching an exported symbol: `lsp references`
+- Rename safely across the repo: `lsp rename`
+- Type information: `lsp hover`
+- Errors and warnings: `lsp diagnostics`
+
+Never use `grep`/`search` to find symbol definitions or callers — the LSP result is authoritative.
+
 ## Before raising a PR
 
 1. `./gradlew test` passes
