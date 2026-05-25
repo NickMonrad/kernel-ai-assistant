@@ -825,35 +825,32 @@ private fun MessageBubble(
             var userExpanded by rememberSaveable(key = "thinking_userExpanded") { mutableStateOf(false) }
             val expanded = userExpanded || message.isStreaming
             Column(modifier = Modifier.padding(bottom = 4.dp).testTag("think_bubble")) {
-                Row(
-                    modifier = Modifier.clickable { userExpanded = !userExpanded },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = if (message.isStreaming) "Thinking…" else "Thinking",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontStyle = if (message.isStreaming) FontStyle.Italic else FontStyle.Normal,
-                        ),
-                        color = MaterialTheme.colorScheme.outline,
-                    )
-                    Icon(
-                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (expanded) "Collapse thinking" else "Expand thinking",
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    IconButton(
-                        onClick = { onCopy(message.thinkingText!!) },
-                        modifier = Modifier.size(20.dp).padding(start = 2.dp),
-                    ) {
+                AssistChip(
+                    onClick = { userExpanded = !userExpanded },
+                    leadingIcon = {
                         Icon(
-                            imageVector = Icons.Default.ContentCopy,
-                            contentDescription = "Copy thinking",
-                            tint = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.size(12.dp),
+                            imageVector = Icons.Outlined.Bolt,
+                            contentDescription = if (message.isStreaming) "Thinking" else "Thought",
+                            modifier = Modifier.size(AssistChipDefaults.IconSize),
                         )
-                    }
-                }
+                    },
+                    label = {
+                        Text(
+                            text = if (message.isStreaming) "Thinking…" else "Thinking",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontStyle = if (message.isStreaming) FontStyle.Italic else FontStyle.Normal,
+                            ),
+                        )
+                    },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (expanded) "Collapse thinking" else "Expand thinking",
+                            modifier = Modifier.size(16.dp),
+                        )
+                    },
+                    modifier = Modifier.testTag("thinking_chip"),
+                )
                 AnimatedVisibility(visible = expanded) {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
