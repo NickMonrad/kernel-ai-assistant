@@ -725,6 +725,7 @@ private fun ChatContent(
                     showAttachmentPicker = showAttachmentPicker,
                     onShowAttachmentPickerChange = { showAttachmentPicker = it },
                     fontSize = state.fontSize,
+                    bubbleThemeUserColor = state.bubbleThemeUserColor,
                 )
             }
         }
@@ -1027,6 +1028,7 @@ private fun InputBar(
     showAttachmentPicker: Boolean,
     onShowAttachmentPickerChange: (Boolean) -> Unit,
     fontSize: Int = 1,
+    bubbleThemeUserColor: Long? = null,
 ) {
     val context = LocalContext.current
     var pendingAttachmentUri by remember { mutableStateOf<Uri?>(null) }
@@ -1225,10 +1227,14 @@ private fun InputBar(
                 )
             }
 
+            val inputBarColor = bubbleThemeUserColor
+                ?.let { Color(it) }
+                ?: MaterialTheme.colorScheme.surfaceBright
+
             Surface(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceBright,
+                color = inputBarColor,
                 border = BorderStroke(
                     width = 1.dp,
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
