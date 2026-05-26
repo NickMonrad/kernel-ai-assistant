@@ -3,7 +3,8 @@ package com.kernel.ai.feature.settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,14 +24,14 @@ fun NoteDetailScreen(
     val allNotes by viewModel.notes.collectAsStateWithLifecycle()
     val note = allNotes.find { it.id == noteId }
 
-    // Sync local edit buffer when the note loads or changes
     var title by remember { mutableStateOf(note?.title ?: "") }
     var content by remember { mutableStateOf(note?.content ?: "") }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showArchiveDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(note?.id) {
         note?.let {
-            title = it.title
+            title = it.title ?: ""
             content = it.content
         }
     }
@@ -46,6 +47,26 @@ fun NoteDetailScreen(
                 },
                 actions = {
                     if (note != null) {
+                        // Pin toggle
+                        IconButton(onClick = {
+                            if (note.pinned) viewModel.unpinNote(note.id)
+                            else viewModel.pinNote(note.id)
+                        }) {
+                            Icon(
+                                if (note.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                                contentDescription = if (note.pinned) "Unpin" else "Pin",
+                                tint = if (note.pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        // Archive toggle
+                        IconButton(onClick = { showArchiveDialog = true }) {
+                            Icon(
+                                if (note.archivedAt > 0) Icons.Default.Unarchive else Icons.Default.Archive,
+                                contentDescription = if (note.archivedAt > 0) "Unarchive" else "Archive",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        // Delete
                         IconButton(onClick = { showDeleteDialog = true }) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
                         }
@@ -73,8 +94,9 @@ fun NoteDetailScreen(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Title") },
+                    label = { Text("Title (optional)") },
                     modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Auto-generated if empty") },
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
@@ -96,18 +118,16 @@ fun NoteDetailScreen(
                     }
                     TextButton(
                         onClick = {
-                            if (title.isNotBlank()) {
-                                viewModel.updateNote(
-                                    note.copy(
-                                        title = title.trim(),
-                                        content = content.trim(),
-                                        updatedAt = System.currentTimeMillis(),
-                                    ),
-                                )
-                                onBack()
-                            }
+                            viewModel.updateNote(
+                                note.copy(
+                                    title = title.trim().takeIf { it.isNotBlank() },
+                                    content = content.trim(),
+                                    updatedAt = System.currentTimeMillis(),
+                                ),
+                            )
+                            onBack()
                         },
-                        enabled = title.isNotBlank(),
+                        enabled = content.isNotBlank(),
                     ) {
                         Text("Save")
                     }
@@ -134,6 +154,31 @@ fun NoteDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    if (showArchiveDialog && note != null) {
+        AlertDialog(
+            onDismissRequest = { showArchiveDialog = false },
+            title = { Text(if (note.archivedAt > 0) "Unarchive Note" else "Archive Note") },
+            text = { Text(if (note.archivedAt > 0) "Restore this note to your active notes?" else "Archive this note?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (note.archivedAt > 0) viewModel.unarchiveNote(note.id)
+                        else viewModel.archiveNote(note.id)
+                        showArchiveDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                ) {
+                    Text(if (note.archivedAt > 0) "Restore" else "Archive")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showArchiveDialog = false }) {
                     Text("Cancel")
                 }
             },

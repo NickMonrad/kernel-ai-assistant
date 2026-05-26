@@ -2895,12 +2895,12 @@ class NativeIntentHandler @Inject constructor(
 
     private suspend fun listNotes(): SkillResult {
         return try {
-            val notes = noteDao.getAllNotes()
+            val notes = noteDao.getAllActiveNotes()
             if (notes.isEmpty()) {
                 SkillResult.DirectReply("No notes found.")
             } else {
                 val summary = notes.joinToString("\n") { note ->
-                    "• ${note.title}: ${note.content.take(50)}${if (note.content.length > 50) "…" else ""}"
+                    "• ${note.title ?: "Untitled"}: ${note.content.take(50)}${if (note.content.length > 50) "…" else ""}"
                 }
                 SkillResult.DirectReply("Your notes:\n$summary")
             }

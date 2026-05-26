@@ -87,7 +87,7 @@ import java.time.ZoneId
         MealPlanFavouriteRecipeEntity::class,
         NoteEntity::class,
     ],
-    version = 49,
+    version = 50,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -829,6 +829,17 @@ abstract class KernelDatabase : RoomDatabase() {
                     "`created_at` INTEGER NOT NULL," +
                     "`updated_at` INTEGER NOT NULL" +
                     ")")
+            }
+        }
+        /** Adds pinned, archivedAt, displayOrder, smartTitleGenerated to notes table. */
+        val MIGRATION_49_50 = object : Migration(49, 50) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `pinned` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `archived_at` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `display_order` REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `smart_title_generated` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE `notes` SET `title` = '' WHERE `title` IS NULL")
+                db.execSQL("ALTER TABLE `notes` ALTER COLUMN `title` TEXT")
             }
         }
 

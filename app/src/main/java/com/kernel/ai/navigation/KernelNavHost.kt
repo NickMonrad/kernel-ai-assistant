@@ -195,6 +195,20 @@ fun KernelNavHost(
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
                 NavigationDrawerItem(
+                    label = { Text("Notes") },
+                    icon = { Icon(Icons.Default.Note, contentDescription = null) },
+                    selected = currentBaseRoute == ROUTE_NOTES,
+                    onClick = {
+                        coroutineScope.launch { drawerState.close() }
+                        navController.navigate(ROUTE_NOTES) {
+                            popUpTo(ROUTE_LIST) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                )
+                NavigationDrawerItem(
                     label = { Text("Clock") },
                     icon = { Icon(Icons.Default.Timer, contentDescription = null) },
                     selected = currentBaseRoute == ROUTE_SIDE_PANEL,
@@ -257,20 +271,6 @@ fun KernelNavHost(
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
                         navController.navigate(ROUTE_MEAL_PLANS) {
-                            popUpTo(ROUTE_LIST) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                )
-                NavigationDrawerItem(
-                    label = { Text("Notes") },
-                    icon = { Icon(Icons.Default.Note, contentDescription = null) },
-                    selected = currentBaseRoute == ROUTE_NOTES,
-                    onClick = {
-                        coroutineScope.launch { drawerState.close() }
-                        navController.navigate(ROUTE_NOTES) {
                             popUpTo(ROUTE_LIST) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
@@ -556,6 +556,12 @@ fun KernelNavHost(
                         onBack = { navController.popBackStack() },
                         onEditNote = { noteId ->
                             navController.navigate("$ROUTE_NOTES/$noteId")
+                        },
+                        onNavigateToVoiceActions = {
+                            navController.navigate(ROUTE_ACTIONS_VOICE) {
+                                popUpTo(ROUTE_LIST) { saveState = true }
+                                launchSingleTop = true
+                            }
                         },
                     )
                 }

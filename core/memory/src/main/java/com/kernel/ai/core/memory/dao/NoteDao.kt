@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.kernel.ai.core.memory.entity.NoteEntity
 import kotlinx.coroutines.flow.Flow
@@ -21,8 +22,33 @@ interface NoteDao {
     @Delete
     suspend fun deleteNote(note: NoteEntity)
 
-    @Query("SELECT * FROM notes ORDER BY updated_at DESC")
-    fun observeAllNotes(): Flow<List<NoteEntity>>
+    // ── Active notes (not archived) ──────────────────────────────────────────────────────────────
+
+    @Query("SELECT * FROM notes WHERE archived_at = 0 ORDER BY pinned DESC, display_order ASC, updated_at DESC")
+    fun observeAllActiveNotes(): Flow<List<NoteEntity>>
+
+    @Query("SELECT * FROM notes WHERE archived_at = 0 ORDER BY pinned DESC, display_order ASC, updated_at DESC")
+    suspend fun getAllActiveNotes(): List<NoteEntity>
+
+    // ── Archived notes ───────────────────────────────────────────────────────────────────────────
+
+    @Query("SELECT * FROM notes WHERE archived_at > 0 ORDER BY archived_at DESC")
+    fun observeArchivedNotes(): Flow<List<NoteEntity>>
+
+    @Query("SELECT * FROM notes WHERE archived_at > 0 ORDER BY archived_at DESC")
+    suspend fun getAllArchivedNotes(): List<NoteEntity>
+
+    // ── Pinned notes ─────────────────────────────────────────────────────────────────────────────
+
+    @Query("SELECT * FROM notes WHERE archived_at = 0 AND pinned = 1 ORDER BY display_order ASC, updated_at DESC")
+    fun observePinnedNotes(): Flow<List<NoteEntity>>
+
+    // ── Search (active only) ─────────────────────────────────────────────────────────────────────
+
+    @Query("SELECT * FROM notes WHERE archived_at = 0 AND (title LIKE '%' || :query || '%' OR content LIKE '%' || :query || '%') ORDER BY pinned DESC, display_order ASC, updated_at DESC")
+    fun observeSearchNotes(query: String): Flow<List<NoteEntity>>
+
+    // ── Single note ──────────────────────────────────────────────────────────────────────────────
 
     @Query("SELECT * FROM notes WHERE id = :noteId")
     suspend fun getNoteById(noteId: Long): NoteEntity?
@@ -30,9 +56,50 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE id = :noteId")
     fun observeNoteById(noteId: Long): Flow<NoteEntity?>
 
-    @Query("SELECT COUNT(*) FROM notes")
-    suspend fun getNoteCount(): Int
+    // ── Count ────────────────────────────────────────────────────────────────────────────────────
 
-    @Query("SELECT * FROM notes ORDER BY updated_at DESC")
-    suspend fun getAllNotes(): List<NoteEntity>
+    @Query("SELECT COUNT(*) FROM notes WHERE archived_at = 0")
+    suspend fun getActiveNoteCount(): Int
+
+    @Query("SELECT COUNT(*) FROM notes WHERE archived_at > 0")
+    suspend fun getArchivedNoteCount(): Int
+
+    // ── Pin / Unpin ──────────────────────────────────────────────────────────────────────────────
+
+    @Query("UPDATE notes SET pinned = 1, updated_at = :updatedAt WHERE id = :noteId")
+    suspend fun pinNote(noteId: Long, updatedAt: Long)
+
+    @Query("UPDATE notes SET pinned = 0, updated_at = :updatedAt WHERE id = :noteId")
+    suspend fun unpinNote(noteId: Long, updatedAt: Long)
+
+    // ── Archive / Unarchive ──────────────────────────────────────────────────────────────────────
+
+    @Query("UPDATE notes SET archived_at = :archivedAt, updated_at = :updatedAt WHERE id = :noteId")
+    suspend fun archiveNote(noteId: Long, archivedAt: Long, updatedAt: Long)
+
+    @Query("UPDATE notes SET archived_at = 0, updated_at = :updatedAt WHERE id = :noteId")
+    suspend fun unarchiveNote(noteId: Long, updatedAt: Long)
+
+    // ── Reorder (bulk display_order update) ──────────────────────────────────────────────────────
+
+    @Transaction
+    suspend fun reorderNotes(noteOrder: Map<Long, Double>) {
+        noteOrder.forEach { (noteId, order) ->
+            updateNoteDisplayOrder(noteId, order)
+        }
+    }
+
+    @Query("UPDATE notes SET display_order = :displayOrder, updated_at = :updatedAt WHERE id = :noteId")
+    suspend fun updateNoteDisplayOrder(noteId: Long, displayOrder: Double, updatedAt: Long = System.currentTimeMillis())
+
+    // ── Bulk operations ──────────────────────────────────────────────────────────────────────────
+
+    @Query("UPDATE notes SET archived_at = :archivedAt, updated_at = :updatedAt WHERE id IN (:noteIds)")
+    suspend fun bulkArchive(noteIds: List<Long>, archivedAt: Long, updatedAt: Long)
+
+    @Query("UPDATE notes SET pinned = :pinned, updated_at = :updatedAt WHERE id IN (:noteIds)")
+    suspend fun bulkPin(noteIds: List<Long>, pinned: Boolean, updatedAt: Long)
+
+    @Query("DELETE FROM notes WHERE id IN (:noteIds)")
+    suspend fun bulkDelete(noteIds: List<Long>)
 }
