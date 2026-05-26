@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Wake word foreground service requires microphone access type (API 35+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- Notification permission (required on API 33+; minSdk=35 so always required) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Location permissions for GetWeatherSkill GPS fallback -->
@@ -210,6 +212,14 @@
         <service
             android:name="com.kernel.ai.feature.widget.VoiceCommandService"
             android:exported="false" />
+        <!-- WakeWordService — always-on "Hey Jandal" detection when user opts in.
+             foregroundServiceType="microphone" is required on API 35+ for background
+             AudioRecord access. When JandalVoiceInteractionService (#983) is active as the
+             system default assistant, the OS itself manages the privileged mic path. -->
+        <service
+            android:name=".assistant.WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <!-- VoiceCommandActivity — translucent overlay for widget mic button.
              taskAffinity="" puts it in its own task so launching it does NOT

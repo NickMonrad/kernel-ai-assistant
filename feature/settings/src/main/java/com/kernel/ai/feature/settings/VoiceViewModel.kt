@@ -8,9 +8,11 @@ import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
-import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.voice.WakeWordDetector
+import com.kernel.ai.core.voice.WakeWordPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,6 +58,13 @@ data class VoiceUiState(
     val selectedKokoroVoice: SherpaKokoroVoice = SherpaKokoroVoice.KokoroMultiLangInt8,
     val kokoroActiveSpeakerId: Int = 0,
     val isSelectedKokoroVoiceDownloaded: Boolean = false,
+    // ── Hey Jandal / Default Assistant ───────────────────────────────────────
+    /** True when Jandal is the system's Default Digital Assistant (RoleManager.ROLE_ASSISTANT). */
+    val isDefaultAssistant: Boolean = false,
+    /** True when "Listen for Hey Jandal" is enabled in preferences. */
+    val heyJandalEnabled: Boolean = false,
+    /** True when the hey_jandal_int8.tflite model file is present on device. */
+    val isWakeWordModelAvailable: Boolean = false,
 )
 
 @HiltViewModel
@@ -64,6 +73,8 @@ class VoiceViewModel @Inject constructor(
     private val voiceInputPreferences: VoiceInputPreferences,
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val sherpaVoicePackDownloadManager: SherpaVoicePackDownloadManager,
+    private val wakeWordPreferences: WakeWordPreferences,
+    private val wakeWordDetector: WakeWordDetector,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(VoiceUiState())
@@ -188,6 +199,12 @@ class VoiceViewModel @Inject constructor(
                 _uiState.update { it.copy(autoStartAlertVoiceCommandsEnabled = enabled) }
             }
         }
+        viewModelScope.launch {
+            wakeWordPreferences.heyJandalEnabled.collect { enabled ->
+                _uiState.update { it.copy(heyJandalEnabled = enabled) }
+            }
+        }
+        _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
     }
 
     fun setVoiceInputEngine(engine: VoiceInputEngine) {
@@ -311,5 +328,23 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             voiceOutputPreferences.setKokoroActiveSpeakerId(sid)
         }
+    }
+    // ── Hey Jandal ────────────────────────────────────────────────────────────
+
+    fun setHeyJandalEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(heyJandalEnabled = enabled) }
+        viewModelScope.launch {
+            // Persisting the preference is sufficient — KernelAIApplication observes
+            // WakeWordPreferences.heyJandalEnabled and starts/stops WakeWordService.
+            wakeWordPreferences.setHeyJandalEnabled(enabled)
+        }
+    }
+
+    /**
+     * Called from VoiceScreen on every resume to keep the assistant-role badge in sync.
+     * [android.app.role.RoleManager.isRoleHeld] is synchronous — no coroutine needed.
+     */
+    fun refreshAssistantStatus(isRoleHeld: Boolean) {
+        _uiState.update { it.copy(isDefaultAssistant = isRoleHeld) }
     }
 }

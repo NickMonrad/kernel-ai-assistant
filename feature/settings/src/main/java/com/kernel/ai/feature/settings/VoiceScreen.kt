@@ -68,6 +68,15 @@ import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import kotlin.math.roundToInt
+import android.app.role.RoleManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Assistant
+import androidx.compose.material.icons.filled.MicNone
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,11 +84,36 @@ fun VoiceScreen(
     onBack: () -> Unit,
     viewModel: VoiceViewModel = hiltViewModel(),
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val roleManager = context.getSystemService(RoleManager::class.java)
+
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshAssistantStatus(
+                    roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true,
+                )
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val assistantRoleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { /* result ignored — DisposableEffect ON_RESUME rechecks the role */ }
 
     VoiceScreenContent(
         uiState = uiState,
         onBack = onBack,
+        onRequestAssistantRole = {
+            val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+            if (intent != null) assistantRoleLauncher.launch(intent)
+        },
+        onHeyJandalEnabledChanged = viewModel::setHeyJandalEnabled,
         onVoiceInputEngineSelected = viewModel::setVoiceInputEngine,
         onAutoStartAlertVoiceCommandsEnabledChanged = viewModel::setAutoStartAlertVoiceCommandsEnabled,
         onSpokenResponsesEnabledChanged = viewModel::setSpokenResponsesEnabled,
@@ -107,6 +141,8 @@ fun VoiceScreen(
 private fun VoiceScreenContent(
     uiState: VoiceUiState,
     onBack: () -> Unit,
+    onRequestAssistantRole: () -> Unit,
+    onHeyJandalEnabledChanged: (Boolean) -> Unit,
     onVoiceInputEngineSelected: (VoiceInputEngine) -> Unit,
     onAutoStartAlertVoiceCommandsEnabledChanged: (Boolean) -> Unit,
     onSpokenResponsesEnabledChanged: (Boolean) -> Unit,
@@ -145,6 +181,74 @@ private fun VoiceScreenContent(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState()),
         ) {
+            // ── Hey Jandal / Default Assistant ────────────────────────────────────
+            Text(
+                text = "Hey Jandal",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+
+            // Assistant role badge
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                leadingContent = {
+                    Icon(
+                        imageVector = if (uiState.isDefaultAssistant) Icons.Filled.CheckCircle else Icons.Filled.Assistant,
+                        contentDescription = null,
+                        tint = if (uiState.isDefaultAssistant) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                headlineContent = {
+                    Text(if (uiState.isDefaultAssistant) "Jandal is your default assistant" else "Set Jandal as default assistant")
+                },
+                supportingContent = {
+                    Text(
+                        if (uiState.isDefaultAssistant) {
+                            "Long-press Home to activate. Wake word detection uses this privileged mic path."
+                        } else {
+                            "Required for hold-Home activation, lock-screen launch, and always-on wake word."
+                        },
+                    )
+                },
+                trailingContent = if (!uiState.isDefaultAssistant) {
+                    { TextButton(onClick = onRequestAssistantRole) { Text("Set") } }
+                } else {
+                    null
+                },
+            )
+            HorizontalDivider()
+
+            // "Listen for Hey Jandal" toggle
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Filled.MicNone,
+                        contentDescription = null,
+                        tint = if (uiState.heyJandalEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                headlineContent = { Text("Listen for \"Hey Jandal\"") },
+                supportingContent = {
+                    Text(
+                        when {
+                            !uiState.isWakeWordModelAvailable -> "Wake word model not yet available — model training in progress (#984)"
+                            !uiState.isDefaultAssistant -> "Set Jandal as default assistant first for reliable background mic access"
+                            else -> "Always-on wake word detection. Tap Home-press to activate when recognised."
+                        },
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.heyJandalEnabled,
+                        onCheckedChange = onHeyJandalEnabledChanged,
+                        enabled = uiState.isWakeWordModelAvailable,
+                    )
+                },
+            )
+            HorizontalDivider()
+
             Text(
                 text = "Quick Actions",
                 style = MaterialTheme.typography.labelMedium,
@@ -1288,6 +1392,8 @@ private fun VoiceScreenPreview() {
                 ),
             ),
             onBack = {},
+            onRequestAssistantRole = {},
+            onHeyJandalEnabledChanged = {},
             onVoiceInputEngineSelected = {},
             onAutoStartAlertVoiceCommandsEnabledChanged = {},
             onSpokenResponsesEnabledChanged = {},

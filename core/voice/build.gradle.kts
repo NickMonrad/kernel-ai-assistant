@@ -47,6 +47,8 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.datastore.preferences)
     implementation(libs.vosk.android)
+    // TFLite — wake word inference (TfLiteWakeWordDetector)
+    implementation(libs.tflite)
 
     // WorkManager — required for VoicePackDownloadWorker / SherpaVoicePackDownloadManager
     implementation(libs.work.runtime.ktx)

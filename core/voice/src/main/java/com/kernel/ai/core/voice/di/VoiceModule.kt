@@ -3,9 +3,11 @@ package com.kernel.ai.core.voice.di
 import com.kernel.ai.core.voice.FallbackVoiceOutputController
 import com.kernel.ai.core.voice.SelectableVoiceInputController
 import com.kernel.ai.core.voice.StartListeningCuePlayer
+import com.kernel.ai.core.voice.TfLiteWakeWordDetector
 import com.kernel.ai.core.voice.ToneStartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.WakeWordDetector
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -44,4 +46,17 @@ abstract class VoiceModule {
     abstract fun bindVoiceOutputController(
         impl: FallbackVoiceOutputController,
     ): VoiceOutputController
+
+    /**
+     * Binds [TfLiteWakeWordDetector] as the [WakeWordDetector].
+     *
+     * [TfLiteWakeWordDetector.isAvailable] returns false and [WakeWordDetector.start] is a
+     * no-op when the model file is absent. The feature activates automatically when
+     * `app/src/main/assets/models/wakeword/hey_jandal_int8.tflite` is present (#984).
+     */
+    @Binds
+    @Singleton
+    abstract fun bindWakeWordDetector(
+        impl: TfLiteWakeWordDetector,
+    ): WakeWordDetector
 }
