@@ -824,7 +824,7 @@ abstract class KernelDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS `notes` (" +
                     "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL," +
-                    "`title` TEXT NOT NULL," +
+                    "`title` TEXT," +
                     "`content` TEXT NOT NULL," +
                     "`created_at` INTEGER NOT NULL," +
                     "`updated_at` INTEGER NOT NULL" +
@@ -838,8 +838,6 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `notes` ADD COLUMN `archived_at` INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE `notes` ADD COLUMN `display_order` REAL NOT NULL DEFAULT 0.0")
                 db.execSQL("ALTER TABLE `notes` ADD COLUMN `smart_title_generated` INTEGER NOT NULL DEFAULT 0")
-                db.execSQL("UPDATE `notes` SET `title` = '' WHERE `title` IS NULL")
-                db.execSQL("ALTER TABLE `notes` ALTER COLUMN `title` TEXT")
             }
         }
 
