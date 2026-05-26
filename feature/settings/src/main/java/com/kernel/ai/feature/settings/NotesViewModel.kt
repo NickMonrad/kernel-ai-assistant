@@ -246,11 +246,13 @@ class NotesViewModel @Inject constructor(
     private suspend fun generateNoteTitle(noteId: Long, content: String) {
         try {
             val firstLines = content.take(200)
-            val titlePrompt = "Reply with ONLY a short note title, 3-5 words, no quotes, " +
-                "no markdown, no preamble. Just the title on one line.\n\n" +
-                "Note content: $firstLines"
+            // Directive system prompt constrains Gemma to output only the title — no preamble,
+            // no "Here's a title:", no explanation. Without this, the model responds conversationally.
+            val titleSystemPrompt = "You are a title generator. Output ONLY a short title of 3-5 words. " +
+                "No explanation, no preamble, no quotes, no punctuation at the end. Just the title itself."
+            val titlePrompt = "Title for a note with content: $firstLines"
 
-            val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = null, thinkingEnabled = false)
+            val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = titleSystemPrompt, thinkingEnabled = false)
             val title = raw
                 .trim()
                 .lines().first().trim()
@@ -268,8 +270,6 @@ class NotesViewModel @Inject constructor(
             // Silently fail — note still created, just without smart title
         }
     }
-
-    // ── Voice action ─────────────────────────────────────────────────────────────────────────────
 
     fun triggerVoiceAction() {
         pendingNoteAction = NoteAction.VOICE_INPUT
