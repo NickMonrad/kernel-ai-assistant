@@ -6,12 +6,21 @@ package com.kernel.ai.core.voice
  * Implementations run an internal AudioRecord loop and notify via [onDetected] when
  * the wake phrase is recognised above [WakeWordPreferences.confidenceThreshold].
  *
- * Model contract (for #984 training pipeline):
+ * ## openWakeWord 3-stage model contract (for #984 / #985)
+ *
+ * Audio format — mandatory, non-negotiable:
  * - Sample rate: 16 kHz, mono, 16-bit PCM
- * - Window: 1-second ring buffer = 16 000 samples
- * - Model input: FloatArray of 16 000 normalised PCM samples in [-1, 1]
- * - Model output: FloatArray of size 1; output[0] is the wake word confidence in [0, 1]
- * - Model file: assets/models/wakeword/hey_jandal_int8.tflite
+ * - Frame size:  80 ms = 1 280 samples
+ *
+ * Pipeline:
+ * 1. melspectrogram.onnx  — `float32[1, 1280]` PCM → mel-spectrogram patch
+ * 2. embedding_model.onnx — mel patch → `float32[1, 96]` embedding (per 80ms frame)
+ * 3. hey_jandal.onnx      — `float32[1, 28, 96]` embedding window → `float32[1, 1]` confidence
+ *
+ * Model files (all in assets/models/wakeword/):
+ * - melspectrogram.onnx  — shared preprocessing; download from openWakeWord releases
+ * - embedding_model.onnx — Google Speech Embedding backbone; download from openWakeWord releases
+ * - hey_jandal.onnx      — trained by #984; produced by torch.onnx.export on the custom classifier
  */
 interface WakeWordDetector {
 
