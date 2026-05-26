@@ -79,6 +79,19 @@ android {
         // LiteRT-LM (transitive) uses internal Kotlin 2.3.x build (metadata 2.3.0)
         freeCompilerArgs += "-Xskip-metadata-version-check"
     }
+    packaging {
+        jniLibs {
+            // Both onnxruntime-android (core:voice wake word) and the Sherpa-ONNX AAR (core:voice
+            // TTS) bundle libonnxruntime.so.  Pick the standalone ORT copy — Sherpa loads the
+            // library by name at runtime so one copy on the linker path satisfies both.
+            pickFirsts += setOf(
+                "lib/arm64-v8a/libonnxruntime.so",
+                "lib/x86_64/libonnxruntime.so",
+                "lib/x86/libonnxruntime.so",
+                "lib/armeabi-v7a/libonnxruntime.so",
+            )
+        }
+    }
 }
 
 dependencies {
