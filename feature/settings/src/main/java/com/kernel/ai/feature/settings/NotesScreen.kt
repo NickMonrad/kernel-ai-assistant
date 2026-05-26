@@ -163,6 +163,7 @@ fun NotesScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
+        Column(modifier = Modifier.padding(padding)) {
             // Search bar (hidden in multi-select mode and archived view)
             if (!isMultiSelect && !showArchived) {
                 OutlinedTextField(
@@ -183,10 +184,7 @@ fun NotesScreen(
                     singleLine = true,
                 )
             }
-            Column(
-                modifier = Modifier.padding(padding),
-            ) {
-                Box {
+            Box {
             if (displayedNotes.isEmpty()) {
                 EmptyState(showArchived = showArchived)
             } else {
