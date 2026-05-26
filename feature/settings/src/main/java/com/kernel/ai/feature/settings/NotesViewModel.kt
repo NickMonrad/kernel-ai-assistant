@@ -78,17 +78,12 @@ class NotesViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Notes to display — active or archived, filtered by search. */
-    val displayedNotes: StateFlow<List<NoteEntity>> = combine(
-        searchNotesFlow,
-        snapshotFlow { listSort },
-        snapshotFlow { listFilter },
-    ) { notes, sort, filter ->
+    private fun applySortFilter(notes: List<NoteEntity>, sort: NoteSort, filter: NoteFilter): List<NoteEntity> {
         val base = when (filter) {
             NoteFilter.ALL -> notes
             NoteFilter.PINNED_ONLY -> notes.filter { it.pinned }
         }
-        when (sort) {
+        return when (sort) {
             NoteSort.MANUAL -> base.sortedWith(
                 compareBy<NoteEntity> { it.displayOrder }
                     .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title.orEmpty() }
@@ -105,6 +100,18 @@ class NotesViewModel @Inject constructor(
             NoteSort.CREATED_ASC -> base.sortedBy { it.createdAt }
             NoteSort.CREATED_DESC -> base.sortedByDescending { it.createdAt }
         }
+    }
+
+    /** Notes to display — active or archived, filtered by search. */
+    val displayedNotes: StateFlow<List<NoteEntity>> = combine(
+        snapshotFlow { showArchived },
+        searchNotesFlow,
+        archivedNotesFlow,
+        snapshotFlow { listSort },
+        snapshotFlow { listFilter },
+    ) { showArchived, activeNotes, archivedNotes, sort, filter ->
+        val notes = if (showArchived) archivedNotes else activeNotes
+        applySortFilter(notes, sort, filter)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** All notes (for detail screen to find by ID). */

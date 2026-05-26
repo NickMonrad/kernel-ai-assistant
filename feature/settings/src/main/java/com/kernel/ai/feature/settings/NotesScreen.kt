@@ -162,7 +162,30 @@ fun NotesScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
+            // Search bar (hidden in multi-select mode and archived view)
+            if (!isMultiSelect && !showArchived) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = viewModel::setSearchQuery,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    placeholder = { Text("Search notes") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                )
+            }
+            Column(
+                modifier = Modifier.padding(padding),
+            ) {
+                Box(modifier = Modifier.padding(padding)) {
             if (displayedNotes.isEmpty()) {
                 EmptyState(showArchived = showArchived)
             } else {
@@ -193,7 +216,7 @@ fun NotesScreen(
                                 },
                                 onArchive = { pendingArchiveNote = note },
                                 onDelete = { noteToDelete = note },
-                                dragHandleModifier = if (!isMultiSelect && viewModel.listSort == NoteSort.MANUAL) {
+                                dragHandleModifier = if (!isMultiSelect) {
                                     Modifier.draggableHandle(
                                         onDragStarted = { dragInProgress = true },
                                         onDragStopped = {
@@ -203,12 +226,15 @@ fun NotesScreen(
                                         },
                                     )
                                 } else Modifier,
+                                isMultiSelect = isMultiSelect,
+                                onToggleSelect = { viewModel.toggleNoteSelection(note.id) },
                             )
                         }
                     }
                 }
             }
         }
+            }
     }
 
     // ── Dialogs ──────────────────────────────────────────────────────────────────────────────
@@ -364,6 +390,8 @@ private fun NoteCard(
     onArchive: () -> Unit,
     onDelete: () -> Unit,
     dragHandleModifier: Modifier = Modifier,
+    isMultiSelect: Boolean,
+    onToggleSelect: () -> Unit,
 ) {
     Card(
         modifier = dragHandleModifier
@@ -380,10 +408,10 @@ private fun NoteCard(
             verticalAlignment = Alignment.Top,
         ) {
             // ── Multi-select checkbox ──────────────────────────────────────
-            if (isSelected) {
+            if (isMultiSelect) {
                 Checkbox(
-                    checked = true,
-                    onCheckedChange = null,
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelect() },
                     modifier = Modifier.padding(end = 8.dp),
                 )
             }
