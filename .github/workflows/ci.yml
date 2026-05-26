@@ -18,7 +18,7 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       # ── Validate repo structure ──────────────────────────────────────
       - name: Check required files exist
@@ -34,10 +34,10 @@ jobs:
           distribution: 'temurin'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
 
       - name: Cache Gradle packages
-        uses: actions/cache@v4
+        uses: actions/cache@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           path: |
             ~/.gradle/caches
@@ -49,7 +49,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Cache Sherpa-ONNX AAR
-        uses: actions/cache@v4
+        uses: actions/cache@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           path: third_party/sherpa-onnx
           key: sherpa-onnx-aar-1.13.0
@@ -78,7 +78,7 @@ jobs:
 
       # - name: Upload test results
       #   if: always()
-      #   uses: actions/upload-artifact@v4
+      #   uses: actions/upload-artifact@27d5ce7f107fe9357f9df03efb73ab90386fccae
       #   with:
       #     name: test-results-${{ github.sha }}
       #     path: '**/build/reports/tests/'
@@ -86,7 +86,7 @@ jobs:
 
       - name: Upload APK
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           name: apk-${{ github.sha }}
           path: app/build/outputs/apk/debug/
