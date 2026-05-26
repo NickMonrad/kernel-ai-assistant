@@ -12,6 +12,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import java.nio.FloatBuffer
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -43,7 +44,8 @@ private const val FRAME_SAMPLES = 1_280 // 80ms × 16 000 Hz
  * to [1, 2688] by the first `nn.Flatten()` layer.
  *
  * NOTE: If you swap the backbone for a different model, update these two constants
- * and re-export the classifier.  Run `python -c "import openwakeword; print(openwakeword.utils.get_embedding_shape())"` to verify.
+ * and re-export the classifier.  Run
+ * `python -c "import openwakeword; print(openwakeword.utils.get_embedding_shape())"` to verify.
  */
 private const val EMBEDDING_FRAMES = 28
 private const val EMBEDDING_DIM = 96
@@ -60,8 +62,8 @@ private const val EMBEDDING_DIM = 96
  * The classifier is trained by the #984 pipeline and placed at the third path.
  */
 private const val ASSET_MELSPECTROGRAM = "models/wakeword/melspectrogram.onnx"
-private const val ASSET_EMBEDDING     = "models/wakeword/embedding_model.onnx"
-private const val ASSET_CLASSIFIER    = "models/wakeword/hey_jandal.onnx"
+private const val ASSET_EMBEDDING      = "models/wakeword/embedding_model.onnx"
+private const val ASSET_CLASSIFIER     = "models/wakeword/hey_jandal.onnx"
 
 /**
  * Always-on wake word detector implementing the openWakeWord 3-stage ONNX pipeline.
@@ -108,22 +110,29 @@ class OnnxWakeWordDetector @Inject constructor(
     private val wakeWordPreferences: WakeWordPreferences,
 ) : WakeWordDetector {
 
-    override val isAvailable: Boolean by lazy { loadModelBytes() != null }
-
-    @Volatile private var running = false
-    @Volatile private var detectionThread: Thread? = null
-
-    /**
-     * Loads all three model byte arrays from assets.  Returns null if any file is missing.
-     * Result is cached via [isAvailable]'s lazy — call once on first access.
-     */
     private data class ModelBytes(
         val melspectrogram: ByteArray,
         val embedding: ByteArray,
         val classifier: ByteArray,
     )
 
+    /**
+     * Loaded once on first access.  Both [isAvailable] and [start] read this field;
+     * a single lazy ensures the 35 MB embedding asset is read from disk exactly once.
+     */
     private val modelBytes: ModelBytes? by lazy { loadModelBytes() }
+
+    override val isAvailable: Boolean
+        get() = modelBytes != null
+
+    /**
+     * Guards the detection thread: true while the thread is running or the detected
+     * callback is executing.  Using [AtomicBoolean] makes the stop/detect/start
+     * transitions race-free without a synchronised block.
+     */
+    private val running = AtomicBoolean(false)
+
+    @Volatile private var detectionThread: Thread? = null
 
     private fun loadModelBytes(): ModelBytes? {
         return runCatching {
@@ -148,28 +157,34 @@ class OnnxWakeWordDetector @Inject constructor(
             Log.d(TAG, "WakeWordDetector: start() called but model(s) absent — no-op")
             return
         }
-        if (running) return
-        running = true
+        if (!running.compareAndSet(false, true)) return
 
+        // Read the threshold on the caller's thread before entering the detection
+        // thread.  This avoids runBlocking inside a thread whose dispatcher is unknown
+        // and eliminates any risk of deadlock if the DataStore flow ever emits on Main.
         val threshold = runBlocking { wakeWordPreferences.confidenceThreshold.first() }
         Log.i(TAG, "WakeWordDetector: starting 3-stage ONNX pipeline — threshold=$threshold")
 
-        detectionThread = Thread({ runDetectionLoop(bytes, threshold, onDetected) }, "wake-word-detector").also {
+        detectionThread = Thread(
+            { runDetectionLoop(bytes, threshold, onDetected) },
+            "wake-word-detector",
+        ).also {
             it.isDaemon = true
             it.start()
         }
     }
 
     override fun stop() {
-        running = false
+        running.set(false)
         detectionThread?.interrupt()
         detectionThread = null
         Log.d(TAG, "WakeWordDetector: stopped")
     }
 
     private fun runDetectionLoop(bytes: ModelBytes, threshold: Float, onDetected: () -> Unit) {
+        // Buffer must hold at least two frames so AudioRecord never blocks waiting for space.
         val minBufSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-            .coerceAtLeast(FRAME_SAMPLES * 2 * Short.SIZE_BYTES) // bytes, not samples
+            .coerceAtLeast(FRAME_SAMPLES * Short.SIZE_BYTES * 2)
 
         val audioRecord = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -180,120 +195,123 @@ class OnnxWakeWordDetector @Inject constructor(
         )
         if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
             Log.e(TAG, "WakeWordDetector: AudioRecord failed to initialise")
-            running = false
+            running.set(false)
             return
         }
 
         val env = OrtEnvironment.getEnvironment()
         val sessionOptions = OrtSession.SessionOptions().apply {
             setIntraOpNumThreads(1)
-            // NNAPI delegate for Stage 1 & 2 (preprocessing is cheap; keep on CPU for stability)
         }
 
-        val melsSession   = runCatching { env.createSession(bytes.melspectrogram, sessionOptions) }.getOrElse { e ->
-            Log.e(TAG, "WakeWordDetector: failed to load melspectrogram.onnx", e); null
-        }
-        val embedSession  = runCatching { env.createSession(bytes.embedding, sessionOptions) }.getOrElse { e ->
-            Log.e(TAG, "WakeWordDetector: failed to load embedding_model.onnx", e); null
-        }
-        val classSession  = runCatching { env.createSession(bytes.classifier, sessionOptions) }.getOrElse { e ->
-            Log.e(TAG, "WakeWordDetector: failed to load hey_jandal.onnx", e); null
-        }
+        val melsSession  = runCatching { env.createSession(bytes.melspectrogram, sessionOptions) }
+            .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load melspectrogram.onnx", e); null }
+        val embedSession = runCatching { env.createSession(bytes.embedding, sessionOptions) }
+            .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load embedding_model.onnx", e); null }
+        val classSession = runCatching { env.createSession(bytes.classifier, sessionOptions) }
+            .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load hey_jandal.onnx", e); null }
 
         if (melsSession == null || embedSession == null || classSession == null) {
+            // sessionOptions must be closed here too — it holds a native handle.
+            sessionOptions.close()
+            melsSession?.close()
+            embedSession?.close()
+            classSession?.close()
             audioRecord.release()
-            melsSession?.close(); embedSession?.close(); classSession?.close()
-            running = false
+            running.set(false)
             return
         }
 
-        // Resolve ONNX input/output node names at startup (avoids hard-coding strings).
-        val melsInputName  = melsSession.inputNames.first()
-        val melsOutputName = melsSession.outputNames.first()
-        val embedInputName = embedSession.inputNames.first()
+        // Resolve ONNX node names once at startup (avoids hard-coding strings).
+        val melsInputName   = melsSession.inputNames.first()
+        val melsOutputName  = melsSession.outputNames.first()
+        val embedInputName  = embedSession.inputNames.first()
         val embedOutputName = embedSession.outputNames.first()
-        val classInputName = classSession.inputNames.first()
+        val classInputName  = classSession.inputNames.first()
         val classOutputName = classSession.outputNames.first()
 
-        // Embedding ring buffer — pre-allocated, no heap churn in the hot loop.
-        // Layout: [EMBEDDING_FRAMES][EMBEDDING_DIM], newest frame written at ringHead.
+        // Pre-allocate all hot-loop buffers — zero heap churn during detection.
         val embeddingRing = Array(EMBEDDING_FRAMES) { FloatArray(EMBEDDING_DIM) }
         var ringHead = 0
-        var framesAccumulated = 0 // classifier only runs once ring is full
-
-        // PCM read buffer — one 80ms frame of 16-bit samples.
-        val chunk = ShortArray(FRAME_SAMPLES)
-        // Normalised float version — reused each iteration.
-        val framePcm = FloatArray(FRAME_SAMPLES)
+        var framesAccumulated = 0
+        val chunk     = ShortArray(FRAME_SAMPLES)
+        val framePcm  = FloatArray(FRAME_SAMPLES)
+        // windowFlat is re-filled in place each iteration; allocated once here.
+        val windowFlat = FloatArray(EMBEDDING_FRAMES * EMBEDDING_DIM)
 
         try {
             audioRecord.startRecording()
             Log.d(TAG, "WakeWordDetector: recording started")
 
-            while (running && !Thread.currentThread().isInterrupted) {
-                // --- Read exactly one 80ms frame ---
+            while (running.get() && !Thread.currentThread().isInterrupted) {
+                // Read exactly one 80ms frame; abort if AudioRecord signals an error.
                 var totalRead = 0
-                while (totalRead < FRAME_SAMPLES && running) {
+                while (totalRead < FRAME_SAMPLES && running.get()) {
                     val read = audioRecord.read(chunk, totalRead, FRAME_SAMPLES - totalRead)
-                    if (read > 0) totalRead += read
+                    when {
+                        read > 0 -> totalRead += read
+                        read < 0 -> {
+                            Log.e(TAG, "WakeWordDetector: AudioRecord.read() error $read — stopping")
+                            running.set(false)
+                        }
+                        // read == 0: no data yet, spin
+                    }
                 }
                 if (totalRead < FRAME_SAMPLES) continue
 
-                // Normalise PCM to [-1, 1].
+                // Normalise 16-bit PCM to [-1, 1].
                 for (i in 0 until FRAME_SAMPLES) {
                     framePcm[i] = chunk[i] / 32768f
                 }
 
                 // --- Stage 1: melspectrogram ---
-                val melInput = OnnxTensor.createTensor(
+                // OrtSession.Result implements AutoCloseable; use{} guarantees the native
+                // output tensor is released even if the downstream session call throws.
+                val embedding: FloatArray = OnnxTensor.createTensor(
                     env,
                     FloatBuffer.wrap(framePcm),
-                    longArrayOf(1, FRAME_SAMPLES.toLong()),
-                )
-                val melOutput = melsSession.run(mapOf(melsInputName to melInput))
-                melInput.close()
+                    longArrayOf(1L, FRAME_SAMPLES.toLong()),
+                ).use { melInput ->
+                    // --- Stage 2: embedding backbone ---
+                    melsSession.run(mapOf(melsInputName to melInput)).use { melOutput ->
+                        val melTensor = melOutput[melsOutputName].get() as OnnxTensor
+                        embedSession.run(mapOf(embedInputName to melTensor)).use { embedOutput ->
+                            val embedTensor = embedOutput[embedOutputName].get() as OnnxTensor
+                            // Copy out before the use{} block closes the result.
+                            ((embedTensor.value as Array<*>)[0] as FloatArray).copyOf()
+                        }
+                    }
+                }
 
-                // --- Stage 2: embedding backbone ---
-                val melTensor = melOutput[melsOutputName].get() as OnnxTensor
-                val embedOutput = embedSession.run(mapOf(embedInputName to melTensor))
-                melOutput.close()
-
-                // Extract the 96-dim embedding for this frame.
-                val embedTensor = embedOutput[embedOutputName].get() as OnnxTensor
-                val embedData = (embedTensor.value as Array<*>)[0] as FloatArray
-                embedData.copyInto(embeddingRing[ringHead])
-                embedOutput.close()
-
+                embedding.copyInto(embeddingRing[ringHead])
                 ringHead = (ringHead + 1) % EMBEDDING_FRAMES
                 if (framesAccumulated < EMBEDDING_FRAMES) framesAccumulated++
-
-                // Wait until ring buffer is full before running the classifier.
                 if (framesAccumulated < EMBEDDING_FRAMES) continue
 
                 // --- Stage 3: classifier over the last 28 frames ---
-                // Flatten the ring into chronological order: [EMBEDDING_FRAMES × EMBEDDING_DIM]
-                val windowFlat = FloatArray(EMBEDDING_FRAMES * EMBEDDING_DIM)
+                // Flatten ring buffer into chronological order in the pre-allocated array.
                 for (f in 0 until EMBEDDING_FRAMES) {
                     val frameIdx = (ringHead + f) % EMBEDDING_FRAMES
                     embeddingRing[frameIdx].copyInto(windowFlat, f * EMBEDDING_DIM)
                 }
 
-                val classInput = OnnxTensor.createTensor(
+                val confidence: Float = OnnxTensor.createTensor(
                     env,
                     FloatBuffer.wrap(windowFlat),
-                    longArrayOf(1, EMBEDDING_FRAMES.toLong(), EMBEDDING_DIM.toLong()),
-                )
-                val classOutput = classSession.run(mapOf(classInputName to classInput))
-                classInput.close()
-
-                val classTensor = classOutput[classOutputName].get() as OnnxTensor
-                val confidence = ((classTensor.value as Array<*>)[0] as FloatArray)[0]
-                classOutput.close()
+                    longArrayOf(1L, EMBEDDING_FRAMES.toLong(), EMBEDDING_DIM.toLong()),
+                ).use { classInput ->
+                    classSession.run(mapOf(classInputName to classInput)).use { classOutput ->
+                        val classTensor = classOutput[classOutputName].get() as OnnxTensor
+                        ((classTensor.value as Array<*>)[0] as FloatArray)[0]
+                    }
+                }
 
                 if (confidence >= threshold) {
                     Log.i(TAG, "WakeWordDetector: detected — confidence=$confidence")
-                    running = false // prevent re-triggering while handling
-                    onDetected()
+                    // compareAndSet prevents re-triggering if stop() races with us here.
+                    if (running.compareAndSet(true, false)) {
+                        onDetected()
+                    }
                 }
             }
         } catch (e: InterruptedException) {
@@ -307,7 +325,7 @@ class OnnxWakeWordDetector @Inject constructor(
             embedSession.close()
             classSession.close()
             sessionOptions.close()
-            running = false
+            running.set(false)
             Log.d(TAG, "WakeWordDetector: detection loop exited")
         }
     }
