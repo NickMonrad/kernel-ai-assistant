@@ -54,10 +54,8 @@ class NotesViewModel @Inject constructor(
     var listFilter by mutableStateOf(NoteFilter.ALL)
     var noteSearchQuery by mutableStateOf("")
 
-    var selectedNoteIds = mutableSetOf<Long>()
-        private set
-    var isMultiSelectMode by mutableStateOf(false)
-        private set
+    var selectedNoteIds by mutableStateOf<Set<Long>>(emptySet())
+    val isMultiSelectMode: Boolean get() = selectedNoteIds.isNotEmpty()
 
     var pendingNoteAction by mutableStateOf(NoteAction.NONE)
         private set
@@ -182,22 +180,19 @@ class NotesViewModel @Inject constructor(
     // ── Bulk operations ──────────────────────────────────────────────────────────────────────────
 
     fun enterMultiSelect() {
-        isMultiSelectMode = true
-        selectedNoteIds.clear()
+        selectedNoteIds = emptySet()
     }
 
     fun exitMultiSelect() {
-        isMultiSelectMode = false
-        selectedNoteIds.clear()
+        selectedNoteIds = emptySet()
     }
 
     fun toggleNoteSelection(noteId: Long) {
-        if (selectedNoteIds.contains(noteId)) selectedNoteIds.remove(noteId)
-        else selectedNoteIds.add(noteId)
+        selectedNoteIds = if (noteId in selectedNoteIds) selectedNoteIds - noteId else selectedNoteIds + noteId
     }
 
     fun selectAllNotes(allIds: List<Long>) {
-        selectedNoteIds = allIds.toMutableSet()
+        selectedNoteIds = allIds.toSet()
     }
 
     fun bulkArchiveSelected() {
@@ -267,14 +262,7 @@ class NotesViewModel @Inject constructor(
                 .take(60)
 
             if (title.isNotBlank()) {
-                noteDao.updateNote(
-                    NoteEntity(
-                        id = noteId,
-                        title = title,
-                        content = content,
-                        smartTitleGenerated = true,
-                    )
-                )
+                noteDao.updateNoteTitle(noteId, title, smartTitleGenerated = true)
             }
         } catch (e: Exception) {
             // Silently fail — note still created, just without smart title

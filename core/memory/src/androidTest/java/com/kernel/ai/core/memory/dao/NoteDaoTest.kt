@@ -73,7 +73,7 @@ class NoteDaoTest {
         Thread.sleep(10)
         noteDao.insertNote(NoteEntity(title = "Third", content = "c"))
 
-        val all = noteDao.observeAllNotes().first()
+        val all = noteDao.observeAllActiveNotes().first()
         assertEquals(3, all.size)
         assertEquals("Third", all[0].title)
         assertEquals("Second", all[1].title)
@@ -97,10 +97,10 @@ class NoteDaoTest {
 
     @Test
     fun getNoteCount_returnsCorrectCount() = runBlocking {
-        assertEquals(0, noteDao.getNoteCount())
+        assertEquals(0, noteDao.getActiveNoteCount())
         noteDao.insertNote(NoteEntity(title = "One", content = "a"))
         noteDao.insertNote(NoteEntity(title = "Two", content = "b"))
-        assertEquals(2, noteDao.getNoteCount())
+        assertEquals(2, noteDao.getActiveNoteCount())
     }
 
     @Test
@@ -109,7 +109,7 @@ class NoteDaoTest {
         noteDao.insertNote(NoteEntity(title = "A", content = "a"))
         noteDao.insertNote(NoteEntity(title = "M", content = "m"))
 
-        val all = noteDao.getAllNotes()
+        val all = noteDao.getAllActiveNotes()
         assertEquals(3, all.size)
         assertEquals("M", all[0].title)
         assertEquals("A", all[1].title)

@@ -838,6 +838,8 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `notes` ADD COLUMN `archived_at` INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE `notes` ADD COLUMN `display_order` REAL NOT NULL DEFAULT 0.0")
                 db.execSQL("ALTER TABLE `notes` ADD COLUMN `smart_title_generated` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_notes_archived_at` ON `notes` (`archived_at`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_notes_pinned_display_order` ON `notes` (`pinned`, `display_order`)")
             }
         }
 

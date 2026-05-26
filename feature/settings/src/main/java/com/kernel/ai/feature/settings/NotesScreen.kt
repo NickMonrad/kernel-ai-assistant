@@ -88,7 +88,7 @@ fun NotesScreen(
                     },
                     actions = {
                         TextButton(onClick = {
-                            val allIds = (if (showArchived) viewModel.notes.value else displayedNotes).map { it.id }
+                            val allIds = displayedNotes.map { it.id }
                             viewModel.selectAllNotes(allIds)
                         }) {
                             Text("Select All")
