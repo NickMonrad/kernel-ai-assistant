@@ -27,6 +27,7 @@ import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.dao.StopwatchDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
+import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.clock.ClockRepositoryImpl
@@ -115,6 +116,7 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_45_46,
                     KernelDatabase.MIGRATION_46_47,
                     KernelDatabase.MIGRATION_47_48,
+                    KernelDatabase.MIGRATION_48_49,
                 )
                 .addCallback(object : RoomDatabase.Callback() {
                     // SQLite disables FK enforcement by default — enable it per-connection
@@ -203,5 +205,8 @@ abstract class MemoryModule {
 
         @Provides
         fun provideMealPlanFavouriteRecipeDao(db: KernelDatabase): MealPlanFavouriteRecipeDao = db.mealPlanFavouriteRecipeDao()
+
+        @Provides
+        fun provideNoteDao(db: KernelDatabase): NoteDao = db.noteDao()
     }
 }

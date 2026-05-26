@@ -81,6 +81,9 @@ class RunIntentSkill @Inject constructor(
                     "get_battery",
                     "get_time",
                     "get_date",
+                    // Notes
+                    "create_note",
+                    "list_notes",
                 ),
             ),
         ),

@@ -30,6 +30,8 @@ import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import com.kernel.ai.core.memory.dao.NoteDao
+import com.kernel.ai.core.memory.entity.NoteEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.skills.QuickIntentRouter
@@ -137,6 +139,7 @@ class NativeIntentHandler @Inject constructor(
     private val cookingConversionService: CookingConversionService,
     private val currencyConversionService: CurrencyConversionService,
     private val userProfileRepository: UserProfileRepository,
+    private val noteDao: NoteDao,
 ) {
 
     suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -211,6 +214,8 @@ class NativeIntentHandler @Inject constructor(
                 "list_important_dates" -> listImportantDates()
                 "remove_important_date" -> removeImportantDate(params)
                 "save_memory" -> saveMemory(params)
+                "create_note" -> createNote(params)
+                "list_notes" -> listNotes()
                 "set_brightness" -> setBrightness(params)
                 else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
             }
@@ -278,6 +283,7 @@ class NativeIntentHandler @Inject constructor(
             "get_weather", "get_date_diff", "get_system_info", "calculate_arithmetic", "convert_units", "convert_cooking_measure", "convert_currency",
             "save_important_date", "list_important_dates", "remove_important_date",
             "save_memory",
+            "create_note", "list_notes",
         )
 
         private val GENERIC_MEDIA_QUERY_KEYS = setOf(
@@ -2852,5 +2858,54 @@ class NativeIntentHandler @Inject constructor(
         }
 
         return input
+    }
+
+    private suspend fun createNote(params: Map<String, String>): SkillResult {
+        val rawContent = params["content"]?.trim() ?: params["note"]?.trim() ?: ""
+        val rawTitle = params["title"]?.trim() ?: rawContent
+
+        // Reject blank input
+        if (rawContent.isBlank()) {
+            return SkillResult.Failure("create_note", "Nothing to save")
+        }
+
+        // Derive a concise user-facing title from the content
+        val title = if (rawTitle.isNotBlank()) {
+            rawTitle.take(60)
+        } else {
+            rawContent.take(40)
+        }
+
+        val note = NoteEntity(
+            title = title,
+            content = rawContent,
+        )
+
+        return try {
+            val id = noteDao.insertNote(note)
+            if (id == -1L) {
+                SkillResult.Failure("create_note", "Failed to create note")
+            } else {
+                SkillResult.DirectReply("Note saved: $title")
+            }
+        } catch (e: Exception) {
+            SkillResult.Failure("create_note", e.message ?: "Failed to create note")
+        }
+    }
+
+    private suspend fun listNotes(): SkillResult {
+        return try {
+            val notes = noteDao.getAllNotes()
+            if (notes.isEmpty()) {
+                SkillResult.DirectReply("No notes found.")
+            } else {
+                val summary = notes.joinToString("\n") { note ->
+                    "• ${note.title}: ${note.content.take(50)}${if (note.content.length > 50) "…" else ""}"
+                }
+                SkillResult.DirectReply("Your notes:\n$summary")
+            }
+        } catch (e: Exception) {
+            SkillResult.Failure("list_notes", e.message ?: "Failed to list notes")
+        }
     }
 }

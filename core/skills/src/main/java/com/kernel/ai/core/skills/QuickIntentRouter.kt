@@ -162,6 +162,12 @@ class QuickIntentRouter(
                 promptTemplate = "What would you like me to remember?",
             ),
         ),
+        "create_note" to mapOf(
+            "content" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "content",
+                promptTemplate = "What would you like me to write down?",
+            ),
+        ),
     )
 
     private fun slotContract(intentName: String): Map<String, com.kernel.ai.core.skills.slot.SlotSpec> =
@@ -754,7 +760,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_calendar_event",
             regex = Regex(
-                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a\s+|an\s+)?(?:calendar\s+)?(?:event|appointment|meeting|entry|invite|session|booking)\b""",
+                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a\s+|an\s+)?(?!(?:calendar\s+)?voice\s+memo\b)(?:calendar\s+)?(?:event|appointment|meeting|entry|invite|session|booking)\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> extractCalendarHints(raw) },
@@ -802,7 +808,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_calendar_event",
             regex = Regex(
-                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a|an)\s+(?:\S+\s+){1,4}?(?:appointment|meeting|event|session|booking)\b""",
+                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a|an)\s+(?!(?:calendar\s+)?voice\s+memo\b)(?:\S+\s+){1,4}?(?:appointment|meeting|event|session|booking)\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> extractCalendarHints(raw) },
@@ -3591,11 +3597,11 @@ class QuickIntentRouter(
         ),
 
         // ── Save Memory ──
-        // Pattern: "remember something" / "save something to memory" / "make a note" → ask what to remember
+        // Pattern: "remember something" / "save something to memory" → ask what to remember
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """^(?:remember\s+something|(?:save|store|keep)\s+something\s+(?:to|in)\s+memory|(?:(?:make|take|save)\s+(?:a\s+)?)note)$""",
+                """^(?:remember\s+something|(?:save|store|keep)\s+something\s+(?:to|in)\s+memory)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
@@ -3661,7 +3667,72 @@ class QuickIntentRouter(
             },
             requiredSlots = slotContract("save_memory"),
         ),
+        // Pattern: bare "make a note" / "take a note" — no content, needs slot
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:make|take)\s+(?:a\s+)?note\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("save_memory"),
+        ),
 
+        // ── Notes ──
+        // Pattern: "make a note that X" / "take a note that X"
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:make|take)\s+(?:a\s+)?note(?:\s+that)?\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+        ),
+        // Pattern: "create a note about X" / "create a note: X"
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?create\s+(?:a\s+)?note(?:\s+(?:about|:))?[:\-–]?\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+        ),
+        // Pattern: "write down X" / "jot down X" / "put down X"
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:write|jot|put)\s+down\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+        ),
+        // Pattern: "voice memo X" / "voice memo: X"
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:create\s+(?:a\s+)?|add\s+(?:a\s+)?)?(?:voice\s+memo)(?:\s*(?:about|:))?\s*[:\-–]?\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim().trimStart('-', ':', '–')) },
+        ),
+        // Pattern: "show my notes" / "list my notes" / "what are my notes"
+        IntentPattern(
+            intentName = "list_notes",
+            regex = Regex(
+                """^(?:show|list|display|show\s+me|list\s+for\s+me)\s+(?:my\s+)?notes\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Pattern: "what notes do I have" / "what have I written down"
+        IntentPattern(
+            intentName = "list_notes",
+            regex = Regex(
+                """^(?:what\s+(?:notes\b|have\s+I\s+written\s+down|did\s+I\s+write\s+down)|my\s+notes)(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
 
         // ── Brightness ──
         // Explicit Android-compat: "increase brightness" — split from complex alternation
@@ -3903,8 +3974,9 @@ class QuickIntentRouter(
             // Stopwatch
             "start_stopwatch", "pause_stopwatch", "resume_stopwatch",
             "lap_stopwatch", "reset_stopwatch", "get_stopwatch_status",
+            // Notes — query only (create_note requires content param)
+            "list_notes",
         )
-
         /**
          * Minimum classifier confidence for fast-path execution. Intents in [FAST_PATH_INTENTS]
          * with confidence in [FAST_PATH_THRESHOLD, 0.90) execute directly without LLM confirmation.

@@ -15,6 +15,7 @@ import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.dao.MealPlanDayDao
 import com.kernel.ai.core.memory.dao.MealPlanFavouriteRecipeDao
 import com.kernel.ai.core.memory.dao.MealPlanGroceryItemDao
@@ -39,6 +40,7 @@ import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import com.kernel.ai.core.memory.entity.NoteEntity
 import com.kernel.ai.core.memory.entity.MealPlanDayEntity
 import com.kernel.ai.core.memory.entity.MealPlanFavouriteRecipeEntity
 import com.kernel.ai.core.memory.entity.MealPlanGroceryItemEntity
@@ -83,8 +85,9 @@ import java.time.ZoneId
         MealPlanGroceryItemEntity::class,
         MealPlanProjectionWriteEntity::class,
         MealPlanFavouriteRecipeEntity::class,
+        NoteEntity::class,
     ],
-    version = 48,
+    version = 49,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -115,6 +118,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun mealPlanGroceryItemDao(): MealPlanGroceryItemDao
     abstract fun mealPlanProjectionWriteDao(): MealPlanProjectionWriteDao
     abstract fun mealPlanFavouriteRecipeDao(): MealPlanFavouriteRecipeDao
+    abstract fun noteDao(): NoteDao
 
     companion object {
         /** Adds lastDistilledAt to conversations (#165) and lastAccessedAt to episodic_memories (#167). */
@@ -814,5 +818,19 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `meal_plan_sessions` ADD COLUMN `cuisinePreferencesJson` TEXT NOT NULL DEFAULT '[]'")
             }
         }
+
+        /** Adds notes table for voice memo/note-taking skill. */
+        val MIGRATION_48_49 = object : Migration(48, 49) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `notes` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL," +
+                    "`title` TEXT NOT NULL," +
+                    "`content` TEXT NOT NULL," +
+                    "`created_at` INTEGER NOT NULL," +
+                    "`updated_at` INTEGER NOT NULL" +
+                    ")")
+            }
+        }
+
     }
 }
