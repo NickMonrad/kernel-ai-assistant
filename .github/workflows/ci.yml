@@ -37,7 +37,7 @@ jobs:
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
 
       - name: Cache Gradle packages
-        uses: actions/cache@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             ~/.gradle/caches
@@ -49,7 +49,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Cache Sherpa-ONNX AAR
-        uses: actions/cache@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: third_party/sherpa-onnx
           key: sherpa-onnx-aar-1.13.0
@@ -78,7 +78,7 @@ jobs:
 
       # - name: Upload test results
       #   if: always()
-      #   uses: actions/upload-artifact@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      #   uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       #   with:
       #     name: test-results-${{ github.sha }}
       #     path: '**/build/reports/tests/'
@@ -86,7 +86,7 @@ jobs:
 
       - name: Upload APK
         if: success()
-        uses: actions/upload-artifact@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: apk-${{ github.sha }}
           path: app/build/outputs/apk/debug/
