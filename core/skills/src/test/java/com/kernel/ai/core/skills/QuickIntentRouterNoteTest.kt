@@ -200,6 +200,62 @@ class QuickIntentRouterNoteTest {
             assertEquals("create_note", intent?.intentName)
             assertEquals("call the doctor", intent?.params["content"])
         }
+    // ─── Negative tests ───────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("negative routing")
+    inner class NegativeTests {
+
+        @Test
+        fun `make a note that X routes to create_note not save_memory`() {
+            val result = router.route("make a note that buy milk")
+            val intentName = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent.intentName
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent.intentName
+                else -> null
+            }
+            assertEquals("create_note", intentName, "make a note that X should route to create_note")
+        }
+
+        @Test
+        fun `take a note about X captures about keyword in content`() {
+            // This documents the known about-stripping issue: "take a note about meeting"
+            // captures "about meeting" instead of "meeting"
+            val result = router.route("take a note about meeting")
+            val intent = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent
+                else -> null
+            }
+            assertEquals("create_note", intent?.intentName)
+            assertEquals("about meeting", intent?.params["content"],
+                "Content includes leading 'about' — known issue, needs stripping fix")
+        }
+
+        @Test
+        fun `list_notes does not match "show my notes app"`() {
+            val result = router.route("show my notes app")
+            val intentName = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent.intentName
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent.intentName
+                else -> null
+            }
+            assertNotEquals("list_notes", intentName,
+                "show my notes app should not match list_notes")
+        }
+
+        @Test
+        fun `list_notes does not match "what notes app should I use"`() {
+            val result = router.route("what notes app should I use")
+            val intentName = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent.intentName
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent.intentName
+                else -> null
+            }
+            assertNotEquals("list_notes", intentName,
+                "what notes app should I use should not match list_notes")
+        }
+    }
 
     companion object {
         @JvmStatic

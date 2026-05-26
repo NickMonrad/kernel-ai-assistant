@@ -59,6 +59,7 @@ fun NotesScreen(
     // ── Drag-and-drop local state ────────────────────────────────────────────────────────────
     var localNotes by remember { mutableStateOf(displayedNotes) }
     var dragInProgress by remember { mutableStateOf(false) }
+    var localSort by remember { mutableStateOf(viewModel.listSort) }
 
     LaunchedEffect(displayedNotes) {
         if (!dragInProgress) localNotes = displayedNotes
@@ -185,7 +186,7 @@ fun NotesScreen(
             Column(
                 modifier = Modifier.padding(padding),
             ) {
-                Box(modifier = Modifier.padding(padding)) {
+                Box {
             if (displayedNotes.isEmpty()) {
                 EmptyState(showArchived = showArchived)
             } else {
@@ -216,11 +217,18 @@ fun NotesScreen(
                                 },
                                 onArchive = { pendingArchiveNote = note },
                                 onDelete = { noteToDelete = note },
-                                dragHandleModifier = if (!isMultiSelect) {
+                                dragHandleModifier = if (!isMultiSelect && viewModel.listSort == NoteSort.MANUAL) {
                                     Modifier.draggableHandle(
-                                        onDragStarted = { dragInProgress = true },
+                                        onDragStarted = {
+                                            dragInProgress = true
+                                            localSort = viewModel.listSort
+                                        },
                                         onDragStopped = {
                                             dragInProgress = false
+                                            // Auto-switch to MANUAL if user reordered with a different sort
+                                            if (localSort != NoteSort.MANUAL) {
+                                                viewModel.listSort = NoteSort.MANUAL
+                                            }
                                             val newOrder = localNotes.mapIndexed { idx, n -> n.id to idx.toDouble() }.toMap()
                                             viewModel.reorderNotes(newOrder)
                                         },
