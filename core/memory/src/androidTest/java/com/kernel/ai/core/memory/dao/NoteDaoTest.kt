@@ -59,10 +59,9 @@ class NoteDaoTest {
 
 
     @Test
-    fun updateNoteTitleConditionally_updatesOnlyWhenUnchanged() = runBlocking {
-        val now = 123456789L
-        val id = noteDao.insertNote(NoteEntity(title = null, content = "Old content", createdAt = now, updatedAt = now))
-        val rows = noteDao.updateNoteTitleConditionally(id, "Generated title", now)
+    fun updateNoteTitleConditionally_updatesWhenTitleBlankAndNotGenerated() = runBlocking {
+        val id = noteDao.insertNote(NoteEntity(title = null, content = "Old content", createdAt = 1L, updatedAt = 1L))
+        val rows = noteDao.updateNoteTitleConditionally(id, "Generated title")
 
         assertEquals(1, rows)
         val updated = noteDao.getNoteById(id)!!
@@ -71,19 +70,26 @@ class NoteDaoTest {
     }
 
     @Test
-    fun updateNoteTitleConditionally_rejectsChangedRows() = runBlocking {
-        val now = 123456789L
-        val id = noteDao.insertNote(NoteEntity(title = null, content = "Old content", createdAt = now, updatedAt = now))
-        val note = noteDao.getNoteById(id)!!
-        noteDao.updateNote(note.copy(content = "Edited content", updatedAt = now + 1))
-
-        val rows = noteDao.updateNoteTitleConditionally(id, "Generated title", now)
+    fun updateNoteTitleConditionally_rejectsWhenTitleAlreadySet() = runBlocking {
+        val id = noteDao.insertNote(NoteEntity(title = "User title", content = "content", createdAt = 1L, updatedAt = 1L))
+        val rows = noteDao.updateNoteTitleConditionally(id, "Generated title")
 
         assertEquals(0, rows)
         val updated = noteDao.getNoteById(id)!!
-        assertNull(updated.title)
-        assertEquals("Edited content", updated.content)
+        assertEquals("User title", updated.title)
         assertFalse(updated.smartTitleGenerated)
+    }
+
+    @Test
+    fun updateNoteTitleConditionally_rejectsWhenAlreadyGenerated() = runBlocking {
+        val id = noteDao.insertNote(NoteEntity(title = null, content = "content", createdAt = 1L, updatedAt = 1L))
+        // Mark as already generated
+        noteDao.updateNoteTitleConditionally(id, "First title")
+        val rows = noteDao.updateNoteTitleConditionally(id, "Second title")
+
+        assertEquals(0, rows)
+        val final = noteDao.getNoteById(id)!!
+        assertEquals("First title", final.title)
     }
 
     @Test
