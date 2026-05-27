@@ -3264,8 +3264,6 @@ class QuickIntentRouterTest {
         fun saveMemoryNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("remember something"),
             Arguments.of("save something to memory"),
-            Arguments.of("make a note"),
-            Arguments.of("take a note"),
         )
 
 

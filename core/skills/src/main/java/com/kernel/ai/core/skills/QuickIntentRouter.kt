@@ -808,7 +808,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_calendar_event",
             regex = Regex(
-                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a|an)\s+(?!(?:calendar\s+)?voice\s+memo\b)(?:\S+\s+){1,4}?(?:appointment|meeting|event|session|booking)\b""",
+                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a|an)\s+(?!(?:calendar\s+)?voice\s+memo\b)(?!note\b)(?:\S+\s+){1,4}?(?:appointment|meeting|event|session|booking)\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> extractCalendarHints(raw) },
@@ -2214,12 +2214,13 @@ class QuickIntentRouter(
             ),
         ),
         // Open app — "open YouTube" / "launch Spotify"
-        // Excludes timer/countdown/alarm phrases and phrases that contain "timer" anywhere
-        // Also excludes list, meal-planner, and new-conversation/chat phrases to prevent false matches on deterministic skills
+        // Excludes timer/countdown/alarm phrases and phrases that contain "timer" anywhere.
+        // Also excludes list, meal-planner, new-conversation/chat, and note phrases to prevent
+        // false matches on deterministic skills ("start a note" → create_note, not open_app).
         IntentPattern(
             intentName = "open_app",
             regex = Regex(
-                """^(?:open|launch|start)\s+(?:the\s+)?(?!(?:a\s+)?(?:count(?:down|ing)|timer|alarm|(?:my\s+)?list|meal\s+planning|meal\s+plan|meal\s+prep|meals?|dinners?|menu|new\s+conversation|new\s+chat|conversation|chat)\b)(?!.*\btimer\b)(.+?)(?:\s+app)?$""",
+                """^(?:open|launch|start)\s+(?:the\s+)?(?!(?:a\s+)?(?:count(?:down|ing)|timer|alarm|(?:my\s+)?list|meal\s+planning|meal\s+plan|meal\s+prep|meals?|dinners?|menu|new\s+conversation|new\s+chat|conversation|chat|note)\b)(?!.*\btimer\b)(.+?)(?:\s+app)?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("app_name" to match.groupValues[1].trim()) },
@@ -3667,19 +3668,20 @@ class QuickIntentRouter(
             },
             requiredSlots = slotContract("save_memory"),
         ),
-        // Pattern: bare "make a note" / "take a note" — no content, needs slot
+        // ── Notes ──
+        // Pattern: bare "make a note" / "take a note" — no content → create_note slot-fill.
+        // NOTE: must sit before the content-bearing make/take pattern to short-circuit it.
+        // (Previously routed to save_memory, which was semantically wrong.)
         IntentPattern(
-            intentName = "save_memory",
+            intentName = "create_note",
             regex = Regex(
                 """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:make|take)\s+(?:a\s+)?note\b(?:\s*[.!?])?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
-            requiredSlots = slotContract("save_memory"),
+            requiredSlots = slotContract("create_note"),
         ),
-
-        // ── Notes ──
-        // Pattern: "make a note that X" / "take a note that X"
+        // Pattern: "make a note that X" / "take a note that X" / "make a note X"
         IntentPattern(
             intentName = "create_note",
             regex = Regex(
@@ -3688,11 +3690,30 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
         ),
-        // Pattern: "create a note about X" / "create a note: X"
+        // Pattern: bare "create a note" / "add a note" / "new note" — no content → slot-fill
         IntentPattern(
             intentName = "create_note",
             regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?create\s+(?:a\s+)?note(?:\s+(?:about|:))?[:\-–]?\s*(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:create|add|start)\s+(?:a\s+)?(?:new\s+)?note\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Pattern: "create a note about/for/: X" / "add a note about X" / "new note: X"
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:create|add|start)\s+(?:a\s+)?(?:new\s+)?note(?:\s+(?:about|for|on|:))?[:\-–]?\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+        ),
+        // Pattern: "note: X" / "new note X" — terse shorthand
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:new\s+)?note[:\-–]\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
@@ -3706,6 +3727,26 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
         ),
+        // Pattern: bare "write/jot/put something down" — no clear content → slot-fill
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:write|jot|put)\s+(?:something\s+)?down\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Bare "voice memo" / "add a voice memo" / "create a voice memo" — no content → slot-fill
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:create\s+(?:a\s+)?|add\s+(?:a\s+)?|record\s+(?:a\s+)?)?voice\s+memo\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_note"),
+        ),
         // Pattern: "voice memo X" / "voice memo: X"
         IntentPattern(
             intentName = "create_note",
@@ -3715,20 +3756,20 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim().trimStart('-', ':', '–')) },
         ),
-        // Pattern: "show my notes" / "list my notes" / "what are my notes"
+        // Pattern: "show/list/display/check/read [my] notes"
         IntentPattern(
             intentName = "list_notes",
             regex = Regex(
-                """^(?:show|list|display|show\s+me|list\s+for\s+me)\s+(?:my\s+)?notes\b(?:\s*[.!?])?$""",
+                """^(?:show|list|display|show\s+me|list\s+for\s+me|check|read(?:\s+me)?|pull\s+up)\s+(?:my\s+)?notes\b(?:\s*[.!?])?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // Pattern: "what notes do I have" / "what have I written down"
+        // Pattern: "what notes [do I have]" / "have I written/jotted down" / "my notes"
         IntentPattern(
             intentName = "list_notes",
             regex = Regex(
-                """^(?:what\s+(?:notes\b|have\s+I\s+written\s+down|did\s+I\s+write\s+down)|my\s+notes)(?:\s*[.!?])?$""",
+                """^(?:what\s+notes(?:\s+do\s+I\s+have)?\b|what\s+(?:have|did)\s+I\s+(?:(?:write|wrote|written)(?:\s+down)?|(?:jot|jotted)(?:\s+down)?)|my\s+notes)(?:\s*[.!?])?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },

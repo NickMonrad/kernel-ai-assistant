@@ -218,6 +218,70 @@ class QuickIntentRouterNoteTest {
                 "Expected NeedsSlot but got: $result")
             assertEquals("create_note", (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName)
         }
+
+        @Test
+        fun `bare 'make a note' returns NeedsSlot for create_note, not save_memory`() {
+            val result = router.route("make a note")
+            assertTrue(result is QuickIntentRouter.RouteResult.NeedsSlot,
+                "Expected NeedsSlot but got: $result")
+            val slot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("create_note", slot.intent.intentName,
+                "bare 'make a note' must route to create_note, not save_memory")
+        }
+
+        @Test
+        fun `bare 'take a note' returns NeedsSlot for create_note`() {
+            val result = router.route("take a note")
+            assertTrue(result is QuickIntentRouter.RouteResult.NeedsSlot,
+                "Expected NeedsSlot but got: $result")
+            assertEquals("create_note", (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName)
+        }
+
+        @Test
+        fun `'create a note for X' strips 'for' from content`() {
+            val result = router.route("create a note for the dentist")
+            val intent = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent
+                else -> null
+            }
+            assertEquals("create_note", intent?.intentName)
+            assertEquals("the dentist", intent?.params["content"],
+                "'for' preposition should be stripped from content")
+        }
+
+        @Test
+        fun `'add a note about X' routes to create_note`() {
+            val result = router.route("add a note about groceries")
+            val intent = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent
+                else -> null
+            }
+            assertEquals("create_note", intent?.intentName)
+        }
+
+        @Test
+        fun `'what notes do I have' routes to list_notes`() {
+            val result = router.route("what notes do I have")
+            val intentName = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent.intentName
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent.intentName
+                else -> null
+            }
+            assertEquals("list_notes", intentName)
+        }
+
+        @Test
+        fun `'check my notes' routes to list_notes`() {
+            val result = router.route("check my notes")
+            val intentName = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent.intentName
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent.intentName
+                else -> null
+            }
+            assertEquals("list_notes", intentName)
+        }
     // ─── Negative tests ───────────────────────────────────────────────────────
 
     @Nested
@@ -309,6 +373,30 @@ class QuickIntentRouterNoteTest {
             Arguments.of("create a voice memo"),
             Arguments.of("record a voice memo"),
             Arguments.of("make a note that I'm vegetarian"),
+            // Bare make/take a note — NeedsSlot → create_note (not save_memory)
+            Arguments.of("make a note"),
+            Arguments.of("take a note"),
+            Arguments.of("please make a note"),
+            Arguments.of("can you take a note"),
+            // add a note / new note phrasings
+            Arguments.of("add a note about groceries"),
+            Arguments.of("add a note for the dentist"),
+            Arguments.of("add a note: call mom"),
+            Arguments.of("start a note: reminders"),
+            Arguments.of("new note: meeting at 3pm"),
+            // create a note for X — "for" preposition must be stripped from content
+            Arguments.of("create a note for the dentist"),
+            Arguments.of("create a note for later"),
+            // note: X shorthand
+            Arguments.of("note: call dentist"),
+            Arguments.of("note: buy milk"),
+            // bare create/add → NeedsSlot
+            Arguments.of("create a note"),
+            Arguments.of("add a note"),
+            // bare write/jot/put down → NeedsSlot
+            Arguments.of("write something down"),
+            Arguments.of("jot something down"),
+            Arguments.of("put something down"),
         )
 
         @JvmStatic
@@ -322,6 +410,14 @@ class QuickIntentRouterNoteTest {
             Arguments.of("what have I written down"),
             Arguments.of("what did I write down"),
             Arguments.of("my notes"),
+            // New phrasings
+            Arguments.of("check my notes"),
+            Arguments.of("read my notes"),
+            Arguments.of("read me my notes"),
+            Arguments.of("pull up my notes"),
+            Arguments.of("what notes do I have"),
+            Arguments.of("what have I jotted down"),
+            Arguments.of("what did I jot down"),
         )
     }
 }
