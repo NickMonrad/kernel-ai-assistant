@@ -108,4 +108,7 @@ interface NoteDao {
 
     @Query("DELETE FROM notes WHERE id IN (:noteIds)")
     suspend fun bulkDelete(noteIds: List<Long>)
+
+    @Query("UPDATE notes SET archived_at = 0, updated_at = :updatedAt WHERE id IN (:noteIds)")
+    suspend fun bulkUnarchive(noteIds: List<Long>, updatedAt: Long)
 }

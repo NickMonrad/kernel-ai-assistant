@@ -55,6 +55,27 @@ fun NotesScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current
 
+    // Binder transaction limit is ~1MB; stay well under it. Notes above 200KB are
+    // truncated for sharing with a warning — full content is still stored locally.
+    val shareNote = { note: NoteEntity ->
+        val full = viewModel.buildShareText(note)
+        val maxBytes = 200_000
+        val truncated = full.encodeToByteArray().let { bytes ->
+            if (bytes.size <= maxBytes) full
+            else bytes.take(maxBytes).toByteArray().decodeToString() +
+                "\n\n[Note truncated — open in Kernel to view the full content]"
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, truncated)
+            putExtra(Intent.EXTRA_TITLE, note.title ?: "Note")
+        }
+        if (truncated !== full) {
+            scope.launch { snackbarHostState.showSnackbar("Note was too large and has been truncated for sharing") }
+        }
+        context.startActivity(Intent.createChooser(intent, "Share note"))
+    }
+
     var showCreateDialog by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
     var noteToDelete by remember { mutableStateOf<NoteEntity?>(null) }
@@ -247,15 +268,7 @@ fun NotesScreen(
                                         onArchive = { pendingArchiveNote = note },
                                         onRestore = {},
                                         onDelete = { noteToDelete = note },
-                                        onShare = {
-                                            val text = viewModel.buildShareText(note)
-                                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                                type = "text/plain"
-                                                putExtra(Intent.EXTRA_TEXT, text)
-                                                putExtra(Intent.EXTRA_TITLE, note.title ?: "Note")
-                                            }
-                                            context.startActivity(Intent.createChooser(intent, "Share note"))
-                                        },
+                                        onShare = { shareNote(note) },
                                         onCopy = {
                                             scope.launch {
                                                 clipboardManager.setText(AnnotatedString(viewModel.buildShareText(note)))
@@ -315,15 +328,7 @@ fun NotesScreen(
                                         onArchive = { pendingArchiveNote = note },
                                         onRestore = { viewModel.unarchiveNote(note.id) },
                                         onDelete = { noteToDelete = note },
-                                        onShare = {
-                                            val text = viewModel.buildShareText(note)
-                                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                                type = "text/plain"
-                                                putExtra(Intent.EXTRA_TEXT, text)
-                                                putExtra(Intent.EXTRA_TITLE, note.title ?: "Note")
-                                            }
-                                            context.startActivity(Intent.createChooser(intent, "Share note"))
-                                        },
+                                        onShare = { shareNote(note) },
                                         onCopy = {
                                             scope.launch {
                                                 clipboardManager.setText(AnnotatedString(viewModel.buildShareText(note)))

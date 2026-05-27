@@ -227,10 +227,9 @@ class NotesViewModel @Inject constructor(
     fun bulkRestoreSelected() {
         val ids = selectedNoteIds.toList()
         if (ids.isEmpty()) return
+        exitMultiSelect()
         viewModelScope.launch {
-            val now = System.currentTimeMillis()
-            ids.forEach { noteDao.unarchiveNote(it, now) }
-            exitMultiSelect()
+            noteDao.bulkUnarchive(ids, System.currentTimeMillis())
         }
     }
 
