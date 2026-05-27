@@ -3374,33 +3374,33 @@ class QuickIntentRouter(
             },
             requiredSlots = slotContract("add_to_list"),
         ),
-        // "create a list" / "make a new list" / "start my list" → ask for the list name
+        // "create a list" / "make a new list" / "start my list" / "add a list" → ask for the list name
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """^(?:create|make|start|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?list$""",
+                """^(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?list$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
             requiredSlots = slotContract("create_list"),
         ),
-        // "create a list called groceries" / "make a new list called holiday packing"
+        // "create a list called groceries" / "make a new list called holiday packing" / "add a list called shopping"
         // Must come BEFORE generic create_list to prevent lazy (.+?) capturing "a" or "new"
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start)\s+(?:a\s+|an\s+)?(?:new\s+)?list\s+called\s+(.+)""",
+                """(?:create|make|start|add)\s+(?:a\s+|an\s+)?(?:new\s+)?list\s+called\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
             requiredSlots = slotContract("create_list"),
         ),
-        // "create a groceries list" / "make a new shopping list" / "start a meal plan list"
+        // "create a groceries list" / "make a new shopping list" / "add a shopping list"
         // "make a new list called holiday packing" / "create a list called groceries"
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start)\s+(?:a\s+|an\s+|my\s+)?(?:new\s+)?list\s+called\s+(.+)""",
+                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(?:new\s+)?list\s+called\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
@@ -3409,7 +3409,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!list\b)(.+?)\s+list""",
+                """(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!list\b)(.+?)\s+list""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
