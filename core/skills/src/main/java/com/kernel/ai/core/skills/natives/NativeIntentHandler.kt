@@ -18,6 +18,7 @@ import android.provider.Settings
 import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.KeyEvent
+
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.ImportantDateRepository
@@ -34,6 +35,7 @@ import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.entity.NoteEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
+import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
@@ -125,6 +127,7 @@ interface ClockAlertController {
  *   set_brightness          — Sets screen brightness (params: value?, direction?, is_percent?)
  */
 @Singleton
+
 class NativeIntentHandler @Inject constructor(
     @ApplicationContext private val context: Context,
     private val clockRepository: ClockRepository,
@@ -140,6 +143,7 @@ class NativeIntentHandler @Inject constructor(
     private val currencyConversionService: CurrencyConversionService,
     private val userProfileRepository: UserProfileRepository,
     private val noteDao: NoteDao,
+    private val noteSmartTitleUseCase: NoteSmartTitleUseCase,
 ) {
 
     suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -2860,25 +2864,22 @@ class NativeIntentHandler @Inject constructor(
         return input
     }
 
+
     private suspend fun createNote(params: Map<String, String>): SkillResult {
         val rawContent = params["content"]?.trim() ?: params["note"]?.trim() ?: ""
-        val rawTitle = params["title"]?.trim() ?: rawContent
+        val title = params["title"]?.trim()?.takeIf { it.isNotBlank() }
 
         // Reject blank input
         if (rawContent.isBlank()) {
             return SkillResult.Failure("create_note", "Nothing to save")
         }
 
-        // Derive a concise user-facing title from the content
-        val title = if (rawTitle.isNotBlank()) {
-            rawTitle.take(60)
-        } else {
-            rawContent.take(40)
-        }
-
+        val now = System.currentTimeMillis()
         val note = NoteEntity(
             title = title,
             content = rawContent,
+            createdAt = now,
+            updatedAt = now,
         )
 
         return try {
@@ -2886,7 +2887,10 @@ class NativeIntentHandler @Inject constructor(
             if (id == -1L) {
                 SkillResult.Failure("create_note", "Failed to create note")
             } else {
-                SkillResult.DirectReply("Note saved: $title")
+                if (title == null) {
+                    noteSmartTitleUseCase.schedule(id, now)
+                }
+                SkillResult.DirectReply("Note saved.")
             }
         } catch (e: Exception) {
             SkillResult.Failure("create_note", e.message ?: "Failed to create note")

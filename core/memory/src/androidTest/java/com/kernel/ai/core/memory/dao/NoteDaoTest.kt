@@ -57,6 +57,35 @@ class NoteDaoTest {
         assertEquals("New content", updated.content)
     }
 
+
+    @Test
+    fun updateNoteTitleConditionally_updatesOnlyWhenUnchanged() = runBlocking {
+        val now = 123456789L
+        val id = noteDao.insertNote(NoteEntity(title = null, content = "Old content", createdAt = now, updatedAt = now))
+        val rows = noteDao.updateNoteTitleConditionally(id, "Generated title", now)
+
+        assertEquals(1, rows)
+        val updated = noteDao.getNoteById(id)!!
+        assertEquals("Generated title", updated.title)
+        assertTrue(updated.smartTitleGenerated)
+    }
+
+    @Test
+    fun updateNoteTitleConditionally_rejectsChangedRows() = runBlocking {
+        val now = 123456789L
+        val id = noteDao.insertNote(NoteEntity(title = null, content = "Old content", createdAt = now, updatedAt = now))
+        val note = noteDao.getNoteById(id)!!
+        noteDao.updateNote(note.copy(content = "Edited content", updatedAt = now + 1))
+
+        val rows = noteDao.updateNoteTitleConditionally(id, "Generated title", now)
+
+        assertEquals(0, rows)
+        val updated = noteDao.getNoteById(id)!!
+        assertNull(updated.title)
+        assertEquals("Edited content", updated.content)
+        assertFalse(updated.smartTitleGenerated)
+    }
+
     @Test
     fun deleteNote_removesFromDatabase() = runBlocking {
         val id = noteDao.insertNote(NoteEntity(title = "Delete me", content = "gone"))

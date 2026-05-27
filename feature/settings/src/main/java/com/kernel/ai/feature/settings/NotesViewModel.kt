@@ -4,17 +4,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.entity.NoteEntity
-import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.text.Collator
-import java.util.Locale
 import javax.inject.Inject
 
 // ── Enums ──────────────────────────────────────────────────────────────────────────────────────
@@ -38,11 +37,12 @@ enum class NoteAction {
     VOICE_INPUT,
 }
 
+
 @HiltViewModel
+@OptIn(ExperimentalCoroutinesApi::class)
 class NotesViewModel @Inject constructor(
     private val noteDao: NoteDao,
-    private val inferenceEngine: InferenceEngine,
-    private val skillRegistry: SkillRegistry,
+    private val noteSmartTitleUseCase: NoteSmartTitleUseCase,
 ) : ViewModel() {
 
     // ── State ────────────────────────────────────────────────────────────────────────────────────
@@ -127,16 +127,22 @@ class NotesViewModel @Inject constructor(
 
     // ── CRUD ─────────────────────────────────────────────────────────────────────────────────────
 
+
     fun createNote(title: String?, content: String) {
         viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val normalizedTitle = title?.trim()?.takeIf { it.isNotBlank() }
+            val trimmedContent = content.trim()
             val note = NoteEntity(
-                title = title,
-                content = content,
+                title = normalizedTitle,
+                content = trimmedContent,
+                createdAt = now,
+                updatedAt = now,
                 displayOrder = activeNotesFlow.value.size.toDouble(),
             )
             val id = noteDao.insertNote(note)
-            if (id > 0 && title.isNullOrBlank()) {
-                generateNoteTitle(id, content)
+            if (id > 0 && normalizedTitle == null) {
+                noteSmartTitleUseCase.schedule(id, now)
             }
         }
     }
@@ -241,35 +247,6 @@ class NotesViewModel @Inject constructor(
         noteSearchQuery = query
     }
 
-    // ── Title generation ─────────────────────────────────────────────────────────────────────────
-
-    private suspend fun generateNoteTitle(noteId: Long, content: String) {
-        try {
-            val firstLines = content.take(200)
-            // Directive system prompt constrains Gemma to output only the title — no preamble,
-            // no "Here's a title:", no explanation. Without this, the model responds conversationally.
-            val titleSystemPrompt = "You are a title generator. Output ONLY a short title of 3-5 words. " +
-                "No explanation, no preamble, no quotes, no punctuation at the end. Just the title itself."
-            val titlePrompt = "Title for a note with content: $firstLines"
-
-            val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = titleSystemPrompt, thinkingEnabled = false)
-            val title = raw
-                .trim()
-                .lines().first().trim()
-                .replace(Regex("^(?:Title|Note|Subject)[:\\s]*", RegexOption.IGNORE_CASE), "")
-                .replace(Regex("[*_]+"), "")
-                .trim('"', '\'', '\u201C', '\u201D')
-                .trimEnd('.', '?', '!')
-                .trim()
-                .take(60)
-
-            if (title.isNotBlank()) {
-                noteDao.updateNoteTitle(noteId, title, smartTitleGenerated = true)
-            }
-        } catch (e: Exception) {
-            // Silently fail — note still created, just without smart title
-        }
-    }
 
     fun triggerVoiceAction() {
         pendingNoteAction = NoteAction.VOICE_INPUT

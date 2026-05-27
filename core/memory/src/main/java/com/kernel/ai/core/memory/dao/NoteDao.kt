@@ -18,8 +18,9 @@ interface NoteDao {
 
     @Update
     suspend fun updateNote(note: NoteEntity)
-    @Query("UPDATE notes SET title = :title, smart_title_generated = :smartTitleGenerated WHERE id = :noteId")
-    suspend fun updateNoteTitle(noteId: Long, title: String, smartTitleGenerated: Boolean)
+
+    @Query("UPDATE notes SET title = :title, smart_title_generated = 1 WHERE id = :noteId AND updated_at = :expectedUpdatedAt AND smart_title_generated = 0 AND (title IS NULL OR TRIM(title) = '')")
+    suspend fun updateNoteTitleConditionally(noteId: Long, title: String, expectedUpdatedAt: Long): Int
 
     @Delete
     suspend fun deleteNote(note: NoteEntity)

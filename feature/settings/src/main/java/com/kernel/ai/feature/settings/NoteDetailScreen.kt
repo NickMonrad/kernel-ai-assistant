@@ -24,15 +24,16 @@ fun NoteDetailScreen(
     val allNotes by viewModel.notes.collectAsStateWithLifecycle()
     val note = allNotes.find { it.id == noteId }
 
-    var title by remember { mutableStateOf(note?.title ?: "") }
-    var content by remember { mutableStateOf(note?.content ?: "") }
+
+    var title by remember(note?.id) { mutableStateOf(note?.title ?: "") }
+    var content by remember(note?.id) { mutableStateOf(note?.content ?: "") }
+    var titleDirty by remember(note?.id) { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showArchiveDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(note?.id) {
-        note?.let {
-            title = it.title ?: ""
-            content = it.content
+    LaunchedEffect(note?.title, titleDirty) {
+        if (!titleDirty) {
+            title = note?.title ?: ""
         }
     }
 
@@ -92,11 +93,15 @@ fun NoteDetailScreen(
                     .padding(16.dp),
             ) {
                 OutlinedTextField(
+
                     value = title,
-                    onValueChange = { title = it },
+                    onValueChange = {
+                        title = it
+                        titleDirty = true
+                    },
                     label = { Text("Title (optional)") },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Auto-generated if empty") },
+                    placeholder = { Text("Generated automatically when left blank") },
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
@@ -118,9 +123,15 @@ fun NoteDetailScreen(
                     }
                     TextButton(
                         onClick = {
+
+                            val finalTitle = if (titleDirty) {
+                                title.trim().takeIf { it.isNotBlank() }
+                            } else {
+                                note.title?.takeIf { it.isNotBlank() }
+                            }
                             viewModel.updateNote(
                                 note.copy(
-                                    title = title.trim().takeIf { it.isNotBlank() },
+                                    title = finalTitle,
                                     content = content.trim(),
                                     updatedAt = System.currentTimeMillis(),
                                 ),
