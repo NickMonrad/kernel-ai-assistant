@@ -37,8 +37,12 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -76,6 +80,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Assistant
 import androidx.compose.runtime.DisposableEffect
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -106,21 +111,36 @@ fun VoiceScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+
     val assistantRoleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
-    ) {
-        // If the role picker returned without granting the role (common on Samsung One UI where the
-        // picker Activity finishes instantly with RESULT_CANCELED showing no UI), fall through to
-        // Default Apps settings so the user always has a working path.
+    ) { result ->
         val roleHeld = roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
         viewModel.refreshAssistantStatus(roleHeld)
-        if (!roleHeld) {
-            Log.w("KernelAI", "VoiceScreen: role not granted after picker — opening Default Apps settings")
-            context.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+        if (!roleHeld && result.resultCode == android.app.Activity.RESULT_CANCELED) {
+            // Samsung One UI (and some other OEMs) silently dismiss the role picker with
+            // RESULT_CANCELED without ever showing UI. In that case we cannot tell whether
+            // the user actively declined or the picker never surfaced, so we offer a
+            // Snackbar rather than unconditionally navigating — preserving the cancel path
+            // on devices where the picker does show UI.
+            Log.w("KernelAI", "VoiceScreen: role picker returned RESULT_CANCELED without granting role")
+            coroutineScope.launch {
+                val snackbarResult = snackbarHostState.showSnackbar(
+                    message = "Couldn't set default assistant automatically",
+                    actionLabel = "Open Settings",
+                    withDismissAction = true,
+                )
+                if (snackbarResult == SnackbarResult.ActionPerformed) {
+                    context.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                }
+            }
         }
     }
 
     VoiceScreenContent(
+        snackbarHostState = snackbarHostState,
         uiState = uiState,
         onBack = onBack,
         onRequestAssistantRole = {
@@ -129,10 +149,8 @@ fun VoiceScreen(
                 Log.d("KernelAI", "VoiceScreen: launching RoleManager assistant request")
                 assistantRoleLauncher.launch(roleIntent)
             } else {
-                // RoleManager returned null — app not yet indexed by the system as a valid
-                // voice interaction service (common on first install / Samsung One UI).
-                // Fall back to Default Apps settings where the user can set it manually.
-                Log.w("KernelAI", "VoiceScreen: roleIntent=null (roleManager=$roleManager), opening Default Apps settings")
+                // roleManager was null (service unavailable) — open Default Apps directly.
+                Log.w("KernelAI", "VoiceScreen: RoleManager service unavailable, opening Default Apps settings")
                 context.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
             }
         },
@@ -161,6 +179,7 @@ fun VoiceScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VoiceScreenContent(
+    snackbarHostState: SnackbarHostState,
     uiState: VoiceUiState,
     onBack: () -> Unit,
     onRequestAssistantRole: () -> Unit,
@@ -185,6 +204,7 @@ private fun VoiceScreenContent(
     onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
 ) {
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Voice") },
@@ -1371,6 +1391,7 @@ private fun formatBytes(bytes: Long): String = when {
 private fun VoiceScreenPreview() {
     MaterialTheme {
         VoiceScreenContent(
+            snackbarHostState = remember { SnackbarHostState() },
             uiState = VoiceUiState(
                 selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
                 selectedSherpaVoice = SherpaPiperVoice.NorthernEnglishMale,
