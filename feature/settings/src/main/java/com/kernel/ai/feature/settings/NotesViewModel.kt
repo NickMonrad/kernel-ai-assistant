@@ -14,6 +14,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import javax.inject.Inject
 
 // ── Enums ──────────────────────────────────────────────────────────────────────────────────────
@@ -59,6 +61,7 @@ class NotesViewModel @Inject constructor(
 
     var pendingNoteAction by mutableStateOf(NoteAction.NONE)
         private set
+    private var reorderJob: Job? = null
 
     // ── Data flows ───────────────────────────────────────────────────────────────────────────────
 
@@ -83,7 +86,8 @@ class NotesViewModel @Inject constructor(
         }
         return when (sort) {
             NoteSort.MANUAL -> base.sortedWith(
-                compareBy<NoteEntity> { it.displayOrder }
+                compareByDescending<NoteEntity> { it.pinned }
+                    .thenBy { it.displayOrder }
                     .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title.orEmpty() }
             )
             NoteSort.LAST_MODIFIED -> base.sortedByDescending { it.updatedAt }
@@ -230,9 +234,13 @@ class NotesViewModel @Inject constructor(
 
     // ── Reorder ──────────────────────────────────────────────────────────────────────────────────
 
-    fun reorderNotes(noteOrder: Map<Long, Double>) {
-        viewModelScope.launch {
-            noteDao.reorderNotes(noteOrder)
+    fun onNotesReordered(pinnedIds: List<Long>, unpinnedIds: List<Long>) {
+        listSort = NoteSort.MANUAL
+        reorderJob?.cancel()
+        reorderJob = viewModelScope.launch(Dispatchers.IO) {
+            val updates = (pinnedIds.mapIndexed { i, id -> id to i.toDouble() } +
+                          unpinnedIds.mapIndexed { i, id -> id to i.toDouble() }).toMap()
+            noteDao.reorderNotes(updates)
         }
     }
 

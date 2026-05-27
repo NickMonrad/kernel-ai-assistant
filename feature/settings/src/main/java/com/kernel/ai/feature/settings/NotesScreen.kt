@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.settings
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -10,7 +11,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Note
 import androidx.compose.material.icons.filled.*
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.*
@@ -56,25 +60,35 @@ fun NotesScreen(
         onDispose { viewModel.exitMultiSelect() }
     }
 
-    // ── Drag-and-drop local state ────────────────────────────────────────────────────────────
-    var localNotes by remember { mutableStateOf(displayedNotes) }
-    var dragInProgress by remember { mutableStateOf(false) }
-    var localSort by remember { mutableStateOf(viewModel.listSort) }
+    // ── Pinned / unpinned split ──────────────────────────────────────────────────────────────
+    val pinnedNotes = if (showArchived) emptyList() else displayedNotes.filter { it.pinned }
+    val unpinnedNotes = if (showArchived) displayedNotes else displayedNotes.filter { !it.pinned }
 
-    LaunchedEffect(displayedNotes) {
-        if (!dragInProgress) localNotes = displayedNotes
-    }
+    // ── Drag-and-drop local state ────────────────────────────────────────────────────────────
+    var localPinned by remember { mutableStateOf(pinnedNotes) }
+    var localUnpinned by remember { mutableStateOf(unpinnedNotes) }
+    var dragInProgress by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pinnedNotes) { if (!dragInProgress) localPinned = pinnedNotes }
+    LaunchedEffect(unpinnedNotes) { if (!dragInProgress) localUnpinned = unpinnedNotes }
 
     val lazyListState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
         val fromKey = from.key as? Long ?: return@rememberReorderableLazyListState
         val toKey = to.key as? Long ?: return@rememberReorderableLazyListState
-        val fromIdx = localNotes.indexOfFirst { it.id == fromKey }
-        val toIdx = localNotes.indexOfFirst { it.id == toKey }
-        if (fromIdx < 0 || toIdx < 0) return@rememberReorderableLazyListState
-        localNotes = localNotes.toMutableList().apply { add(toIdx, removeAt(fromIdx)) }
-        val newOrder = localNotes.mapIndexed { idx, note -> note.id to idx.toDouble() }.toMap()
-        viewModel.reorderNotes(newOrder)
+        // Enforce section boundary — pinned items cannot cross into unpinned and vice versa
+        val fromInPinned = localPinned.any { it.id == fromKey }
+        val toInPinned = localPinned.any { it.id == toKey }
+        if (fromInPinned != toInPinned) return@rememberReorderableLazyListState
+        if (fromInPinned) {
+            val fi = localPinned.indexOfFirst { it.id == fromKey }
+            val ti = localPinned.indexOfFirst { it.id == toKey }
+            localPinned = localPinned.toMutableList().apply { add(ti, removeAt(fi)) }
+        } else {
+            val fi = localUnpinned.indexOfFirst { it.id == fromKey }
+            val ti = localUnpinned.indexOfFirst { it.id == toKey }
+            localUnpinned = localUnpinned.toMutableList().apply { add(ti, removeAt(fi)) }
+        }
     }
 
     Scaffold(
@@ -184,63 +198,119 @@ fun NotesScreen(
                     singleLine = true,
                 )
             }
-            Box {
             if (displayedNotes.isEmpty()) {
                 EmptyState(showArchived = showArchived)
             } else {
                 LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
                     state = lazyListState,
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(displayedNotes, key = { it.id }) { note ->
-                        ReorderableItem(reorderState, key = note.id) {
-                            val isSelected = selectedNoteIds.contains(note.id)
-                            NoteCard(
-                                note = note,
-                                isSelected = isSelected,
-                                onEdit = {
-                                    if (isMultiSelect) {
-                                        viewModel.toggleNoteSelection(note.id)
-                                    } else {
-                                        onEditNote(note.id)
-                                    }
-                                },
-                                onLongPress = {
-                                    viewModel.enterMultiSelect()
-                                    viewModel.toggleNoteSelection(note.id)
-                                },
-                                onTogglePin = {
-                                    if (note.pinned) viewModel.unpinNote(note.id) else viewModel.pinNote(note.id)
-                                },
-                                onArchive = { pendingArchiveNote = note },
-                                onDelete = { noteToDelete = note },
-                                dragHandleModifier = if (!isMultiSelect && viewModel.listSort == NoteSort.MANUAL) {
-                                    Modifier.draggableHandle(
-                                        onDragStarted = {
-                                            dragInProgress = true
-                                            localSort = viewModel.listSort
+                    // ── Pinned section ──────────────────────────────────────────────────────
+                    if (localPinned.isNotEmpty()) {
+                        stickyHeader(key = "header_pinned") {
+                            NoteSectionHeader(label = "Pinned")
+                        }
+                        items(localPinned, key = { it.id }) { note ->
+                            ReorderableItem(reorderState, key = note.id) { isDragging ->
+                                val elevation by animateDpAsState(
+                                    if (isDragging) 6.dp else 0.dp,
+                                    label = "drag_elevation_pinned",
+                                )
+                                Surface(shadowElevation = elevation) {
+                                    NoteCard(
+                                        note = note,
+                                        isSelected = selectedNoteIds.contains(note.id),
+                                        isArchivedView = false,
+                                        isMultiSelect = isMultiSelect,
+                                        onEdit = {
+                                            if (isMultiSelect) viewModel.toggleNoteSelection(note.id)
+                                            else onEditNote(note.id)
                                         },
-                                        onDragStopped = {
-                                            dragInProgress = false
-                                            // Auto-switch to MANUAL if user reordered with a different sort
-                                            if (localSort != NoteSort.MANUAL) {
-                                                viewModel.listSort = NoteSort.MANUAL
-                                            }
-                                            val newOrder = localNotes.mapIndexed { idx, n -> n.id to idx.toDouble() }.toMap()
-                                            viewModel.reorderNotes(newOrder)
+                                        onLongPress = {
+                                            viewModel.enterMultiSelect()
+                                            viewModel.toggleNoteSelection(note.id)
                                         },
+                                        onTogglePin = {
+                                            if (note.pinned) viewModel.unpinNote(note.id)
+                                            else viewModel.pinNote(note.id)
+                                        },
+                                        onArchive = { pendingArchiveNote = note },
+                                        onDelete = { noteToDelete = note },
+                                        dragHandleModifier = if (!isMultiSelect) {
+                                            Modifier.draggableHandle(
+                                                onDragStarted = { dragInProgress = true },
+                                                onDragStopped = {
+                                                    dragInProgress = false
+                                                    viewModel.onNotesReordered(
+                                                        localPinned.map { it.id },
+                                                        localUnpinned.map { it.id },
+                                                    )
+                                                },
+                                            )
+                                        } else Modifier,
+                                        onToggleSelect = { viewModel.toggleNoteSelection(note.id) },
                                     )
-                                } else Modifier,
-                                isMultiSelect = isMultiSelect,
-                                onToggleSelect = { viewModel.toggleNoteSelection(note.id) },
-                            )
+                                }
+                            }
                         }
                     }
+
+                    // ── Unpinned / archived section ──────────────────────────────────────────
+                    if (localUnpinned.isNotEmpty()) {
+                        if (localPinned.isNotEmpty()) {
+                            stickyHeader(key = "header_other") {
+                                NoteSectionHeader(label = "Other")
+                            }
+                        }
+                        items(localUnpinned, key = { it.id }) { note ->
+                            ReorderableItem(reorderState, key = note.id) { isDragging ->
+                                val elevation by animateDpAsState(
+                                    if (isDragging) 6.dp else 0.dp,
+                                    label = "drag_elevation_unpinned",
+                                )
+                                Surface(shadowElevation = elevation) {
+                                    NoteCard(
+                                        note = note,
+                                        isSelected = selectedNoteIds.contains(note.id),
+                                        isArchivedView = showArchived,
+                                        isMultiSelect = isMultiSelect,
+                                        onEdit = {
+                                            if (isMultiSelect) viewModel.toggleNoteSelection(note.id)
+                                            else if (!showArchived) onEditNote(note.id)
+                                        },
+                                        onLongPress = {
+                                            viewModel.enterMultiSelect()
+                                            viewModel.toggleNoteSelection(note.id)
+                                        },
+                                        onTogglePin = {
+                                            if (note.pinned) viewModel.unpinNote(note.id)
+                                            else viewModel.pinNote(note.id)
+                                        },
+                                        onArchive = { pendingArchiveNote = note },
+                                        onDelete = { noteToDelete = note },
+                                        dragHandleModifier = if (!isMultiSelect && !showArchived) {
+                                            Modifier.draggableHandle(
+                                                onDragStarted = { dragInProgress = true },
+                                                onDragStopped = {
+                                                    dragInProgress = false
+                                                    viewModel.onNotesReordered(
+                                                        localPinned.map { it.id },
+                                                        localUnpinned.map { it.id },
+                                                    )
+                                                },
+                                            )
+                                        } else Modifier,
+                                        onToggleSelect = { viewModel.toggleNoteSelection(note.id) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item { Spacer(modifier = Modifier.height(88.dp)) }
                 }
             }
-        }
-            }
+    }
     }
 
     // ── Dialogs ──────────────────────────────────────────────────────────────────────────────
@@ -390,88 +460,118 @@ private fun SortFilterMenu(
 private fun NoteCard(
     note: NoteEntity,
     isSelected: Boolean,
+    isArchivedView: Boolean,
+    isMultiSelect: Boolean,
     onEdit: () -> Unit,
     onLongPress: () -> Unit,
     onTogglePin: () -> Unit,
     onArchive: () -> Unit,
     onDelete: () -> Unit,
     dragHandleModifier: Modifier = Modifier,
-    isMultiSelect: Boolean,
     onToggleSelect: () -> Unit,
 ) {
-    Card(
-        modifier = dragHandleModifier
+    var showOverflow by remember { mutableStateOf(false) }
+
+    ListItem(
+        modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(
-                onClick = onEdit,
-                onLongClick = onLongPress,
-            ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            // ── Multi-select checkbox ──────────────────────────────────────
+            .then(if (isArchivedView) Modifier.graphicsLayer { alpha = 0.6f } else Modifier)
+            .combinedClickable(onClick = onEdit, onLongClick = onLongPress),
+        leadingContent = {
             if (isMultiSelect) {
-                Checkbox(
-                    checked = isSelected,
-                    onCheckedChange = { onToggleSelect() },
-                    modifier = Modifier.padding(end = 8.dp),
+                Checkbox(checked = isSelected, onCheckedChange = { onToggleSelect() })
+            } else {
+                Icon(
+                    Icons.AutoMirrored.Filled.Note,
+                    contentDescription = null,
+                    tint = if (note.pinned) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-
-            Column(modifier = Modifier.weight(1f)) {
-                // ── Title ────────────────────────────────────────────────────
-                Text(
-                    text = note.title ?: "Untitled",
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // ── Content preview ──────────────────────────────────────────
-                Text(
-                    text = note.content,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            // ── Actions ────────────────────────────────────────────────────
-            if (!isSelected) {
-                Column(horizontalAlignment = Alignment.End) {
-                    IconButton(onClick = onTogglePin) {
-                        Icon(
-                            imageVector = Icons.Default.PushPin,
-                            contentDescription = if (note.pinned) "Unpin" else "Pin",
-                            tint = if (note.pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        IconButton(onClick = onArchive) {
+        },
+        headlineContent = {
+            Text(
+                text = note.title ?: "Untitled",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        supportingContent = {
+            Text(
+                text = note.content,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!isMultiSelect) {
+                    if (!isArchivedView) {
+                        // Pin toggle
+                        IconButton(onClick = onTogglePin) {
                             Icon(
-                                Icons.Default.Archive,
-                                contentDescription = "Archive",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                if (note.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                                contentDescription = if (note.pinned) "Unpin" else "Pin",
+                                tint = if (note.pinned) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        IconButton(onClick = onDelete) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Delete",
-                                tint = MaterialTheme.colorScheme.error,
+                    }
+                    // Overflow menu (archive, delete)
+                    Box {
+                        IconButton(onClick = { showOverflow = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                        }
+                        DropdownMenu(
+                            expanded = showOverflow,
+                            onDismissRequest = { showOverflow = false },
+                        ) {
+                            if (!isArchivedView) {
+                                DropdownMenuItem(
+                                    text = { Text("Archive") },
+                                    onClick = { showOverflow = false; onArchive() },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                onClick = { showOverflow = false; onDelete() },
                             )
                         }
                     }
                 }
+                // Drag handle — visible in active view, hidden in archived/multi-select
+                if (!isMultiSelect && !isArchivedView) {
+                    Icon(
+                        Icons.Default.DragHandle,
+                        contentDescription = "Drag to reorder",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = dragHandleModifier
+                            .pointerInput(Unit) {
+                                detectTapGestures(onLongPress = { /* absorb */ })
+                            }
+                            .padding(horizontal = 4.dp),
+                    )
+                }
             }
-        }
-    }
+        },
+    )
+    HorizontalDivider()
+}
+
+// ── Section Header ───────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun NoteSectionHeader(label: String) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+    )
 }
 
 // ── Dialogs ─────────────────────────────────────────────────────────────────────────────────
