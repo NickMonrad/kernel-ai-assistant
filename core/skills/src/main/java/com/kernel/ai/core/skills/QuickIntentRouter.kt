@@ -3722,7 +3722,11 @@ class QuickIntentRouter(
                 """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:make|take|save)\s+(?:a\s+)?note(?:\s+(?:that|about|for|on))?[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ ->
+                val content = normalizeOptionalItem(match.groupValues[1])
+                mapOf("content" to (content ?: ""))
+            },
+            requiredSlots = slotContract("create_note"),
         ),
         // Pattern: bare "create a note" / "add a note" / "new note" — no content → slot-fill
         IntentPattern(
@@ -3741,7 +3745,11 @@ class QuickIntentRouter(
                 """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:create|add|start)\s+(?:a\s+)?(?:new\s+)?note(?:\s+(?:about|for|on|:))?[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ ->
+                val content = normalizeOptionalItem(match.groupValues[1])
+                mapOf("content" to (content ?: ""))
+            },
+            requiredSlots = slotContract("create_note"),
         ),
         // Pattern: "note: X" / "new note X" — terse shorthand
         IntentPattern(
@@ -3750,7 +3758,11 @@ class QuickIntentRouter(
                 """^(?:new\s+)?note[:\-–]\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ ->
+                val content = normalizeOptionalItem(match.groupValues[1])
+                mapOf("content" to (content ?: ""))
+            },
+            requiredSlots = slotContract("create_note"),
         ),
         // Pattern: "write down X" / "jot down X" / "put down X"
         IntentPattern(
@@ -3759,7 +3771,11 @@ class QuickIntentRouter(
                 """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:write|jot|put)\s+down\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ ->
+                val content = normalizeOptionalItem(match.groupValues[1])
+                mapOf("content" to (content ?: ""))
+            },
+            requiredSlots = slotContract("create_note"),
         ),
         // Pattern: bare "write/jot/put something down" — no clear content → slot-fill
         IntentPattern(
@@ -3798,7 +3814,12 @@ class QuickIntentRouter(
                 """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:save|make|take|add|create|record|start)\s+(?:a\s+)?(?:new\s+)?)?voice\s+memo(?:\s+(?:about|that|for|on))?\s*[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim().trimStart('-', ':', '–')) },
+            paramExtractor = { match, _ ->
+                val raw = match.groupValues[1].trim().trimStart('-', ':', '–')
+                val content = normalizeOptionalItem(raw)
+                mapOf("content" to (content ?: ""))
+            },
+            requiredSlots = slotContract("create_note"),
         ),
         // Bare "save/make/take/add a memo" / "note to self" — no content → slot-fill
         // "memo" and "note to self" are common voice synonyms for "note".
@@ -3818,7 +3839,11 @@ class QuickIntentRouter(
                 """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:save|make|take|add|create|record)\s+(?:a\s+)?(?:new\s+)?memo|note\s+to\s+(?:my)?self)(?:\s+(?:that|about|for|on))?[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ ->
+                val content = normalizeOptionalItem(match.groupValues[1])
+                mapOf("content" to (content ?: ""))
+            },
+            requiredSlots = slotContract("create_note"),
         ),
         // Pattern: "show/list/display/check/read [my] notes"
         IntentPattern(
