@@ -1,11 +1,5 @@
 {
   "kotlin-lsp": {
-    "command": "python3",
-    "args": [
-      "scripts/kotlin-lsp-owner.py",
-      "--",
-      "--stdio"
-    ],
     "warmupTimeoutMs": 90000
   }
 }
