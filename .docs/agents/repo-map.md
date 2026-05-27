@@ -7,8 +7,7 @@ Load this when navigating unfamiliar modules.
 ### Architecture & conventions
 | Path | Purpose |
 |------|---------|
-| `AGENTS.md` | Shared agent workflow and tool guidance |
-| `.github/copilot-instructions.md` | Authoritative architecture and repo conventions |
+| `.omp/AGENTS.md` | **Single source of truth** — architecture, conventions, agent workflow |
 | `docs/SPECIFICATION.md` | Detailed technical spec, module breakdown, API contracts |
 | `docs/ROADMAP.md` | Product roadmap and phase tracking |
 | `CONTRIBUTING.md` | Contributor guidelines |
@@ -29,6 +28,7 @@ Load this when navigating unfamiliar modules.
 |------|---------|
 | `app/` | Entry point, Hilt DI, navigation, splash |
 | `core/inference/` | LiteRT-LM engine wrapper, model manager |
+| `core/voice/` | STT, TTS, voice mode, push-to-talk |
 | `core/memory/` | sqlite-vec JNI, EmbeddingGemma, RAG pipeline |
 | `core/wasm/` | Chicory Wasm host, bridge functions |
 | `core/ui/` | Shared Compose components, Material 3 |
@@ -39,7 +39,7 @@ Load this when navigating unfamiliar modules.
 |------|---------|
 | `feature/chat/` | Chat screen, conversation list, ChatViewModel |
 | `feature/settings/` | Memory management, skill store, model info |
-| `feature/onboarding/` | ~~First-launch model download flow~~ (dormant) |
+| `feature/onboarding/` | ~~First-launch model download~~ (dormant) |
 | `feature/widget/` | Glance homescreen widget, VoiceCommandActivity |
 | `feature/convert/` | Text conversion utilities |
 
@@ -56,3 +56,4 @@ Load this when navigating unfamiliar modules.
 |------|---------|
 | `gradle/libs.versions.toml` | Version catalog |
 | `settings.gradle.kts` | Module configuration |
+| `scripts/download-models.sh` | Download model weights from HuggingFace |
