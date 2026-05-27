@@ -68,6 +68,9 @@ import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import kotlin.math.roundToInt
+import android.content.Intent
+import android.provider.Settings
+import android.util.Log
 import android.app.role.RoleManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -113,8 +116,17 @@ fun VoiceScreen(
         uiState = uiState,
         onBack = onBack,
         onRequestAssistantRole = {
-            val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-            if (intent != null) assistantRoleLauncher.launch(intent)
+            val roleIntent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+            if (roleIntent != null) {
+                Log.d("KernelAI", "VoiceScreen: launching RoleManager assistant request")
+                assistantRoleLauncher.launch(roleIntent)
+            } else {
+                // RoleManager returned null — app not yet indexed by the system as a valid
+                // voice interaction service (common on first install / Samsung One UI).
+                // Fall back to Default Apps settings where the user can set it manually.
+                Log.w("KernelAI", "VoiceScreen: roleIntent=null (roleManager=$roleManager), opening Default Apps settings")
+                context.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            }
         },
         onVoiceInputEngineSelected = viewModel::setVoiceInputEngine,
         onAutoStartAlertVoiceCommandsEnabledChanged = viewModel::setAutoStartAlertVoiceCommandsEnabled,
