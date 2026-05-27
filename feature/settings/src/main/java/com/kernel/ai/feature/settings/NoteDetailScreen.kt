@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -30,6 +31,11 @@ fun NoteDetailScreen(
     var titleDirty by remember(note?.id) { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showArchiveDialog by remember { mutableStateOf(false) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
+    val isDirty = title != (note?.title ?: "") || content != (note?.content ?: "")
+    BackHandler(enabled = isDirty) {
+        showDiscardDialog = true
+    }
 
     LaunchedEffect(note?.title, titleDirty) {
         if (!titleDirty) {
@@ -42,7 +48,7 @@ fun NoteDetailScreen(
             TopAppBar(
                 title = { Text(noteTitle(note)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { if (isDirty) showDiscardDialog = true else onBack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -118,7 +124,7 @@ fun NoteDetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
-                    TextButton(onClick = onBack) {
+                    TextButton(onClick = { if (isDirty) showDiscardDialog = true else onBack() }) {
                         Text("Cancel")
                     }
                     TextButton(
@@ -192,6 +198,23 @@ fun NoteDetailScreen(
                 TextButton(onClick = { showArchiveDialog = false }) {
                     Text("Cancel")
                 }
+            },
+        )
+    }
+
+    if (showDiscardDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDialog = false },
+            title = { Text("Discard changes?") },
+            text = { Text("You have unsaved changes. Leave without saving?") },
+            confirmButton = {
+                TextButton(
+                    onClick = { showDiscardDialog = false; onBack() },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Discard") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardDialog = false }) { Text("Keep editing") }
             },
         )
     }

@@ -19,8 +19,8 @@ interface NoteDao {
     @Update
     suspend fun updateNote(note: NoteEntity)
 
-    @Query("UPDATE notes SET title = :title, smart_title_generated = 1 WHERE id = :noteId AND updated_at = :expectedUpdatedAt AND smart_title_generated = 0 AND (title IS NULL OR TRIM(title) = '')")
-    suspend fun updateNoteTitleConditionally(noteId: Long, title: String, expectedUpdatedAt: Long): Int
+    @Query("UPDATE notes SET title = :title, smart_title_generated = 1 WHERE id = :noteId AND smart_title_generated = 0 AND (title IS NULL OR TRIM(title) = '')")
+    suspend fun updateNoteTitleConditionally(noteId: Long, title: String): Int
 
     @Delete
     suspend fun deleteNote(note: NoteEntity)
@@ -66,6 +66,9 @@ interface NoteDao {
 
     @Query("SELECT COUNT(*) FROM notes WHERE archived_at > 0")
     suspend fun getArchivedNoteCount(): Int
+
+    @Query("SELECT COALESCE(MAX(display_order), -1.0) FROM notes WHERE archived_at = 0")
+    suspend fun getMaxActiveDisplayOrder(): Double
 
     // ── Pin / Unpin ──────────────────────────────────────────────────────────────────────────────
 

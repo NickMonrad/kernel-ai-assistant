@@ -2875,7 +2875,7 @@ class NativeIntentHandler @Inject constructor(
         }
 
         val now = System.currentTimeMillis()
-        val displayOrder = noteDao.getActiveNoteCount().toDouble()
+        val displayOrder = noteDao.getMaxActiveDisplayOrder() + 1.0
         val note = NoteEntity(
             title = title,
             content = rawContent,
@@ -2905,10 +2905,14 @@ class NativeIntentHandler @Inject constructor(
             if (notes.isEmpty()) {
                 SkillResult.DirectReply("No notes found.")
             } else {
-                val summary = notes.joinToString("\n") { note ->
-                    "• ${note.title ?: "Untitled"}: ${note.content.take(50)}${if (note.content.length > 50) "…" else ""}"
+                val display = notes.take(20)
+                val summary = display.joinToString("\n") { note ->
+                    val snippet = note.content.replace(Regex("\\s+"), " ").trim().take(50)
+                    val ellipsis = if (note.content.length > 50) "…" else ""
+                    "• ${note.title ?: "Untitled"}: $snippet$ellipsis"
                 }
-                SkillResult.DirectReply("Your notes:\n$summary")
+                val footer = if (notes.size > 20) "\n+${notes.size - 20} more" else ""
+                SkillResult.DirectReply("Your notes:\n$summary$footer")
             }
         } catch (e: Exception) {
             SkillResult.Failure("list_notes", e.message ?: "Failed to list notes")

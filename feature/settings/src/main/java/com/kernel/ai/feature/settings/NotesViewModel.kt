@@ -132,7 +132,7 @@ class NotesViewModel @Inject constructor(
                 content = trimmedContent,
                 createdAt = now,
                 updatedAt = now,
-                displayOrder = activeNotesFlow.value.size.toDouble(),
+                displayOrder = noteDao.getMaxActiveDisplayOrder() + 1.0,
             )
             val id = noteDao.insertNote(note)
             if (id > 0 && normalizedTitle == null) {

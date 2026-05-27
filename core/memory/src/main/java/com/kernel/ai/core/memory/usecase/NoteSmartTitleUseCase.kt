@@ -34,12 +34,9 @@ class NoteSmartTitleUseCase @Inject constructor(
                 if (!note.title.isNullOrBlank()) return@launch
                 val content = note.content.trim()
                 if (content.isBlank()) return@launch
-                // Use the current updatedAt (not the scheduled one) so that a save between
-                // scheduling and generation doesn't permanently suppress title generation.
-                val currentUpdatedAt = note.updatedAt
-
                 val generated = generateTitle(content) ?: return@launch
-                val updated = noteDao.updateNoteTitleConditionally(noteId, generated, currentUpdatedAt)
+                val updated = noteDao.updateNoteTitleConditionally(noteId, generated)
+
                 if (updated == 0) {
                     Log.d(TAG, "Skipped smart title update for note $noteId; note changed while generating")
                 }
