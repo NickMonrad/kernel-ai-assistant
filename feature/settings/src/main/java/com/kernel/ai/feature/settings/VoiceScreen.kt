@@ -109,7 +109,15 @@ fun VoiceScreen(
     val assistantRoleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
-        // Result is ignored — the DisposableEffect ON_RESUME will recheck the role.
+        // If the role picker returned without granting the role (common on Samsung One UI where the
+        // picker Activity finishes instantly with RESULT_CANCELED showing no UI), fall through to
+        // Default Apps settings so the user always has a working path.
+        val roleHeld = roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
+        viewModel.refreshAssistantStatus(roleHeld)
+        if (!roleHeld) {
+            Log.w("KernelAI", "VoiceScreen: role not granted after picker — opening Default Apps settings")
+            context.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+        }
     }
 
     VoiceScreenContent(
@@ -230,7 +238,7 @@ private fun VoiceScreenContent(
                         if (uiState.isDefaultAssistant) {
                             "Long-press Home to activate. Hold-Home activation, lock-screen launch, and wake word (#985) all use this role."
                         } else {
-                            "Required for hold-Home activation, lock-screen launch, and always-on wake word. Opens Android Default Apps settings."
+                            "Required for hold-Home activation, lock-screen launch, and always-on wake word. Opens Default Apps → Digital assistant."
                         },
                     )
                 },
