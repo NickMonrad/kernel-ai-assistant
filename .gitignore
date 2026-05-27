@@ -50,3 +50,19 @@ third_party/sherpa-onnx/
 
 # Legacy local Sherpa voice assets (kept ignored if they still exist from old setup flows).
 core/voice/src/main/assets/sherpa-tts/
+
+# ── Model training pipelines (training/) ─────────────────────────────────────
+# Python venvs
+training/venv/
+wakeword-env/
+
+# Generated audio datasets (large, reproducible)
+training/wakeword/data/
+training/tts-voice/data/
+
+# Personal reference voice audio
+training/shared/
+
+# Downloaded openWakeWord source
+# (clone manually: github.com/dscripka/openWakeWord)
+training/wakeword/piper_voices/

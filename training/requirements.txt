@@ -1,0 +1,34 @@
+# PyTorch + torchaudio: install from AMD ROCm 6.4 repo — see training/README.md
+# torch==2.6.0+rocm6.4.0
+# torchaudio==2.6.0+rocm6.4.0
+
+# Qwen3-TTS voice cloning (data generation)
+qwen-tts
+
+# openWakeWord training — install from source for training utilities:
+#   git clone https://github.com/dscripka/openWakeWord ~/Documents/development/openWakeWord
+#   uv pip install -e ~/Documents/development/openWakeWord
+
+# Audio I/O and processing
+numpy
+soundfile
+librosa
+audiomentations
+
+# ONNX export and quantisation
+onnx
+onnxruntime
+
+# Training utilities
+scikit-learn
+torchinfo
+torchmetrics
+speechbrain
+torch-audiomentations
+
+# Misc
+pronouncing
+inflect
+jupyter
+nbconvert
+tqdm
