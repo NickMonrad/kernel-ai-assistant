@@ -15,6 +15,7 @@ import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.dao.MealPlanDayDao
 import com.kernel.ai.core.memory.dao.MealPlanFavouriteRecipeDao
 import com.kernel.ai.core.memory.dao.MealPlanGroceryItemDao
@@ -39,6 +40,7 @@ import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import com.kernel.ai.core.memory.entity.NoteEntity
 import com.kernel.ai.core.memory.entity.MealPlanDayEntity
 import com.kernel.ai.core.memory.entity.MealPlanFavouriteRecipeEntity
 import com.kernel.ai.core.memory.entity.MealPlanGroceryItemEntity
@@ -83,8 +85,9 @@ import java.time.ZoneId
         MealPlanGroceryItemEntity::class,
         MealPlanProjectionWriteEntity::class,
         MealPlanFavouriteRecipeEntity::class,
+        NoteEntity::class,
     ],
-    version = 48,
+    version = 50,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -115,6 +118,7 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun mealPlanGroceryItemDao(): MealPlanGroceryItemDao
     abstract fun mealPlanProjectionWriteDao(): MealPlanProjectionWriteDao
     abstract fun mealPlanFavouriteRecipeDao(): MealPlanFavouriteRecipeDao
+    abstract fun noteDao(): NoteDao
 
     companion object {
         /** Adds lastDistilledAt to conversations (#165) and lastAccessedAt to episodic_memories (#167). */
@@ -814,5 +818,30 @@ abstract class KernelDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `meal_plan_sessions` ADD COLUMN `cuisinePreferencesJson` TEXT NOT NULL DEFAULT '[]'")
             }
         }
+
+        /** Adds notes table for voice memo/note-taking skill. */
+        val MIGRATION_48_49 = object : Migration(48, 49) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `notes` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL," +
+                    "`title` TEXT," +
+                    "`content` TEXT NOT NULL," +
+                    "`created_at` INTEGER NOT NULL," +
+                    "`updated_at` INTEGER NOT NULL" +
+                    ")")
+            }
+        }
+        /** Adds pinned, archivedAt, displayOrder, smartTitleGenerated to notes table. */
+        val MIGRATION_49_50 = object : Migration(49, 50) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `pinned` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `archived_at` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `display_order` REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `smart_title_generated` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_notes_archived_at` ON `notes` (`archived_at`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_notes_pinned_display_order` ON `notes` (`pinned`, `display_order`)")
+            }
+        }
+
     }
 }
