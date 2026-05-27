@@ -300,9 +300,7 @@ class QuickIntentRouterNoteTest {
         }
 
         @Test
-        fun `take a note about X captures about keyword in content`() {
-            // This documents the known about-stripping issue: "take a note about meeting"
-            // captures "about meeting" instead of "meeting"
+        fun `take a note about X strips the about preposition from content`() {
             val result = router.route("take a note about meeting")
             val intent = when (result) {
                 is QuickIntentRouter.RouteResult.RegexMatch -> result.intent
@@ -310,8 +308,8 @@ class QuickIntentRouterNoteTest {
                 else -> null
             }
             assertEquals("create_note", intent?.intentName)
-            assertEquals("about meeting", intent?.params["content"],
-                "Content includes leading 'about' — known issue, needs stripping fix")
+            assertEquals("meeting", intent?.params["content"],
+                "Leading preposition 'about' must be stripped from content")
         }
 
         @Test

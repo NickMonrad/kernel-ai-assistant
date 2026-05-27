@@ -133,7 +133,7 @@ fun NoteDetailScreen(
                                 note.copy(
                                     title = finalTitle,
                                     content = content.trim(),
-                                    updatedAt = System.currentTimeMillis(),
+                                    // updatedAt is set by NotesViewModel.updateNote()
                                 ),
                             )
                             onBack()

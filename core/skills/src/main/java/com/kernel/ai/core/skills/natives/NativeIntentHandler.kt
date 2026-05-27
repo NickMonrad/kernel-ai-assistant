@@ -2875,11 +2875,13 @@ class NativeIntentHandler @Inject constructor(
         }
 
         val now = System.currentTimeMillis()
+        val displayOrder = noteDao.getActiveNoteCount().toDouble()
         val note = NoteEntity(
             title = title,
             content = rawContent,
             createdAt = now,
             updatedAt = now,
+            displayOrder = displayOrder,
         )
 
         return try {

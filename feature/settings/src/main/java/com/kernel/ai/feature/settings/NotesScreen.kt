@@ -276,7 +276,7 @@ fun NotesScreen(
                                         isMultiSelect = isMultiSelect,
                                         onEdit = {
                                             if (isMultiSelect) viewModel.toggleNoteSelection(note.id)
-                                            else if (!showArchived) onEditNote(note.id)
+                                            else onEditNote(note.id)
                                         },
                                         onLongPress = {
                                             viewModel.enterMultiSelect()

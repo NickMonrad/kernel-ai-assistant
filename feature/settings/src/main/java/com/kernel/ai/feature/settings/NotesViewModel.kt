@@ -34,12 +34,6 @@ enum class NoteFilter(val displayName: String) {
     PINNED_ONLY("Pinned Only"),
 }
 
-enum class NoteAction {
-    NONE,
-    VOICE_INPUT,
-}
-
-
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
 class NotesViewModel @Inject constructor(
@@ -58,9 +52,6 @@ class NotesViewModel @Inject constructor(
 
     var selectedNoteIds by mutableStateOf<Set<Long>>(emptySet())
     val isMultiSelectMode: Boolean get() = selectedNoteIds.isNotEmpty()
-
-    var pendingNoteAction by mutableStateOf(NoteAction.NONE)
-        private set
     private var reorderJob: Job? = null
 
     // ── Data flows ───────────────────────────────────────────────────────────────────────────────
@@ -124,8 +115,7 @@ class NotesViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Active note count for badge/display. */
-    val activeNoteCount: StateFlow<Int> = noteDao
-        .observeAllActiveNotes()
+    val activeNoteCount: StateFlow<Int> = activeNotesFlow
         .map { it.size }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
@@ -153,7 +143,18 @@ class NotesViewModel @Inject constructor(
 
     fun updateNote(note: NoteEntity) {
         viewModelScope.launch {
-            noteDao.updateNote(note.copy(updatedAt = System.currentTimeMillis()))
+            val now = System.currentTimeMillis()
+            // Reset smartTitleGenerated if the title was cleared so the use case
+            // can generate a new one; preserve the flag otherwise.
+            val titlePresent = !note.title.isNullOrBlank()
+            val toSave = note.copy(
+                updatedAt = now,
+                smartTitleGenerated = titlePresent && note.smartTitleGenerated,
+            )
+            noteDao.updateNote(toSave)
+            if (!titlePresent) {
+                noteSmartTitleUseCase.schedule(toSave.id, now)
+            }
         }
     }
 
@@ -256,12 +257,4 @@ class NotesViewModel @Inject constructor(
     }
 
 
-    fun triggerVoiceAction() {
-        pendingNoteAction = NoteAction.VOICE_INPUT
-        // TODO: Navigate to voice input activity
-    }
-
-    fun clearNoteAction() {
-        pendingNoteAction = NoteAction.NONE
-    }
 }

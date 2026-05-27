@@ -3685,7 +3685,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_note",
             regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:make|take)\s+(?:a\s+)?note(?:\s+that)?\s+(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:make|take)\s+(?:a\s+)?note(?:\s+(?:that|about|for|on))?[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
