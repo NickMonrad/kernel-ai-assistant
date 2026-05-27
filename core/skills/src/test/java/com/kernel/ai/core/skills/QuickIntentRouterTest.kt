@@ -3259,7 +3259,6 @@ class QuickIntentRouterTest {
             Arguments.of("can you remember that I have a dog named Xena", "I have a dog named Xena"),
             Arguments.of("note that I prefer email", "I prefer email"),
             Arguments.of("don't forget that I like dark mode", "I like dark mode"),
-            Arguments.of("make a note that I'm vegetarian", "I'm vegetarian"),
         )
         @JvmStatic
         fun saveMemoryNeedsSlotPhrases(): Stream<Arguments> = Stream.of(

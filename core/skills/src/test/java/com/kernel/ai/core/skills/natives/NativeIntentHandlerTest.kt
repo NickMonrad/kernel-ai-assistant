@@ -26,6 +26,7 @@ import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
+import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.memory.profile.UserProfileYaml
 import com.kernel.ai.core.skills.SkillResult
 import io.mockk.Runs
@@ -67,6 +68,7 @@ class NativeIntentHandlerTest {
     private val clockAlertController = mockk<ClockAlertController>(relaxed = true)
     private val listItemDao = mockk<ListItemDao>(relaxed = true)
     private val noteDao = mockk<NoteDao>(relaxed = true)
+    private val noteSmartTitleUseCase = mockk<NoteSmartTitleUseCase>(relaxed = true)
     private val listNameDao = mockk<ListNameDao>(relaxed = true)
     private val cookingConversionService = mockk<CookingConversionService>(relaxed = true)
     private val currencyConversionService = mockk<CurrencyConversionService>(relaxed = true)
@@ -85,6 +87,7 @@ class NativeIntentHandlerTest {
         currencyConversionService = currencyConversionService,
         userProfileRepository = mockk<UserProfileRepository>(relaxed = true),
         noteDao = noteDao,
+        noteSmartTitleUseCase = noteSmartTitleUseCase,
     )
 
     private fun handleIntent(intentName: String, params: Map<String, String>): SkillResult =
@@ -1056,6 +1059,7 @@ class NativeIntentHandlerTest {
             currencyConversionService = currencyConversionService,
             userProfileRepository = profileRepository,
             noteDao = noteDao,
+            noteSmartTitleUseCase = noteSmartTitleUseCase,
         )
         coEvery { profileRepository.getName() } returns "Nick"
         every { Log.d(any<String>(), any<String>()) } returns 0
@@ -2007,6 +2011,7 @@ class NativeIntentHandlerTest {
             currencyConversionService = currencyConversionService,
             userProfileRepository = profileRepository,
             noteDao = noteDao,
+            noteSmartTitleUseCase = noteSmartTitleUseCase,
         ).also {
             coEvery { profileRepository.getStructured() } returns
                 if (name != null) UserProfileYaml(name = name) else null

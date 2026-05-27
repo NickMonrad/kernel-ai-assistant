@@ -200,6 +200,24 @@ class QuickIntentRouterNoteTest {
             assertEquals("create_note", intent?.intentName)
             assertEquals("call the doctor", intent?.params["content"])
         }
+
+        @Test
+        fun `bare 'add a voice memo' returns NeedsSlot for create_note`() {
+            val result = router.route("Add a voice memo")
+            assertTrue(result is QuickIntentRouter.RouteResult.NeedsSlot,
+                "Expected NeedsSlot but got: $result")
+            val slot = (result as QuickIntentRouter.RouteResult.NeedsSlot)
+            assertEquals("create_note", slot.intent.intentName)
+            assertEquals("content", slot.missingSlot.name)
+        }
+
+        @Test
+        fun `bare 'voice memo' returns NeedsSlot for create_note`() {
+            val result = router.route("voice memo")
+            assertTrue(result is QuickIntentRouter.RouteResult.NeedsSlot,
+                "Expected NeedsSlot but got: $result")
+            assertEquals("create_note", (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName)
+        }
     // ─── Negative tests ───────────────────────────────────────────────────────
 
     @Nested
@@ -285,6 +303,12 @@ class QuickIntentRouterNoteTest {
             Arguments.of("create a voice memo: meeting notes"),
             Arguments.of("please add a voice memo call the doctor"),
             Arguments.of("can you create a voice memo about dinner"),
+            // Bare voice memo phrases — no content → NeedsSlot (still routes to create_note)
+            Arguments.of("voice memo"),
+            Arguments.of("add a voice memo"),
+            Arguments.of("create a voice memo"),
+            Arguments.of("record a voice memo"),
+            Arguments.of("make a note that I'm vegetarian"),
         )
 
         @JvmStatic
