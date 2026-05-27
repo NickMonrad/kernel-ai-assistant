@@ -587,4 +587,25 @@ class QuickIntentRouterNoteTest {
     }
 
 
+    @Nested
+    @DisplayName("list_notes routing")
+    inner class ListNotesTest {
+        private fun assertListNotes(input: String) {
+            val result = router.route(input)
+            assertTrue(result is QuickIntentRouter.RouteResult.RegexMatch,
+                "Expected RegexMatch for '$input', got $result")
+            assertEquals("list_notes", (result as QuickIntentRouter.RouteResult.RegexMatch).intent.intentName)
+        }
+
+        @Test fun `what notes do you have saved`() = assertListNotes("What notes do you have saved")
+        @Test fun `what notes do I have`() = assertListNotes("what notes do I have")
+        @Test fun `what notes do you have`() = assertListNotes("what notes do you have")
+        @Test fun `do I have any notes`() = assertListNotes("do I have any notes")
+        @Test fun `do you have any notes saved`() = assertListNotes("do you have any notes saved")
+        @Test fun `show my notes`() = assertListNotes("show my notes")
+        @Test fun `list notes`() = assertListNotes("list notes")
+        @Test fun `my notes`() = assertListNotes("my notes")
+    }
+
+
 }

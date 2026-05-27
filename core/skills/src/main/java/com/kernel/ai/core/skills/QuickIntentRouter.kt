@@ -3833,7 +3833,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "list_notes",
             regex = Regex(
-                """^(?:what\s+notes(?:\s+do\s+I\s+have)?\b|what\s+(?:have|did)\s+I\s+(?:(?:write|wrote|written)(?:\s+down)?|(?:jot|jotted)(?:\s+down)?)|my\s+notes)(?:\s*[.!?])?$""",
+                """^(?:what\s+notes(?:\s+do\s+(?:I|you)\s+have(?:\s+saved)?)?\b|what\s+(?:have|did)\s+I\s+(?:(?:write|wrote|written)(?:\s+down)?|(?:jot|jotted)(?:\s+down)?)|(?:do\s+(?:I|you)\s+have\s+)?(?:any\s+)?(?:my\s+)?notes(?:\s+(?:saved|stored))?)(?:\s*[.!?])?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
