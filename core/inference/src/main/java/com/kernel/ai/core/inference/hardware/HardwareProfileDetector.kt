@@ -41,8 +41,11 @@ class HardwareProfileDetector @Inject constructor(
 
         val tier = HardwareTier.fromRamBytes(totalRam)
 
+        // NPU (Qualcomm Hexagon via FastRPC) requires /dev/cdsp* device nodes which are absent
+        // on the SM8550 (S23 Ultra) target device — Engine.initialize() hangs indefinitely with
+        // no timeout when the CDSP is unreachable. E4B runs on GPU (OpenCL / Adreno 740) as
+        // documented. Keep hasQualcommNpu for future use when NPU support is validated.
         val recommendedBackend = when {
-            tier == HardwareTier.FLAGSHIP && hasQualcommNpu -> BackendType.NPU
             tier == HardwareTier.FLAGSHIP -> BackendType.GPU
             tier == HardwareTier.MID_RANGE -> BackendType.GPU
             else -> BackendType.CPU
