@@ -3781,11 +3781,21 @@ class QuickIntentRouter(
             paramExtractor = { _, _ -> emptyMap() },
             requiredSlots = slotContract("create_note"),
         ),
-        // Pattern: "voice memo X" / "voice memo: X"
+        // Bare "save/make/take/add a voice memo" — no content → slot-fill
         IntentPattern(
             intentName = "create_note",
             regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:create\s+(?:a\s+)?|add\s+(?:a\s+)?)?(?:voice\s+memo)(?:\s*(?:about|:))?\s*[:\-–]?\s*(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:save|make|take|add|create|record|start)\s+(?:a\s+)?(?:new\s+)?voice\s+memo\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Pattern: "voice memo: X" / "save a voice memo about X" (with content)
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:save|make|take|add|create|record|start)\s+(?:a\s+)?(?:new\s+)?)?voice\s+memo(?:\s+(?:about|that|for|on))?\s*[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim().trimStart('-', ':', '–')) },

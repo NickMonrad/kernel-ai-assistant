@@ -543,4 +543,48 @@ class QuickIntentRouterNoteTest {
 
     }
 
+    @Nested
+    @DisplayName("Voice memo routing")
+    inner class VoiceMemoTest {
+        @Test
+        fun `save a voice memo bare routes to create_note NeedsSlot`() {
+            val result = router.route("save a voice memo")
+            assertTrue(result is QuickIntentRouter.RouteResult.NeedsSlot,
+                "Expected NeedsSlot, got $result")
+            assertEquals("create_note", (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName)
+        }
+
+        @Test
+        fun `add a voice memo bare routes to create_note NeedsSlot`() {
+            val result = router.route("add a voice memo")
+            assertTrue(result is QuickIntentRouter.RouteResult.NeedsSlot,
+                "Expected NeedsSlot, got $result")
+        }
+
+        @Test
+        fun `voice memo colon content routes to create_note`() {
+            val result = router.route("voice memo: dentist appointment Thursday")
+            val intent = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent
+                else -> null
+            }
+            assertEquals("create_note", intent?.intentName)
+            assertEquals("dentist appointment Thursday", intent?.params?.get("content"))
+        }
+
+        @Test
+        fun `save a voice memo about content routes to create_note`() {
+            val result = router.route("save a voice memo about the dentist")
+            val intent = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent
+                else -> null
+            }
+            assertEquals("create_note", intent?.intentName)
+            assertEquals("the dentist", intent?.params?.get("content"))
+        }
+    }
+
+
 }
