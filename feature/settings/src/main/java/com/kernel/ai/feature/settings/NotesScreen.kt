@@ -60,17 +60,24 @@ fun NotesScreen(
     val shareNote = { note: NoteEntity ->
         val full = viewModel.buildShareText(note)
         val maxBytes = 200_000
-        val truncated = full.encodeToByteArray().let { bytes ->
-            if (bytes.size <= maxBytes) full
-            else bytes.take(maxBytes).toByteArray().decodeToString() +
+        val bytes = full.encodeToByteArray()
+        val wasTruncated = bytes.size > maxBytes
+        val shareText = if (!wasTruncated) {
+            full
+        } else {
+            // Walk backward from the byte limit to find a valid UTF-8 sequence boundary.
+            // UTF-8 continuation bytes are 0x80–0xBF; a leading byte starts a new character.
+            var end = maxBytes
+            while (end > 0 && (bytes[end].toInt() and 0xC0) == 0x80) end--
+            bytes.copyOfRange(0, end).decodeToString() +
                 "\n\n[Note truncated — open in Kernel to view the full content]"
         }
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, truncated)
+            putExtra(Intent.EXTRA_TEXT, shareText)
             putExtra(Intent.EXTRA_TITLE, note.title ?: "Note")
         }
-        if (truncated !== full) {
+        if (wasTruncated) {
             scope.launch { snackbarHostState.showSnackbar("Note was too large and has been truncated for sharing") }
         }
         context.startActivity(Intent.createChooser(intent, "Share note"))

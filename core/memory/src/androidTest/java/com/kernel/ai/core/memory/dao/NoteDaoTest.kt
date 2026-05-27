@@ -150,4 +150,32 @@ class NoteDaoTest {
         assertEquals("A", all[1].title)
         assertEquals("Z", all[2].title)
     }
+
+    @Test
+    fun bulkUnarchive_clearsArchivedAtForAllIds() = runBlocking {
+        val id1 = noteDao.insertNote(NoteEntity(title = "One", content = "a"))
+        val id2 = noteDao.insertNote(NoteEntity(title = "Two", content = "b"))
+        val id3 = noteDao.insertNote(NoteEntity(title = "Three", content = "c"))
+        val now = System.currentTimeMillis()
+        noteDao.bulkArchive(listOf(id1, id2, id3), archivedAt = now - 1000L, updatedAt = now - 1000L)
+
+        // Verify all are archived before restore
+        assertEquals(0, noteDao.getActiveNoteCount())
+        assertEquals(3, noteDao.getArchivedNoteCount())
+
+        noteDao.bulkUnarchive(listOf(id1, id2), updatedAt = now)
+
+        // id1 and id2 restored; id3 still archived
+        assertEquals(2, noteDao.getActiveNoteCount())
+        assertEquals(1, noteDao.getArchivedNoteCount())
+
+        val restored1 = noteDao.getNoteById(id1)!!
+        val restored2 = noteDao.getNoteById(id2)!!
+        val stillArchived = noteDao.getNoteById(id3)!!
+
+        assertEquals(0L, restored1.archivedAt)
+        assertEquals(0L, restored2.archivedAt)
+        assertTrue("id3 should still be archived", stillArchived.archivedAt > 0L)
+    }
+
 }

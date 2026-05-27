@@ -607,5 +607,56 @@ class QuickIntentRouterNoteTest {
         @Test fun `my notes`() = assertListNotes("my notes")
     }
 
+    @Nested
+    @DisplayName("Placeholder content → NeedsSlot (not saved as literal note)")
+    inner class PlaceholderContentTest {
+
+        private fun assertNeedsSlot(input: String) {
+            val result = router.route(input)
+            assertTrue(
+                result is QuickIntentRouter.RouteResult.NeedsSlot,
+                "Expected NeedsSlot for '$input', got $result",
+            )
+            assertEquals(
+                "create_note",
+                (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName,
+            )
+        }
+
+        private fun assertRealContent(input: String, expectedContent: String) {
+            val result = router.route(input)
+            val intent = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent
+                else -> null
+            }
+            assertEquals("create_note", intent?.intentName)
+            assertEquals(expectedContent, intent?.params?.get("content"))
+        }
+
+        // ── Placeholder words → NeedsSlot ──────────────────────────────────────────
+
+        @Test fun `make a note about something → NeedsSlot`() = assertNeedsSlot("make a note about something")
+        @Test fun `take a note about something → NeedsSlot`() = assertNeedsSlot("take a note about something")
+        @Test fun `save a note about something → NeedsSlot`() = assertNeedsSlot("save a note about something")
+        @Test fun `create a note about something → NeedsSlot`() = assertNeedsSlot("create a note about something")
+        @Test fun `add a note about something → NeedsSlot`() = assertNeedsSlot("add a note about something")
+        @Test fun `jot down something → NeedsSlot`() = assertNeedsSlot("jot down something")
+        @Test fun `write down anything → NeedsSlot`() = assertNeedsSlot("write down anything")
+        @Test fun `note - something → NeedsSlot`() = assertNeedsSlot("note: something")
+        @Test fun `write a voice memo about something → NeedsSlot`() = assertNeedsSlot("write a voice memo about something")
+        @Test fun `save a voice memo about something → NeedsSlot`() = assertNeedsSlot("save a voice memo about something")
+        @Test fun `write a memo about something → NeedsSlot`() = assertNeedsSlot("write a memo about something")
+        @Test fun `make a memo about anything → NeedsSlot`() = assertNeedsSlot("make a memo about anything")
+
+        // ── Real content still routes correctly ─────────────────────────────────────
+
+        @Test fun `make a note about the dentist → real content`() = assertRealContent("make a note about the dentist", "the dentist")
+        @Test fun `write a voice memo about the meeting → real content`() = assertRealContent("write a voice memo about the meeting", "the meeting")
+        @Test fun `write a memo about groceries → real content`() = assertRealContent("write a memo about groceries", "groceries")
+        @Test fun `jot down call mum → real content`() = assertRealContent("jot down call mum", "call mum")
+    }
+
+
 
 }
