@@ -106,6 +106,8 @@ Contract-first: define `SkillSchema` JSON schema before logic. Version bump in m
 
 Jetpack Compose + Material 3 Dynamic Color, dark/AMOLED default. Conversations list as home. `KernelDatabase` v48. `ConversationEntity` carries `archivedAt`, `pinned`, `sortOrder`; `observeActive` orders by `pinned DESC, sort_order ASC, updated_at DESC`. Archived conversations are read-only. `ArchiveCleanupWorker` runs daily (default 7-day retention, `ChatPreferences` DataStore).
 
+**Before implementing any new screen or list feature, read `docs/UX_PATTERNS.md`.** It defines the canonical patterns for list management (archive/pin/sort/swipe/multi-select), navigation, settings integration, empty states, confirmation dialogs, and Compose conventions. Parallel patterns are prohibited.
+
 Voice: push-to-talk + streaming, auto-stop on silence. Per-message TTS (`VolumeUp`) on every assistant bubble. Verbal stop commands ("stop", "cancel", "be quiet", "shut up", "silence") cancel TTS mid-stream. `truncateForSpeech()` uses `KNOWN_ABBREV` + `INITIALS_REGEX`. Sherpa TTS pitch slider (0.5–2.0×), `autoSpeakEnabled` toggle.
 
 Widget: `androidx.glance` in `:feature:widget`. Text pill → `WidgetTextInputActivity`; mic → `VoiceCommandActivity`. Both fire explicit intent to `MainActivity` (`quick_action_input` + `quick_action_is_voice`). `savedStateHandle` boolean `widgetQueryConsumed` prevents re-execution on recompose.
@@ -202,6 +204,7 @@ Load these only when relevant:
 - `.docs/agents/decision-heuristics.md` — when multiple valid approaches exist
 - `.docs/agents/failure-handling.md` — blockers, escalation, progress reporting
 - `.docs/agents/repo-map.md` — key file index by area
+- `docs/UX_PATTERNS.md` — canonical UI/UX patterns for lists, navigation, settings, Compose (read before any new screen)
 
 ## Phase status
 
