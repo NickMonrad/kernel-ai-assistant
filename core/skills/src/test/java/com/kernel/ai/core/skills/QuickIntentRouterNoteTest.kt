@@ -467,4 +467,80 @@ class QuickIntentRouterNoteTest {
             )
         }
     }
+    @Nested
+    @DisplayName("Memo synonym routing")
+    inner class MemoSynonymTest {
+
+        @Test
+        fun `save a memo routes to create_note NeedsSlot`() {
+            val result = router.route("save a memo")
+            assertTrue(result is QuickIntentRouter.RouteResult.NeedsSlot,
+                "Bare 'save a memo' should trigger slot-fill, got $result")
+            assertEquals("create_note", (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName)
+        }
+
+        @Test
+        fun `make a memo with content routes to create_note`() {
+            val result = router.route("make a memo bin night tonight")
+            val intent = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent
+                else -> null
+            }
+            assertEquals("create_note", intent?.intentName)
+            assertEquals("bin night tonight", intent?.params?.get("content"))
+        }
+
+        @Test
+        fun `take a memo about X routes to create_note`() {
+            val result = router.route("take a memo about the dentist")
+            val intent = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent
+                else -> null
+            }
+            assertEquals("create_note", intent?.intentName)
+            assertEquals("the dentist", intent?.params?.get("content"))
+        }
+        @Test
+        fun `note to self bare routes to create_note NeedsSlot`() {
+            val result = router.route("note to self")
+            assertTrue(result is QuickIntentRouter.RouteResult.NeedsSlot,
+                "Bare 'note to self' should trigger slot-fill, got $result")
+            assertEquals("create_note", (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName)
+        }
+
+        @Test
+        fun `note to myself bare routes to create_note NeedsSlot`() {
+            val result = router.route("note to myself")
+            assertTrue(result is QuickIntentRouter.RouteResult.NeedsSlot,
+                "Bare 'note to myself' should trigger slot-fill, got $result")
+        }
+
+        @Test
+        fun `note to self with content routes to create_note`() {
+            val result = router.route("note to self bin night tonight")
+            val intent = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent
+                else -> null
+            }
+            assertEquals("create_note", intent?.intentName)
+            assertEquals("bin night tonight", intent?.params?.get("content"))
+        }
+
+        @Test
+        fun `note to self colon content routes to create_note`() {
+            val result = router.route("note to self: pick up the kids")
+            val intent = when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent
+                else -> null
+            }
+            assertEquals("create_note", intent?.intentName)
+            assertEquals("pick up the kids", intent?.params?.get("content"))
+        }
+
+    }
+
 }

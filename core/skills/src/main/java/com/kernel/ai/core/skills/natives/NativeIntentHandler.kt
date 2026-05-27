@@ -2890,7 +2890,7 @@ class NativeIntentHandler @Inject constructor(
                 SkillResult.Failure("create_note", "Failed to create note")
             } else {
                 if (title == null) {
-                    noteSmartTitleUseCase.schedule(id, now)
+                    noteSmartTitleUseCase.schedule(id)
                 }
                 SkillResult.DirectReply("Note saved.")
             }

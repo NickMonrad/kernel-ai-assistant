@@ -22,21 +22,24 @@ class NoteSmartTitleUseCase @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<Long, Job>()
 
-    fun schedule(noteId: Long, expectedUpdatedAt: Long) {
+    fun schedule(noteId: Long) {
         jobs.remove(noteId)?.cancel()
         lateinit var job: Job
         job = scope.launch {
             try {
                 delay(DEBOUNCE_MS)
                 val note = noteDao.getNoteById(noteId) ?: return@launch
+                // Bail if another operation already generated a title or the user typed one.
                 if (note.smartTitleGenerated) return@launch
-                if (note.updatedAt != expectedUpdatedAt) return@launch
                 if (!note.title.isNullOrBlank()) return@launch
                 val content = note.content.trim()
                 if (content.isBlank()) return@launch
+                // Use the current updatedAt (not the scheduled one) so that a save between
+                // scheduling and generation doesn't permanently suppress title generation.
+                val currentUpdatedAt = note.updatedAt
 
                 val generated = generateTitle(content) ?: return@launch
-                val updated = noteDao.updateNoteTitleConditionally(noteId, generated, expectedUpdatedAt)
+                val updated = noteDao.updateNoteTitleConditionally(noteId, generated, currentUpdatedAt)
                 if (updated == 0) {
                     Log.d(TAG, "Skipped smart title update for note $noteId; note changed while generating")
                 }

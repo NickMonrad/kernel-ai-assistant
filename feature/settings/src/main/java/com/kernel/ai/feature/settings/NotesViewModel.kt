@@ -136,7 +136,7 @@ class NotesViewModel @Inject constructor(
             )
             val id = noteDao.insertNote(note)
             if (id > 0 && normalizedTitle == null) {
-                noteSmartTitleUseCase.schedule(id, now)
+                noteSmartTitleUseCase.schedule(id)
             }
         }
     }
@@ -153,7 +153,7 @@ class NotesViewModel @Inject constructor(
             )
             noteDao.updateNote(toSave)
             if (!titlePresent) {
-                noteSmartTitleUseCase.schedule(toSave.id, now)
+                noteSmartTitleUseCase.schedule(toSave.id)
             }
         }
     }

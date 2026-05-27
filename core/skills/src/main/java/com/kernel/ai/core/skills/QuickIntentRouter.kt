@@ -3683,7 +3683,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "save_memory",
             regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(\S.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it|to\s+(?:my)?self)\b)(\S.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
@@ -3789,6 +3789,26 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim().trimStart('-', ':', '–')) },
+        ),
+        // Bare "save/make/take/add a memo" / "note to self" — no content → slot-fill
+        // "memo" and "note to self" are common voice synonyms for "note".
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:save|make|take|add|create|record|start)\s+(?:a\s+)?(?:new\s+)?memo|note\s+to\s+(?:my)?self)\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Pattern: "save/make a memo: X" / "take a memo about X" / "note to self: X"
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:save|make|take|add|create|record)\s+(?:a\s+)?(?:new\s+)?memo|note\s+to\s+(?:my)?self)(?:\s+(?:that|about|for|on))?[:\-–]?\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
         ),
         // Pattern: "show/list/display/check/read [my] notes"
         IntentPattern(
