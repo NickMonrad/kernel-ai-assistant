@@ -41,15 +41,62 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : VoiceInputController {
 
-    private val _events = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 8)
-    override val events: Flow<VoiceInputEvent> = _events.asSharedFlow()
+    // ── Constants ─────────────────────────────────────────────────────────────
 
-    // ── Reflected recogniser state ───────────────────────────────────────────
+    companion object {
+        private const val TAG = "SherpaSTT"
+        private const val SAMPLE_RATE = 16000
+        private const val CHUNK_SAMPLES = (0.1 * SAMPLE_RATE).toInt() // 100 ms per chunk
+        private const val LISTEN_TIMEOUT_MS = 15_000L
+
+        private const val SHERPA_PKG = "com.k2fsa.sherpa.onnx"
+        private const val CLS_FEATURE     = "$SHERPA_PKG.FeatureConfig"
+        private const val CLS_TRANSDUCER  = "$SHERPA_PKG.OnlineTransducerModelConfig"
+        private const val CLS_MODEL       = "$SHERPA_PKG.OnlineModelConfig"
+        private const val CLS_ENDPOINT    = "$SHERPA_PKG.EndpointConfig"
+        private const val CLS_REC_CFG     = "$SHERPA_PKG.OnlineRecognizerConfig"
+        private const val CLS_RECOGNIZER  = "$SHERPA_PKG.OnlineRecognizer"
+        private const val CLS_STREAM      = "$SHERPA_PKG.OnlineStream"
+
+        // Asset paths — relative to assets root; no leading "/" or "assets/" prefix.
+        private const val STT_ENCODER = "models/stt/encoder-epoch-99-avg-1.int8.onnx"
+        private const val STT_DECODER = "models/stt/decoder-epoch-99-avg-1.int8.onnx"
+        private const val STT_JOINER  = "models/stt/joiner-epoch-99-avg-1.int8.onnx"
+        private const val STT_TOKENS  = "models/stt/tokens.txt"
+
+        /**
+         * Returns true when [this] transcript contains a recognisable form of "Hey Jandal".
+         *
+         * Matches across common ASR error modes (Handel/Handal/Jandel) and normalises case.
+         * Designed to be used as the acceptance predicate in the [WakeWordDetector] `verifyWindow`
+         * callback:
+         *
+         * ```kotlin
+         * // In WakeWordService.onStartCommand, after #821 + #985 are merged to main:
+         * wakeWordDetector.start(
+         *     onDetected = { handleDetection() },
+         *     verifyWindow = { pcm ->
+         *         with(SherpaOnnxVoiceInputController) {
+         *             sherpaOnnxVoiceInputController.transcribeBlocking(pcm).containsWakePhrase()
+         *         }
+         *     },
+         * )
+         * ```
+         */
+        fun String.containsWakePhrase(): Boolean {
+            val lower = lowercase()
+            // Accept "hey" or "a" (common ASR substitution for "hey") before the name.
+            val namePattern = Regex("""(?:hey|a)\s*(?:jandal|jandel|handel|handal|hando)""")
+            return namePattern.containsMatchIn(lower)
+        }
+    }
+
+    // ── Reflected recogniser state ─────────────────────────────────────────────
 
     @Volatile private var recognizer: Any? = null
     private val recognizerMutex = Mutex()
 
-    /** Reflected method handles — populated once in [ensureRecognizer]. */
+    /** Reflected method handles — populated once in [initRecognizer]. */
     @Volatile private var mCreateStream: java.lang.reflect.Method? = null
     @Volatile private var mAcceptWaveform: java.lang.reflect.Method? = null
     @Volatile private var mInputFinished: java.lang.reflect.Method? = null
@@ -60,7 +107,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     @Volatile private var mReset: java.lang.reflect.Method? = null
     @Volatile private var mStreamRelease: java.lang.reflect.Method? = null
 
-    // ── Session state ────────────────────────────────────────────────────────
+    // ── Session state ──────────────────────────────────────────────────────────
 
     /** Guards the entire start/stop lifecycle to prevent overlapping sessions. */
     private val sessionMutex = Mutex()
@@ -68,38 +115,19 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
     @Volatile private var activeJob: Job? = null
 
-    // ── Audio focus ──────────────────────────────────────────────────────────
+    // ── Audio focus ────────────────────────────────────────────────────────────
 
     private val audioManager by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
     @Volatile private var audioFocusRequest: AudioFocusRequest? = null
 
-    // ── Constants ────────────────────────────────────────────────────────────
+    // ── Events ─────────────────────────────────────────────────────────────────
 
-    private companion object {
-        const val TAG = "SherpaSTT"
-        const val SAMPLE_RATE = 16000
-        const val CHUNK_SAMPLES = (0.1 * SAMPLE_RATE).toInt() // 100 ms per chunk
-        const val LISTEN_TIMEOUT_MS = 15_000L
+    private val _events = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 8)
+    override val events: Flow<VoiceInputEvent> = _events.asSharedFlow()
 
-        const val SHERPA_PKG = "com.k2fsa.sherpa.onnx"
-        const val CLS_FEATURE     = "$SHERPA_PKG.FeatureConfig"
-        const val CLS_TRANSDUCER  = "$SHERPA_PKG.OnlineTransducerModelConfig"
-        const val CLS_MODEL       = "$SHERPA_PKG.OnlineModelConfig"
-        const val CLS_ENDPOINT    = "$SHERPA_PKG.EndpointConfig"
-        const val CLS_REC_CFG     = "$SHERPA_PKG.OnlineRecognizerConfig"
-        const val CLS_RECOGNIZER  = "$SHERPA_PKG.OnlineRecognizer"
-        const val CLS_STREAM      = "$SHERPA_PKG.OnlineStream"
-
-        // Asset paths — relative to assets root; no leading "/" or "assets/" prefix.
-        const val STT_ENCODER = "models/stt/encoder-epoch-99-avg-1.int8.onnx"
-        const val STT_DECODER = "models/stt/decoder-epoch-99-avg-1.int8.onnx"
-        const val STT_JOINER  = "models/stt/joiner-epoch-99-avg-1.int8.onnx"
-        const val STT_TOKENS  = "models/stt/tokens.txt"
-    }
-
-    // ── VoiceInputController ─────────────────────────────────────────────────
+    // ── VoiceInputController ───────────────────────────────────────────────────
 
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult =
         sessionMutex.withLock {
@@ -145,7 +173,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         activeJob = null
     }
 
-    // ── Audio loop ────────────────────────────────────────────────────────────
+    // ── Audio loop ─────────────────────────────────────────────────────────────
 
     @Volatile private var isRecording = false
 
@@ -182,7 +210,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 val exactFloat = if (n == floatBuf.size) floatBuf else floatBuf.copyOf(n)
                 mAcceptWaveform!!.invoke(stream, exactFloat, SAMPLE_RATE)
 
-                // Drain — Sherpa may buffer multiple decodeable chunks per feed.
+                // Drain — Sherpa may buffer multiple decodable chunks per feed.
                 while (mIsReady!!.invoke(rec, stream) as Boolean) {
                     mDecode!!.invoke(rec, stream)
                 }
@@ -255,14 +283,77 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     }
 
     private fun resultText(rec: Any, stream: Any): String =
-        (mGetResult!!.invoke(rec, stream)
+        mGetResult!!.invoke(rec, stream)
             .let { result ->
                 result.javaClass.getDeclaredMethod("getText")
                     .also { it.isAccessible = true }
                     .invoke(result) as String
-            }).trim()
+            }.trim()
 
-    // ── AudioRecord helpers ───────────────────────────────────────────────────
+    // ── Synchronous transcription (wake word verification) ─────────────────────
+
+    /**
+     * Transcribes a pre-captured PCM buffer synchronously on the calling thread.
+     *
+     * Intended for use as the [WakeWordDetector.start] `verifyWindow` callback, which is
+     * invoked synchronously on the wake word detector thread when confidence crosses the
+     * LOW_THRESHOLD.  The caller checks [containsWakePhrase] on the returned text:
+     *
+     * ```kotlin
+     * // In WakeWordService.onStartCommand, once #821 and #985 are both on main:
+     * wakeWordDetector.start(
+     *     onDetected = { handleDetection() },
+     *     verifyWindow = { pcm ->
+     *         with(SherpaOnnxVoiceInputController) {
+     *             sherpaOnnxVoiceInputController.transcribeBlocking(pcm).containsWakePhrase()
+     *         }
+     *     },
+     * )
+     * ```
+     *
+     * **Thread safety:** safe to call from any thread; acquires no coroutine machinery.
+     * [ensureRecognizerBlocking] caches the recognizer on first call, so repeat calls are cheap.
+     *
+     * @param pcm 16 kHz mono PCM in int16 (the format produced by [OnnxWakeWordDetector]'s
+     *            ring buffer). Converted to float32 internally.
+     * @return The trimmed transcript, or an empty string if STT is unavailable or fails.
+     */
+    fun transcribeBlocking(pcm: ShortArray): String {
+        if (pcm.isEmpty()) return ""
+        val rec = ensureRecognizerBlocking() ?: return ""
+        return try {
+            val stream = mCreateStream!!.invoke(rec, "")
+            val floats = FloatArray(pcm.size) { pcm[it] / 32768f }
+            mAcceptWaveform!!.invoke(stream, floats, SAMPLE_RATE)
+            mInputFinished!!.invoke(stream)
+            while (mIsReady!!.invoke(rec, stream) as Boolean) {
+                mDecode!!.invoke(rec, stream)
+            }
+            val text = resultText(rec, stream)
+            mStreamRelease!!.invoke(stream)
+            text
+        } catch (e: Exception) {
+            Log.e(TAG, "transcribeBlocking failed", e)
+            ""
+        }
+    }
+
+    /**
+     * Blocking (non-suspending) variant of [ensureRecognizer] for use from non-coroutine threads.
+     * Uses [kotlinx.coroutines.runBlocking] — only safe to call from a plain thread,
+     * not from within a coroutine dispatcher.
+     */
+    private fun ensureRecognizerBlocking(): Any? {
+        recognizer?.let { return it }
+        return try {
+            kotlinx.coroutines.runBlocking { ensureRecognizer() }
+        } catch (e: Exception) {
+            Log.e(TAG, "ensureRecognizerBlocking failed", e)
+            null
+        }
+    }
+
+    // ── AudioRecord helpers ────────────────────────────────────────────────────
 
     private fun createAudioRecord(): AudioRecord? {
         val minBuf = AudioRecord.getMinBufferSize(
@@ -286,7 +377,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         try { ar.release() } catch (_: Exception) {}
     }
 
-    // ── Audio focus ───────────────────────────────────────────────────────────
+    // ── Audio focus ────────────────────────────────────────────────────────────
 
     private fun requestAudioFocus() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -317,7 +408,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         }
     }
 
-    // ── Availability ──────────────────────────────────────────────────────────
+    // ── Availability ───────────────────────────────────────────────────────────
 
     /**
      * Returns true when all four STT model files exist in assets.
@@ -329,7 +420,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         }
     }
 
-    // ── Lazy recogniser init ──────────────────────────────────────────────────
+    // ── Lazy recogniser init ───────────────────────────────────────────────────
 
     /**
      * Constructs and caches the [OnlineRecognizer] exactly once.
@@ -421,7 +512,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         return instance
     }
 
-    // ── Reflection helper ─────────────────────────────────────────────────────
+    // ── Reflection helper ──────────────────────────────────────────────────────
 
     /**
      * Sets a mutable property on [obj] via its JVM setter or direct field access.
