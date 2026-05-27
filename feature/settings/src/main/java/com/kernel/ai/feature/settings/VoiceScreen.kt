@@ -114,6 +114,7 @@ fun VoiceScreen(
             if (intent != null) assistantRoleLauncher.launch(intent)
         },
         onHeyJandalEnabledChanged = viewModel::setHeyJandalEnabled,
+        onWakeWordThresholdChanged = viewModel::setWakeWordThreshold,
         onVoiceInputEngineSelected = viewModel::setVoiceInputEngine,
         onAutoStartAlertVoiceCommandsEnabledChanged = viewModel::setAutoStartAlertVoiceCommandsEnabled,
         onSpokenResponsesEnabledChanged = viewModel::setSpokenResponsesEnabled,
@@ -143,6 +144,7 @@ private fun VoiceScreenContent(
     onBack: () -> Unit,
     onRequestAssistantRole: () -> Unit,
     onHeyJandalEnabledChanged: (Boolean) -> Unit,
+    onWakeWordThresholdChanged: (Float) -> Unit,
     onVoiceInputEngineSelected: (VoiceInputEngine) -> Unit,
     onAutoStartAlertVoiceCommandsEnabledChanged: (Boolean) -> Unit,
     onSpokenResponsesEnabledChanged: (Boolean) -> Unit,
@@ -247,6 +249,25 @@ private fun VoiceScreenContent(
                     )
                 },
             )
+
+            // Confidence threshold slider — only shown when wake word model is available
+            if (uiState.isWakeWordModelAvailable) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    SliderRow(
+                        label = "Detection sensitivity",
+                        valueLabel = "${(uiState.wakeWordThreshold * 100).toInt()}%",
+                        value = uiState.wakeWordThreshold,
+                        valueRange = 0.5f..0.95f,
+                        steps = 8,
+                        onValueChangeFinished = { newVal ->
+                            // Round to nearest 5% step for clean display and DataStore writes.
+                            onWakeWordThresholdChanged(
+                                (newVal * 20).roundToInt() / 20f,
+                            )
+                        },
+                    )
+                }
+            }
             HorizontalDivider()
 
             Text(
@@ -1394,6 +1415,7 @@ private fun VoiceScreenPreview() {
             onBack = {},
             onRequestAssistantRole = {},
             onHeyJandalEnabledChanged = {},
+            onWakeWordThresholdChanged = {},
             onVoiceInputEngineSelected = {},
             onAutoStartAlertVoiceCommandsEnabledChanged = {},
             onSpokenResponsesEnabledChanged = {},

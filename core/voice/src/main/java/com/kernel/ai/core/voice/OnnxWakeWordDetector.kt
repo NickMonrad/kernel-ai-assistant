@@ -50,6 +50,14 @@ private const val FRAME_SAMPLES = 1_280 // 80ms × 16 000 Hz
 private const val EMBEDDING_FRAMES = 28
 private const val EMBEDDING_DIM = 96
 
+// ── PCM verification ring buffer ─────────────────────────────────────────────
+/**
+ * Number of PCM samples to retain for STT verification on a LOW_THRESHOLD crossing.
+ * [WAKE_WORD_VERIFY_WINDOW_S] seconds at 16 kHz = 48 000 samples ≈ 96 KB.
+ * Allocated once at start(); zero heap churn during detection.
+ */
+private val VERIFY_RING_SAMPLES = WAKE_WORD_VERIFY_WINDOW_S * SAMPLE_RATE // 48 000
+
 // ── Model asset paths ─────────────────────────────────────────────────────────
 /**
  * Shared openWakeWord preprocessing models — download from the openWakeWord
@@ -66,7 +74,8 @@ private const val ASSET_EMBEDDING      = "models/wakeword/embedding_model.onnx"
 private const val ASSET_CLASSIFIER     = "models/wakeword/hey_jandal.onnx"
 
 /**
- * Always-on wake word detector implementing the openWakeWord 3-stage ONNX pipeline.
+ * Always-on wake word detector implementing the openWakeWord 3-stage ONNX pipeline,
+ * with an optional dual-threshold STT verification path (issue #986).
  *
  * ## Pipeline
  * ```
@@ -76,8 +85,23 @@ private const val ASSET_CLASSIFIER     = "models/wakeword/hey_jandal.onnx"
  *   → [Stage 2] embedding_model.onnx   — mel features → 96-dim embedding vector
  *   → ring buffer (last 28 embeddings) — ~2.24s of acoustic context
  *   → [Stage 3] hey_jandal.onnx        — embedding window → confidence [0,1]
- *   → threshold check → onDetected()
+ *   → dual-threshold decision
+ *       confidence ≥ highThreshold                    → onDetected() immediately
+ *       lowThreshold ≤ confidence < highThreshold     → verifyWindow(pcmRing) → onDetected() if true
+ *       confidence < lowThreshold (or no verifier)    → ignore
  * ```
+ *
+ * ## Dual-threshold verification (issue #986)
+ *
+ * When a [verifyWindow] callback is supplied to [start], a secondary (lower)
+ * confidence threshold becomes active.  Crossings in the secondary band trigger STT
+ * verification before activating the assistant, reducing false positives while keeping
+ * the fast path fast for high-confidence detections.
+ *
+ * The verifier receives the last [WAKE_WORD_VERIFY_WINDOW_S] seconds of raw PCM
+ * (16kHz mono int16) as a [ShortArray] and is called synchronously on the detector
+ * thread.  A typical verifier runs Vosk/Android STT on the buffer and checks for
+ * a "hey jandal"-like transcript.
  *
  * ## Model contracts
  *
@@ -98,11 +122,6 @@ private const val ASSET_CLASSIFIER     = "models/wakeword/hey_jandal.onnx"
  * [isAvailable] returns false and [start] is a no-op when any model file is absent,
  * so the app ships fine before the models are ready.  Placing all three files in
  * assets/models/wakeword/ activates the feature automatically.
- *
- * ## Shape verification
- * If you change backbone or retrain with a different context window, verify the
- * actual ONNX input/output names and shapes with Netron (https://netron.app) and
- * update [EMBEDDING_FRAMES], [EMBEDDING_DIM], and the input tensor names below.
  */
 @Singleton
 class OnnxWakeWordDetector @Inject constructor(
@@ -151,7 +170,7 @@ class OnnxWakeWordDetector @Inject constructor(
         }
     }
 
-    override fun start(onDetected: () -> Unit) {
+    override fun start(onDetected: () -> Unit, verifyWindow: ((ShortArray) -> Boolean)?) {
         val bytes = modelBytes
         if (bytes == null) {
             Log.d(TAG, "WakeWordDetector: start() called but model(s) absent — no-op")
@@ -159,14 +178,21 @@ class OnnxWakeWordDetector @Inject constructor(
         }
         if (!running.compareAndSet(false, true)) return
 
-        // Read the threshold on the caller's thread before entering the detection
-        // thread.  This avoids runBlocking inside a thread whose dispatcher is unknown
-        // and eliminates any risk of deadlock if the DataStore flow ever emits on Main.
-        val threshold = runBlocking { wakeWordPreferences.confidenceThreshold.first() }
-        Log.i(TAG, "WakeWordDetector: starting 3-stage ONNX pipeline — threshold=$threshold")
+        // Read both thresholds on the caller's thread before entering the detection thread.
+        val highThreshold = runBlocking { wakeWordPreferences.confidenceThreshold.first() }
+        val lowThreshold  = if (verifyWindow != null) {
+            runBlocking { wakeWordPreferences.lowConfidenceThreshold.first() }
+                .coerceAtMost(highThreshold)
+        } else {
+            highThreshold // verifier absent → collapse dual-band to single threshold
+        }
+
+        Log.i(TAG, "WakeWordDetector: starting 3-stage ONNX pipeline — " +
+            "highThreshold=$highThreshold" +
+            if (verifyWindow != null) " lowThreshold=$lowThreshold (STT verification active)" else "")
 
         detectionThread = Thread(
-            { runDetectionLoop(bytes, threshold, onDetected) },
+            { runDetectionLoop(bytes, highThreshold, lowThreshold, verifyWindow, onDetected) },
             "wake-word-detector",
         ).also {
             it.isDaemon = true
@@ -181,7 +207,14 @@ class OnnxWakeWordDetector @Inject constructor(
         Log.d(TAG, "WakeWordDetector: stopped")
     }
 
-    private fun runDetectionLoop(bytes: ModelBytes, threshold: Float, onDetected: () -> Unit) {
+    @Suppress("LongMethod") // hot path — intentional single function to minimise call overhead
+    private fun runDetectionLoop(
+        bytes: ModelBytes,
+        highThreshold: Float,
+        lowThreshold: Float,
+        verifyWindow: ((ShortArray) -> Boolean)?,
+        onDetected: () -> Unit,
+    ) {
         // Buffer must hold at least two frames so AudioRecord never blocks waiting for space.
         val minBufSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
             .coerceAtLeast(FRAME_SAMPLES * Short.SIZE_BYTES * 2)
@@ -212,7 +245,6 @@ class OnnxWakeWordDetector @Inject constructor(
             .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load hey_jandal.onnx", e); null }
 
         if (melsSession == null || embedSession == null || classSession == null) {
-            // sessionOptions must be closed here too — it holds a native handle.
             sessionOptions.close()
             melsSession?.close()
             embedSession?.close()
@@ -239,6 +271,12 @@ class OnnxWakeWordDetector @Inject constructor(
         // windowFlat is re-filled in place each iteration; allocated once here.
         val windowFlat = FloatArray(EMBEDDING_FRAMES * EMBEDDING_DIM)
 
+        // PCM ring buffer for STT verification (pre-allocated; only used when verifyWindow != null).
+        // Holds [VERIFY_RING_SAMPLES] shorts = WAKE_WORD_VERIFY_WINDOW_S seconds at 16kHz.
+        val pcmRing     = if (verifyWindow != null) ShortArray(VERIFY_RING_SAMPLES) else ShortArray(0)
+        var pcmRingHead = 0
+        var pcmFilled   = 0 // saturates at VERIFY_RING_SAMPLES
+
         try {
             audioRecord.startRecording()
             Log.d(TAG, "WakeWordDetector: recording started")
@@ -259,14 +297,28 @@ class OnnxWakeWordDetector @Inject constructor(
                 }
                 if (totalRead < FRAME_SAMPLES) continue
 
+                // Feed the current frame into the PCM ring buffer (before ONNX stages so the
+                // buffer always reflects exactly what audio was last heard).
+                if (verifyWindow != null) {
+                    // Copy FRAME_SAMPLES shorts into the ring, wrapping at VERIFY_RING_SAMPLES.
+                    val spaceToEnd = VERIFY_RING_SAMPLES - pcmRingHead
+                    if (FRAME_SAMPLES <= spaceToEnd) {
+                        chunk.copyInto(pcmRing, pcmRingHead, 0, FRAME_SAMPLES)
+                        pcmRingHead = (pcmRingHead + FRAME_SAMPLES) % VERIFY_RING_SAMPLES
+                    } else {
+                        chunk.copyInto(pcmRing, pcmRingHead, 0, spaceToEnd)
+                        chunk.copyInto(pcmRing, 0, spaceToEnd, FRAME_SAMPLES)
+                        pcmRingHead = FRAME_SAMPLES - spaceToEnd
+                    }
+                    if (pcmFilled < VERIFY_RING_SAMPLES) pcmFilled += FRAME_SAMPLES
+                }
+
                 // Normalise 16-bit PCM to [-1, 1].
                 for (i in 0 until FRAME_SAMPLES) {
                     framePcm[i] = chunk[i] / 32768f
                 }
 
                 // --- Stage 1: melspectrogram ---
-                // OrtSession.Result implements AutoCloseable; use{} guarantees the native
-                // output tensor is released even if the downstream session call throws.
                 val embedding: FloatArray = OnnxTensor.createTensor(
                     env,
                     FloatBuffer.wrap(framePcm),
@@ -277,7 +329,6 @@ class OnnxWakeWordDetector @Inject constructor(
                         val melTensor = melOutput[melsOutputName].get() as OnnxTensor
                         embedSession.run(mapOf(embedInputName to melTensor)).use { embedOutput ->
                             val embedTensor = embedOutput[embedOutputName].get() as OnnxTensor
-                            // Copy out before the use{} block closes the result.
                             ((embedTensor.value as Array<*>)[0] as FloatArray).copyOf()
                         }
                     }
@@ -289,7 +340,6 @@ class OnnxWakeWordDetector @Inject constructor(
                 if (framesAccumulated < EMBEDDING_FRAMES) continue
 
                 // --- Stage 3: classifier over the last 28 frames ---
-                // Flatten ring buffer into chronological order in the pre-allocated array.
                 for (f in 0 until EMBEDDING_FRAMES) {
                     val frameIdx = (ringHead + f) % EMBEDDING_FRAMES
                     embeddingRing[frameIdx].copyInto(windowFlat, f * EMBEDDING_DIM)
@@ -306,12 +356,31 @@ class OnnxWakeWordDetector @Inject constructor(
                     }
                 }
 
-                if (confidence >= threshold) {
-                    Log.i(TAG, "WakeWordDetector: detected — confidence=$confidence")
-                    // compareAndSet prevents re-triggering if stop() races with us here.
-                    if (running.compareAndSet(true, false)) {
-                        onDetected()
+                when {
+                    // High-confidence fast path — activate immediately.
+                    confidence >= highThreshold -> {
+                        Log.i(TAG, "WakeWordDetector: detected (high confidence=$confidence)")
+                        if (running.compareAndSet(true, false)) {
+                            onDetected()
+                        }
                     }
+
+                    // Secondary band — run STT verification if a verifier is wired.
+                    verifyWindow != null && confidence >= lowThreshold -> {
+                        Log.d(TAG, "WakeWordDetector: low-threshold crossing (confidence=$confidence) — verifying")
+                        val snapshot = extractPcmSnapshot(pcmRing, pcmRingHead, pcmFilled)
+                        if (verifyWindow(snapshot)) {
+                            Log.i(TAG, "WakeWordDetector: STT verification passed — activating")
+                            if (running.compareAndSet(true, false)) {
+                                onDetected()
+                            }
+                        } else {
+                            Log.d(TAG, "WakeWordDetector: STT verification rejected — continuing")
+                        }
+                    }
+
+                    // Below all thresholds — ignore.
+                    else -> Unit
                 }
             }
         } catch (e: InterruptedException) {
@@ -328,5 +397,28 @@ class OnnxWakeWordDetector @Inject constructor(
             running.set(false)
             Log.d(TAG, "WakeWordDetector: detection loop exited")
         }
+    }
+
+    /**
+     * Copies the PCM ring buffer contents into a chronologically ordered [ShortArray].
+     *
+     * Only the filled portion is returned (up to [VERIFY_RING_SAMPLES] samples).
+     * The result is a standalone copy — safe to hand off to [verifyWindow] while the
+     * detection loop continues filling the ring.
+     */
+    private fun extractPcmSnapshot(ring: ShortArray, head: Int, filled: Int): ShortArray {
+        if (filled == 0) return ShortArray(0)
+        val size = filled.coerceAtMost(VERIFY_RING_SAMPLES)
+        val out  = ShortArray(size)
+        if (filled < VERIFY_RING_SAMPLES) {
+            // Buffer not yet full: data is contiguous from index 0.
+            ring.copyInto(out, 0, 0, size)
+        } else {
+            // Buffer full: oldest sample is at `head`, newest is at `head - 1` (mod size).
+            val tailLen = VERIFY_RING_SAMPLES - head
+            ring.copyInto(out, 0, head, VERIFY_RING_SAMPLES)
+            ring.copyInto(out, tailLen, 0, head)
+        }
+        return out
     }
 }

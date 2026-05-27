@@ -12,6 +12,7 @@ import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.WakeWordDetector
+import com.kernel.ai.core.voice.WAKE_WORD_DEFAULT_THRESHOLD
 import com.kernel.ai.core.voice.WakeWordPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,6 +66,8 @@ data class VoiceUiState(
     val heyJandalEnabled: Boolean = false,
     /** True when the hey_jandal_int8.tflite model file is present on device. */
     val isWakeWordModelAvailable: Boolean = false,
+    /** Wake word confidence threshold in [0, 1].  Reflects [WakeWordPreferences.confidenceThreshold]. */
+    val wakeWordThreshold: Float = WAKE_WORD_DEFAULT_THRESHOLD,
 )
 
 @HiltViewModel
@@ -204,6 +207,11 @@ class VoiceViewModel @Inject constructor(
                 _uiState.update { it.copy(heyJandalEnabled = enabled) }
             }
         }
+        viewModelScope.launch {
+            wakeWordPreferences.confidenceThreshold.collect { threshold ->
+                _uiState.update { it.copy(wakeWordThreshold = threshold) }
+            }
+        }
         _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
     }
 
@@ -337,6 +345,13 @@ class VoiceViewModel @Inject constructor(
             // Persisting the preference is sufficient — KernelAIApplication observes
             // WakeWordPreferences.heyJandalEnabled and starts/stops WakeWordService.
             wakeWordPreferences.setHeyJandalEnabled(enabled)
+        }
+    }
+
+    fun setWakeWordThreshold(threshold: Float) {
+        _uiState.update { it.copy(wakeWordThreshold = threshold) }
+        viewModelScope.launch {
+            wakeWordPreferences.setConfidenceThreshold(threshold)
         }
     }
 
