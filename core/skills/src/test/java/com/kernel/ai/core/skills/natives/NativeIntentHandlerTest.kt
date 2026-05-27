@@ -19,12 +19,14 @@ import com.kernel.ai.core.memory.clock.ClockStopwatch
 import com.kernel.ai.core.memory.clock.StopwatchLap
 import com.kernel.ai.core.memory.clock.StopwatchStatus
 import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ContactAliasEntity
 import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
+import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.memory.profile.UserProfileYaml
 import com.kernel.ai.core.skills.SkillResult
 import io.mockk.Runs
@@ -65,6 +67,8 @@ class NativeIntentHandlerTest {
     private val clockRepository = mockk<ClockRepository>(relaxed = true)
     private val clockAlertController = mockk<ClockAlertController>(relaxed = true)
     private val listItemDao = mockk<ListItemDao>(relaxed = true)
+    private val noteDao = mockk<NoteDao>(relaxed = true)
+    private val noteSmartTitleUseCase = mockk<NoteSmartTitleUseCase>(relaxed = true)
     private val listNameDao = mockk<ListNameDao>(relaxed = true)
     private val cookingConversionService = mockk<CookingConversionService>(relaxed = true)
     private val currencyConversionService = mockk<CurrencyConversionService>(relaxed = true)
@@ -82,6 +86,8 @@ class NativeIntentHandlerTest {
         cookingConversionService = cookingConversionService,
         currencyConversionService = currencyConversionService,
         userProfileRepository = mockk<UserProfileRepository>(relaxed = true),
+        noteDao = noteDao,
+        noteSmartTitleUseCase = noteSmartTitleUseCase,
     )
 
     private fun handleIntent(intentName: String, params: Map<String, String>): SkillResult =
@@ -1052,6 +1058,8 @@ class NativeIntentHandlerTest {
             cookingConversionService = cookingConversionService,
             currencyConversionService = currencyConversionService,
             userProfileRepository = profileRepository,
+            noteDao = noteDao,
+            noteSmartTitleUseCase = noteSmartTitleUseCase,
         )
         coEvery { profileRepository.getName() } returns "Nick"
         every { Log.d(any<String>(), any<String>()) } returns 0
@@ -2002,6 +2010,8 @@ class NativeIntentHandlerTest {
             cookingConversionService = cookingConversionService,
             currencyConversionService = currencyConversionService,
             userProfileRepository = profileRepository,
+            noteDao = noteDao,
+            noteSmartTitleUseCase = noteSmartTitleUseCase,
         ).also {
             coEvery { profileRepository.getStructured() } returns
                 if (name != null) UserProfileYaml(name = name) else null
