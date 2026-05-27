@@ -81,6 +81,12 @@ class RunIntentSkill @Inject constructor(
                     "get_battery",
                     "get_time",
                     "get_date",
+                    // Notes
+                    "create_note",
+                    "list_notes",
+                    // Lists
+                    "create_list",
+                    "add_to_list",
                 ),
             ),
         ),
@@ -130,6 +136,14 @@ class RunIntentSkill @Inject constructor(
         // Info
         "Get battery → runIntent(intentName=\"get_battery\", parameters=\"{}\")",
         "What time is it → runIntent(intentName=\"get_time\", parameters=\"{}\")",
+        // Notes
+        "Create a note about milk → runIntent(intentName=\"create_note\", parameters='{\"content\":\"milk\"}')",
+        "Voice memo about the meeting → runIntent(intentName=\"create_note\", parameters='{\"content\":\"about the meeting\"}')",
+        "Show my notes → runIntent(intentName=\"list_notes\", parameters=\"{}\")",
+        // Lists
+        "Add a list called shopping → runIntent(intentName=\"create_list\", parameters='{\"list_name\":\"shopping\"}')",
+        "Create a groceries list → runIntent(intentName=\"create_list\", parameters='{\"list_name\":\"groceries\"}')",
+        "Add milk to my shopping list → runIntent(intentName=\"add_to_list\", parameters='{\"item\":\"milk\",\"list_name\":\"shopping\"}')",
     )
 
     override val fullInstructions: String = buildString {
@@ -193,6 +207,14 @@ class RunIntentSkill @Inject constructor(
         appendLine("INFO QUERIES:")
         appendLine("  get_battery, get_time, get_date — No params")
         appendLine()
+        appendLine("NOTES:")
+        appendLine("  create_note — params: content (the text to record as a note or voice memo)")
+        appendLine("  list_notes — no params (returns a formatted list of saved notes)")
+        appendLine()
+        appendLine("LISTS:")
+        appendLine("  create_list — params: list_name (required)")
+        appendLine("  add_to_list — params: item (required), list_name (required)")
+        appendLine()
         appendLine("Rules:")
         appendLine("Alarm rule: whenever the user says 'set alarm', 'set an alarm', 'alarm for', 'alarm at',")
         appendLine("'wake me up at', or 'remind me at [specific clock time]' — call runIntent")
@@ -250,6 +272,11 @@ class RunIntentSkill @Inject constructor(
         appendLine("'find X nearby', 'where is nearest X' → find_nearby with query.")
         appendLine()
         appendLine("Call rule: 'call X', 'phone X', 'dial X' → make_call with contact name.")
+        appendLine("Note rule: 'write a note', 'create a note about X', 'voice memo about X', 'add a note X', 'note to self: X', 'save a memo about X' → runIntent with intentName=create_note, parameters='{\"content\":\"X\"}'.")
+        appendLine("'Show my notes', 'list my notes', 'what notes do I have', 'what notes do you have saved', 'do I have any notes', 'my notes' → runIntent with intentName=list_notes.")
+        appendLine("CRITICAL: NEVER use search_memory to answer questions about notes. Notes are stored separately from memories and MUST be retrieved with list_notes. search_memory is for personal facts and preferences only.")
+        appendLine("List rule: 'create a list called X', 'add a list called X', 'make a shopping list' → runIntent with intentName=create_list, parameters='{\"list_name\":\"X\"}'.")
+        appendLine("'Add X to my shopping list', 'put X on the grocery list' → runIntent with intentName=add_to_list, parameters='{\"item\":\"X\",\"list_name\":\"shopping\"}'.")
         appendLine()
         appendLine("Examples:")
         examples.forEach { appendLine("  $it") }
