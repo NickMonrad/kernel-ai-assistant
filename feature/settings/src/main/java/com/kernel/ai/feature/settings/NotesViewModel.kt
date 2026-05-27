@@ -224,6 +224,16 @@ class NotesViewModel @Inject constructor(
         }
     }
 
+    fun bulkRestoreSelected() {
+        val ids = selectedNoteIds.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            ids.forEach { noteDao.unarchiveNote(it, now) }
+            exitMultiSelect()
+        }
+    }
+
     fun bulkPinSelected(pinned: Boolean) {
         val ids = selectedNoteIds.toList()
         if (ids.isEmpty()) return
@@ -256,5 +266,12 @@ class NotesViewModel @Inject constructor(
         noteSearchQuery = query
     }
 
-
+    /**
+     * Builds a plain-text representation of a note for sharing/copying.
+     * Format: title (or "Untitled") followed by a blank line then the full content.
+     */
+    fun buildShareText(note: NoteEntity): String {
+        val heading = note.title?.takeIf { it.isNotBlank() } ?: "Untitled"
+        return "$heading\n\n${note.content}"
+    }
 }

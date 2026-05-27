@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -29,8 +30,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.entity.NoteEntity
+import androidx.compose.ui.platform.LocalClipboardManager
 import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.LocalContext
 import sh.calvin.reorderable.ReorderableItem
+import androidx.compose.ui.text.AnnotatedString
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -47,7 +51,9 @@ fun NotesScreen(
     val searchQuery = viewModel.noteSearchQuery
     val showArchived = viewModel.showArchived
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val clipboardManager = LocalClipboardManager.current
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
@@ -111,6 +117,10 @@ fun NotesScreen(
                         if (!showArchived) {
                             IconButton(onClick = { showBulkArchiveDialog = true }) {
                                 Icon(Icons.Default.Archive, contentDescription = "Archive selected")
+                            }
+                        } else {
+                            IconButton(onClick = { viewModel.bulkRestoreSelected() }) {
+                                Icon(Icons.Default.Unarchive, contentDescription = "Restore selected")
                             }
                         }
                         IconButton(onClick = { showBulkDeleteDialog = true }) {
@@ -235,7 +245,23 @@ fun NotesScreen(
                                             else viewModel.pinNote(note.id)
                                         },
                                         onArchive = { pendingArchiveNote = note },
+                                        onRestore = {},
                                         onDelete = { noteToDelete = note },
+                                        onShare = {
+                                            val text = viewModel.buildShareText(note)
+                                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_TEXT, text)
+                                                putExtra(Intent.EXTRA_TITLE, note.title ?: "Note")
+                                            }
+                                            context.startActivity(Intent.createChooser(intent, "Share note"))
+                                        },
+                                        onCopy = {
+                                            scope.launch {
+                                                clipboardManager.setText(AnnotatedString(viewModel.buildShareText(note)))
+                                                snackbarHostState.showSnackbar("Note copied to clipboard")
+                                            }
+                                        },
                                         dragHandleModifier = if (!isMultiSelect) {
                                             Modifier.draggableHandle(
                                                 onDragStarted = { dragInProgress = true },
@@ -287,7 +313,23 @@ fun NotesScreen(
                                             else viewModel.pinNote(note.id)
                                         },
                                         onArchive = { pendingArchiveNote = note },
+                                        onRestore = { viewModel.unarchiveNote(note.id) },
                                         onDelete = { noteToDelete = note },
+                                        onShare = {
+                                            val text = viewModel.buildShareText(note)
+                                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_TEXT, text)
+                                                putExtra(Intent.EXTRA_TITLE, note.title ?: "Note")
+                                            }
+                                            context.startActivity(Intent.createChooser(intent, "Share note"))
+                                        },
+                                        onCopy = {
+                                            scope.launch {
+                                                clipboardManager.setText(AnnotatedString(viewModel.buildShareText(note)))
+                                                snackbarHostState.showSnackbar("Note copied to clipboard")
+                                            }
+                                        },
                                         dragHandleModifier = if (!isMultiSelect && !showArchived) {
                                             Modifier.draggableHandle(
                                                 onDragStarted = { dragInProgress = true },
@@ -466,7 +508,10 @@ private fun NoteCard(
     onLongPress: () -> Unit,
     onTogglePin: () -> Unit,
     onArchive: () -> Unit,
+    onRestore: () -> Unit,
     onDelete: () -> Unit,
+    onShare: () -> Unit,
+    onCopy: () -> Unit,
     dragHandleModifier: Modifier = Modifier,
     onToggleSelect: () -> Unit,
 ) {
@@ -532,7 +577,20 @@ private fun NoteCard(
                                     text = { Text("Archive") },
                                     onClick = { showOverflow = false; onArchive() },
                                 )
+                            } else {
+                                DropdownMenuItem(
+                                    text = { Text("Restore") },
+                                    onClick = { showOverflow = false; onRestore() },
+                                )
                             }
+                            DropdownMenuItem(
+                                text = { Text("Share") },
+                                onClick = { showOverflow = false; onShare() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Copy to clipboard") },
+                                onClick = { showOverflow = false; onCopy() },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                                 onClick = { showOverflow = false; onDelete() },
