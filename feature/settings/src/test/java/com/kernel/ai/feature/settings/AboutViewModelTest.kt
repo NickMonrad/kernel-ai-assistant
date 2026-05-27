@@ -14,12 +14,12 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.slot
 import com.kernel.ai.core.voice.VoiceOutputPreferences
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
@@ -190,27 +190,22 @@ class AboutViewModelTest {
 
     @Test
     fun `exportState transitions through Loading to Ready`() = testScope.runTest {
+    fun `exportState transitions through Loading to Ready`() = testScope.runTest {
         stubRuntime()
         mockkStatic(FileProvider::class)
         mockkStatic(Intent::class)
         every { FileProvider.getUriForFile(any(), any(), any()) } returns mockk()
         every { Intent.createChooser(any(), any()) } answers { firstArg<Intent>() }
 
-        val states = mutableListOf<ExportState>()
-        val collectJob = testScope.launch {
-            viewModel.uiState.collect { states.add(it.exportState) }
-        }
-
         viewModel.exportLogs()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertTrue(states.any { it is ExportState.Loading })
+        assertTrue(viewModel.uiState.value.exportState is ExportState.Loading)
 
         testDispatcher.scheduler.advanceTimeBy(1.seconds)
+        testDispatcher.scheduler.advanceUntilIdle()
 
-        assertTrue(states.any { it is ExportState.Ready })
-
-        collectJob.cancelAndJoin()
+        assertTrue(viewModel.uiState.value.exportState is ExportState.Ready)
     }
 
     @Test
