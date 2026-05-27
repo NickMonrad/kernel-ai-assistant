@@ -2,7 +2,6 @@ package com.kernel.ai.assistant
 
 import android.service.voice.VoiceInteractionService
 import android.util.Log
-import dagger.hilt.android.AndroidEntryPoint
 
 private const val TAG = "KernelAI"
 
@@ -20,7 +19,6 @@ private const val TAG = "KernelAI"
  * Session creation is delegated to [JandalVoiceInteractionSessionService], which is registered
  * via the android:sessionService attribute in res/xml/interaction_service_config.xml.
  */
-@AndroidEntryPoint
 class JandalVoiceInteractionService : VoiceInteractionService() {
 
     override fun onReady() {

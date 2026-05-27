@@ -234,7 +234,6 @@
             android:permission="android.permission.BIND_VOICE_INTERACTION"
             android:exported="true" />
 
-
         <!-- VoiceCommandService — foundational execution seam for widget + future wake word -->
         <service
             android:name="com.kernel.ai.feature.widget.VoiceCommandService"
