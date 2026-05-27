@@ -13,10 +13,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -29,11 +25,11 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 fun AlarmDialogTestWrapper(
+    label: String,
+    onLabelChange: (String) -> Unit,
     onConfirm: (label: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var label by remember { mutableStateOf("") }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag("alarm_dialog"),
@@ -49,7 +45,7 @@ fun AlarmDialogTestWrapper(
                 Spacer(modifier = Modifier.height(12.dp))
                 OutlinedTextField(
                     value = label,
-                    onValueChange = { label = it },
+                    onValueChange = onLabelChange,
                     modifier = Modifier.fillMaxWidth().testTag("alarm_label_input"),
                     placeholder = { Text("Label (optional)") },
                     singleLine = true,

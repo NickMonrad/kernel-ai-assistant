@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
+
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,8 +42,10 @@ class ScheduledAlarmsDialogTest {
         onConfirm: (String?) -> Unit = {},
         onDismiss: () -> Unit = {},
     ) {
+
         composeTestRule.setContent {
             var showDialog by remember { mutableStateOf(false) }
+            var label by remember { mutableStateOf("") }
 
             Scaffold(
                 floatingActionButton = {
@@ -59,13 +62,17 @@ class ScheduledAlarmsDialogTest {
 
             if (showDialog) {
                 AlarmDialogTestWrapper(
-                    onConfirm = { label ->
-                        onConfirm(label)
+                    label = label,
+                    onLabelChange = { label = it },
+                    onConfirm = { confirmed ->
+                        onConfirm(confirmed)
                         showDialog = false
+                        label = ""
                     },
                     onDismiss = {
                         onDismiss()
                         showDialog = false
+                        label = ""
                     },
                 )
             }
