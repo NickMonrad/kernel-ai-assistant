@@ -83,6 +83,40 @@ class QuickIntentRouter(
         RegexOption.IGNORE_CASE,
     )
 
+    /**
+     * NZ-accent STT mishearing correction — applied to [route] input before regex pattern
+     * matching only. NOT fed to the classifier to avoid corrupting its input distribution.
+     *
+     * Root cause: the NZ short-front vowel /æ/ in "a" is heard by STT as a schwa or /ɛ/,
+     * which Whisper/Google STT commonly encodes as "-er". So "save a note" → "saver note",
+     * "make a note" → "maker note", etc. The regex matches verb+"er" immediately before a
+     * common command noun and restores the elided article.
+     *
+     * Scope: only command-verb stems + immediately adjacent command nouns — avoids clobbering
+     * legitimate words like "saver", "maker", "creator" in non-command contexts.
+     */
+    /**
+     * NZ-accent STT mishearing correction — applied to [route] input before regex pattern
+     * matching only. NOT fed to the classifier to avoid corrupting its input distribution.
+     *
+     * Root cause: the NZ short-front vowel /æ/ in "a" is heard by STT as a schwa, which
+     * Whisper/Google STT encodes as an "-er" suffix on the preceding verb. The verb's trailing
+     * "e" is elided before the suffix (English "-er" agentive morphology), giving:
+     *   "save a note" → "saver note"
+     *   "make a note" → "maker note"
+     *   "take a note" → "taker note"
+     *
+     * The regex matches the mishearing forms (verb stem + "er") immediately before a command
+     * noun and replaces them with "verb a ". Stems are enumerated explicitly to avoid matching
+     * legitimate words ("writer", "adder", "starter") in non-command contexts.
+     *
+     * The lookahead covers common command nouns so the correction never fires mid-sentence.
+     */
+    private val STT_NZ_MISHEARING_RE = Regex(
+        """\b(sav|mak|tak|creat|jot|writ|add|record)er\s+(?=(?:a\s+)?(?:note|list|memo|reminder|voice\s+memo)\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+
     private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
         "make_call" to mapOf(
             "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
@@ -3669,23 +3703,23 @@ class QuickIntentRouter(
             requiredSlots = slotContract("save_memory"),
         ),
         // ── Notes ──
-        // Pattern: bare "make a note" / "take a note" — no content → create_note slot-fill.
-        // NOTE: must sit before the content-bearing make/take pattern to short-circuit it.
+        // Pattern: bare "make a note" / "take a note" / "save a note" — no content → create_note slot-fill.
+        // NOTE: must sit before the content-bearing make/take/save pattern to short-circuit it.
         // (Previously routed to save_memory, which was semantically wrong.)
         IntentPattern(
             intentName = "create_note",
             regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:make|take)\s+(?:a\s+)?note\b(?:\s*[.!?])?$""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:make|take|save)\s+(?:a\s+)?note\b(?:\s*[.!?])?$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
             requiredSlots = slotContract("create_note"),
         ),
-        // Pattern: "make a note that X" / "take a note that X" / "make a note X"
+        // Pattern: "make a note that X" / "take a note that X" / "save a note that X" / "make a note X"
         IntentPattern(
             intentName = "create_note",
             regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:make|take)\s+(?:a\s+)?note(?:\s+(?:that|about|for|on))?[:\-–]?\s*(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:make|take|save)\s+(?:a\s+)?note(?:\s+(?:that|about|for|on))?[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
@@ -3924,11 +3958,21 @@ class QuickIntentRouter(
 
     fun route(input: String): RouteResult {
         val trimmed = INTENT_PREFIX_RE.replace(input.trim(), "")
-        // Alias normalisation scoped to regex pattern matching only — NOT fed to the classifier.
-        // Applying globally would corrupt labels (e.g. "my favourite date movie" → "my important date
-        // movie" → normalizer strips "important date" → label becomes "movie") and distort classifier
-        // input distribution ("a special date" → grammatically wrong "a important date").
-        val aliasNormalized = IMPORTANT_DATE_ALIAS_RE.replace(trimmed, "important date")
+        // Alias + mishearing normalisation scoped to regex pattern matching only — NOT fed to the
+        // classifier. Applying globally would corrupt labels and distort the classifier input
+        // distribution (see IMPORTANT_DATE_ALIAS_RE comment for full rationale).
+        val aliasNormalized = STT_NZ_MISHEARING_RE.replace(
+            IMPORTANT_DATE_ALIAS_RE.replace(trimmed, "important date"),
+            // Restore the elided terminal 'e' on the verb stem and inject the article:
+            // "saver note" → stem "sav" → "save a note"
+            // Stems ending in vowel (add, record, jot) get just " a "; stems missing 'e'
+            // (sav, mak, tak, creat, writ) get "e a ".
+            { mr ->
+                val stem = mr.groupValues[1]
+                val verb = if (stem.last().lowercaseChar() in "aeiouy") stem else "${stem}e"
+                "$verb a "
+            },
+        )
 
         // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.
         //   Pass 1: specific patterns (isFallback = false) — tried in declaration order.

@@ -418,4 +418,53 @@ class QuickIntentRouterNoteTest {
             Arguments.of("what did I jot down"),
         )
     }
+
+
+    /** NZ-accent STT mishearing correction: verb+"er" → verb+" a " before command nouns. */
+    @Nested
+    @DisplayName("NZ accent STT mishearing normalisation")
+    inner class SttNzMishearingTest {
+
+        private fun routeToNote(input: String): QuickIntentRouter.MatchedIntent? {
+            val result = router.route(input)
+            return when (result) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent
+                else -> null
+            }
+        }
+
+        @Test
+        fun `saver note routes to create_note with content`() {
+            // "save a note" → STT → "saver note" (NZ /æ/ heard as /-er/)
+            val intent = routeToNote("saver note it's bin night tonight")
+            assertEquals("create_note", intent?.intentName,
+                "STT mishearing 'saver note' must be corrected to 'save a note'")
+            assertEquals("it's bin night tonight", intent?.params?.get("content"))
+        }
+
+        @Test
+        fun `maker note routes to create_note with content`() {
+            val intent = routeToNote("maker note dentist at 3pm tomorrow")
+            assertEquals("create_note", intent?.intentName)
+            assertEquals("dentist at 3pm tomorrow", intent?.params?.get("content"))
+        }
+
+        @Test
+        fun `taker note routes to create_note with content`() {
+            val intent = routeToNote("taker note call mum back")
+            assertEquals("create_note", intent?.intentName)
+            assertEquals("call mum back", intent?.params?.get("content"))
+        }
+
+        @Test
+        fun `saver note bare routes to create_note NeedsSlot`() {
+            // "save a note" with no content → slot-fill
+            val result = router.route("saver note")
+            assertTrue(
+                result is QuickIntentRouter.RouteResult.NeedsSlot,
+                "Bare 'saver note' should trigger slot-fill, got $result",
+            )
+        }
+    }
 }
