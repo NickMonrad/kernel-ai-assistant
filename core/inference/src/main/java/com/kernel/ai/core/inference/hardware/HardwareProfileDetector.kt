@@ -22,7 +22,8 @@ private const val TAG = "HardwareProfileDetector"
  * Backend selection: FLAGSHIP and MID_RANGE devices use GPU (OpenCL). LOW_POWER uses CPU.
  * NPU is not used as the default — see [LiteRtInferenceEngine] for explicit-NPU handling.
  *
- * The profile is computed once and cached — calling [detect] is idempotent.
+ * The [profile] property is computed once on first access and cached — subsequent reads
+ * return the same [HardwareProfile] instance.
  */
 @Singleton
 class HardwareProfileDetector @Inject constructor(
