@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
@@ -51,6 +52,7 @@ import javax.inject.Singleton
 private const val TAG = "LiteRtInferenceEngine"
 private const val SCREEN_INTERACTIVE_POLL_MS = 500L
 private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
+private const val NPU_INIT_TIMEOUT_MS = 30_000L
 internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
 internal const val THINKING_CLOSE_MARKER = "<channel|>"
 private val CHANNEL_WRAPPER_RE = Regex(
@@ -453,11 +455,10 @@ private fun stripOverlappingReplayPrefix(current: String, emitted: String, minOv
  * All operations are dispatched to [LlmDispatcher] (single named thread)
  * to guarantee safety and keep the "llm-inference" thread visible in profiling.
  *
- * Backend selection: AUTO tries NPU → GPU → CPU. The first backend that
- * initialises successfully is used for the lifetime of the engine.
- *
- * NPU note: SamplerConfig must be null when using Backend.NPU (hardware
- * sampler is used instead). This matches Gallery reference behaviour.
+ * Backend selection: AUTO resolves to GPU → CPU. Explicit [BackendType.NPU] is supported
+ * but runs Engine.initialize() on an isolated daemon thread with a [NPU_INIT_TIMEOUT_MS]
+ * timeout — if it does not complete in time the NPU is abandoned and GPU is tried next.
+ * SamplerConfig must be null when using Backend.NPU (hardware sampler is used instead).
  */
 @OptIn(ExperimentalApi::class)
 @Singleton
@@ -1173,7 +1174,7 @@ class LiteRtInferenceEngine @Inject constructor(
     // Private helpers
     // -------------------------------------------------------------------------
 
-    private fun createEngineWithFallback(config: ModelConfig): Pair<Engine, BackendType> {
+    private suspend fun createEngineWithFallback(config: ModelConfig): Pair<Engine, BackendType> {
         val orderedBackends: List<BackendType> = when (config.backendType) {
             BackendType.CPU -> listOf(BackendType.CPU)
             BackendType.GPU -> listOf(BackendType.GPU, BackendType.CPU)
@@ -1202,8 +1203,17 @@ class LiteRtInferenceEngine @Inject constructor(
                     },
                 )
                 Log.d(TAG, "Speculative decoding: requested=${config.speculativeDecodingEnabled} active=$speculativeDecoding")
-                val eng = withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
-                    Engine(engineConfig).also { it.initialize() }
+                val eng = if (backendType == BackendType.NPU) {
+                    // NPU init runs on an isolated daemon thread — Engine.initialize() is a
+                    // blocking JNI call that cannot be preempted, so we isolate it and impose
+                    // an external timeout. If it does not complete within NPU_INIT_TIMEOUT_MS
+                    // the probe thread is abandoned as a daemon and we fall through to GPU.
+                    tryInitNpuIsolated(engineConfig)
+                        ?: throw InferenceException("NPU init timed out after ${NPU_INIT_TIMEOUT_MS}ms — falling through")
+                } else {
+                    withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
+                        Engine(engineConfig).also { it.initialize() }
+                    }
                 }
                 Log.i(TAG, "Backend $backendType initialized successfully")
                 return Pair(eng, backendType)
@@ -1217,6 +1227,37 @@ class LiteRtInferenceEngine @Inject constructor(
             "All backends failed for ${config.modelPath}. Last error: ${lastException?.message}",
             lastException,
         )
+    }
+
+    /**
+     * Attempts to initialise a LiteRT [Engine] with the NPU backend on a dedicated daemon
+     * thread, returning `null` on timeout.
+     *
+     * [Engine.initialize] is a blocking JNI call. Android's FastRPC / CDSP path can hang
+     * indefinitely when `/dev/cdsp*` device nodes are absent (observed on SM8550 S23 Ultra).
+     * A plain coroutine [kotlinx.coroutines.withTimeout] cannot preempt a blocking native
+     * call running on the same thread, so we isolate the call on a daemon thread and use a
+     * [CompletableDeferred] to observe it with a timeout.
+     *
+     * On timeout: the probe thread is left running as a daemon (it will not prevent JVM exit).
+     * This is a one-time cost on first startup; subsequent launches use the GPU path.
+     */
+    private suspend fun tryInitNpuIsolated(engineConfig: EngineConfig): Engine? {
+        val deferred = CompletableDeferred<Engine?>()
+        val thread = Thread({
+            try {
+                deferred.complete(Engine(engineConfig).also { it.initialize() })
+            } catch (e: Exception) {
+                Log.w(TAG, "NPU init failed on probe thread: ${e.message}")
+                deferred.complete(null)
+            }
+        }, "npu-init-probe")
+        thread.isDaemon = true
+        thread.start()
+        return withTimeoutOrNull(NPU_INIT_TIMEOUT_MS) { deferred.await() } ?: run {
+            Log.w(TAG, "NPU init timed out after ${NPU_INIT_TIMEOUT_MS}ms — probe thread abandoned as daemon")
+            null
+        }
     }
 
     @OptIn(ExperimentalApi::class)

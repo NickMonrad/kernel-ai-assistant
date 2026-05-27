@@ -17,8 +17,10 @@ private const val TAG = "HardwareProfileDetector"
  * Detection logic:
  * 1. Query total physical RAM via [ActivityManager.MemoryInfo].
  * 2. Read [Build.SOC_MANUFACTURER] / [Build.SOC_MODEL] (API 31+).
- * 3. Identify Qualcomm Hexagon NPU by manufacturer string.
- * 4. Map RAM + NPU presence to a [HardwareTier] and recommended [BackendType].
+ * 3. Map RAM to a [HardwareTier] and select the recommended [BackendType].
+ *
+ * Backend selection: FLAGSHIP and MID_RANGE devices use GPU (OpenCL). LOW_POWER uses CPU.
+ * NPU is not used as the default — see [LiteRtInferenceEngine] for explicit-NPU handling.
  *
  * The profile is computed once and cached — calling [detect] is idempotent.
  */
@@ -36,15 +38,13 @@ class HardwareProfileDetector @Inject constructor(
         val socManufacturer = Build.SOC_MANUFACTURER.orEmpty()
         val socModel = Build.SOC_MODEL.orEmpty()
 
-        val hasQualcommNpu = socManufacturer.equals("Qualcomm", ignoreCase = true) ||
-            socManufacturer.equals("QUALCOMM", ignoreCase = true)
-
         val tier = HardwareTier.fromRamBytes(totalRam)
 
-        // NPU (Qualcomm Hexagon via FastRPC) requires /dev/cdsp* device nodes which are absent
-        // on the SM8550 (S23 Ultra) target device — Engine.initialize() hangs indefinitely with
-        // no timeout when the CDSP is unreachable. E4B runs on GPU (OpenCL / Adreno 740) as
-        // documented. Keep hasQualcommNpu for future use when NPU support is validated.
+        // E4B is documented to run on GPU (OpenCL / Adreno 740). NPU (Hexagon via FastRPC)
+        // is not used as the recommended backend — it requires /dev/cdsp* device nodes that
+        // are absent on the SM8550 target and Engine.initialize() hangs with no timeout when
+        // CDSP is unreachable. See LiteRtInferenceEngine.tryInitNpuIsolated() for the
+        // timeout-guarded path used when BackendType.NPU is explicitly requested.
         val recommendedBackend = when {
             tier == HardwareTier.FLAGSHIP -> BackendType.GPU
             tier == HardwareTier.MID_RANGE -> BackendType.GPU
@@ -62,7 +62,6 @@ class HardwareProfileDetector @Inject constructor(
             totalRamBytes = totalRam,
             socManufacturer = socManufacturer,
             socModel = socModel,
-            hasQualcommNpu = hasQualcommNpu,
             recommendedBackend = recommendedBackend,
             recommendedMaxTokens = recommendedMaxTokens,
         )
@@ -70,7 +69,7 @@ class HardwareProfileDetector @Inject constructor(
         Log.i(
             TAG,
             "Hardware profile: tier=${tier.name}, ram=${profile.ramLabel}, " +
-                "soc=$socManufacturer $socModel, npu=$hasQualcommNpu, " +
+                "soc=$socManufacturer $socModel, " +
                 "backend=$recommendedBackend, maxTokens=$recommendedMaxTokens",
         )
 
