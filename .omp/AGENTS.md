@@ -12,7 +12,7 @@ User input
     ▼
 ┌─────────────────────────────┐
 │  Tier 2: QuickIntentRouter  │  Pure Kotlin regex + MiniLM classifier, ~0MB, <5ms
-│  20+ intents: alarms/timers,│  Phase 1B merged. Phase 2 MiniLM (PR #362) in CI.
+│  20+ intents: alarms/timers,│  Phases 1A/1B/2 merged (MiniLM classifier active).
 │  media, torch, DND, nav…   │
 └────────┬────────────────────┘
          │ no match
@@ -32,10 +32,10 @@ User input
 |-------|------|--------|
 | `save/store/keep [to/in memory [that] \| that] <content>` | **Tier 2** | Direct intercept |
 | `save/store/keep this/it …` | **Tier 3** | Anaphoric — needs LLM context |
-| `remember [that] <content>` — not starting with I/I'm/this/that/it | **Tier 2** | Direct intercept |
-| `remember that I …` / `remember that this/that/it …` | **Tier 3** | Negative lookahead |
+| `remember [that] <content>` — not starting with this/that/it | **Tier 2** | Direct intercept; first-person normalised by `normaliseSaveContent()` |
+| `remember that this/that/it …` | **Tier 3** | True anaphoric — needs LLM context |
 
-Tier 2 intercept calls `normaliseSaveContent()`: `\bmy\b` → `Name's`, `\bI'm\b` → `Name is` (from `UserProfileRepository`). Bare `I` is NOT replaced — verb conjugation requires the LLM; those inputs fall through.
+`normaliseSaveContent()` handles full first-person conjugation: `I'm`/`I am` → `Name is`, `I have` → `Name has`, `I prefer/like/…` → conjugated third-person, bare `I` → `Name` (catch-all), `my` → `Name's`. Applied on both Tier 2 and Tier 3 code paths.
 
 ### Model inventory
 
@@ -84,7 +84,7 @@ Contract-first: define `SkillSchema` JSON schema before logic. Version bump in m
 | `:core:skills` | SkillInterface, SkillRegistry, JSON schema generation |
 | `:feature:chat` | Chat screen, conversation list, ChatViewModel |
 | `:feature:settings` | Memory management, skill store, model info, persona config |
-| `:feature:onboarding` | ~~First-launch model download~~ (dormant) |
+| `:feature:onboarding` | ~~First-launch model download~~ (directory only, not a Gradle module) |
 | `:feature:widget` | Glance homescreen widget, VoiceCommandActivity, WidgetTextInputActivity |
 | `:feature:convert` | Text conversion utilities |
 
@@ -104,7 +104,7 @@ Contract-first: define `SkillSchema` JSON schema before logic. Version bump in m
 
 ## UI/UX
 
-Jetpack Compose + Material 3 Dynamic Color, dark/AMOLED default. Conversations list as home. `KernelDatabase` v44. `ConversationEntity` carries `archivedAt`, `pinned`, `sortOrder`; `observeActive` orders by `pinned DESC, sort_order ASC, updated_at DESC`. Archived conversations are read-only. `ArchiveCleanupWorker` runs daily (default 7-day retention, `ChatPreferences` DataStore).
+Jetpack Compose + Material 3 Dynamic Color, dark/AMOLED default. Conversations list as home. `KernelDatabase` v48. `ConversationEntity` carries `archivedAt`, `pinned`, `sortOrder`; `observeActive` orders by `pinned DESC, sort_order ASC, updated_at DESC`. Archived conversations are read-only. `ArchiveCleanupWorker` runs daily (default 7-day retention, `ChatPreferences` DataStore).
 
 Voice: push-to-talk + streaming, auto-stop on silence. Per-message TTS (`VolumeUp`) on every assistant bubble. Verbal stop commands ("stop", "cancel", "be quiet", "shut up", "silence") cancel TTS mid-stream. `truncateForSpeech()` uses `KNOWN_ABBREV` + `INITIALS_REGEX`. Sherpa TTS pitch slider (0.5–2.0×), `autoSpeakEnabled` toggle.
 
@@ -211,7 +211,7 @@ Load these only when relevant:
    - ✅ Phase 1A: QuickIntentRouter + 20 regex intents (#354)
    - ✅ Phase 1B: NativeIntentHandler + 23 handlers, 130+ tests (#357)
    - ✅ Homescreen Glance widget (#617, #847)
-   - 🔄 Phase 2: MiniLM zero-shot classifier (PR #362 in CI)
+   - ✅ Phase 2: MiniLM zero-shot classifier (#362)
    - ⬜ Phase 3: FunctionGemma cleanup (#358)
    - ⬜ Phase 4: Chat hybrid mode — Tier 2 intercept in conversations (#360)
    - ⬜ Phase 5: Actions tab re-enable + dual FABs (#361)
