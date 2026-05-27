@@ -282,7 +282,7 @@ fun NotesScreen(
                                                 snackbarHostState.showSnackbar("Note copied to clipboard")
                                             }
                                         },
-                                        dragHandleModifier = if (!isMultiSelect && viewModel.listSort == NoteSort.MANUAL) {
+                                        dragHandleModifier = if (!isMultiSelect) {
                                             Modifier.draggableHandle(
                                                 onDragStarted = { dragInProgress = true },
                                                 onDragStopped = {
@@ -342,7 +342,7 @@ fun NotesScreen(
                                                 snackbarHostState.showSnackbar("Note copied to clipboard")
                                             }
                                         },
-                                        dragHandleModifier = if (!isMultiSelect && !showArchived && viewModel.listSort == NoteSort.MANUAL) {
+                                        dragHandleModifier = if (!isMultiSelect && !showArchived) {
                                             Modifier.draggableHandle(
                                                 onDragStarted = { dragInProgress = true },
                                                 onDragStopped = {
