@@ -3811,7 +3811,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_note",
             regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:save|make|take|add|create|record|start)\s+(?:a\s+)?(?:new\s+)?)?voice\s+memo(?:\s+(?:about|that|for|on))?\s*[:\-–]?\s*(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:save|make|take|add|create|record|start|write)\s+(?:a\s+)?(?:new\s+)?)?voice\s+memo(?:\s+(?:about|that|for|on))?\s*[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3836,7 +3836,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_note",
             regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:save|make|take|add|create|record)\s+(?:a\s+)?(?:new\s+)?memo|note\s+to\s+(?:my)?self)(?:\s+(?:that|about|for|on))?[:\-–]?\s*(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:save|make|take|add|create|record|write)\s+(?:a\s+)?(?:new\s+)?memo|note\s+to\s+(?:my)?self)(?:\s+(?:that|about|for|on))?[:\-–]?\s*(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
