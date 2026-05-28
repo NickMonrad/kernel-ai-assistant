@@ -234,6 +234,25 @@
             android:permission="android.permission.BIND_VOICE_INTERACTION"
             android:exported="true" />
 
+        <!--
+            AssistActivity — satisfies Samsung One UI's requirement for an android.intent.action.ASSIST
+            intent filter before the app appears in Settings → Default Apps → Digital assistant.
+            AOSP only needs JandalVoiceInteractionService; Samsung additionally checks for this filter.
+            The activity is a transparent trampoline: it immediately starts VoiceCommandActivity and finishes.
+        -->
+        <activity
+            android:name=".assistant.AssistActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Kernel.Translucent"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <!-- VoiceCommandService — foundational execution seam for widget + future wake word -->
         <service
             android:name="com.kernel.ai.feature.widget.VoiceCommandService"
