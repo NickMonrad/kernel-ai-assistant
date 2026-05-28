@@ -16,6 +16,8 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.WakeWordDetector
+import com.kernel.ai.feature.widget.EXTRA_PREFILLED_TRANSCRIPT
+import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,7 +50,9 @@ private const val NOTIFICATION_ID = 9_500
  * On wake word detection:
  * 1. Plays the start-listening cue
  * 2. Starts STT via [VoiceInputController] on [VoiceCaptureMode.AlertCommand]
- * 3. Routes the transcript to [VoiceCommandService]
+ * 3. Launches [VoiceCommandActivity] with the transcript pre-filled via
+ *    [EXTRA_PREFILLED_TRANSCRIPT] — shows the same bottom-sheet overlay as the long-press
+ *    flow, then routes to ActionsScreen for the voice reply.
  *
  * If [WakeWordDetector.isAvailable] is false (model not yet trained, see #984),
  * the service posts a notification explaining this and stops itself.
@@ -154,16 +158,16 @@ class WakeWordService : Service() {
     }
 
     private fun routeTranscript(transcript: String) {
-        // Mirror the long-press-power flow: open MainActivity → ActionsScreen with the
-        // transcript pre-filled and isVoice=true so it auto-executes and speaks the result.
-        // This shows the same result-card overlay the user sees from the widget or side key,
-        // rather than speaking silently in the background.
-        startActivity(Intent().apply {
-            component = android.content.ComponentName(packageName, "com.kernel.ai.MainActivity")
-            putExtra("quick_action_input", transcript)
-            putExtra("quick_action_is_voice", true)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        })
+        // Launch VoiceCommandActivity with the transcript pre-filled.
+        // This shows the same bottom-sheet overlay the user sees from the long-press or widget
+        // flow, skipping the STT step since we already have the recognised text. The activity
+        // then calls navigateToActions → ActionsScreen executes and speaks the result.
+        startActivity(
+            Intent(this, VoiceCommandActivity::class.java).apply {
+                putExtra(EXTRA_PREFILLED_TRANSCRIPT, transcript)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        )
     }
 
     // ── Notification ───────────────────────────────────────────────────────────

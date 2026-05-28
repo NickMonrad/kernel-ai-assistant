@@ -37,7 +37,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +57,14 @@ import javax.inject.Inject
 
 private const val TAG = "KernelAI"
 
+/**
+ * Pass a non-null value to skip STT and route a pre-existing transcript
+ * directly through the overlay. Used by the wake word path in [WakeWordService]
+ * so the user sees the bottom-sheet overlay (same as long-press) even though
+ * the utterance was already recognised in the background.
+ */
+const val EXTRA_PREFILLED_TRANSCRIPT = "prefilled_transcript"
+
 @AndroidEntryPoint
 class VoiceCommandActivity : ComponentActivity() {
 
@@ -76,6 +83,14 @@ class VoiceCommandActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
+        // Wake word path: transcript already recognised in WakeWordService — skip STT,
+        // show transcript in overlay briefly, then hand off to ActionsScreen.
+        val prefilled = intent.getStringExtra(EXTRA_PREFILLED_TRANSCRIPT)
+        if (prefilled != null) {
+            routePrefilledTranscript(prefilled)
+            return
+        }
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             // Permission missing — request it. The system dialog will appear over this
@@ -85,6 +100,59 @@ class VoiceCommandActivity : ComponentActivity() {
         }
 
         startVoiceSession()
+    }
+
+    /**
+     * Wake word path: show the recognised transcript in the overlay card for 400ms
+     * so the user can see what was heard, then call [WidgetNavigator.navigateToActions]
+     * to open the ActionsScreen result card with voice TTS reply.
+     */
+    private fun routePrefilledTranscript(transcript: String) {
+        setContent {
+            KernelAITheme {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .navigationBarsPadding(),
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                        tonalElevation = 8.dp,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = transcript,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        lifecycleScope.launch {
+            delay(400) // brief flash so user sees what was heard
+            if (!isFinishing) {
+                navigator.navigateToActions(this@VoiceCommandActivity, transcript, isVoice = true)
+            }
+            finish()
+        }
     }
 
     private fun startVoiceSession() {
