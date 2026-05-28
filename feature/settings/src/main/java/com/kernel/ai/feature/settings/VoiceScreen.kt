@@ -68,7 +68,11 @@ import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import kotlin.math.roundToInt
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import android.Manifest
+import android.app.role.RoleManager
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -77,7 +81,6 @@ import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.LifecycleEventObserver
-import android.app.role.RoleManager
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
@@ -121,8 +124,22 @@ fun VoiceScreen(
         uiState = uiState,
         onBack = onBack,
         onRequestAssistantRole = {
-            val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-            if (intent != null) assistantRoleLauncher.launch(intent)
+            // Samsung One UI overrides RoleManager.ROLE_ASSISTANT with a proprietary
+            // RoleControllerService that silently rejects third-party VIS packages.
+            // On Samsung we deep-link directly to the assistant chooser page; on all
+            // other OEMs we use the standard role request dialog.
+            if (Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
+                val settingsIntent = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)
+                try {
+                    assistantRoleLauncher.launch(settingsIntent)
+                } catch (_: Exception) {
+                    // Fallback: generic default-apps page if the specific page is unavailable
+                    assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                }
+            } else {
+                val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                if (intent != null) assistantRoleLauncher.launch(intent)
+            }
         },
         onHeyJandalEnabledChanged = { enabled ->
             if (!enabled) {
