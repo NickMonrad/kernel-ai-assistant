@@ -34,7 +34,7 @@ uiautomator = "2.3.0"
 litertlm = "0.11.0"
 mediapipeTasksText = "0.10.33"
 tflite = "2.17.0"
-onnxruntime = "1.22.0"
+onnxruntime = "1.24.3"
 
 # WorkManager + Hilt Work
 workManager = "2.11.2"

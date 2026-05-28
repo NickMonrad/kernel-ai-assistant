@@ -17,6 +17,9 @@ import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.navigation.KernelNavHost
 import dagger.hilt.android.AndroidEntryPoint
+import com.kernel.ai.assistant.WakeWordService
+import com.kernel.ai.core.voice.WakeWordPreferences
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import net.openid.appauth.AuthorizationException
 import net.openid.appauth.AuthorizationResponse
@@ -32,6 +35,8 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var authRepository: HuggingFaceAuthRepository
 
     /** Injected for ADB `--es profile_text` test support — triggers profile parse + logcat output. */
+    @Inject lateinit var wakeWordPreferences: WakeWordPreferences
+
     @Inject lateinit var userProfileRepository: UserProfileRepository
 
     /** Bridges ADB `--es chat_input` extras (onCreate + onNewIntent) into the nav graph. */
@@ -87,6 +92,21 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    /**
+     * Retry starting WakeWordService now that we are in the foreground.
+     * Application.onCreate fires the heyJandalEnabled collector before the activity is
+     * visible, so startForegroundService() fails with mAllowStartForeground=false there.
+     */
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch {
+            if (wakeWordPreferences.heyJandalEnabled.first()) {
+                WakeWordService.start(this@MainActivity)
+            }
+        }
+    }
+
 
     /**
      * Called when AppAuth's PendingIntent delivers the OAuth result back to this activity.

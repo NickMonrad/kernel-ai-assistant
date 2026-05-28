@@ -49,6 +49,10 @@ class KernelAIApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // Preload ORT so libsherpa-onnx-jni.so (built against ORT as an external shared lib)
+        // can resolve OrtGetApiBase at dlopen time. Must happen before any Sherpa TTS or
+        // wake word ONNX session init, otherwise OfflineTts.<clinit> fails with UnsatisfiedLinkError.
+        try { System.loadLibrary("onnxruntime") } catch (_: UnsatisfiedLinkError) { }
         clockTimerNotificationCoordinator.start()
         clockStopwatchNotificationCoordinator.start()
         WorkManager.getInstance(this).enqueueUniqueWork(

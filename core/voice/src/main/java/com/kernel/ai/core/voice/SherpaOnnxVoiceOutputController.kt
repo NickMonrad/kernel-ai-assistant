@@ -296,6 +296,11 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         if (initializedKokoroVoice != null || initializedVoice != voice) {
             resetForVoice(voice)
         }
+        // If init previously failed only because the voice pack was missing, retry now that
+        // it may have been downloaded since. JNI/AAR failures stay permanently cached.
+        if (initState == InitState.UNAVAILABLE && voice.isDownloaded(context)) {
+            initState = InitState.UNINITIALIZED
+        }
         return when (initState) {
             InitState.AVAILABLE -> VoiceOutputResult.Spoken
             InitState.UNAVAILABLE -> VoiceOutputResult.Unavailable(unavailableMessage(voice))
