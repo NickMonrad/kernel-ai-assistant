@@ -19,6 +19,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val TAG = "KernelAI"
@@ -60,6 +61,10 @@ class JandalVoiceInteractionSession(
         Log.d(TAG, "AssistantSession: onShow flags=$showFlags")
 
         sessionScope.launch {
+            // Release the wake word mic before opening SpeechRecognizer.
+            WakeWordService.pause(ctx)
+            // Give the AudioRecord loop up to two 80ms frames to fully release the mic.
+            delay(200)
             val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
             if (startResult !is VoiceInputStartResult.Started) {
                 Log.w(TAG, "AssistantSession: STT unavailable — $startResult")
@@ -94,6 +99,7 @@ class JandalVoiceInteractionSession(
     override fun onHide() {
         super.onHide()
         if (listeningStarted) voiceInputController.stopListening()
+        WakeWordService.resume(ctx)
         sessionScope.cancel()
     }
 

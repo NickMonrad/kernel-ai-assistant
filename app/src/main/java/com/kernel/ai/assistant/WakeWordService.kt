@@ -62,6 +62,19 @@ class WakeWordService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_PAUSE) {
+            wakeWordDetector.stop()
+            Log.i(TAG, "WakeWordService: paused for assistant session")
+            return START_STICKY
+        }
+        if (intent?.action == ACTION_RESUME) {
+            if (wakeWordDetector.isAvailable) {
+                wakeWordDetector.start(onDetected = { handleDetection() })
+                Log.i(TAG, "WakeWordService: resumed after assistant session")
+            }
+            return START_STICKY
+        }
+
         startForeground(NOTIFICATION_ID, buildNotification())
 
         if (!wakeWordDetector.isAvailable) {
@@ -158,12 +171,27 @@ class WakeWordService : Service() {
     }
 
     companion object {
+        const val ACTION_PAUSE = "com.kernel.ai.action.WAKE_WORD_PAUSE"
+        const val ACTION_RESUME = "com.kernel.ai.action.WAKE_WORD_RESUME"
+
         fun start(context: Context) {
             context.startForegroundService(Intent(context, WakeWordService::class.java))
         }
 
         fun stop(context: Context) {
             context.stopService(Intent(context, WakeWordService::class.java))
+        }
+
+        fun pause(context: Context) {
+            context.startService(Intent(context, WakeWordService::class.java).apply {
+                action = ACTION_PAUSE
+            })
+        }
+
+        fun resume(context: Context) {
+            context.startService(Intent(context, WakeWordService::class.java).apply {
+                action = ACTION_RESUME
+            })
         }
     }
 }
