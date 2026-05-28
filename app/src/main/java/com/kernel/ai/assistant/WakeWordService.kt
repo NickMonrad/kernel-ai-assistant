@@ -206,7 +206,15 @@ class WakeWordService : Service() {
         private var instance: WeakReference<WakeWordService>? = null
 
         fun start(context: Context) {
-            context.startForegroundService(Intent(context, WakeWordService::class.java))
+            try {
+                context.startForegroundService(Intent(context, WakeWordService::class.java))
+            } catch (e: Exception) {
+                // Android restricts startForegroundService() when the app is not in the
+                // foreground (ForegroundServiceStartNotAllowedException on API 31+).
+                // This can happen when the DataStore preference flow re-emits on restore.
+                // Log and ignore — the service will be started next time the app resumes.
+                Log.w(TAG, "WakeWordService: cannot start from background: ${e.message}")
+            }
         }
 
         fun stop(context: Context) {
