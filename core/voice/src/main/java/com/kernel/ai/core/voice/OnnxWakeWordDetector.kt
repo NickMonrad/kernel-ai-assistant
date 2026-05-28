@@ -290,10 +290,12 @@ class OnnxWakeWordDetector @Inject constructor(
         // each step.  Once full, we build the [1, 76, 32, 1] embedding model input from it.
         val melRing = FloatArray(MEL_RING_SIZE * MEL_BINS)   // [76 × 32]
         var melRowsFilled = 0
+        var chunkCount = 0
 
         val embeddingRing = Array(EMBEDDING_FRAMES) { FloatArray(EMBEDDING_DIM) }
         var embRingHead = 0
         var embFramesAccumulated = 0
+        var inferenceCount = 0L
         val chunk    = ShortArray(FRAME_SAMPLES)
         val framePcm = FloatArray(FRAME_SAMPLES)
         // windowFlat: [16 × 96] flattened, re-filled in place each classifier call.
@@ -325,6 +327,13 @@ class OnnxWakeWordDetector @Inject constructor(
                     }
                 }
                 if (totalRead < FRAME_SAMPLES) continue
+                chunkCount++
+                if (chunkCount % 100 == 0) {
+                    // Log mic activity every ~8s to confirm AudioRecord is delivering data.
+                    val rms = Math.sqrt(chunk.fold(0.0) { acc, s -> acc + s * s } / FRAME_SAMPLES)
+                    Log.d(TAG, "WakeWordDetector: alive chunk=$chunkCount rms=${"%.1f".format(rms)} melFilled=$melRowsFilled embAcc=$embFramesAccumulated")
+                }
+
 
                 // Feed the current frame into the PCM ring buffer.
                 if (verifyWindow != null) {
@@ -356,11 +365,20 @@ class OnnxWakeWordDetector @Inject constructor(
                     melsSession.run(mapOf(melsInputName to melIn)).use { melOut ->
                         val t = melOut[melsOutputName].get() as OnnxTensor
                         // t.value is Array<Array<Array<FloatArray>>> with shape [1,1,5,32].
-                        // Flatten the [5,32] patch into a FloatArray(5*32=160).
+                        // Flatten the [5,32] patch and apply the openWakeWord mel transform:
+                        //   value / 10.0 + 2.0
+                        // This normalisation is applied by the reference Android implementation
+                        // (Re-MENTIA/openwakeword-android-kt MelSpectrogram.applyMelSpecTransform)
+                        // and matches the preprocessing used during training. Without it the
+                        // classifier sees out-of-distribution inputs and outputs ~0.001 for all audio.
                         val rows = (((t.value as Array<*>)[0] as Array<*>)[0] as Array<*>)
                         val flat = FloatArray(MEL_ROWS_PER_CHUNK * MEL_BINS)
                         for (r in 0 until MEL_ROWS_PER_CHUNK) {
-                            (rows[r] as FloatArray).copyInto(flat, r * MEL_BINS)
+                            val row = rows[r] as FloatArray
+                            val base = r * MEL_BINS
+                            for (b in 0 until MEL_BINS) {
+                                flat[base + b] = row[b] / 10.0f + 2.0f
+                            }
                         }
                         flat
                     }
@@ -424,6 +442,12 @@ class OnnxWakeWordDetector @Inject constructor(
                         ((t.value as Array<*>)[0] as FloatArray)[0]
                     }
                 }
+                inferenceCount++
+                // Log every inference during first 5s, then every ~1s (every 12 inferences).
+                if (inferenceCount <= 20 || inferenceCount % 12 == 0L) {
+                    Log.d(TAG, "WakeWordDetector: inference #$inferenceCount confidence=${"%.4f".format(confidence)}")
+                }
+
 
                 when {
                     // High-confidence fast path — activate immediately.
