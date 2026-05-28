@@ -328,7 +328,7 @@ Lower-priority skill additions — third-party integrations and local utilities.
 - Remaining voice research: Sherpa-ONNX STT + VAD evaluation (#700/#703 + new issue), Kokoro-82M/VoxSherpa (#783, including expressiveness/emotion exploration), Kiwi corpus tuning (#784), VITS noise_scale (#788).
 - Fallback-path issues and the appointment QIR bug ([#773](https://github.com/NickMonrad/kernel-ai-assistant/issues/773)) remain tracked separately.
 - TTS normalisation extended (#930, PR #930): fractions to words ("1/2" → "a half"), ordinals ("1st" → "first"), number ranges; Kiwi corpus improvements.
-- Note-taking / voice memo skill shipped (#823, PR #989): `create_note` native skill with Tier 2 QIR patterns, Notes browser in nav drawer. Known issue: #992 (E4B echoes load_skill result — under investigation).
+- Note-taking / voice memo skill shipped (#823, PR #989): `create_note` native skill with Tier 2 QIR patterns ("add a note", "voice memo", "note to self", etc.), Notes browser in nav drawer. #992 (E4B echoes load_skill result) fixed in PR #989.
 - Thinking mode now fully functional (#946, PR #946): `extraContext = mapOf("enable_thinking" to true)` required alongside Channel registration; channel wrapper stripping applied to prevent markup leakage; background generateOnce() calls must pass `thinkingEnabled = false`.
 
 ---
@@ -386,24 +386,8 @@ Full lifecycle management for conversations: archive/restore, pinning with stick
 - Chat screen: "Archived · Read-only" banner; input bar hidden; `initEngineWhenReady()` and eviction re-init skipped for archived conversations
 - Settings: new "Chat Preferences" screen with archive retention picker (1d / 3d / 7d / 14d / 30d / Never)
 
----
 
-### 3K: Chat UX Overhaul ([#963](https://github.com/NickMonrad/kernel-ai-assistant/issues/963))
-
-Visual and interaction improvements to the chat experience.
-
-| Sub-Issue | Title | Status | Priority |
-|-----------|-------|--------|----------|
-| [#911](https://github.com/NickMonrad/kernel-ai-assistant/issues/911) | Chat visual customisation — bubble colours, font size, background | ✅ Done — PR #980 | 🟡 Medium |
-| [#952](https://github.com/NickMonrad/kernel-ai-assistant/issues/952) | Attachment picker foundation | ✅ Done — PR #980 | 🟡 Medium |
-| [#906](https://github.com/NickMonrad/kernel-ai-assistant/issues/906) | Tool chip redesign | ✅ Done — PR #980 | 🟡 Medium |
-| [#964](https://github.com/NickMonrad/kernel-ai-assistant/issues/964) | Thinking bubble presentation | ⬜ Pending | 🟡 Medium |
-| [#961](https://github.com/NickMonrad/kernel-ai-assistant/issues/961) | In-chat model settings controls | ⬜ Pending | 🟢 Low |
-| [#951](https://github.com/NickMonrad/kernel-ai-assistant/issues/951) | UX enhancements inspired by Edge Gallery | ⬜ Pending | 🟢 Low |
-
----
-
-
+### 3I: Meal Planning Roadmap ([#826](https://github.com/NickMonrad/kernel-ai-assistant/issues/826))
 ### 3I: Meal Planning Roadmap ([#826](https://github.com/NickMonrad/kernel-ai-assistant/issues/826))
 
 Deterministic meal planning now has its v1 foundation merged. The next phases are deliberately split so UX/resiliency work, durable artifact expansion, and recipe grounding can evolve independently without reopening the prompt-heavy architecture that #859 replaced.
@@ -429,6 +413,21 @@ Deterministic meal planning now has its v1 foundation merged. The next phases ar
 - Shipped: batch `replace days ...` / `regenerate days ...` parsing for comma, `and`, and range syntax, with ordered execution and stop-on-first-failure partial progress.
 - Shipped: a drawer-accessible Meal plans browser with Recent plans and Favourites tabs, recipe-name search, canonical favourite toggles outside chat, and export actions to recreate recipe lists or append ingredients into existing user lists.
 - Later platform/data phases stay separate by design: #235 expands durable structured artifacts; #43 adds recipe grounding and regional produce data.
+
+---
+
+### 3K: Chat UX Overhaul ([#963](https://github.com/NickMonrad/kernel-ai-assistant/issues/963))
+
+Visual and interaction improvements to the chat experience.
+
+| Sub-Issue | Title | Status | Priority |
+|-----------|-------|--------|----------|
+| [#911](https://github.com/NickMonrad/kernel-ai-assistant/issues/911) | Chat visual customisation — bubble colours, font size, background | ✅ Done — PR #980 | 🟡 Medium |
+| [#952](https://github.com/NickMonrad/kernel-ai-assistant/issues/952) | Attachment picker foundation | ✅ Done — PR #980 | 🟡 Medium |
+| [#906](https://github.com/NickMonrad/kernel-ai-assistant/issues/906) | Tool chip redesign | ✅ Done — PR #980 | 🟡 Medium |
+| [#964](https://github.com/NickMonrad/kernel-ai-assistant/issues/964) | Thinking bubble presentation | ⬜ Pending | 🟡 Medium |
+| [#961](https://github.com/NickMonrad/kernel-ai-assistant/issues/961) | In-chat model settings controls | ⬜ Pending | 🟢 Low |
+| [#951](https://github.com/NickMonrad/kernel-ai-assistant/issues/951) | UX enhancements inspired by Edge Gallery | ⬜ Pending | 🟢 Low |
 
 ---
 
