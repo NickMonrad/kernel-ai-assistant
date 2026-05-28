@@ -37,12 +37,8 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -72,15 +68,12 @@ import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import kotlin.math.roundToInt
-import android.content.Intent
-import android.provider.Settings
-import android.util.Log
 import android.app.role.RoleManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Assistant
+import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.runtime.DisposableEffect
-import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -97,8 +90,6 @@ fun VoiceScreen(
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // Recheck assistant role on every resume so the badge reflects reality after the
-    // user returns from Android Settings → Default Apps without us being notified.
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
@@ -111,49 +102,19 @@ fun VoiceScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val snackbarHostState = remember { SnackbarHostState() }
-    val coroutineScope = rememberCoroutineScope()
-
     val assistantRoleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        val roleHeld = roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
-        viewModel.refreshAssistantStatus(roleHeld)
-        if (!roleHeld && result.resultCode == android.app.Activity.RESULT_CANCELED) {
-            // Samsung One UI (and some other OEMs) silently dismiss the role picker with
-            // RESULT_CANCELED without ever showing UI. In that case we cannot tell whether
-            // the user actively declined or the picker never surfaced, so we offer a
-            // Snackbar rather than unconditionally navigating — preserving the cancel path
-            // on devices where the picker does show UI.
-            Log.w("KernelAI", "VoiceScreen: role picker returned RESULT_CANCELED without granting role")
-            coroutineScope.launch {
-                val snackbarResult = snackbarHostState.showSnackbar(
-                    message = "Couldn't set default assistant automatically",
-                    actionLabel = "Open Settings",
-                    withDismissAction = true,
-                )
-                if (snackbarResult == SnackbarResult.ActionPerformed) {
-                    context.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                }
-            }
-        }
-    }
+    ) { /* result ignored — DisposableEffect ON_RESUME rechecks the role */ }
 
     VoiceScreenContent(
-        snackbarHostState = snackbarHostState,
         uiState = uiState,
         onBack = onBack,
         onRequestAssistantRole = {
-            val roleIntent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-            if (roleIntent != null) {
-                Log.d("KernelAI", "VoiceScreen: launching RoleManager assistant request")
-                assistantRoleLauncher.launch(roleIntent)
-            } else {
-                // roleManager was null (service unavailable) — open Default Apps directly.
-                Log.w("KernelAI", "VoiceScreen: RoleManager service unavailable, opening Default Apps settings")
-                context.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-            }
+            val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+            if (intent != null) assistantRoleLauncher.launch(intent)
         },
+        onHeyJandalEnabledChanged = viewModel::setHeyJandalEnabled,
+        onWakeWordThresholdChanged = viewModel::setWakeWordThreshold,
         onVoiceInputEngineSelected = viewModel::setVoiceInputEngine,
         onAutoStartAlertVoiceCommandsEnabledChanged = viewModel::setAutoStartAlertVoiceCommandsEnabled,
         onSpokenResponsesEnabledChanged = viewModel::setSpokenResponsesEnabled,
@@ -179,10 +140,11 @@ fun VoiceScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VoiceScreenContent(
-    snackbarHostState: SnackbarHostState,
     uiState: VoiceUiState,
     onBack: () -> Unit,
     onRequestAssistantRole: () -> Unit,
+    onHeyJandalEnabledChanged: (Boolean) -> Unit,
+    onWakeWordThresholdChanged: (Float) -> Unit,
     onVoiceInputEngineSelected: (VoiceInputEngine) -> Unit,
     onAutoStartAlertVoiceCommandsEnabledChanged: (Boolean) -> Unit,
     onSpokenResponsesEnabledChanged: (Boolean) -> Unit,
@@ -204,7 +166,6 @@ private fun VoiceScreenContent(
     onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
 ) {
     Scaffold(
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Voice") },
@@ -230,35 +191,25 @@ private fun VoiceScreenContent(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
 
+            // Assistant role badge
             ListItem(
                 modifier = Modifier.fillMaxWidth(),
                 leadingContent = {
                     Icon(
-                        imageVector = if (uiState.isDefaultAssistant) {
-                            Icons.Filled.CheckCircle
-                        } else {
-                            Icons.Filled.Assistant
-                        },
+                        imageVector = if (uiState.isDefaultAssistant) Icons.Filled.CheckCircle else Icons.Filled.Assistant,
                         contentDescription = null,
-                        tint = if (uiState.isDefaultAssistant) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        tint = if (uiState.isDefaultAssistant) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 },
                 headlineContent = {
-                    Text(
-                        if (uiState.isDefaultAssistant) "Jandal is your default assistant"
-                        else "Set Jandal as default assistant",
-                    )
+                    Text(if (uiState.isDefaultAssistant) "Jandal is your default assistant" else "Set Jandal as default assistant")
                 },
                 supportingContent = {
                     Text(
                         if (uiState.isDefaultAssistant) {
-                            "Long-press Home to activate. Hold-Home activation, lock-screen launch, and wake word (#985) all use this role."
+                            "Long-press Home to activate. Wake word detection uses this privileged mic path."
                         } else {
-                            "Required for hold-Home activation, lock-screen launch, and always-on wake word. Opens Default Apps → Digital assistant."
+                            "Required for hold-Home activation, lock-screen launch, and always-on wake word."
                         },
                     )
                 },
@@ -268,6 +219,55 @@ private fun VoiceScreenContent(
                     null
                 },
             )
+            HorizontalDivider()
+
+            // "Listen for Hey Jandal" toggle
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Filled.MicNone,
+                        contentDescription = null,
+                        tint = if (uiState.heyJandalEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                headlineContent = { Text("Listen for \"Hey Jandal\"") },
+                supportingContent = {
+                    Text(
+                        when {
+                            !uiState.isWakeWordModelAvailable -> "Wake word model not yet available — model training in progress (#984)"
+                            !uiState.isDefaultAssistant -> "Set Jandal as default assistant first for reliable background mic access"
+                            else -> "Always-on wake word detection. Tap Home-press to activate when recognised."
+                        },
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.heyJandalEnabled,
+                        onCheckedChange = onHeyJandalEnabledChanged,
+                        enabled = uiState.isWakeWordModelAvailable,
+                    )
+                },
+            )
+
+            // Confidence threshold slider — only shown when wake word model is available
+            if (uiState.isWakeWordModelAvailable) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    SliderRow(
+                        label = "Detection sensitivity",
+                        valueLabel = "${(uiState.wakeWordThreshold * 100).toInt()}%",
+                        value = uiState.wakeWordThreshold,
+                        valueRange = 0.5f..0.95f,
+                        steps = 8,
+                        onValueChangeFinished = { newVal ->
+                            // Round to nearest 5% step for clean display and DataStore writes.
+                            onWakeWordThresholdChanged(
+                                (newVal * 20).roundToInt() / 20f,
+                            )
+                        },
+                    )
+                }
+            }
             HorizontalDivider()
 
             Text(
@@ -1391,7 +1391,6 @@ private fun formatBytes(bytes: Long): String = when {
 private fun VoiceScreenPreview() {
     MaterialTheme {
         VoiceScreenContent(
-            snackbarHostState = remember { SnackbarHostState() },
             uiState = VoiceUiState(
                 selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
                 selectedSherpaVoice = SherpaPiperVoice.NorthernEnglishMale,
@@ -1415,6 +1414,8 @@ private fun VoiceScreenPreview() {
             ),
             onBack = {},
             onRequestAssistantRole = {},
+            onHeyJandalEnabledChanged = {},
+            onWakeWordThresholdChanged = {},
             onVoiceInputEngineSelected = {},
             onAutoStartAlertVoiceCommandsEnabledChanged = {},
             onSpokenResponsesEnabledChanged = {},

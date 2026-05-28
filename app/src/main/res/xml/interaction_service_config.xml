@@ -11,6 +11,7 @@
 <voice-interaction-service
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:sessionService="com.kernel.ai.assistant.JandalVoiceInteractionSessionService"
+    android:recognitionService="com.kernel.ai.assistant.JandalRecognitionService"
     android:supportsAssist="true"
     android:supportsLaunchVoiceAssistFromKeyguard="true"
     android:supportsLocalInteraction="true" />
