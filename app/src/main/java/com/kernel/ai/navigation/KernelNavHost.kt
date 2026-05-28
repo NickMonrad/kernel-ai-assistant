@@ -134,6 +134,9 @@ fun KernelNavHost(
     initialChatQuery: String? = null,
     initialQuickActionQuery: String? = null,
     initialQuickActionIsVoice: Boolean = false,
+    /** Monotonic counter incremented by MainActivity on every delivery — ensures the
+     *  [LaunchedEffect] re-fires even when the query text is identical to the prior one. */
+    quickActionSerial: Int = 0,
     initialSlotReply: String? = null,
 ) {
     val navController = rememberNavController()
@@ -156,7 +159,7 @@ fun KernelNavHost(
     // Widget/ADB: navigate to Actions tab with the query baked into the route URL so it
     // lands stably in backStackEntry.arguments (not a mutableStateOf that can null-out
     // before ActionsScreen's LaunchedEffect fires).
-    LaunchedEffect(initialQuickActionQuery, initialQuickActionIsVoice) {
+    LaunchedEffect(initialQuickActionQuery, initialQuickActionIsVoice, quickActionSerial) {
         if (!initialQuickActionQuery.isNullOrBlank()) {
             val encoded = encodeRouteQueryValue(initialQuickActionQuery)
             navController.navigate(
