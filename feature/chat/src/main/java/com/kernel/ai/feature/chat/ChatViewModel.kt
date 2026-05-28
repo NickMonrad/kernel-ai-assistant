@@ -829,6 +829,8 @@ class ChatViewModel @Inject constructor(
                 estimatedTokensUsed = 0
                 turnsSinceReset = 0
                 inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _error.value = "Failed to load model: ${e.message}"
             }
@@ -884,6 +886,8 @@ class ChatViewModel @Inject constructor(
                 // Rebuild system prompt now that activeBackend is resolved (backend field
                 // was null during initialize()).
                 inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _error.value = "Failed to load model: ${e.message}"
             }
