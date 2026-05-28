@@ -69,6 +69,22 @@ class WakeWordService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Pause/resume are sent by callers that need the mic (Side key, widget).
+        when (intent?.action) {
+            ACTION_PAUSE -> {
+                Log.i(TAG, "WakeWordService: pausing (mic requested by external caller)")
+                wakeWordDetector.stop()
+                return START_STICKY
+            }
+            ACTION_RESUME -> {
+                if (wakeWordDetector.isAvailable) {
+                    Log.i(TAG, "WakeWordService: resuming wake word detection")
+                    wakeWordDetector.start(onDetected = { handleDetection() })
+                }
+                return START_STICKY
+            }
+        }
+
         startForeground(NOTIFICATION_ID, buildNotification())
 
         if (!wakeWordDetector.isAvailable) {
@@ -183,12 +199,29 @@ class WakeWordService : Service() {
     }
 
     companion object {
+        const val ACTION_PAUSE  = "com.kernel.ai.assistant.WAKE_PAUSE"
+        const val ACTION_RESUME = "com.kernel.ai.assistant.WAKE_RESUME"
+
         fun start(context: Context) {
             context.startForegroundService(Intent(context, WakeWordService::class.java))
         }
 
         fun stop(context: Context) {
             context.stopService(Intent(context, WakeWordService::class.java))
+        }
+
+        /** Release AudioRecord so another caller can open the mic. No-op if service not running. */
+        fun pause(context: Context) {
+            context.startService(Intent(context, WakeWordService::class.java).apply {
+                action = ACTION_PAUSE
+            })
+        }
+
+        /** Re-arm wake word detection after the STT session ends. No-op if service not running. */
+        fun resume(context: Context) {
+            context.startService(Intent(context, WakeWordService::class.java).apply {
+                action = ACTION_RESUME
+            })
         }
     }
 }
