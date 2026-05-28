@@ -112,12 +112,9 @@ class VoiceCommandActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        // Cancel any in-flight navigation from a prior trigger before accepting the new one.
-        prefilledNavJob?.cancel()
-        prefilledNavJob = null
         handlePrefilledTranscript(intent)
         // If there was no prefilled transcript this is an OS assistant re-trigger; ignore —
-        // the existing voice session is already running.
+        // the existing voice session or overlay is still valid.
     }
 
     /**
@@ -138,7 +135,10 @@ class VoiceCommandActivity : ComponentActivity() {
             // trigger whose intent arrives next; clearing it here would invalidate it.
             return false
         }
-
+        // Token matched: cancel any in-flight navigation before routing the newer transcript.
+        // Only cancel after validation — an unrecognised re-entry must not cancel a live overlay.
+        prefilledNavJob?.cancel()
+        prefilledNavJob = null
         WakeWordHandoff.pendingTranscript = null
         routePrefilledTranscript(extra)
         return true
