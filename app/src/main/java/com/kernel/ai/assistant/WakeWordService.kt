@@ -36,13 +36,20 @@ private const val NOTIFICATION_ID = 9_500
  * Foreground service that keeps [WakeWordDetector] running continuously.
  *
  * Started when "Listen for Hey Jandal" is enabled in Settings → Voice.
- * Stopped when disabled or when [JandalVoiceInteractionService] (from #983) takes over
- * the privileged microphone path via [android.service.voice.VoiceInteractionService].
+ *
+ * **Mic arbitration:** [WakeWordDetector] holds a raw [android.media.AudioRecord] continuously.
+ * To avoid blocking [android.speech.SpeechRecognizer] when the widget, Side key, or any other
+ * caller opens a voice session, this service observes [VoiceInputController.events]:
+ * - [VoiceInputEvent.ListeningStarted] → stop the detector (release AudioRecord)
+ * - [VoiceInputEvent.ListeningStopped] → re-arm the detector
+ *
+ * This handles every caller (widget, assistant session, chat) automatically with no
+ * explicit coordination required from those callers.
  *
  * On wake word detection:
- * 1. Plays the start-listening cue (already open on the [VoiceInputController] path)
+ * 1. Plays the start-listening cue
  * 2. Starts STT via [VoiceInputController] on [VoiceCaptureMode.AlertCommand]
- * 3. Routes the transcript to [VoiceCommandService] — same execution seam as widget + assistant
+ * 3. Routes the transcript to [VoiceCommandService]
  *
  * If [WakeWordDetector.isAvailable] is false (model not yet trained, see #984),
  * the service posts a notification explaining this and stops itself.
@@ -62,19 +69,6 @@ class WakeWordService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_PAUSE) {
-            wakeWordDetector.stop()
-            Log.i(TAG, "WakeWordService: paused for assistant session")
-            return START_STICKY
-        }
-        if (intent?.action == ACTION_RESUME) {
-            if (wakeWordDetector.isAvailable) {
-                wakeWordDetector.start(onDetected = { handleDetection() })
-                Log.i(TAG, "WakeWordService: resumed after assistant session")
-            }
-            return START_STICKY
-        }
-
         startForeground(NOTIFICATION_ID, buildNotification())
 
         if (!wakeWordDetector.isAvailable) {
@@ -85,6 +79,25 @@ class WakeWordService : Service() {
 
         Log.i(TAG, "WakeWordService: starting wake word detection")
         wakeWordDetector.start(onDetected = { handleDetection() })
+
+        // Automatically yield the AudioRecord whenever another voice session is active.
+        serviceScope.launch {
+            voiceInputController.events.collect { event ->
+                when (event) {
+                    is VoiceInputEvent.ListeningStarted -> {
+                        Log.i(TAG, "WakeWordService: yielding mic to voice session (${event.mode})")
+                        wakeWordDetector.stop()
+                    }
+                    is VoiceInputEvent.ListeningStopped -> {
+                        if (wakeWordDetector.isAvailable) {
+                            Log.i(TAG, "WakeWordService: re-arming after voice session (${event.mode})")
+                            wakeWordDetector.start(onDetected = { handleDetection() })
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+        }
 
         return START_STICKY
     }
@@ -125,8 +138,7 @@ class WakeWordService : Service() {
             Log.d(TAG, "WakeWordService: routing transcript=\"$transcript\"")
             routeTranscript(transcript)
 
-            // Re-arm for the next detection.
-            wakeWordDetector.start(onDetected = { handleDetection() })
+            // Re-arm is handled by the ListeningStopped observer above.
         }
     }
 
@@ -171,27 +183,12 @@ class WakeWordService : Service() {
     }
 
     companion object {
-        const val ACTION_PAUSE = "com.kernel.ai.action.WAKE_WORD_PAUSE"
-        const val ACTION_RESUME = "com.kernel.ai.action.WAKE_WORD_RESUME"
-
         fun start(context: Context) {
             context.startForegroundService(Intent(context, WakeWordService::class.java))
         }
 
         fun stop(context: Context) {
             context.stopService(Intent(context, WakeWordService::class.java))
-        }
-
-        fun pause(context: Context) {
-            context.startService(Intent(context, WakeWordService::class.java).apply {
-                action = ACTION_PAUSE
-            })
-        }
-
-        fun resume(context: Context) {
-            context.startService(Intent(context, WakeWordService::class.java).apply {
-                action = ACTION_RESUME
-            })
         }
     }
 }
