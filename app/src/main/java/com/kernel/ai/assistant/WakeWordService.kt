@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import java.lang.ref.WeakReference
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
@@ -66,30 +67,11 @@ class WakeWordService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        instance = WeakReference(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Must call startForeground before any return on Android 12+ to avoid
-        // ForegroundServiceDidNotStartInTimeException, even for pause/resume intents.
         startForeground(NOTIFICATION_ID, buildNotification())
-
-        // Pause/resume are sent by callers that need the mic (Side key, widget).
-        when (intent?.action) {
-            ACTION_PAUSE -> {
-                Log.i(TAG, "WakeWordService: pausing (mic requested by external caller)")
-                wakeWordDetector.stop()
-                return START_STICKY
-            }
-            ACTION_RESUME -> {
-                if (wakeWordDetector.isAvailable) {
-                    Log.i(TAG, "WakeWordService: resuming wake word detection")
-                    wakeWordDetector.start(onDetected = { handleDetection() })
-                }
-                return START_STICKY
-            }
-        }
-
-
 
         if (!wakeWordDetector.isAvailable) {
             Log.i(TAG, "WakeWordService: model not yet available (#984) — stopping")
@@ -123,6 +105,7 @@ class WakeWordService : Service() {
     }
 
     override fun onDestroy() {
+        instance = null
         wakeWordDetector.stop()
         serviceScope.cancel()
         super.onDestroy()
@@ -206,6 +189,13 @@ class WakeWordService : Service() {
         const val ACTION_PAUSE  = "com.kernel.ai.assistant.WAKE_PAUSE"
         const val ACTION_RESUME = "com.kernel.ai.assistant.WAKE_RESUME"
 
+        /**
+         * Weak reference to the running service instance.
+         * Set in [onCreate], cleared in [onDestroy].
+         * All callers are in the same process — no IPC needed.
+         */
+        private var instance: WeakReference<WakeWordService>? = null
+
         fun start(context: Context) {
             context.startForegroundService(Intent(context, WakeWordService::class.java))
         }
@@ -214,18 +204,28 @@ class WakeWordService : Service() {
             context.stopService(Intent(context, WakeWordService::class.java))
         }
 
-        /** Release AudioRecord so another caller can open the mic. No-op if service not running. */
+        /**
+         * Release AudioRecord so another caller can open the mic.
+         * No-op (safe) if the service is not running.
+         */
         fun pause(context: Context) {
-            context.startService(Intent(context, WakeWordService::class.java).apply {
-                action = ACTION_PAUSE
-            })
+            instance?.get()?.let { svc ->
+                Log.i("KernelAI", "WakeWordService: pausing (mic requested by external caller)")
+                svc.wakeWordDetector.stop()
+            }
         }
 
-        /** Re-arm wake word detection after the STT session ends. No-op if service not running. */
+        /**
+         * Re-arm wake word detection after the STT session ends.
+         * No-op (safe) if the service is not running.
+         */
         fun resume(context: Context) {
-            context.startService(Intent(context, WakeWordService::class.java).apply {
-                action = ACTION_RESUME
-            })
+            instance?.get()?.let { svc ->
+                if (svc.wakeWordDetector.isAvailable) {
+                    Log.i("KernelAI", "WakeWordService: resuming wake word detection")
+                    svc.wakeWordDetector.start(onDetected = { svc.handleDetection() })
+                }
+            }
         }
     }
 }
