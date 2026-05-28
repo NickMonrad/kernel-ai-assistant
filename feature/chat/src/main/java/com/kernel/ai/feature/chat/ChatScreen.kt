@@ -826,32 +826,47 @@ private fun MessageBubble(
             var userExpanded by rememberSaveable(key = "thinking_userExpanded") { mutableStateOf(false) }
             val expanded = userExpanded || message.isStreaming
             Column(modifier = Modifier.padding(bottom = 4.dp).testTag("think_bubble")) {
-                AssistChip(
-                    onClick = { userExpanded = !userExpanded },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Outlined.Bolt,
-                            contentDescription = if (message.isStreaming) "Thinking" else "Thought",
-                            modifier = Modifier.size(AssistChipDefaults.IconSize),
-                        )
-                    },
-                    label = {
-                        Text(
-                            text = if (message.isStreaming) "Thinking…" else "Thinking",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontStyle = if (message.isStreaming) FontStyle.Italic else FontStyle.Normal,
-                            ),
-                        )
-                    },
-                    trailingIcon = {
-                        Icon(
-                            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (expanded) "Collapse thinking" else "Expand thinking",
-                            modifier = Modifier.size(16.dp),
-                        )
-                    },
-                    modifier = Modifier.testTag("thinking_chip"),
-                )
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    AssistChip(
+                        onClick = { userExpanded = !userExpanded },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Bolt,
+                                contentDescription = if (message.isStreaming) "Thinking" else "Thought",
+                                modifier = Modifier.size(AssistChipDefaults.IconSize),
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = if (message.isStreaming) "Thinking…" else "Thinking",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontStyle = if (message.isStreaming) FontStyle.Italic else FontStyle.Normal,
+                                ),
+                            )
+                        },
+                        trailingIcon = {
+                            Icon(
+                                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (expanded) "Collapse thinking" else "Expand thinking",
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        modifier = Modifier.testTag("thinking_chip"),
+                    )
+                    if (!message.isStreaming) {
+                        IconButton(
+                            onClick = { onCopy(message.thinkingText!!) },
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy thinking",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
                 AnimatedVisibility(visible = expanded) {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
