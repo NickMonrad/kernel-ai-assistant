@@ -41,10 +41,10 @@ import numpy as np
 
 BACKBONE_URLS = {
     "melspectrogram.onnx": (
-        "https://github.com/dscripka/openWakeWord/releases/download/v0.6.0/melspectrogram.onnx"
+        "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx"
     ),
     "embedding_model.onnx": (
-        "https://github.com/dscripka/openWakeWord/releases/download/v0.6.0/embedding_model.onnx"
+        "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx"
     ),
 }
 
@@ -84,16 +84,21 @@ def compute_embeddings(
     emb_path: Path,
 ) -> np.ndarray:
     """
-    Run all WAV files through the openWakeWord backbone and return an array of
-    embedding windows, shape (N, 28, 96).
+    Run all WAV files through openWakeWord's AudioFeatures pipeline and return
+    embedding windows, shape (N, 16, 96).
 
-    openWakeWord processes 16kHz mono audio in 80ms frames (1280 samples).
-    The embedding model produces one 96-dim vector per frame; the classifier
-    sees a window of 28 consecutive frames (~2.24s of context).
+    Uses AudioFeatures._streaming_features() + get_features() — the same internal
+    path that produced the ACAV pre-computed negatives. This guarantees that
+    positive embeddings and ACAV negatives share an identical feature distribution.
+
+    AudioFeatures internally:
+      - accumulates a 76-row mel ring with an 8-row stride
+      - applies the mel normalisation (value / 10 + 2)
+      - calls embedding_model.onnx on the full [1,76,32,1] window
+    so none of those steps need to be replicated here.
     """
     try:
-        import openwakeword
-        from openwakeword.utils import load_audio
+        from openwakeword.utils import AudioFeatures
     except ImportError:
         print(
             "ERROR: openwakeword not installed.\n"
@@ -102,55 +107,76 @@ def compute_embeddings(
         )
         sys.exit(1)
 
-    import onnxruntime as ort
+    try:
+        import soundfile as sf
+    except ImportError:
+        import scipy.io.wavfile as _wav
+        def _load_wav(path: str) -> np.ndarray:
+            sr, data = _wav.read(path)
+            if data.dtype != np.float32:
+                data = data.astype(np.float32) / np.iinfo(data.dtype).max
+            if data.ndim > 1:
+                data = data.mean(axis=1)
+            return data
+    else:
+        def _load_wav(path: str) -> np.ndarray:
+            data, sr = sf.read(path, dtype='float32', always_2d=False)
+            if data.ndim > 1:
+                data = data.mean(axis=1)
+            return data
 
-    mel_session = ort.InferenceSession(str(mel_path))
-    emb_session = ort.InferenceSession(str(emb_path))
-
-    mel_input_name = mel_session.get_inputs()[0].name
-    emb_input_name = emb_session.get_inputs()[0].name
-
-    FRAME_SAMPLES = 1280  # 80ms at 16kHz
-    CONTEXT_FRAMES = 28   # Stage 3 input window
+    CONTEXT_FRAMES = 16  # matches ACAV shape (N,16,96) and runtime EMBEDDING_FRAMES=16
+    # Minimum audio length: enough for the mel ring to fill (76 rows × 160 samples stride
+    # + initial context) plus CONTEXT_FRAMES embedding steps. 3s is generous.
+    MIN_AUDIO_SAMPLES = 16000 * 3
 
     wav_files = sorted(wav_dir.glob("*.wav"))
     if not wav_files:
         print(f"ERROR: no WAV files found in {wav_dir}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"  Computing embeddings for {len(wav_files)} clips...")
+    print(f"  Computing embeddings for {len(wav_files)} clips via AudioFeatures...")
     all_windows: list[np.ndarray] = []
+
+    # Create one AudioFeatures instance and reset() between clips — avoids
+    # re-loading ONNX sessions 954 times (each init takes ~200ms).
+    af = AudioFeatures(
+        melspec_model_path=str(mel_path),
+        embedding_model_path=str(emb_path),
+    )
 
     for wav_path in wav_files:
         try:
-            audio = load_audio(str(wav_path))  # float32 array, 16kHz mono
+            audio = _load_wav(str(wav_path))
         except Exception as e:
             print(f"    SKIP {wav_path.name}: {e}", file=sys.stderr)
             continue
 
-        # Pad to at least CONTEXT_FRAMES * FRAME_SAMPLES
-        min_len = CONTEXT_FRAMES * FRAME_SAMPLES
-        if len(audio) < min_len:
-            audio = np.pad(audio, (0, min_len - len(audio)))
+        # Pad short clips so the mel ring fills and we get at least CONTEXT_FRAMES embeddings
+        if len(audio) < MIN_AUDIO_SAMPLES:
+            audio = np.pad(audio, (0, MIN_AUDIO_SAMPLES - len(audio)))
 
-        # Compute mel → embedding frame by frame
-        frames = []
-        for start in range(0, len(audio) - FRAME_SAMPLES + 1, FRAME_SAMPLES):
-            chunk = audio[start : start + FRAME_SAMPLES].reshape(1, 1, FRAME_SAMPLES)
-            mel = mel_session.run(None, {mel_input_name: chunk})[0]
-            emb = emb_session.run(None, {emb_input_name: mel})[0]  # (1, 1, 96)
-            frames.append(emb.reshape(96))
+        # Reset internal state so previous clip doesn't bleed into this one
+        af.reset()
+        af._streaming_features(audio)
 
-        if len(frames) < CONTEXT_FRAMES:
-            # Pad frame list
-            frames += [frames[-1]] * (CONTEXT_FRAMES - len(frames))
+        # get_features returns (1, N, 96); squeeze batch dim → (N, 96)
+        all_emb = af.get_features(n_feature_frames=len(af.feature_buffer), start_ndx=0)
+        all_emb = np.array(all_emb).squeeze(0)  # (N, 96)
 
-        # Slide a window of CONTEXT_FRAMES over the frame sequence
-        for i in range(len(frames) - CONTEXT_FRAMES + 1):
-            window = np.stack(frames[i : i + CONTEXT_FRAMES])  # (28, 96)
-            all_windows.append(window)
+        if len(all_emb) < CONTEXT_FRAMES:
+            print(f"    SKIP {wav_path.name}: only {len(all_emb)} embedding frames (need {CONTEXT_FRAMES})")
+            continue
 
-    result = np.stack(all_windows)  # (N, 28, 96)
+        # Slide a 16-frame window across the embedding sequence
+        for i in range(len(all_emb) - CONTEXT_FRAMES + 1):
+            all_windows.append(all_emb[i : i + CONTEXT_FRAMES])  # (16, 96)
+
+    if not all_windows:
+        print("ERROR: no embedding windows extracted — check positive clips", file=sys.stderr)
+        sys.exit(1)
+
+    result = np.stack(all_windows)  # (N, 16, 96)
     print(f"  {len(result)} embedding windows extracted")
     return result
 
@@ -166,8 +192,8 @@ def train_classifier(
     """
     Train a small FCN classifier on pre-computed embedding windows.
 
-    Architecture mirrors the official openWakeWord training notebook:
-    flatten(28×96=2688) → Linear(2688,128) → ReLU → Linear(128,1) → Sigmoid
+    Architecture matches the official openWakeWord classifier:
+    flatten(16×96=1536) → Linear(1536,128) → ReLU → Linear(128,1) → Sigmoid
     """
     import torch
     import torch.nn as nn
@@ -177,7 +203,7 @@ def train_classifier(
             super().__init__()
             self.net = nn.Sequential(
                 nn.Flatten(),
-                nn.Linear(28 * 96, 128),
+                nn.Linear(16 * 96, 128),
                 nn.ReLU(),
                 nn.Linear(128, 1),
                 nn.Sigmoid(),
@@ -195,11 +221,12 @@ def train_classifier(
     X = torch.cat([pos, neg])
     y = torch.cat([pos_labels, neg_labels])
 
-    # Class weights: false_positive_weight increases penalty for FP
-    # pos_weight in BCEWithLogitsLoss would be cleaner but we use BCE after sigmoid
+    # false_positive_weight penalises the NEGATIVE class (false positives are negatives
+    # classified as positive). Higher weight → stronger push away from FPs.
+    # Positives get weight 1.0; negatives get false_positive_weight.
     sample_weights = torch.cat([
-        torch.full((len(pos),), false_positive_weight),
-        torch.ones(len(neg)),
+        torch.ones(len(pos)),
+        torch.full((len(neg),), false_positive_weight),
     ])
 
     dataset = torch.utils.data.TensorDataset(X, y, sample_weights)
@@ -233,7 +260,7 @@ def export_onnx(model: "torch.nn.Module", output_path: Path) -> None:
     import torch
 
     model.eval()
-    dummy = torch.zeros(1, 28, 96)
+    dummy = torch.zeros(1, 16, 96)
     torch.onnx.export(
         model,
         dummy,
@@ -261,9 +288,28 @@ def get_negative_embeddings(
     n_target: int,
 ) -> np.ndarray:
     """
-    Load background negatives from openWakeWord's built-in corpus.
-    Falls back to synthetic silence + Gaussian noise if corpus unavailable.
+    Load background negatives, preferring the ACAV pre-computed features
+    (openwakeword_features_ACAV100M_2000_hrs_16bit.npy, shape (5625000,16,96))
+    which are already in the correct [N,16,96] format and match what the official
+    OWW training notebook uses. Falls back to downloading OWW background clips,
+    then to synthetic silence/noise if neither is available.
     """
+    # 1. Check for ACAV pre-computed features (preferred)
+    acav_candidates = [
+        Path("openwakeword_features_ACAV100M_2000_hrs_16bit.npy"),
+        Path("/home/lokhor/Documents/development/openWakeWord/openwakeword_features_ACAV100M_2000_hrs_16bit.npy"),
+    ]
+    for acav_path in acav_candidates:
+        if acav_path.exists():
+            print(f"  Loading ACAV pre-computed features from {acav_path}")
+            acav = np.load(str(acav_path), mmap_mode="r")
+            # shape is (5625000, 16, 96) — sample n_target rows randomly
+            idx = np.random.default_rng(42).choice(len(acav), size=min(n_target, len(acav)), replace=False)
+            result = acav[idx].astype(np.float32)
+            print(f"  Sampled {len(result)} ACAV windows (shape {result.shape})")
+            return result
+
+    # 2. Fall back to downloading OWW background clips
     try:
         from openwakeword.utils import get_negative_clips
 
@@ -275,35 +321,36 @@ def get_negative_embeddings(
     except Exception as e:
         print(f"  Warning: could not fetch openWakeWord negatives ({e})", file=sys.stderr)
         print("  Falling back to synthetic negatives (silence + Gaussian noise)")
-        # Generate synthetic 16kHz, 2.5s clips (~2.24s = 28 frames worth)
-        rng = np.random.default_rng(42)
-        import onnxruntime as ort
 
-        FRAME_SAMPLES = 1280
-        CONTEXT_FRAMES = 28
+    # 3. Synthetic silence/noise fallback
+    rng = np.random.default_rng(42)
+    import onnxruntime as ort
 
-        mel_session = ort.InferenceSession(str(mel_path))
-        emb_session = ort.InferenceSession(str(emb_path))
-        mel_input = mel_session.get_inputs()[0].name
-        emb_input = emb_session.get_inputs()[0].name
+    FRAME_SAMPLES = 1280
+    CONTEXT_FRAMES = 16
 
-        windows = []
-        for _ in range(n_target):
-            # Random noise or near-silence
-            if rng.random() < 0.5:
-                audio = rng.standard_normal(CONTEXT_FRAMES * FRAME_SAMPLES).astype(np.float32) * 0.01
-            else:
-                audio = np.zeros(CONTEXT_FRAMES * FRAME_SAMPLES, dtype=np.float32)
-            frames = []
-            for start in range(0, len(audio), FRAME_SAMPLES):
-                chunk = audio[start : start + FRAME_SAMPLES].reshape(1, 1, FRAME_SAMPLES)
-                mel = mel_session.run(None, {mel_input: chunk})[0]
-                emb = emb_session.run(None, {emb_input: mel})[0]
-                frames.append(emb.reshape(96))
-            if len(frames) >= CONTEXT_FRAMES:
-                windows.append(np.stack(frames[:CONTEXT_FRAMES]))
+    mel_session = ort.InferenceSession(str(mel_path))
+    emb_session = ort.InferenceSession(str(emb_path))
+    mel_input = mel_session.get_inputs()[0].name
+    emb_input = emb_session.get_inputs()[0].name
 
-        return np.stack(windows)
+    windows = []
+    for _ in range(n_target):
+        if rng.random() < 0.5:
+            audio = rng.standard_normal(CONTEXT_FRAMES * FRAME_SAMPLES).astype(np.float32) * 0.01
+        else:
+            audio = np.zeros(CONTEXT_FRAMES * FRAME_SAMPLES, dtype=np.float32)
+        frames = []
+        for start in range(0, len(audio), FRAME_SAMPLES):
+            chunk = audio[start : start + FRAME_SAMPLES].reshape(1, FRAME_SAMPLES)
+            mel = mel_session.run(None, {mel_input: chunk})[0]
+            mel = mel / 10.0 + 2.0
+            emb = emb_session.run(None, {emb_input: mel})[0]
+            frames.append(emb.reshape(96))
+        if len(frames) >= CONTEXT_FRAMES:
+            windows.append(np.stack(frames[:CONTEXT_FRAMES]))
+
+    return np.stack(windows)
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────

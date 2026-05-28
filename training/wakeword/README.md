@@ -10,8 +10,8 @@ The runtime uses a fixed 3-stage pipeline in `OnnxWakeWordDetector`:
 16kHz mono PCM (80ms = 1280 samples)
   → melspectrogram.onnx      Stage 1: raw PCM → mel-spectrogram patch
   → embedding_model.onnx     Stage 2: mel → 96-dim embedding (one per 80ms frame)
-  → ring buffer (28 frames ≈ 2.24s context)
-  → hey_jandal.onnx          Stage 3: 28×96 window → confidence [0,1]
+  → ring buffer (16 frames ≈ 1.28s context)
+  → hey_jandal.onnx          Stage 3: 16×96 window → confidence [0,1]
 ```
 
 You only train Stage 3. Stages 1 and 2 are pre-built shared models downloaded automatically by `train.py`.
