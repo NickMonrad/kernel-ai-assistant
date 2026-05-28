@@ -1,6 +1,6 @@
 # Kernel AI Assistant — Roadmap
 
-> **Last updated:** 2026-05-12 (PR #848 merged: deterministic currency conversion #831; PR #847 merged: homescreen Glance widget #617; PR #845 merged: aye pronunciation fix #843; cooking conversions #827 in progress)
+> **Last updated:** 2026-05-28 (PR #989 note-taking skill #823; PR #980 chat UX overhaul #963; PR #976 meal planner structured output; PR #972 weather QIR patterns #929; PR #966 memory/QIR/Wikipedia fixes; PR #946 thinking mode fix; PR #930 TTS normalisation; PR #923 important date day-of notifications)
 >
 > This is the living roadmap for Kernel AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -245,6 +245,11 @@ Active follow-on model/runtime investigations now live under
 |-----------|-------|--------|----------|
 | [#334](https://github.com/NickMonrad/kernel-ai-assistant/issues/334) | search_memory misses episodic + nearby core memories | ⬜ Pending | 🔴 High |
 | [#235](https://github.com/NickMonrad/kernel-ai-assistant/issues/235) | Artifact entity — persistent structured documents in Room DB | ⬜ Pending | 🟡 Medium |
+| [#940](https://github.com/NickMonrad/kernel-ai-assistant/issues/940) | Model relies on memory over current chat context | ⬜ Pending | 🔴 High |
+| [#959](https://github.com/NickMonrad/kernel-ai-assistant/issues/959) | search_memory returning irrelevant low-confidence matches | ⬜ Pending | 🔴 High |
+| [#957](https://github.com/NickMonrad/kernel-ai-assistant/issues/957) | QIR misroutes "What do you remember about me" to save_memory | ⬜ Pending | 🟡 Medium |
+| [#958](https://github.com/NickMonrad/kernel-ai-assistant/issues/958) | Anaphoric remember-that follow-ups not resolving context | ⬜ Pending | 🟡 Medium |
+| [#647](https://github.com/NickMonrad/kernel-ai-assistant/issues/647) | Switch sqlite-vec tables to cosine distance metric | ⬜ Pending | 🟡 Medium |
 
 **Already completed:**
 - ✅ Episodic memory distillation (#165)
@@ -299,7 +304,7 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | [#756](https://github.com/NickMonrad/kernel-ai-assistant/issues/756) | Research: evaluate custom Piper voice training | ⬜ Pending | 🟢 Low |
 | [#790](https://github.com/NickMonrad/kernel-ai-assistant/issues/790) | Voice slot-fill retry on no-speech + cancel phrases | ✅ Done — PR #825 | 🟡 Medium |
 | [#791](https://github.com/NickMonrad/kernel-ai-assistant/issues/791) | Start-listening audio cue for Quick Actions voice capture | ✅ Done — PR #825 | 🟢 Low |
-| [#823](https://github.com/NickMonrad/kernel-ai-assistant/issues/823) | Voice memo / note-taking native skill | ⬜ Pending | 🟡 Medium |
+| [#823](https://github.com/NickMonrad/kernel-ai-assistant/issues/823) | Voice memo / note-taking native skill | ✅ Done — PR #989 | 🟡 Medium |
 | [#675](https://github.com/NickMonrad/kernel-ai-assistant/issues/675) | Comprehensive Quick Actions + weather voice QA matrix | 🔴 Closed — superseded by #824 | 🟡 Medium |
 | [#824](https://github.com/NickMonrad/kernel-ai-assistant/issues/824) | QA gate: Phase 3F real-device voice validation (current stack) | ⬜ Pending | 🟡 Medium |
 | [#828](https://github.com/NickMonrad/kernel-ai-assistant/issues/828) | TTS pronoun normalisation (my/I → your/you) | ✅ Done — PR #830 | 🟢 Low |
@@ -379,6 +384,22 @@ Full lifecycle management for conversations: archive/restore, pinning with stick
 
 ---
 
+### 3K: Chat UX Overhaul ([#963](https://github.com/NickMonrad/kernel-ai-assistant/issues/963))
+
+Visual and interaction improvements to the chat experience.
+
+| Sub-Issue | Title | Status | Priority |
+|-----------|-------|--------|----------|
+| [#911](https://github.com/NickMonrad/kernel-ai-assistant/issues/911) | Chat visual customisation — bubble colours, font size, background | ✅ Done — PR #980 | 🟡 Medium |
+| [#952](https://github.com/NickMonrad/kernel-ai-assistant/issues/952) | Attachment picker foundation | ✅ Done — PR #980 | 🟡 Medium |
+| [#906](https://github.com/NickMonrad/kernel-ai-assistant/issues/906) | Tool chip redesign | ✅ Done — PR #980 | 🟡 Medium |
+| [#964](https://github.com/NickMonrad/kernel-ai-assistant/issues/964) | Thinking bubble presentation | ⬜ Pending | 🟡 Medium |
+| [#961](https://github.com/NickMonrad/kernel-ai-assistant/issues/961) | In-chat model settings controls | ⬜ Pending | 🟢 Low |
+| [#951](https://github.com/NickMonrad/kernel-ai-assistant/issues/951) | UX enhancements inspired by Edge Gallery | ⬜ Pending | 🟢 Low |
+
+---
+
+
 ### 3I: Meal Planning Roadmap ([#826](https://github.com/NickMonrad/kernel-ai-assistant/issues/826))
 
 Deterministic meal planning now has its v1 foundation merged. The next phases are deliberately split so UX/resiliency work, durable artifact expansion, and recipe grounding can evolve independently without reopening the prompt-heavy architecture that #859 replaced.
@@ -394,6 +415,7 @@ Deterministic meal planning now has its v1 foundation merged. The next phases ar
 | [#931](https://github.com/NickMonrad/kernel-ai-assistant/issues/931) | Batch replace / regenerate multiple meal-plan days | ✅ Done — this PR | 🟡 Medium |
 | [#235](https://github.com/NickMonrad/kernel-ai-assistant/issues/235) | Artifact entity — persistent structured documents in Room DB | ⬜ Pending | 🟡 Medium |
 | [#43](https://github.com/NickMonrad/kernel-ai-assistant/issues/43) | Recipe skill datasources & regional produce | ⬜ Pending | 🟢 Low |
+| [#976](https://github.com/NickMonrad/kernel-ai-assistant/issues/976) | Meal planner structured output via synthetic OpenAPI tool call | ✅ Done — PR #976 | 🟡 Medium |
 
 **Current state after this PR:**
 
@@ -556,7 +578,7 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#231](https://github.com/NickMonrad/kernel-ai-assistant/issues/231) | NPU fallback rejects QTI Snapdragon devices | Phase 3 (device compat) | ⬜ Open — high priority bug, partial-match fix needed |
 | [#232](https://github.com/NickMonrad/kernel-ai-assistant/issues/232) | Chicory WASM performance design constraint | Phase 5 | ⬜ Open — design note, guides skill authoring guidelines |
 | [#272](https://github.com/NickMonrad/kernel-ai-assistant/issues/272) | GPS weather routing — model always used JS skill | Phase 3 | ✅ Done (PR #274) |
-| [#301](https://github.com/NickMonrad/kernel-ai-assistant/issues/301) | Switch vec0 tables to `distance_metric=cosine` | Phase 3A | ⬜ Pending |
+| [#647](https://github.com/NickMonrad/kernel-ai-assistant/issues/647) | Switch sqlite-vec tables to cosine distance metric | Phase 3D | ⬜ Pending |
 | [#311](https://github.com/NickMonrad/kernel-ai-assistant/issues/311) | Home Assistant integration skill | Phase 3/5 | ⬜ Pending |
 | [#312](https://github.com/NickMonrad/kernel-ai-assistant/issues/312) | Google Home integration skill | Phase 3/5 | ⬜ Pending |
 | [#313](https://github.com/NickMonrad/kernel-ai-assistant/issues/313) | DuckDuckGo web search skill | Phase 3/5 | ⬜ Pending |
@@ -632,13 +654,32 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#784](https://github.com/NickMonrad/kernel-ai-assistant/issues/784) | Kiwi language corpus tuning | Phase 3F | ⬜ Pending |
 | [#790](https://github.com/NickMonrad/kernel-ai-assistant/issues/790) | Voice slot-fill retry on no-speech + cancel phrases | Phase 3F | ✅ Done — PR #825 |
 | [#791](https://github.com/NickMonrad/kernel-ai-assistant/issues/791) | Start-listening audio cue for Quick Actions voice capture | Phase 3F | ✅ Done — PR #825 |
-| [#823](https://github.com/NickMonrad/kernel-ai-assistant/issues/823) | Voice memo / note-taking native skill | Phase 3F | ⬜ Pending |
+| [#823](https://github.com/NickMonrad/kernel-ai-assistant/issues/823) | Voice memo / note-taking native skill | Phase 3C/3F | ✅ Done — PR #989 |
 | [#824](https://github.com/NickMonrad/kernel-ai-assistant/issues/824) | QA gate: Phase 3F real-device voice validation (current stack) | Phase 3F | ⬜ Pending |
-| [#828](https://github.com/NickMonrad/kernel-ai-assistant/issues/828) | TTS pronoun normalisation (my/I → your/you) | Phase 3F | ⬜ Pending |
+| [#828](https://github.com/NickMonrad/kernel-ai-assistant/issues/828) | TTS pronoun normalisation (my/I → your/you) | Phase 3F | ✅ Done — PR #830 |
 | [#821](https://github.com/NickMonrad/kernel-ai-assistant/issues/821) | Sherpa-ONNX / Sherpa-ncnn STT + VAD evaluation | Phase 3F | ⬜ Pending |
 | [#675](https://github.com/NickMonrad/kernel-ai-assistant/issues/675) | Comprehensive Quick Actions + weather voice QA matrix | Phase 3F | 🔴 Closed |
 | [#588](https://github.com/NickMonrad/kernel-ai-assistant/issues/588) | VoiceSession architecture for slot-fill + follow-on assistant mode | Phase 3F | ⬜ Pending |
 | [#905](https://github.com/NickMonrad/kernel-ai-assistant/issues/905) | Conversation archive, pin, and drag-to-reorder | Phase 3J | ✅ Done — PR #924 |
+| [#923](https://github.com/NickMonrad/kernel-ai-assistant/issues/923) | Important date day-of notifications | Phase 3C | ✅ Done — PR #923 |
+| [#929](https://github.com/NickMonrad/kernel-ai-assistant/issues/929) | Weather QIR without 'forecast' keyword | Phase 3C | ✅ Done — PR #972 |
+| [#930](https://github.com/NickMonrad/kernel-ai-assistant/issues/930) | TTS normalisation (fractions, ordinals, ranges, Kiwi corpus) | Phase 3F | ✅ Done — PR #930 |
+| [#963](https://github.com/NickMonrad/kernel-ai-assistant/issues/963) | Epic: Chat UX overhaul and multimodal composer | Phase 3K | 🔄 In Progress |
+| [#976](https://github.com/NickMonrad/kernel-ai-assistant/issues/976) | Meal planner structured output (synthetic tool call) | Phase 3I | ✅ Done — PR #976 |
+| [#983](https://github.com/NickMonrad/kernel-ai-assistant/issues/983) | Android Default Assistant — VoiceInteractionService | Phase 3F | ⬜ Pending |
+| [#984](https://github.com/NickMonrad/kernel-ai-assistant/issues/984) | Local ML training pipeline — Hey Jandal wake word model | Phase 3F | ⬜ Pending |
+| [#985](https://github.com/NickMonrad/kernel-ai-assistant/issues/985) | Always-listening wake word detection service | Phase 3F | ⬜ Pending |
+| [#986](https://github.com/NickMonrad/kernel-ai-assistant/issues/986) | Wake word false positive reduction — secondary STT verify | Phase 3F | ⬜ Pending |
+| [#989](https://github.com/NickMonrad/kernel-ai-assistant/issues/989) | Note-taking / voice memo skill with Tier 2 routing | Phase 3C/3F | ✅ Done — PR #989 |
+| [#992](https://github.com/NickMonrad/kernel-ai-assistant/issues/992) | Bug: note skill echoes load_skill result JSON | Phase 3C | ⬜ Pending |
+| [#940](https://github.com/NickMonrad/kernel-ai-assistant/issues/940) | Model relies on memory over current chat context | Phase 3D | ⬜ Pending |
+| [#957](https://github.com/NickMonrad/kernel-ai-assistant/issues/957) | QIR misroutes memory query to save_memory | Phase 3D | ⬜ Pending |
+| [#958](https://github.com/NickMonrad/kernel-ai-assistant/issues/958) | Anaphoric remember-that not resolving | Phase 3D | ⬜ Pending |
+| [#959](https://github.com/NickMonrad/kernel-ai-assistant/issues/959) | search_memory returning low-confidence junk | Phase 3D | ⬜ Pending |
+| [#964](https://github.com/NickMonrad/kernel-ai-assistant/issues/964) | Thinking bubble presentation | Phase 3K | ⬜ Pending |
+| [#975](https://github.com/NickMonrad/kernel-ai-assistant/issues/975) | Constrained decoding research for meal planner | Phase 3I | ⬜ Pending |
+| [#441](https://github.com/NickMonrad/kernel-ai-assistant/issues/441) | Publish to Play Store | Phase 3 | ⬜ Pending |
+| [#868](https://github.com/NickMonrad/kernel-ai-assistant/issues/868) | Document and licence/attribution review | Phase 3 | ⬜ Pending |
 
 ---
 

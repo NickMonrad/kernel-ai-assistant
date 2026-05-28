@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-05-23 (meal planner follow-ups: cuisine preferences #971, NZ wording normalization #932, batch multi-day replace/regenerate #931; prior: PR #946 spec sync: thinking-mode/tool-turn hardening, direct native tool wrappers, DirectReply bypass notes, known QIR/anaphora follow-up gaps; PR #934 meal plans browser: recent/favourites tabs, recipe search, list export actions; prior: PR #925 deterministic meal planner architecture, planner status surface, friendly meal-plan IDs, conversation title sync, Room v45; PR #924 conversation management — archive, pin, drag-to-reorder, swipe gestures, multi-select, ArchiveCleanupWorker; PR #834 voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, important dates, world clock, colloquial weather QIR; PR #848 currency #831; PR #847 widget #617; PR #845 aye fix #843)
+> **Last updated:** 2026-05-28 (PR #989 note-taking skill; PR #980 chat UX overhaul; PR #976 meal planner structured output; PR #972 weather QIR; PR #966 memory/QIR/Wikipedia; PR #946 thinking mode fix; PR #930 TTS normalisation; PR #923 important date day-of notifications; prior: 2026-05-23 meal planner follow-ups: cuisine preferences #971, NZ wording normalization #932, batch multi-day replace/regenerate #931; prior: PR #946 spec sync: thinking-mode/tool-turn hardening, direct native tool wrappers, DirectReply bypass notes, known QIR/anaphora follow-up gaps; PR #934 meal plans browser: recent/favourites tabs, recipe search, list export actions; prior: PR #925 deterministic meal planner architecture, planner status surface, friendly meal-plan IDs, conversation title sync, Room v45; PR #924 conversation management — archive, pin, drag-to-reorder, swipe gestures, multi-select, ArchiveCleanupWorker; PR #834 voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, import…
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -544,7 +544,12 @@ content through `message.toString()` in the SDK's internal form:
 - #956 — relative weekday phrasing with "tomorrow" can still misroute in QIR
 - #957 — `What do you remember about me` can still misroute to `save_memory`
 - #958 — anaphoric `remember that` follow-ups still need better prior-turn fact resolution
+- #992 — note skill: E4B echoes `load_skill` result JSON instead of calling `create_note`
 
+
+**E2B thinking support:** Both E-4B and E-2B support thinking mode (confirmed from HuggingFace model cards). The Settings UI currently exposes the thinking toggle for E4B only; E2B toggle support is tracked as a follow-up.
+
+**Background calls must suppress thinking:** Utility `generateOnce()` calls — smart chat title generation, episodic memory distillation, and user profile extraction — must explicitly pass `thinkingEnabled = false`. Omitting this flag silently wastes GPU time on chain-of-thought for non-user-facing tasks.
 **Registered `run_intent` intents:**
 
 > This is the broader native-tool inventory. The current deterministic quick-action
@@ -575,6 +580,7 @@ content through `message.toString()` in the SDK's internal form:
 | `convert_currency` | Deterministic currency conversion using latest ECB-backed rates | `CurrencyConversionService` via `NativeIntentHandler` | ✅ |
 | `add_to_list` / `bulk_add_to_list` / `create_list` / `get_list_items` / `remove_from_list` | Room-backed list management | `NativeIntentHandler` + Room DAOs | ✅ |
 | `important_dates` | Taught dates + calendar birthday integration via Calendar Provider | `NativeIntentHandler` + `ContentResolver` query on `CalendarContract.Events` | ✅ — PR #797 |
+| `create_note` | Create a note / voice memo backed by Room DB | Tier 2 QIR instant routing ("add a note", "voice memo", "note that", "remember to") + Tier 3 fallback via `NativeIntentHandler`. Notes accessible in nav drawer Notes browser. | ✅ — PR #989 |
 | `world_clock` | Timezone lookup and world clock display | `ZoneId` / `ZonedDateTime` with timezone database | ✅ — PR #743 |
 
 
@@ -1066,6 +1072,13 @@ than waiting for the full response.
 - Speech rate clamping — prevents unnaturally fast or slow playback
 - Abbreviation-aware sentence splitting in `truncateForSpeech()` via `KNOWN_ABBREV` set and `INITIALS_REGEX` — prevents sentences from being incorrectly split at abbreviations like "Dr.", "Mr.", "U.S.", "vs.", and initials such as "J.K."
 - Sherpa voice quality evaluation performed on Samsung Galaxy S23 Ultra (`#770`)
+
+**TTS normalisation (PR #930):**
+- Fractions to words: "1/2" → "a half", "1/4" → "a quarter", "3/4" → "three quarters"
+- Ordinals: "1st" → "first", "2nd" → "second", "3rd" → "third"
+- Number ranges: "10-20" spoken as "10 to 20"
+- Kiwi corpus improvements for NZ-specific phonetics
+- Closes #876 (fractions), #912 (ordinals), #736 (ranges)
 
 **TTS settings (PR #789):** Expanded settings include pitch control, auto-speak toggle,
 and max spoken sentences limit. `autoSpeakEnabled` is a cached field in `ChatViewModel`,
