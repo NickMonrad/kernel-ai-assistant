@@ -20,7 +20,7 @@ class DefaultWidgetNavigator @Inject constructor() : WidgetNavigator {
         context.startActivity(Intent().apply {
             component = ComponentName(context.packageName, "com.kernel.ai.MainActivity")
             putExtra("chat_input", input)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         })
     }
 

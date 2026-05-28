@@ -68,7 +68,8 @@ import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import kotlin.math.roundToInt
-import android.app.role.RoleManager
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Assistant
@@ -76,6 +77,8 @@ import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.LifecycleEventObserver
+import android.app.role.RoleManager
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -106,6 +109,14 @@ fun VoiceScreen(
         ActivityResultContracts.StartActivityForResult(),
     ) { /* result ignored — DisposableEffect ON_RESUME rechecks the role */ }
 
+    // Permission launcher for Hey Jandal: grants mic then enables wake word.
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) viewModel.setHeyJandalEnabled(true)
+        // On denial: leave toggle off — user can retry by tapping again.
+    }
+
     VoiceScreenContent(
         uiState = uiState,
         onBack = onBack,
@@ -113,7 +124,16 @@ fun VoiceScreen(
             val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
             if (intent != null) assistantRoleLauncher.launch(intent)
         },
-        onHeyJandalEnabledChanged = viewModel::setHeyJandalEnabled,
+        onHeyJandalEnabledChanged = { enabled ->
+            if (!enabled) {
+                viewModel.setHeyJandalEnabled(false)
+            } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                    == PackageManager.PERMISSION_GRANTED) {
+                viewModel.setHeyJandalEnabled(true)
+            } else {
+                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        },
         onWakeWordThresholdChanged = viewModel::setWakeWordThreshold,
         onVoiceInputEngineSelected = viewModel::setVoiceInputEngine,
         onAutoStartAlertVoiceCommandsEnabledChanged = viewModel::setAutoStartAlertVoiceCommandsEnabled,

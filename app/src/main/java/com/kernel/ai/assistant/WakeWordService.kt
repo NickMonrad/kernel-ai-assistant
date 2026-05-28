@@ -22,7 +22,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -124,16 +123,26 @@ class WakeWordService : Service() {
                 return@launch
             }
 
-            val transcript = try {
+            // Collect until the session definitively ends (Transcript, Error, or
+            // ListeningStopped). Using only filterIsInstance<Transcript>.first() would
+            // block forever on a SharedFlow if the session ends with Error/timeout.
+            val terminalEvent = try {
                 voiceInputController.events
                     .onEach { event ->
                         if (event is VoiceInputEvent.ListeningStarted) cuePlayer.playCue()
                     }
-                    .filterIsInstance<VoiceInputEvent.Transcript>()
-                    .first()
-                    .text
+                    .first { it is VoiceInputEvent.Transcript
+                          || it is VoiceInputEvent.Error
+                          || it is VoiceInputEvent.ListeningStopped }
             } catch (e: Exception) {
                 Log.w(TAG, "WakeWordService: transcript collection failed — re-arming", e)
+                wakeWordDetector.start(onDetected = { handleDetection() })
+                return@launch
+            }
+
+            val transcript = (terminalEvent as? VoiceInputEvent.Transcript)?.text
+            if (transcript.isNullOrBlank()) {
+                Log.w(TAG, "WakeWordService: session ended without transcript ($terminalEvent) — re-arming")
                 wakeWordDetector.start(onDetected = { handleDetection() })
                 return@launch
             }

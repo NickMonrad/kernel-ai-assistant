@@ -41,4 +41,13 @@ class JandalVoiceInteractionSession(
             hide()
         }, 300)
     }
+
+    override fun onHide() {
+        super.onHide()
+        // Unconditional resume: covers the case where VoiceCommandActivity finishes
+        // without starting a voice session (e.g. RECORD_AUDIO denied, activity swiped
+        // away) so WakeWordService is never left permanently paused.
+        // When a real voice session ran, WakeWordService.resume() is idempotent.
+        WakeWordService.resume(ctx)
+    }
 }
