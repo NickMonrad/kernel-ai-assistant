@@ -866,8 +866,11 @@ class ChatTextUtilsTest {
         }
 
         @Test
-        fun `me as object is replaced with you`() {
-            assertEquals("What would you like to say to you", normalisePronounsForTts("What would you like to say to me"))
+        fun `me as object is not replaced (rule removed — Jandal self-reference must be preserved)`() {
+            assertEquals(
+                "What would you like to say to me",
+                normalisePronounsForTts("What would you like to say to me"),
+            )
         }
 
         @Test

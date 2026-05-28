@@ -190,7 +190,6 @@ class AboutViewModelTest {
 
     @Test
     fun `exportState transitions through Loading to Ready`() = testScope.runTest {
-    fun `exportState transitions through Loading to Ready`() = testScope.runTest {
         stubRuntime()
         mockkStatic(FileProvider::class)
         mockkStatic(Intent::class)

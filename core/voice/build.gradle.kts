@@ -47,6 +47,8 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.datastore.preferences)
     implementation(libs.vosk.android)
+    // ONNX Runtime — wake word inference (OnnxWakeWordDetector, 3-stage openWakeWord pipeline)
+    implementation(libs.onnxruntime.android)
 
     // WorkManager — required for VoicePackDownloadWorker / SherpaVoicePackDownloadManager
     implementation(libs.work.runtime.ktx)
