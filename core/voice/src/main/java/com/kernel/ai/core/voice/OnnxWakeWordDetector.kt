@@ -368,14 +368,15 @@ class OnnxWakeWordDetector @Inject constructor(
 
                 // Slide mel ring: drop oldest MEL_ROWS_PER_CHUNK rows, append new rows.
                 if (melRowsFilled >= MEL_RING_SIZE) {
-                    // Shift ring left by MEL_ROWS_PER_CHUNK rows.
+                    // Ring full — shift left by MEL_ROWS_PER_CHUNK, append at the tail.
                     melRing.copyInto(melRing, 0, MEL_ROWS_PER_CHUNK * MEL_BINS, MEL_RING_SIZE * MEL_BINS)
                     melRows.copyInto(melRing, (MEL_RING_SIZE - MEL_ROWS_PER_CHUNK) * MEL_BINS)
                 } else {
-                    // Ring not yet full — append at current fill position.
-                    val insertAt = melRowsFilled * MEL_BINS
-                    melRows.copyInto(melRing, insertAt)
-                    melRowsFilled = (melRowsFilled + MEL_ROWS_PER_CHUNK).coerceAtMost(MEL_RING_SIZE)
+                    // Ring not yet full — append as many rows as fit (MEL_RING_SIZE may not be
+                    // a multiple of MEL_ROWS_PER_CHUNK, so clamp to avoid OOB on the last chunk).
+                    val rowsToInsert = minOf(MEL_ROWS_PER_CHUNK, MEL_RING_SIZE - melRowsFilled)
+                    melRows.copyInto(melRing, melRowsFilled * MEL_BINS, 0, rowsToInsert * MEL_BINS)
+                    melRowsFilled += rowsToInsert
                 }
                 if (melRowsFilled < MEL_RING_SIZE) continue // need more audio before first embedding
 
