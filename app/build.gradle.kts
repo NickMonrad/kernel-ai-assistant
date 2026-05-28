@@ -79,12 +79,14 @@ android {
         // LiteRT-LM (transitive) uses internal Kotlin 2.3.x build (metadata 2.3.0)
         freeCompilerArgs += "-Xskip-metadata-version-check"
     }
-    // Sherpa-ONNX 1.13.0 bundles its own libonnxruntime.so; onnxruntime-android
-    // (wake word / ONNX) provides a newer one. Pick the first seen (Gradle resolves
-    // Maven deps before local file deps, so onnxruntime-android wins).
+    // Sherpa-ONNX 1.13.0 bundles its own libonnxruntime.so (older ORT). The wake word
+    // detector uses onnxruntime-android 1.22.0 which ships a newer libonnxruntime.so and
+    // libonnxruntime4j_jni.so. pickFirsts ordering is not guaranteed for local file deps,
+    // so we exclude the Sherpa copy entirely — Sherpa's JNI bridge (libsherpa-onnx-jni.so)
+    // links against the ORT C API which is stable across minor versions.
     packaging {
         jniLibs {
-            pickFirsts += setOf(
+            excludes += setOf(
                 "lib/arm64-v8a/libonnxruntime.so",
                 "lib/armeabi-v7a/libonnxruntime.so",
                 "lib/x86/libonnxruntime.so",
