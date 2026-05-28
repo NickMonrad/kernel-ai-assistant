@@ -235,21 +235,33 @@
             android:exported="true" />
 
         <!--
-            AssistActivity — satisfies Samsung One UI's requirement for an android.intent.action.ASSIST
-            intent filter before the app appears in Settings → Default Apps → Digital assistant.
-            AOSP only needs JandalVoiceInteractionService; Samsung additionally checks for this filter.
-            The activity is a transparent trampoline: it immediately starts VoiceCommandActivity and finishes.
+            VoiceCommandActivity — translucent voice overlay.
 
-            No android:permission gate here — a manifest permission on the activity would block the OS's
-            own eligibility validation when the user selects Jandal in Default Apps, causing the selection
-            to silently revert to "none". Security is handled in AssistActivity.onCreate() instead, which
-            checks that the incoming intent action is ACTION_ASSIST before proceeding.
+            Serves two roles:
+              1. Homescreen widget mic button (widget sends an explicit intent).
+              2. Android Digital Assistant handler (OS sends ACTION_ASSIST via the
+                 intent-filter below).
+
+            Why these attributes matter for the assistant role:
+              - exported="true"  : the OS settings process must be able to resolve and
+                start this activity to validate eligibility; false blocks the check.
+              - launchMode="singleTask" : the OS reuses the existing instance across
+                successive assistant triggers via onNewIntent; without this the selection
+                reverts on some OEM launchers.
+              - showWhenLocked="true"   : required by Android assistant eligibility
+                validation; without it Samsung silently drops the selection.
+              - taskAffinity=""         : keeps the overlay in its own task so launching it
+                does NOT bring MainActivity to the foreground.
+              - noHistory="true"        : activity is not added to the back stack; the user
+                cannot "back" into the voice overlay from a subsequent activity.
         -->
         <activity
-            android:name=".assistant.AssistActivity"
+            android:name="com.kernel.ai.feature.widget.VoiceCommandActivity"
             android:exported="true"
             android:theme="@style/Theme.Kernel.Translucent"
+            android:launchMode="singleTask"
             android:noHistory="true"
+            android:showWhenLocked="true"
             android:taskAffinity=""
             android:excludeFromRecents="true">
             <intent-filter>
@@ -258,21 +270,10 @@
             </intent-filter>
         </activity>
 
-        <!-- VoiceCommandService — foundational execution seam for widget + future wake word -->
+        <!-- VoiceCommandService — foundational execution seam for voice interaction session + widget + future wake word -->
         <service
             android:name="com.kernel.ai.feature.widget.VoiceCommandService"
             android:exported="false" />
-
-        <!-- VoiceCommandActivity — translucent overlay for widget mic button.
-             taskAffinity="" puts it in its own task so launching it does NOT
-             bring MainActivity (and whatever screen it was on) to the foreground. -->
-        <activity
-            android:name="com.kernel.ai.feature.widget.VoiceCommandActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Kernel.Translucent"
-            android:noHistory="true"
-            android:taskAffinity=""
-            android:excludeFromRecents="true" />
 
         <!-- WidgetTextInputActivity — translucent overlay for widget text input.
              taskAffinity="" for the same reason as VoiceCommandActivity above. -->
