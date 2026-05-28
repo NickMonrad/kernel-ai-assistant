@@ -16,6 +16,7 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.WakeWordDetector
+import com.kernel.ai.core.voice.WakeWordHandoff
 import com.kernel.ai.feature.widget.EXTRA_PREFILLED_TRANSCRIPT
 import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -53,6 +54,12 @@ private const val NOTIFICATION_ID = 9_500
  * 3. Launches [VoiceCommandActivity] with the transcript pre-filled via
  *    [EXTRA_PREFILLED_TRANSCRIPT] — shows the same bottom-sheet overlay as the long-press
  *    flow, then routes to ActionsScreen for the voice reply.
+ *
+ * **Security:** [VoiceCommandActivity] is exported=true (required for assistant eligibility).
+ * To prevent external apps from injecting arbitrary transcripts, [pendingWakeWordTranscript]
+ * is set in this service's process memory immediately before [startActivity]. The activity
+ * reads and clears it, and only trusts the extra when the in-process value matches.
+ * External callers cannot access this JVM field.
  *
  * If [WakeWordDetector.isAvailable] is false (model not yet trained, see #984),
  * the service posts a notification explaining this and stops itself.
@@ -158,16 +165,22 @@ class WakeWordService : Service() {
     }
 
     private fun routeTranscript(transcript: String) {
-        // Launch VoiceCommandActivity with the transcript pre-filled.
-        // This shows the same bottom-sheet overlay the user sees from the long-press or widget
-        // flow, skipping the STT step since we already have the recognised text. The activity
-        // then calls navigateToActions → ActionsScreen executes and speaks the result.
-        startActivity(
-            Intent(this, VoiceCommandActivity::class.java).apply {
-                putExtra(EXTRA_PREFILLED_TRANSCRIPT, transcript)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-        )
+        // Set the in-process authorisation token before launching the activity.
+        // VoiceCommandActivity checks this field and clears it on read — external callers
+        // cannot set it, so they cannot inject transcripts even though the activity is exported.
+        WakeWordHandoff.pendingTranscript = transcript
+        try {
+            startActivity(
+                Intent(this, VoiceCommandActivity::class.java).apply {
+                    putExtra(EXTRA_PREFILLED_TRANSCRIPT, transcript)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        } catch (e: Exception) {
+            // Clear the token if startActivity failed so it doesn't linger.
+            WakeWordHandoff.pendingTranscript = null
+            Log.e(TAG, "WakeWordService: failed to launch VoiceCommandActivity", e)
+        }
     }
 
     // ── Notification ───────────────────────────────────────────────────────────
@@ -204,6 +217,15 @@ class WakeWordService : Service() {
     companion object {
         const val ACTION_PAUSE  = "com.kernel.ai.assistant.WAKE_PAUSE"
         const val ACTION_RESUME = "com.kernel.ai.assistant.WAKE_RESUME"
+
+        /**
+         * In-process authorisation token for the prefilled-transcript overlay path.
+         *
+         * Set by [WakeWordService.routeTranscript] immediately before [startActivity];
+         * read and cleared by [VoiceCommandActivity]. Because this is a JVM field,
+         * external apps cannot write it — so [VoiceCommandActivity] can trust the
+         * prefilled transcript only when this matches the intent extra.
+         */
 
         /**
          * Weak reference to the running service instance.

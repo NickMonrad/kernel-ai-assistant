@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.widget
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.media.ToneGenerator
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import com.kernel.ai.core.voice.WakeWordHandoff
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
@@ -58,10 +60,13 @@ import javax.inject.Inject
 private const val TAG = "KernelAI"
 
 /**
- * Pass a non-null value to skip STT and route a pre-existing transcript
- * directly through the overlay. Used by the wake word path in [WakeWordService]
- * so the user sees the bottom-sheet overlay (same as long-press) even though
- * the utterance was already recognised in the background.
+ * Intent extra key used by [WakeWordService] to pass a pre-recognised transcript.
+ *
+ * **Security:** this activity is exported=true (assistant eligibility requirement).
+ * External callers cannot inject transcripts via this extra because [WakeWordService]
+ * also sets [WakeWordHandoff.pendingTranscript] in process memory immediately
+ * before launching this activity. [VoiceCommandActivity] only acts on the extra when
+ * the in-process token matches and then clears it — external apps cannot write the token.
  */
 const val EXTRA_PREFILLED_TRANSCRIPT = "prefilled_transcript"
 
@@ -83,13 +88,7 @@ class VoiceCommandActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // Wake word path: transcript already recognised in WakeWordService — skip STT,
-        // show transcript in overlay briefly, then hand off to ActionsScreen.
-        val prefilled = intent.getStringExtra(EXTRA_PREFILLED_TRANSCRIPT)
-        if (prefilled != null) {
-            routePrefilledTranscript(prefilled)
-            return
-        }
+        if (handlePrefilledTranscript(intent)) return
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -103,7 +102,41 @@ class VoiceCommandActivity : ComponentActivity() {
     }
 
     /**
-     * Wake word path: show the recognised transcript in the overlay card for 400ms
+     * `launchMode="singleTask"`: a second wake-word trigger while this activity is
+     * already running is delivered here, not to a fresh [onCreate]. Handle it identically.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handlePrefilledTranscript(intent)
+        // If there was no prefilled transcript this is an OS assistant re-trigger; ignore —
+        // the existing voice session is already running.
+    }
+
+    /**
+     * Validates and consumes a prefilled-transcript from [WakeWordService].
+     *
+     * Returns `true` if the transcript was accepted (caller should skip normal STT setup).
+     * Returns `false` if the extra is absent or the in-process token does not match
+     * (external caller or stale delivery — fall through to normal voice session).
+     */
+    private fun handlePrefilledTranscript(intent: Intent): Boolean {
+        val extra = intent.getStringExtra(EXTRA_PREFILLED_TRANSCRIPT) ?: return false
+        // Validate against the in-process token set by WakeWordService immediately before
+        // startActivity. External apps cannot write this JVM field.
+        val token = WakeWordHandoff.pendingTranscript
+        if (token != extra) {
+            Log.w(TAG, "VoiceCommandActivity: rejected prefilled transcript — token mismatch (external caller?)")
+            WakeWordHandoff.pendingTranscript = null
+            return false
+        }
+        WakeWordHandoff.pendingTranscript = null
+        routePrefilledTranscript(extra)
+        return true
+    }
+
+    /**
+     * Wake word path: show the recognised transcript in the overlay card for 400 ms
      * so the user can see what was heard, then call [WidgetNavigator.navigateToActions]
      * to open the ActionsScreen result card with voice TTS reply.
      */
@@ -147,11 +180,16 @@ class VoiceCommandActivity : ComponentActivity() {
             }
         }
         lifecycleScope.launch {
-            delay(400) // brief flash so user sees what was heard
-            if (!isFinishing) {
-                navigator.navigateToActions(this@VoiceCommandActivity, transcript, isVoice = true)
+            try {
+                delay(400) // brief flash so user sees what was heard
+                if (!isFinishing) {
+                    navigator.navigateToActions(this@VoiceCommandActivity, transcript, isVoice = true)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "VoiceCommandActivity: failed to route prefilled transcript", e)
+            } finally {
+                finish()
             }
-            finish()
         }
     }
 
