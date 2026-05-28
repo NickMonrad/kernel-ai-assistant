@@ -162,11 +162,7 @@ class WakeWordService : Service() {
             component = android.content.ComponentName(packageName, "com.kernel.ai.MainActivity")
             putExtra("quick_action_input", transcript)
             putExtra("quick_action_is_voice", true)
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-            )
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         })
     }
 
