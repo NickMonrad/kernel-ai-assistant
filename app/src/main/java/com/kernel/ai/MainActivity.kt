@@ -37,10 +37,18 @@ class MainActivity : ComponentActivity() {
     /** Bridges ADB `--es chat_input` extras (onCreate + onNewIntent) into the nav graph. */
     private val adbChatInput = mutableStateOf<String?>(null)
 
+    /** One-shot widget/Side-key query delivered via onCreate or onNewIntent.
+     *  The [serial] increments on every delivery so [LaunchedEffect] re-fires
+     *  even when the query text is identical to the previous one. */
+    private data class QuickActionRequest(val query: String, val isVoice: Boolean, val serial: Int)
+
+
     /** Bridges ADB `--es quick_action_input` extras into ActionsViewModel.executeAction(). */
-    private val adbQuickActionInput = mutableStateOf<String?>(null)
+    private val adbQuickActionInput = mutableStateOf<QuickActionRequest?>(null)
+    private var quickActionSerial = 0
 
     /** True when quick_action_input was delivered from the widget voice mic (needs voice TTS reply). */
+    @Deprecated("Folded into QuickActionRequest.isVoice — kept only so KernelNavHost can read it without overload churn")
     private val adbQuickActionIsVoice = mutableStateOf(false)
 
     /** Bridges ADB `--es slot_reply_input` extras into ActionsViewModel.onSlotReply(). */
@@ -58,8 +66,11 @@ class MainActivity : ComponentActivity() {
         // re-seeding here would cause LaunchedEffect to navigate again with a fresh
         // (unconsumed) entry and re-execute the query unexpectedly.
         if (savedInstanceState == null) {
-            adbQuickActionInput.value = intent.getStringExtra("quick_action_input")
-            adbQuickActionIsVoice.value = intent.getBooleanExtra("quick_action_is_voice", false)
+            intent.getStringExtra("quick_action_input")?.takeIf { it.isNotBlank() }?.let {
+                val voice = intent.getBooleanExtra("quick_action_is_voice", false)
+                adbQuickActionInput.value = QuickActionRequest(it, voice, ++quickActionSerial)
+                adbQuickActionIsVoice.value = voice
+            }
         }
         adbSlotReplyInput.value = intent.getStringExtra("slot_reply_input")
         handleAdbProfileText(intent)
@@ -68,8 +79,9 @@ class MainActivity : ComponentActivity() {
             KernelAITheme {
                 KernelNavHost(
                     initialChatQuery = adbChatInput.value,
-                    initialQuickActionQuery = adbQuickActionInput.value,
-                    initialQuickActionIsVoice = adbQuickActionIsVoice.value,
+                    initialQuickActionQuery = adbQuickActionInput.value?.query,
+                    initialQuickActionIsVoice = adbQuickActionInput.value?.isVoice ?: false,
+                    quickActionSerial = adbQuickActionInput.value?.serial ?: 0,
                     initialSlotReply = adbSlotReplyInput.value,
                 )
             }
@@ -88,9 +100,10 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         intent.getStringExtra("chat_input")?.let { adbChatInput.value = it }
-        intent.getStringExtra("quick_action_input")?.let {
-            adbQuickActionInput.value = it
-            adbQuickActionIsVoice.value = intent.getBooleanExtra("quick_action_is_voice", false)
+        intent.getStringExtra("quick_action_input")?.takeIf { it.isNotBlank() }?.let {
+            val voice = intent.getBooleanExtra("quick_action_is_voice", false)
+            adbQuickActionInput.value = QuickActionRequest(it, voice, ++quickActionSerial)
+            adbQuickActionIsVoice.value = voice
         }
         intent.getStringExtra("slot_reply_input")?.let { adbSlotReplyInput.value = it }
         handleAdbProfileText(intent)

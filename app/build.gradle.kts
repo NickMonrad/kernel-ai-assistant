@@ -79,6 +79,19 @@ android {
         // LiteRT-LM (transitive) uses internal Kotlin 2.3.x build (metadata 2.3.0)
         freeCompilerArgs += "-Xskip-metadata-version-check"
     }
+    // Sherpa-ONNX 1.13.0 bundles its own libonnxruntime.so; onnxruntime-android
+    // (wake word / ONNX) provides a newer one. Pick the first seen (Gradle resolves
+    // Maven deps before local file deps, so onnxruntime-android wins).
+    packaging {
+        jniLibs {
+            pickFirsts += setOf(
+                "lib/arm64-v8a/libonnxruntime.so",
+                "lib/armeabi-v7a/libonnxruntime.so",
+                "lib/x86/libonnxruntime.so",
+                "lib/x86_64/libonnxruntime.so",
+            )
+        }
+    }
 }
 
 dependencies {
