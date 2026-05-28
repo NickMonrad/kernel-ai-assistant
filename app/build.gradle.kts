@@ -79,14 +79,13 @@ android {
         // LiteRT-LM (transitive) uses internal Kotlin 2.3.x build (metadata 2.3.0)
         freeCompilerArgs += "-Xskip-metadata-version-check"
     }
-    // Sherpa-ONNX 1.13.0 bundles its own libonnxruntime.so (older ORT). The wake word
-    // detector uses onnxruntime-android 1.22.0 which ships a newer libonnxruntime.so and
-    // libonnxruntime4j_jni.so. pickFirsts ordering is not guaranteed for local file deps,
-    // so we exclude the Sherpa copy entirely — Sherpa's JNI bridge (libsherpa-onnx-jni.so)
-    // links against the ORT C API which is stable across minor versions.
+    // Sherpa-ONNX 1.13.0 bundles its own libonnxruntime.so (ORT 1.16.x). The wake word
+    // detector uses onnxruntime-android 1.22.0. We use a pre-stripped variant of the Sherpa
+    // AAR (sherpa-onnx-1.13.0-noort.aar) with libonnxruntime.so removed, so only
+    // onnxruntime-android's copy is packaged. pickFirsts is kept as a safety net.
     packaging {
         jniLibs {
-            excludes += setOf(
+            pickFirsts += setOf(
                 "lib/arm64-v8a/libonnxruntime.so",
                 "lib/armeabi-v7a/libonnxruntime.so",
                 "lib/x86/libonnxruntime.so",
@@ -122,7 +121,9 @@ dependencies {
     //     Android TTS is used as the runtime fallback. Voice packs themselves now
     //     download on device from Settings -> Voice instead of being bundled into the APK.
     // Absent AAR → SherpaOnnxVoiceOutputController returns Unavailable → Android TTS used.
-    val sherpaAar = rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0.aar")
+    val sherpaAar = rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar")
+        .takeIf { it.exists() }
+        ?: rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0.aar")
     if (sherpaAar.exists()) {
         implementation(files(sherpaAar.absolutePath))
     }
