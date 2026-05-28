@@ -44,8 +44,8 @@ class HardwareProfileDetector @Inject constructor(
         // E4B is documented to run on GPU (OpenCL / Adreno 740). NPU (Hexagon via FastRPC)
         // is not used as the recommended backend — it requires /dev/cdsp* device nodes that
         // are absent on the SM8550 target and Engine.initialize() hangs with no timeout when
-        // CDSP is unreachable. See LiteRtInferenceEngine.tryInitNpuIsolated() for the
-        // timeout-guarded path used when BackendType.NPU is explicitly requested.
+        // CDSP is unreachable. Explicit BackendType.NPU is still honoured via
+        // createEngineWithFallback's standard fallback chain (GPU → CPU on failure).
         val recommendedBackend = when {
             tier == HardwareTier.FLAGSHIP -> BackendType.GPU
             tier == HardwareTier.MID_RANGE -> BackendType.GPU

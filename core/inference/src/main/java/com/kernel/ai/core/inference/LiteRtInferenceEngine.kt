@@ -36,7 +36,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
@@ -52,7 +51,6 @@ import javax.inject.Singleton
 private const val TAG = "LiteRtInferenceEngine"
 private const val SCREEN_INTERACTIVE_POLL_MS = 500L
 private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
-private const val NPU_INIT_TIMEOUT_MS = 30_000L
 internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
 internal const val THINKING_CLOSE_MARKER = "<channel|>"
 private val CHANNEL_WRAPPER_RE = Regex(
@@ -457,10 +455,7 @@ private fun stripOverlappingReplayPrefix(current: String, emitted: String, minOv
  *
  * Backend selection: AUTO resolves to [HardwareProfileDetector.profile]'s recommended
  * backend (GPU for FLAGSHIP/MID_RANGE, CPU for LOW_POWER — see [HardwareProfileDetector]).
- * Explicit [BackendType.NPU] is supported but runs Engine.initialize() on an isolated daemon
- * thread with a [NPU_INIT_TIMEOUT_MS] timeout — on timeout the NPU is abandoned and the
- * next backend in the fallback chain is tried. SamplerConfig must be null for NPU
- * (hardware sampler is used instead).
+ * SamplerConfig must be null for NPU (hardware sampler is used instead).
  */
 @OptIn(ExperimentalApi::class)
 @Singleton
@@ -1176,7 +1171,7 @@ class LiteRtInferenceEngine @Inject constructor(
     // Private helpers
     // -------------------------------------------------------------------------
 
-    private suspend fun createEngineWithFallback(config: ModelConfig): Pair<Engine, BackendType> {
+    private fun createEngineWithFallback(config: ModelConfig): Pair<Engine, BackendType> {
         val orderedBackends: List<BackendType> = when (config.backendType) {
             BackendType.CPU -> listOf(BackendType.CPU)
             BackendType.GPU -> listOf(BackendType.GPU, BackendType.CPU)
@@ -1205,22 +1200,11 @@ class LiteRtInferenceEngine @Inject constructor(
                     },
                 )
                 Log.d(TAG, "Speculative decoding: requested=${config.speculativeDecodingEnabled} active=$speculativeDecoding")
-                val eng = if (backendType == BackendType.NPU) {
-                    // NPU init runs on an isolated daemon thread with a hard timeout.
-                    // Speculative decoding is intentionally skipped for NPU: the
-                    // ExperimentalFlags global is unsafe to set from a concurrent probe thread,
-                    // and NPU uses hardware sampling which is incompatible with MTP anyway.
-                    tryInitNpuIsolated(engineConfig)
-                        ?: throw InferenceException("NPU init timed out after ${NPU_INIT_TIMEOUT_MS}ms")
-                } else {
-                    withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
-                        Engine(engineConfig).also { it.initialize() }
-                    }
+                val eng = withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
+                    Engine(engineConfig).also { it.initialize() }
                 }
                 Log.i(TAG, "Backend $backendType initialized successfully")
                 return Pair(eng, backendType)
-            } catch (e: CancellationException) {
-                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Backend $backendType failed: ${e.message}")
                 lastException = e
@@ -1231,53 +1215,6 @@ class LiteRtInferenceEngine @Inject constructor(
             "All backends failed for ${config.modelPath}. Last error: ${lastException?.message}",
             lastException,
         )
-    }
-
-    /**
-     * Attempts to initialise a LiteRT [Engine] with the NPU backend on a dedicated daemon
-     * thread. Returns the engine on success, `null` on timeout or init failure.
-     *
-     * [Engine.initialize] is a blocking JNI call — on devices where `/dev/cdsp*` FastRPC
-     * nodes are absent (e.g. SM8550 S23 Ultra), it hangs indefinitely. A plain coroutine
-     * timeout cannot preempt a blocking native call, so we isolate it on a daemon thread and
-     * use [CompletableDeferred] with [withTimeoutOrNull] to observe it externally.
-     *
-     * Outcome semantics: [CompletableDeferred] carries `Result<Engine>` so that a fast NPU
-     * failure (`Result.failure`) is distinguishable from a timeout (deferred returns `null`).
-     *
-     * Leak guard: on timeout, [invokeOnCompletion] is installed to close any [Engine] that
-     * the probe thread eventually produces after the timeout boundary.
-     */
-    private suspend fun tryInitNpuIsolated(engineConfig: EngineConfig): Engine? {
-        val deferred = CompletableDeferred<Result<Engine>>()
-        val thread = Thread({
-            try {
-                deferred.complete(Result.success(Engine(engineConfig).also { it.initialize() }))
-            } catch (e: Exception) {
-                deferred.complete(Result.failure(e))
-            }
-        }, "npu-init-probe")
-        thread.isDaemon = true
-        thread.start()
-        val outcome = withTimeoutOrNull(NPU_INIT_TIMEOUT_MS) { deferred.await() }
-        if (outcome == null) {
-            // Timed out. Install a leak guard so any engine that arrives late is closed
-            // rather than abandoned as an unowned native resource.
-            Log.w(TAG, "NPU init timed out after ${NPU_INIT_TIMEOUT_MS}ms — probe thread running as daemon")
-            deferred.invokeOnCompletion { _ ->
-                runCatching { deferred.getCompleted().getOrNull() }
-                    .getOrNull()
-                    ?.let { lateEngine ->
-                        Log.w(TAG, "NPU probe completed after timeout — closing orphaned engine")
-                        safeClose(lateEngine, "npu-probe-orphan")
-                    }
-            }
-            return null
-        }
-        return outcome.getOrElse { e ->
-            Log.w(TAG, "NPU init failed: ${e.message}")
-            null
-        }
     }
 
     @OptIn(ExperimentalApi::class)

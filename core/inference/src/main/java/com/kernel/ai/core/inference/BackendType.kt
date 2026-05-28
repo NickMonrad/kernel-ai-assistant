@@ -13,7 +13,7 @@ enum class BackendType {
     /** Qualcomm Hexagon NPU via QNN delegate. Requires nativeLibraryDir. */
     NPU,
 
-    /** Try NPU → GPU → CPU in order. */
+    /** Resolved by [HardwareProfileDetector]: GPU for FLAGSHIP/MID_RANGE, CPU for LOW_POWER. */
     AUTO;
 }
 
