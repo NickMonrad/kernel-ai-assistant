@@ -69,6 +69,10 @@ class WakeWordService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Must call startForeground before any return on Android 12+ to avoid
+        // ForegroundServiceDidNotStartInTimeException, even for pause/resume intents.
+        startForeground(NOTIFICATION_ID, buildNotification())
+
         // Pause/resume are sent by callers that need the mic (Side key, widget).
         when (intent?.action) {
             ACTION_PAUSE -> {
@@ -85,7 +89,7 @@ class WakeWordService : Service() {
             }
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification())
+
 
         if (!wakeWordDetector.isAvailable) {
             Log.i(TAG, "WakeWordService: model not yet available (#984) — stopping")

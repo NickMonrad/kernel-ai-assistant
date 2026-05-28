@@ -151,7 +151,18 @@ class OnnxWakeWordDetector @Inject constructor(
      */
     private val running = AtomicBoolean(false)
 
+    /**
+     * Held so [stop] can call [AudioRecord.stop] to unblock the [AudioRecord.read] call
+     * in the detection thread. [AudioRecord.read] does not respond to [Thread.interrupt] on
+     * Android — setting [running] to false and interrupting the thread is not enough; the
+     * thread stays wedged in native code until the next 80ms audio frame arrives, which
+     * means [AudioRecord.release] is delayed by up to 80ms plus ONNX inference time.
+     * Stopping the recorder here causes the next [AudioRecord.read] to return an error
+     * (ERROR_INVALID_OPERATION) which exits the inner read loop immediately.
+     */
+    @Volatile private var activeAudioRecord: AudioRecord? = null
     @Volatile private var detectionThread: Thread? = null
+
 
     private fun loadModelBytes(): ModelBytes? {
         return runCatching {
@@ -202,6 +213,7 @@ class OnnxWakeWordDetector @Inject constructor(
 
     override fun stop() {
         running.set(false)
+        activeAudioRecord?.stop()   // unblocks AudioRecord.read() immediately
         detectionThread?.interrupt()
         detectionThread = null
         Log.d(TAG, "WakeWordDetector: stopped")
@@ -231,6 +243,8 @@ class OnnxWakeWordDetector @Inject constructor(
             running.set(false)
             return
         }
+        activeAudioRecord = audioRecord
+
 
         val env = OrtEnvironment.getEnvironment()
         val sessionOptions = OrtSession.SessionOptions().apply {
@@ -388,7 +402,8 @@ class OnnxWakeWordDetector @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "WakeWordDetector: error in detection loop", e)
         } finally {
-            audioRecord.stop()
+            activeAudioRecord = null
+            runCatching { audioRecord.stop() }
             audioRecord.release()
             melsSession.close()
             embedSession.close()
