@@ -240,15 +240,14 @@
             AOSP only needs JandalVoiceInteractionService; Samsung additionally checks for this filter.
             The activity is a transparent trampoline: it immediately starts VoiceCommandActivity and finishes.
 
-            android:permission="android.permission.GET_TOP_ACTIVITY_INFO" is a signature-level system
-            permission. Only the OS can hold it, so third-party apps cannot start this component directly.
-            PackageManager intent-filter queries (used by Samsung's settings UI for eligibility) do not
-            require the caller to hold the permission, so Jandal still appears in the picker.
+            No android:permission gate here — a manifest permission on the activity would block the OS's
+            own eligibility validation when the user selects Jandal in Default Apps, causing the selection
+            to silently revert to "none". Security is handled in AssistActivity.onCreate() instead, which
+            checks that the incoming intent action is ACTION_ASSIST before proceeding.
         -->
         <activity
             android:name=".assistant.AssistActivity"
             android:exported="true"
-            android:permission="android.permission.GET_TOP_ACTIVITY_INFO"
             android:theme="@style/Theme.Kernel.Translucent"
             android:noHistory="true"
             android:taskAffinity=""

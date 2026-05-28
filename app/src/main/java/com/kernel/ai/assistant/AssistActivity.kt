@@ -25,6 +25,14 @@ class AssistActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Guard against explicit-intent abuse from third-party apps. The OS always sends
+        // ACTION_ASSIST when invoking the digital assistant; any other action means this
+        // activity was started directly (not via the assistant gesture) and we reject it.
+        if (intent?.action != Intent.ACTION_ASSIST) {
+            Log.w(TAG, "AssistActivity: unexpected action '${intent?.action}' — ignoring")
+            finish()
+            return
+        }
         Log.d(TAG, "AssistActivity: ASSIST received — delegating to VoiceCommandActivity")
         // VoiceCommandActivity has taskAffinity="" so it will land in its own task via
         // standard affinity matching. No FLAG_ACTIVITY_NEW_TASK needed — AssistActivity
