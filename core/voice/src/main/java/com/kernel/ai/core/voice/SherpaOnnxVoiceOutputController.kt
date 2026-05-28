@@ -304,15 +304,35 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     }
 
     private fun doInitialize(voice: SherpaPiperVoice): VoiceOutputResult {
-        // 1. Check AAR is on classpath via Class.forName (no import needed)
+        // libsherpa-onnx-jni.so was built against ORT as a shared library and calls
+        // OrtGetApiBase() at load time. On Android the linker resolves that symbol from
+        // whatever libonnxruntime.so is already open in this process. If ORT hasn't been
+        // loaded yet (e.g. inference engine not yet warm) the dlopen fails with
+        // UnsatisfiedLinkError. Loading it here is idempotent and ensures the symbol is
+        // present before Class.forName() triggers Sherpa's static <clinit>.
+        try {
+            System.loadLibrary("onnxruntime")
+        } catch (_: UnsatisfiedLinkError) {
+            // Already loaded or not present — either way, proceed and let Class.forName
+            // fail gracefully below if Sherpa truly can't find ORT.
+        }
+
+        // 1. Check AAR is on classpath via Class.forName (no import needed).
+        // UnsatisfiedLinkError must also be caught: Class.forName triggers OfflineTts.<clinit>
+        // which calls System.loadLibrary("sherpa-onnx-jni"). That JNI lib resolves OrtGetApiBase
+        // from libonnxruntime.so at dlopen time; if the linker can't find it (namespace isolation,
+        // version mismatch) Android throws UnsatisfiedLinkError — an Error, not an Exception —
+        // which would otherwise escape the coroutine and crash the process.
         val ttsClass = try {
             Class.forName(SHERPA_OFFLINE_TTS_CLASS)
         } catch (e: ClassNotFoundException) {
             Log.i(TAG, "Sherpa-ONNX not on classpath — AAR not present in APK.")
             initState = InitState.UNAVAILABLE
-            return VoiceOutputResult.Unavailable(
-                "Sherpa-ONNX runtime not available for ${voice.displayName}."
-            )
+            return VoiceOutputResult.Unavailable("Sherpa-ONNX runtime not available for ${voice.displayName}.")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "Sherpa-ONNX JNI failed to load (ORT symbol not found) — falling back to Android TTS", e)
+            initState = InitState.UNAVAILABLE
+            return VoiceOutputResult.Unavailable("Sherpa-ONNX JNI unavailable (${e.message?.take(80)})")
         }
 
         // 2. Use the voice pack downloaded to internal storage.
