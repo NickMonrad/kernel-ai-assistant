@@ -1,13 +1,11 @@
 package com.kernel.ai.feature.widget
 
-import android.content.Intent
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.core.view.WindowCompat
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -33,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,12 +40,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -74,17 +75,29 @@ class VoiceCommandActivity : ComponentActivity() {
             Log.w(TAG, "VoiceCommandActivity: could not play boop", e)
         }
 
+        var dismissEnabled by mutableStateOf(false)
         var partialText by mutableStateOf("")
 
         setContent {
             KernelAITheme {
+                // Unlock backdrop tap-to-dismiss after 800ms. Prevents accidental
+                // dismiss when the overlay appears mid-screen-wake (Side key path)
+                // before the user is ready. The card's X button is always active.
+                LaunchedEffect(Unit) {
+                    delay(800)
+                    dismissEnabled = true
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .navigationBarsPadding(),
                 ) {
-                    // Transparent backdrop — tap anywhere outside the card to cancel
-                    Box(modifier = Modifier.fillMaxSize().clickable { finish() })
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable(enabled = dismissEnabled) { finish() },
+                    )
 
                     Surface(
                         onClick = {},  // consume taps so backdrop doesn't fire
@@ -142,28 +155,25 @@ class VoiceCommandActivity : ComponentActivity() {
             voiceInputController.events
                 .onStart { voiceInputController.startListening(VoiceCaptureMode.AlertCommand) }
                 .collect { event ->
-                when (event) {
-                    is VoiceInputEvent.PartialTranscript -> {
-                        partialText = event.text
-                    }
-                    is VoiceInputEvent.Transcript -> {
-                        val transcript = event.text
-                        Log.d(TAG, "VoiceCommandActivity: final transcript=\"$transcript\"")
-                        if (transcript.isNotBlank() && !isFinishing) {
-                            // Always open Actions so the result card is visible.
-                            // ActionsViewModel handles all route types (RegexMatch,
-                            // ClassifierMatch, NeedsSlot, FallThrough) correctly.
-                            navigator.navigateToActions(this@VoiceCommandActivity, transcript, isVoice = true)
+                    when (event) {
+                        is VoiceInputEvent.PartialTranscript -> {
+                            partialText = event.text
                         }
-                        finish()
+                        is VoiceInputEvent.Transcript -> {
+                            val transcript = event.text
+                            Log.d(TAG, "VoiceCommandActivity: final transcript=\"$transcript\"")
+                            if (transcript.isNotBlank() && !isFinishing) {
+                                navigator.navigateToActions(this@VoiceCommandActivity, transcript, isVoice = true)
+                            }
+                            finish()
+                        }
+                        is VoiceInputEvent.Error -> {
+                            Log.w(TAG, "VoiceCommandActivity: voice error — ${event.message}")
+                            finish()
+                        }
+                        else -> Unit
                     }
-                    is VoiceInputEvent.Error -> {
-                        Log.w(TAG, "VoiceCommandActivity: voice error — ${event.message}")
-                        finish()
-                    }
-                    else -> Unit
                 }
-            }
         }
     }
 
