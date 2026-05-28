@@ -140,7 +140,7 @@ class VoiceCommandActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             voiceInputController.events
-                .onStart { voiceInputController.startListening(VoiceCaptureMode.Command) }
+                .onStart { voiceInputController.startListening(VoiceCaptureMode.AlertCommand) }
                 .collect { event ->
                 when (event) {
                     is VoiceInputEvent.PartialTranscript -> {
