@@ -52,6 +52,7 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
@@ -76,6 +77,8 @@ class VoiceCommandActivity : ComponentActivity() {
     @Inject lateinit var voiceInputController: VoiceInputController
     @Inject lateinit var navigator: WidgetNavigator
 
+    /** Cancellable job for the 400 ms prefilled-transcript navigation delay. */
+    private var prefilledNavJob: Job? = null
     private var toneGenerator: ToneGenerator? = null
 
     private val requestMicPermission = registerForActivityResult(
@@ -108,6 +111,9 @@ class VoiceCommandActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // Cancel any in-flight navigation from a prior trigger before accepting the new one.
+        prefilledNavJob?.cancel()
+        prefilledNavJob = null
         handlePrefilledTranscript(intent)
         // If there was no prefilled transcript this is an OS assistant re-trigger; ignore —
         // the existing voice session is already running.
@@ -127,9 +133,11 @@ class VoiceCommandActivity : ComponentActivity() {
         val token = WakeWordHandoff.pendingTranscript
         if (token != extra) {
             Log.w(TAG, "VoiceCommandActivity: rejected prefilled transcript — token mismatch (external caller?)")
-            WakeWordHandoff.pendingTranscript = null
+            // Do NOT clear pendingTranscript — the live token may belong to a legitimate
+            // trigger whose intent arrives next; clearing it here would invalidate it.
             return false
         }
+
         WakeWordHandoff.pendingTranscript = null
         routePrefilledTranscript(extra)
         return true
@@ -179,7 +187,7 @@ class VoiceCommandActivity : ComponentActivity() {
                 }
             }
         }
-        lifecycleScope.launch {
+        prefilledNavJob = lifecycleScope.launch {
             try {
                 delay(400) // brief flash so user sees what was heard
                 if (!isFinishing) {
@@ -191,6 +199,7 @@ class VoiceCommandActivity : ComponentActivity() {
                 finish()
             }
         }
+
     }
 
     private fun startVoiceSession() {
