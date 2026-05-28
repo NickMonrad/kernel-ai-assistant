@@ -22,6 +22,7 @@ import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
@@ -72,6 +73,7 @@ class WakeWordService : Service() {
     @Inject lateinit var cuePlayer: StartListeningCuePlayer
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var eventCollectorJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -88,11 +90,18 @@ class WakeWordService : Service() {
             return START_NOT_STICKY
         }
 
+        // Guard: if the detector and collector are already running (re-delivery of a
+        // START_STICKY intent or a spurious onResume retry), do not start duplicates.
+        if (eventCollectorJob?.isActive == true) {
+            Log.d(TAG, "WakeWordService: already running — ignoring duplicate onStartCommand")
+            return START_STICKY
+        }
+
         Log.i(TAG, "WakeWordService: starting wake word detection")
         wakeWordDetector.start(onDetected = { handleDetection() })
 
         // Automatically yield the AudioRecord whenever another voice session is active.
-        serviceScope.launch {
+        eventCollectorJob = serviceScope.launch {
             voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {

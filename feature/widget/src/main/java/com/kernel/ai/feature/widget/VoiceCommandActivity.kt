@@ -52,6 +52,7 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.onStart
@@ -193,9 +194,12 @@ class VoiceCommandActivity : ComponentActivity() {
                 if (!isFinishing) {
                     navigator.navigateToActions(this@VoiceCommandActivity, transcript, isVoice = true)
                 }
+                finish()
+            } catch (e: CancellationException) {
+                // Superseded by a newer trigger — do NOT finish the activity here.
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "VoiceCommandActivity: failed to route prefilled transcript", e)
-            } finally {
                 finish()
             }
         }
