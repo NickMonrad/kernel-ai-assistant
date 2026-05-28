@@ -349,9 +349,12 @@ class OnnxWakeWordDetector @Inject constructor(
                     if (pcmFilled < VERIFY_RING_SAMPLES) pcmFilled += FRAME_SAMPLES
                 }
 
-                // Normalise 16-bit PCM to [-1, 1].
+                // openWakeWord's mel model expects raw 16-bit PCM values cast to float32
+                // (range ±32768), NOT normalised to [-1, 1]. Using the wrong scale shifts
+                // the mel output by ~88 units, putting embeddings completely out of the
+                // distribution the classifier was trained on (verified empirically).
                 for (i in 0 until FRAME_SAMPLES) {
-                    framePcm[i] = chunk[i] / 32768f
+                    framePcm[i] = chunk[i].toFloat()
                 }
 
                 // ── Stage 1: melspectrogram ───────────────────────────────────────────

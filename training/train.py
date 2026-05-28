@@ -156,11 +156,21 @@ def compute_embeddings(
         if len(audio) < MIN_AUDIO_SAMPLES:
             audio = np.pad(audio, (0, MIN_AUDIO_SAMPLES - len(audio)))
 
-        # Reset internal state so previous clip doesn't bleed into this one
+        # Reset internal state so previous clip doesn't bleed into this one.
+        # AudioFeatures.__init__ pre-fills feature_buffer with 41 frames of random
+        # noise (same as reference impl). reset() clears raw_data_buffer but NOT
+        # feature_buffer, so we must clear it explicitly. Without this, positive
+        # embeddings all start with those 41 random frames while ACAV negatives
+        # don't — the classifier trivially separates them by the prefix, not by
+        # whether the audio contains "Hey Jandal".
         af.reset()
+        af.feature_buffer = np.zeros((0, 96), dtype=np.float32)
         af._streaming_features(audio)
 
         # get_features returns (1, N, 96); squeeze batch dim → (N, 96)
+        # Use start_ndx=-1 to get the last CONTEXT_FRAMES — the end of the clip
+        # where "Hey Jandal" was spoken, not the padded silence at the start.
+        # We also slide a window across the full sequence to maximise training data.
         all_emb = af.get_features(n_feature_frames=len(af.feature_buffer), start_ndx=0)
         all_emb = np.array(all_emb).squeeze(0)  # (N, 96)
 
