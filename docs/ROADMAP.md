@@ -388,7 +388,6 @@ Full lifecycle management for conversations: archive/restore, pinning with stick
 
 
 ### 3I: Meal Planning Roadmap ([#826](https://github.com/NickMonrad/kernel-ai-assistant/issues/826))
-### 3I: Meal Planning Roadmap ([#826](https://github.com/NickMonrad/kernel-ai-assistant/issues/826))
 
 Deterministic meal planning now has its v1 foundation merged. The next phases are deliberately split so UX/resiliency work, durable artifact expansion, and recipe grounding can evolve independently without reopening the prompt-heavy architecture that #859 replaced.
 
