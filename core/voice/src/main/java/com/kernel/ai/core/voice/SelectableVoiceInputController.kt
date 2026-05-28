@@ -14,7 +14,6 @@ class SelectableVoiceInputController @Inject constructor(
     private val voiceInputPreferences: VoiceInputPreferences,
     private val voskOfflineVoiceInputController: VoskOfflineVoiceInputController,
     private val nativeAndroidVoiceInputController: NativeAndroidVoiceInputController,
-    private val sherpaOnnxVoiceInputController: SherpaOnnxVoiceInputController,
 ) : VoiceInputController {
 
     private val activeController = MutableStateFlow<VoiceInputController>(voskOfflineVoiceInputController)
@@ -27,7 +26,6 @@ class SelectableVoiceInputController @Inject constructor(
         val controller = when (voiceInputPreferences.selectedEngine.first()) {
             VoiceInputEngine.Vosk -> voskOfflineVoiceInputController
             VoiceInputEngine.AndroidNative -> nativeAndroidVoiceInputController
-            VoiceInputEngine.SherpaOnnx -> sherpaOnnxVoiceInputController
         }
         activeController.value = controller
         stopInactiveControllers(controller)
@@ -41,12 +39,10 @@ class SelectableVoiceInputController @Inject constructor(
     private fun stopInactiveControllers(active: VoiceInputController) {
         if (active !== voskOfflineVoiceInputController) voskOfflineVoiceInputController.stopListening()
         if (active !== nativeAndroidVoiceInputController) nativeAndroidVoiceInputController.stopListening()
-        if (active !== sherpaOnnxVoiceInputController) sherpaOnnxVoiceInputController.stopListening()
     }
 
     private fun stopAllControllers() {
         voskOfflineVoiceInputController.stopListening()
         nativeAndroidVoiceInputController.stopListening()
-        sherpaOnnxVoiceInputController.stopListening()
     }
 }
