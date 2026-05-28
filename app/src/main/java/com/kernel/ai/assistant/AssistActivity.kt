@@ -26,13 +26,11 @@ class AssistActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "AssistActivity: ASSIST received — delegating to VoiceCommandActivity")
-        startActivity(
-            Intent(this, VoiceCommandActivity::class.java).apply {
-                // Don't stack on top of whatever was on screen; VoiceCommandActivity
-                // is already declared with taskAffinity="" so it manages its own task.
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            },
-        )
+        // VoiceCommandActivity has taskAffinity="" so it will land in its own task via
+        // standard affinity matching. No FLAG_ACTIVITY_NEW_TASK needed — AssistActivity
+        // is itself an Activity (not a Service/BroadcastReceiver context), so the flag
+        // would only force an unnecessary extra task hop.
+        startActivity(Intent(this, VoiceCommandActivity::class.java))
         finish()
     }
 }
