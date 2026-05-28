@@ -544,7 +544,6 @@ content through `message.toString()` in the SDK's internal form:
 - #956 — relative weekday phrasing with "tomorrow" can still misroute in QIR
 - #957 — `What do you remember about me` can still misroute to `save_memory`
 - #958 — anaphoric `remember that` follow-ups still need better prior-turn fact resolution
-- #992 — note skill: E4B echoes `load_skill` result JSON instead of calling `create_note`
 
 
 **E2B thinking support:** Both E-4B and E-2B support thinking mode (confirmed from HuggingFace model cards). The Settings UI currently exposes the thinking toggle for E4B only; E2B toggle support is tracked as a follow-up.

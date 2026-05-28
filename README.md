@@ -88,6 +88,8 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 
 ### Coming Soon
 - 💬 **Expanded multi-turn dialog** — broader confirmation, digression, and slot-filling coverage across more intents *(Phase 3G, #708 and follow-ups)*
+- 💭 **Thinking bubble** — visual presentation of chain-of-thought in the chat stream *(#964)*
+- 🛠️ **In-chat model controls** — adjust model settings without leaving the conversation *(#961)*
 - 🗒️ **Lists — management upgrades** — rename, pin, sort, edit items, favorites, and due dates *(#662)*
 - ⏰ **Alarms CRUD UI** — create, edit, and toggle alarms directly from the Alarms screen *(Phase 3, #479)*
 - 🌙 **Dreaming Engine** — overnight WorkManager consolidation (Light Sleep → REM → Deep Sleep) *(Phase 4)*
