@@ -1,11 +1,14 @@
 package com.kernel.ai.feature.widget
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -40,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.kernel.ai.core.ui.theme.KernelAITheme
@@ -62,10 +66,28 @@ class VoiceCommandActivity : ComponentActivity() {
 
     private var toneGenerator: ToneGenerator? = null
 
+    private val requestMicPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) startVoiceSession() else finish()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            // Permission missing — request it. The system dialog will appear over this
+            // translucent activity. On grant, startVoiceSession(); on deny, finish().
+            requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+
+        startVoiceSession()
+    }
+
+    private fun startVoiceSession() {
         // Brief boop to indicate listening started
         try {
             toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 80).also {
