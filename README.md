@@ -79,25 +79,18 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 |- 🔧 **Audio quality fixes** — AudioTrack tail cutoff prevention via hardware-latency silence padding; expectedSlotPromptSpeech normalisation to match TTS output; SID=0 clamp for single-speaker voices; aye pronunciation correction (#837/#828/#810, PRs #838/#836/#811)
 |- 🍽️ **Deterministic meal planner** — app-owned meal-planning sessions with bounded JSON generation, draft-plan approval, progressive recipe reveal, visible `x of y` progress, interruption-safe resume, quantity sanity validation, cuisine preferences, Kiwi wording normalization, batch day replace/regenerate, and quick-action/chat handoff (#859/#869/#931/#932/#971, PRs #864/#875/this PR)
 |- 📚 **Meal plans browser** — drawer-accessible Recent plans and Favourites tabs with recipe search, canonical favourite toggles, recipe re-add to Lists, and ingredient export into existing user lists (#933, PR #934)
-|- 💬 **Chat UX overhaul** — visual customisation (bubble colours, font size, chat background), attachment picker foundation, and tool chip redesign (#963/#911/#952/#906, PR #980)
-|- 🗒️ **Note-taking / voice memo skill** — `create_note` native skill with Tier 2 instant routing for "add a note", "voice memo", "note to self" patterns; Notes browser accessible from the nav drawer (#823, PR #989)
-|- 💭 **Thinking mode fully enabled** — `enable_thinking` extraContext flag correctly activates chain-of-thought; channel wrapper markup stripped from visible output; background utility calls explicitly suppress thinking to avoid GPU waste (#946, PR #946)
-|- 🔔 **Important date day-of notifications** — WorkManager job fires an on-device notification on the day of a saved important date (#902, PR #923)
-|- 🗣️ **TTS normalisation** — fraction-to-word ("1/2" → "a half"), ordinals ("1st" → "first"), number ranges, and expanded Kiwi corpus (#876/#912, PR #930)
-|- 🌦️ **Broader weather routing** — weather skill now triggers without "forecast" keyword; phrases like "is it raining", "what's the weather like" route correctly (#929, PR #972)
+|- 💬 **Multi-turn dialog** — expanded confirmation, digression, and slot-filling coverage across more intents (#708, PR #712)
+|- ⏰ **Alarms CRUD UI** — create, edit, and toggle alarms directly from the Alarms screen; full CRUD via nav drawer (#479, PR #484)
+|- 🗒️ **Lists management upgrades** — rename, pin, sort, edit items, favorites, and due dates (#662)
 
 ### Coming Soon
-- 💬 **Expanded multi-turn dialog** — broader confirmation, digression, and slot-filling coverage across more intents *(Phase 3G, #708 and follow-ups)*
-- 💭 **Thinking bubble** — visual presentation of chain-of-thought in the chat stream *(#964)*
-- 🛠️ **In-chat model controls** — adjust model settings without leaving the conversation *(#961)*
-- 🗒️ **Lists — management upgrades** — rename, pin, sort, edit items, favorites, and due dates *(#662)*
-- ⏰ **Alarms CRUD UI** — create, edit, and toggle alarms directly from the Alarms screen *(Phase 3, #479)*
+- 🗒️ **Lists — hierarchical items** — nested sub-items within lists *(#928)*
 - 🌙 **Dreaming Engine** — overnight WorkManager consolidation (Light Sleep → REM → Deep Sleep) *(Phase 4)*
 - ⚡ **Semantic cache** — instant responses for repeated knowledge queries *(Phase 4)*
 - 🪪 **Self-healing identity** — structured user profile, LLM-managed via Dreaming cycle *(Phase 4)*
 - 🧩 **Wasm skill store** — community-extensible plugins with sandboxed execution *(Phase 5)*
 - 🏠 **Home Assistant / Google Home** — smart home control *(Phase 5)*
 - 📱 **8GB device optimisation** — dynamic weight loading/unloading, E2B fallback *(Phase 6)*
-- 🎙️ **"Hey Jandal" wake word** — always-on local openWakeWord detection + Android Default Assistant integration *(Phase 3F, #65)*
+- 🎙️ **"Hey Jandal" wake word** — always-on local detection → instant action routing *(Phase 3F)*
 
 ## Roadmap
