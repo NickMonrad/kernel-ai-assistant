@@ -77,7 +77,7 @@ class KernelAIToolSet @Inject constructor(
     // Gateway tools — each delegates to the matching Skill.execute()
     // -------------------------------------------------------------------------
 
-    @Tool(description = "Loads a skill's full instructions before calling it. Call this first for any new task before using other tools.")
+    @Tool(description = "Loads full instructions for a complex gateway skill (meal_planner, run_js, run_intent, create_calendar_event). Call only when the required parameters or intent names for that skill are unclear.")
     fun loadSkill(
         @ToolParam(description = "The skill name to load.") skillName: String,
     ): Map<String, String> {
@@ -95,7 +95,7 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "Additional parameters as key:value pairs in JSON. Call loadSkill first to learn required parameters.") parameters: String,
     ): Map<String, String> {
         toolCalledInThisTurn = true
-        setLastToolCall("run_intent", "{\"intent_name\":\"$intentName\",\"parameters\":$parameters}")
+        setLastToolCall("run_intent", "{\"intent_name\":\"$intentName\",\"parameters\":${if (parameters.isBlank()) "{}" else parameters}}")
         Log.d(TAG, "ToolSet: runIntent($intentName, $parameters)")
 
         val reservedSkillNames = setOf(
@@ -121,7 +121,13 @@ class KernelAIToolSet @Inject constructor(
             val json = org.json.JSONObject(parameters.ifBlank { "{}" })
             json.keys().forEach { key -> args[key] = json.optString(key) }
         } catch (e: Exception) {
-            Log.w(TAG, "ToolSet: runIntent params parse failed, treating as empty: ${e.message}")
+            if (parameters.isNotBlank()) {
+                val error = "Invalid parameters: expected a JSON object. Got: ${parameters.take(120)}"
+                Log.w(TAG, "ToolSet: runIntent params not valid JSON — failing closed: ${e.message}")
+                lastToolResult = error
+                return mapOf("status" to "error", "error" to error)
+            }
+            Log.w(TAG, "ToolSet: runIntent blank params parse, using empty: ${e.message}")
         }
 
         val result = executeSkill("run_intent", args)

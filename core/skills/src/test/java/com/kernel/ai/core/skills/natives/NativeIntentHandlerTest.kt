@@ -24,6 +24,7 @@ import com.kernel.ai.core.memory.entity.ContactAliasEntity
 import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.profile.UserProfileYaml
 import com.kernel.ai.core.skills.SkillResult
@@ -68,6 +69,7 @@ class NativeIntentHandlerTest {
     private val listNameDao = mockk<ListNameDao>(relaxed = true)
     private val cookingConversionService = mockk<CookingConversionService>(relaxed = true)
     private val currencyConversionService = mockk<CurrencyConversionService>(relaxed = true)
+    private val listNotificationScheduler = mockk<ListNotificationScheduler>(relaxed = true)
     private val handler = NativeIntentHandler(
         context = context,
         clockRepository = clockRepository,
@@ -82,6 +84,7 @@ class NativeIntentHandlerTest {
         cookingConversionService = cookingConversionService,
         currencyConversionService = currencyConversionService,
         userProfileRepository = mockk<UserProfileRepository>(relaxed = true),
+        listNotificationScheduler = listNotificationScheduler,
     )
 
     private fun handleIntent(intentName: String, params: Map<String, String>): SkillResult =
@@ -1052,6 +1055,7 @@ class NativeIntentHandlerTest {
             cookingConversionService = cookingConversionService,
             currencyConversionService = currencyConversionService,
             userProfileRepository = profileRepository,
+            listNotificationScheduler = listNotificationScheduler,
         )
         coEvery { profileRepository.getName() } returns "Nick"
         every { Log.d(any<String>(), any<String>()) } returns 0
@@ -2002,6 +2006,7 @@ class NativeIntentHandlerTest {
             cookingConversionService = cookingConversionService,
             currencyConversionService = currencyConversionService,
             userProfileRepository = profileRepository,
+            listNotificationScheduler = mockk<ListNotificationScheduler>(relaxed = true),
         ).also {
             coEvery { profileRepository.getStructured() } returns
                 if (name != null) UserProfileYaml(name = name) else null
@@ -2076,7 +2081,61 @@ class NativeIntentHandlerTest {
             assertTrue((result as SkillResult.Success).content.contains("cafe"), "Expected 'cafe' in: ${result.content}")
         }
     }
+    @Nested
+    @DisplayName("add_reminder")
+    inner class AddReminderTests {
 
+        private val fakeList = mockk<com.kernel.ai.core.memory.entity.ListNameEntity>(relaxed = true).also {
+            every { it.id } returns 1L
+            every { it.name } returns "to-do list"
+        }
+        private val fakeItem = ListItemEntity(
+            id = 42L,
+            listId = 1L,
+            text = "call the blinds people",
+            createdAt = 0L,
+            updatedAt = 0L,
+            dueAt = 0L,
+            notificationTime = 0L,
+        )
+
+        @BeforeEach
+        fun setUpReminder() {
+            coEvery { listNameDao.insert(any()) } just Runs
+            coEvery { listNameDao.getByName(any()) } returns fakeList
+            coEvery { listItemDao.insert(any()) } just Runs
+            coEvery { listItemDao.getByList(1L) } returns listOf(fakeItem)
+            every { listNotificationScheduler.schedule(any(), any(), any(), any(), any()) } just Runs
+        }
+
+        @Test
+        fun `add_reminder with valid params returns DirectReply and schedules notification`() {
+            val result = handleIntent(
+                "add_reminder",
+                mapOf("item" to "call the blinds people", "day" to "monday", "time" to "9:00"),
+            )
+            assertInstanceOf(SkillResult.DirectReply::class.java, result)
+            verify { listNotificationScheduler.schedule(any(), eq("call the blinds people"), any(), any(), any()) }
+        }
+
+        @Test
+        fun `add_reminder with missing item returns Failure`() {
+            val result = handleIntent("add_reminder", mapOf("day" to "monday", "time" to "9:00"))
+            assertInstanceOf(SkillResult.Failure::class.java, result)
+        }
+
+        @Test
+        fun `add_reminder with missing day returns Failure`() {
+            val result = handleIntent("add_reminder", mapOf("item" to "dentist", "time" to "9:00"))
+            assertInstanceOf(SkillResult.Failure::class.java, result)
+        }
+
+        @Test
+        fun `add_reminder with missing time returns Failure`() {
+            val result = handleIntent("add_reminder", mapOf("item" to "dentist", "day" to "monday"))
+            assertInstanceOf(SkillResult.Failure::class.java, result)
+        }
+    }
     private fun emailCursor(vararg rows: EmailRow): Cursor {
         val cursor = mockk<Cursor>()
         val columns = mapOf(

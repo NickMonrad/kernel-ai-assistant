@@ -64,4 +64,56 @@ class SearchMemoryRelevanceTest {
         assertEquals(1, filtered.memoryResults.size)
         assertEquals(1, filtered.messageResults.size)
     }
+
+    @Test
+    fun `filter drops results when query is anaphoric save`() {
+        val filtered = filterSearchMemoryResults(
+            query = "remember that",
+            memoryResults = listOf(
+                MemorySearchResult(id = "1", content = "Nick is vegetarian", source = "core", score = 0.1f),
+            ),
+            messageResults = emptyList(),
+        )
+
+        // Anaphoric save queries should not trigger memory search
+        assertTrue(filtered.memoryResults.isEmpty())
+    }
+
+    @Test
+    fun `filter drops results when query is a bare tool confirmation`() {
+        val filtered = filterSearchMemoryResults(
+            query = "done!",
+            memoryResults = listOf(
+                MemorySearchResult(id = "1", content = "alarm set for 7am", source = "core", score = 0.12f),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertTrue(filtered.memoryResults.isEmpty())
+    }
+
+    @Test
+    fun `filter keeps results for legitimate keyword queries`() {
+        val filtered = filterSearchMemoryResults(
+            query = "what's on my shopping list",
+            memoryResults = listOf(
+                MemorySearchResult(id = "1", content = "Shopping list: milk, eggs, bread", source = "core", score = 0.15f),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertEquals(1, filtered.memoryResults.size)
+    }
+
+    @Test
+    fun `filter handles empty results gracefully`() {
+        val filtered = filterSearchMemoryResults(
+            query = "test query",
+            memoryResults = emptyList(),
+            messageResults = emptyList(),
+        )
+
+        assertTrue(filtered.memoryResults.isEmpty())
+        assertTrue(filtered.messageResults.isEmpty())
+    }
 }

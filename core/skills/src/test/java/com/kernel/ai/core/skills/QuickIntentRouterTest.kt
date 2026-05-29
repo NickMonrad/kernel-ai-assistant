@@ -3593,6 +3593,61 @@ class QuickIntentRouterTest {
             Arguments.of("remember that this is important"),
         )
     }
+    @Nested
+    @DisplayName("add_reminder")
+    inner class AddReminderTests {
+        @Test
+        fun `remind me to buy milk tomorrow at 9am routes to add_reminder`() {
+            val result = hybridRouter.route("remind me to buy milk tomorrow at 9am")
+            assertRegexMatch(result, "add_reminder", "remind me to buy milk tomorrow at 9am")
+        }
+        @Test
+        fun `remind me about call mom on friday at 5pm routes to add_reminder`() {
+            val result = hybridRouter.route("remind me about call mom on friday at 5pm")
+            assertRegexMatch(result, "add_reminder", "remind me about call mom on friday at 5pm")
+        }
+        @Test
+        fun `please remind me to water plants tomorrow at 12pm routes to add_reminder`() {
+            val result = regexOnlyRouter.route("please remind me to water plants tomorrow at 12pm")
+            assertRegexMatch(result, "add_reminder", "please remind me to water plants tomorrow at 12pm")
+        }
+        @Test
+        fun `remind me to call dentist tomorrow routes to add_reminder with missing time slot`() {
+            val result = hybridRouter.route("remind me to call dentist tomorrow")
+            assertInstanceOf(
+                QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+                result,
+                "Expected NeedsSlot for '$result'",
+            )
+            assertEquals(
+                "add_reminder",
+                (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName,
+            )
+        }
+        @Test
+        fun `remind me to take out trash monday routes to add_reminder with missing time slot`() {
+            val result = hybridRouter.route("remind me to take out trash monday")
+            assertInstanceOf(
+                QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+                result,
+                "Expected NeedsSlot for '$result'",
+            )
+            assertEquals(
+                "add_reminder",
+                (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName,
+            )
+        }
+        @Test
+        fun `remind me at 9am routes to set_alarm not add_reminder`() {
+            val result = hybridRouter.route("remind me at 9am")
+            assertRegexMatch(result, "set_alarm", "remind me at 9am")
+        }
+        @Test
+        fun `remind me tomorrow at 7 routes to set_alarm not add_reminder`() {
+            val result = hybridRouter.route("remind me tomorrow at 7")
+            assertRegexMatch(result, "set_alarm", "remind me tomorrow at 7")
+        }
+    }
 
     // ═══════════════════════════════════════════════════════════════════════════
     // ASSERTION HELPERS

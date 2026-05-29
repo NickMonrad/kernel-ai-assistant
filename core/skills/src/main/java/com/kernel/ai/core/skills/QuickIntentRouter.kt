@@ -162,6 +162,20 @@ class QuickIntentRouter(
                 promptTemplate = "What would you like me to remember?",
             ),
         ),
+        "add_reminder" to mapOf(
+            "item" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "item",
+                promptTemplate = "What would you like me to remind you about?",
+            ),
+            "day" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "day",
+                promptTemplate = "Which day should I set the reminder for?",
+            ),
+            "time" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "time",
+                promptTemplate = "What time on {day} should I remind you to {item}?",
+            ),
+        ),
     )
 
     private fun slotContract(intentName: String): Map<String, com.kernel.ai.core.skills.slot.SlotSpec> =
@@ -415,7 +429,56 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
         ),
-        // "remind me tomorrow at 9" / "remind me on friday at 7am" → set_alarm
+        // ── Reminder (task + date → list item with notification) ──
+        // "remind me to <task> on <day> at <time>" or "remind me about <task> on <day> at <time>" — complete
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val item = match.groupValues[1].trim()
+                val day = match.groupValues[2].trim().lowercase()
+                val timeParsed = parseAlarmTime(match.groupValues[3].trim())
+                buildMap {
+                    put("item", item)
+                    put("day", day)
+                    putAll(timeParsed)
+                }
+            },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        // "remind me to/about <task> on <day>" — needs time slot-fill
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+on\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to match.groupValues[1].trim(),
+                    "day" to match.groupValues[2].trim().lowercase(),
+                )
+            },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        // "remind me to <task> <day>" (day without 'on') — needs time slot-fill
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+to\s+(.+?)\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to match.groupValues[1].trim(),
+                    "day" to match.groupValues[2].trim().lowercase(),
+                )
+            },
+            requiredSlots = slotContract("add_reminder"),
+        ),
         IntentPattern(
             intentName = "set_alarm",
             regex = Regex(

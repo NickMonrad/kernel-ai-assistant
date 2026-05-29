@@ -550,9 +550,56 @@ internal fun looksLikeRawToolCall(response: String): Boolean {
         return true
     }
 
+    // Detect leaked skill instruction payloads (run_intent, load_skill output printed as text)
+    if (
+        "available intents:" in lower ||
+        "parameters (pass as json" in lower ||
+        ("run_intent:" in lower && "perform a native android" in lower) ||
+        ("instructions:" in lower && "intent_name" in lower)
+    ) return true
+
     return Regex(
         """\bcall:(?:load[_ ]?skill|run[_ ]?intent|run[_ ]?js|get[_ ]?weather|save[_ ]?memory|search[_ ]?memory|get[_ ]?system[_ ]?info)\b|
            \{\s*"name"\s*:\s*"(?:load_skill|run_intent|run_js|get_weather|save_memory|search_memory|get_system_info)"""",
         setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
     ).containsMatchIn(response)
+}
+
+/**
+ * Returns true when [text] is an explicit anaphoric save-memory request such as
+ * "remember that", "can you remember this", "save that", "keep that in memory" with
+ * no factual content following the pronoun — i.e. the referent must be resolved from
+ * the previous user turn.
+ *
+ * Used by ChatViewModel to short-circuit the LLM for the "I don't like aubergines" →
+ * "Can you remember that" pattern (#958).
+ */
+internal fun isAnaphoricSaveRequest(text: String): Boolean {
+    val lower = text.lowercase().trim()
+    return Regex(
+        """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:save|store|keep|remember)\s+(?:that|this|it)\s*[.!?]*$|
+           ^(?:yes[,.]?\s+)?(?:please\s+)?remember\s+that\s*[.!?]*$""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
+    ).containsMatchIn(lower)
+}
+
+/**
+ * Returns true when [text] looks like a short concrete personal fact that a user would
+ * reasonably want stored in memory — e.g. "I don't like aubergines", "My dog is called Biscuit".
+ *
+ * Filters out:
+ * - Long generated content (recipes, lists)
+ * - Questions
+ * - Messages starting with assistant attribution
+ */
+internal fun looksLikePersonalFact(text: String): Boolean {
+    if (text.isBlank() || text.length > 160) return false
+    val lower = text.lowercase().trim()
+    if (lower.endsWith("?")) return false
+    return Regex(
+        """^i\s+(?:am|'m|don'?t|do|have|love|hate|like|dislike|prefer|want|need|can'?t|cannot|don't|am not)\b|
+           ^my\s+\w|
+           ^i\s+\w+\s+(?:allergic|intolerant|vegetarian|vegan|gluten|lactose)\b""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
+    ).containsMatchIn(lower)
 }

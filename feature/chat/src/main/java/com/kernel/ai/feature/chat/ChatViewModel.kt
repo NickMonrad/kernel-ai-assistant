@@ -1644,6 +1644,31 @@ class ChatViewModel @Inject constructor(
             val previousAssistant = priorMessages.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
             val previousUser = priorMessages.lastOrNull { it.role == ChatMessage.Role.USER }?.content
             val isToolFollowUp = looksLikeToolFollowUp(text, previousUser, previousAssistant)
+
+            // #958: Direct anaphoric save-memory — "remember that" when previous user turn
+            // is a concrete personal fact. Bypasses LLM to guarantee the right content is saved.
+            // The skill's own NativeIntentHandler.saveMemory() handles first-person normalisation.
+            if (isAnaphoricSaveRequest(text) && previousUser != null && looksLikePersonalFact(previousUser)) {
+                val saveSkill = skillRegistry.get("save_memory")
+                val replyText = if (saveSkill != null) {
+                    val saveResult = saveSkill.execute(
+                        SkillCall(skillName = saveSkill.name, arguments = mapOf("content" to previousUser)),
+                    )
+                    when (saveResult) {
+                        is SkillResult.Success, is SkillResult.DirectReply -> "Got it, I'll remember that."
+                        else -> null
+                    }
+                } else null
+                if (replyText != null) {
+                    // Update the streaming placeholder (already in _messages) with the reply text
+                    _messages.update { msgs ->
+                        msgs.map { if (it.id == assistantMsgId) it.copy(content = replyText, isStreaming = false) else it }
+                    }
+                    conversationRepository.addMessage(convId, "assistant", replyText)
+                    finalizeVoicePlaybackForResponse(replyText)
+                    return@launch
+                }
+            }
             val forceMinimalContext = forceMinimalContextForNextMessage
             if (forceMinimalContext) {
                 forceMinimalContextForNextMessage = false
@@ -2548,6 +2573,19 @@ class ChatViewModel @Inject constructor(
             modelSettingsRepository.resetToDefaults(model.modelId)
         }
     }
+
+    /**
+     * Returns true when [text] is an explicit anaphoric save-memory request such as
+     * "remember that", "can you remember this", "save that" with no factual content
+     * following the pronoun — the referent must be resolved from the previous user turn.
+     */
+    private fun isAnaphoricSaveRequest(text: String): Boolean = com.kernel.ai.feature.chat.isAnaphoricSaveRequest(text)
+
+    /**
+     * Returns true when [text] looks like a short concrete personal fact that a user would
+     * reasonably want stored in memory — e.g. "I don't like aubergines", "My dog is called Biscuit".
+     */
+    private fun looksLikePersonalFact(text: String): Boolean = com.kernel.ai.feature.chat.looksLikePersonalFact(text)
 }
 
 /** C2 correction prepended to the prompt when a hallucination retry is attempted (#487). */

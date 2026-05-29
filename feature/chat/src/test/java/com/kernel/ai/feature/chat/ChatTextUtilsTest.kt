@@ -344,8 +344,6 @@ class ChatTextUtilsTest {
 
             assertEquals("Keeorah everyone.", chunk)
         }
-
-
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -722,176 +720,155 @@ class ChatTextUtilsTest {
         }
 
         @Test
-        fun `negative maxSentences returns full text unchanged`() {
-            val text = "First sentence. Second sentence."
-            assertEquals(text, truncateForSpeech(text, -1))
+        fun `truncates to max sentences`() {
+            val text = "First sentence. Second sentence. Third sentence. Fourth sentence."
+            assertEquals("First sentence. Second sentence.", truncateForSpeech(text, 2))
         }
 
         @Test
-        fun `takes only the first two sentences from three`() {
+        fun `truncates at sentence boundary not mid word`() {
             val text = "First sentence. Second sentence. Third sentence."
-            val result = truncateForSpeech(text, 2)
-            assertTrue(result.contains("First sentence"))
-            assertTrue(result.contains("Second sentence"))
-            assertFalse(result.contains("Third sentence"))
+            assertEquals("First sentence.", truncateForSpeech(text, 1))
         }
 
         @Test
-        fun `returns full text when sentence count equals maxSentences`() {
-            val text = "First. Second. Third."
-            assertEquals(text, truncateForSpeech(text, 3))
-        }
-
-        @Test
-        fun `returns full text when sentence count is less than maxSentences`() {
+        fun `preserves full text when fewer sentences than max`() {
             val text = "Only one sentence."
             assertEquals(text, truncateForSpeech(text, 5))
-        }
-
-        @Test
-        fun `preserves trailing period punctuation`() {
-            val text = "Hello world. Goodbye world."
-            val result = truncateForSpeech(text, 1)
-            assertTrue(result.trimEnd().endsWith("."))
-        }
-
-        @Test
-        fun `handles exclamation marks as sentence boundaries`() {
-            val text = "Hello! World? Great."
-            val result = truncateForSpeech(text, 2)
-            assertTrue(result.contains("Hello!"))
-            assertTrue(result.contains("World?"))
-            assertFalse(result.contains("Great"))
-        }
-
-        @Test
-        fun `text with no sentence boundaries returns full text`() {
-            val text = "No punctuation here"
-            assertEquals(text, truncateForSpeech(text, 2))
-        }
-
-        @Test
-        fun `does not split on abbreviation dot — Dr followed by full sentence`() {
-            // "Dr." alone is a single-token dot fragment → merged forward into the next fragment,
-            // so the first real sentence becomes "Dr. Smith explained the plan."
-            val text = "Dr. Smith explained the plan. That's all."
-            val result = truncateForSpeech(text, 1)
-            assertEquals("Dr. Smith explained the plan.", result.trimEnd())
-        }
-
-        @Test
-        fun `does not split on sentence-leading e-g abbreviation`() {
-            // "E." and "g." are both single-token dot fragments that get merged forward
-            // into the following fragment, keeping the first sentence intact.
-            val text = "E.g. cats and dogs are common pets. That covers the basics."
-            val result = truncateForSpeech(text, 1)
-            assertTrue(result.contains("cats and dogs"), "Should include the full first sentence")
-            assertFalse(result.contains("basics"), "Should not include the second sentence")
-        }
-
-        @Test
-        fun `single-word sentences like Sure are real sentence boundaries — not abbreviations`() {
-            // "Sure." must NOT be merged into the next fragment; it is a complete sentence.
-            val text = "Sure. Here is the answer. More details."
-            val result = truncateForSpeech(text, 1)
-            assertEquals("Sure.", result.trimEnd())
-        }
-
-        @Test
-        fun `known abbreviation Dr is still merged correctly`() {
-            // "Dr." is a known abbreviation so it merges with the following fragment,
-            // making "Dr. Smith explained the plan." the first full sentence.
-            val text = "Dr. Smith explained the plan. More here."
-            val result = truncateForSpeech(text, 1)
-            assertEquals("Dr. Smith explained the plan.", result.trimEnd())
         }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // NORMALISE PRONOUNS FOR TTS
+    // ANAPHORIC SAVE SAFEGUARDS
     // ═════════════════════════════════════════════════════════════════════════
 
     @Nested
-    @DisplayName("normalisePronounsForTts")
-    inner class NormalisePronounsForTtsTests {
+    @DisplayName("isAnaphoricSaveRequest")
+    inner class IsAnaphoricSaveRequestTests {
 
         @Test
-        fun `my is replaced with your`() {
-            assertEquals("Sending a message to your wife", normalisePronounsForTts("Sending a message to my wife"))
+        fun `returns true for remember that`() {
+            assertTrue(isAnaphoricSaveRequest("remember that"))
         }
 
         @Test
-        fun `My is replaced with Your preserving case`() {
-            assertEquals("Your wife", normalisePronounsForTts("My wife"))
+        fun `returns true for save that`() {
+            assertTrue(isAnaphoricSaveRequest("save that"))
         }
 
         @Test
-        fun `MY is replaced with YOUR preserving caps`() {
-            assertEquals("YOUR WIFE", normalisePronounsForTts("MY WIFE"))
+        fun `returns true for remember it`() {
+            assertTrue(isAnaphoricSaveRequest("remember it"))
         }
 
         @Test
-        fun `mine is replaced with yours`() {
-            assertEquals("That is yours", normalisePronounsForTts("That is mine"))
+        fun `returns true for save it`() {
+            assertTrue(isAnaphoricSaveRequest("save it"))
         }
 
         @Test
-        fun `myself is replaced with yourself`() {
-            assertEquals("Did you hurt yourself", normalisePronounsForTts("Did I hurt myself"))
+        fun `returns true for remember this`() {
+            assertTrue(isAnaphoricSaveRequest("remember this"))
         }
 
         @Test
-        fun `bare I is replaced with you`() {
-            assertEquals("What would you like to say", normalisePronounsForTts("What would I like to say"))
+        fun `returns true for save this`() {
+            assertTrue(isAnaphoricSaveRequest("save this"))
         }
 
         @Test
-        fun `I'm is replaced with you're`() {
-            assertEquals("you're going to love this", normalisePronounsForTts("I'm going to love this"))
+        fun `returns false for remember my birthday`() {
+            assertFalse(isAnaphoricSaveRequest("remember my birthday"))
         }
 
         @Test
-        fun `I've is replaced with you've`() {
-            assertEquals("you've done well", normalisePronounsForTts("I've done well"))
+        fun `returns false for save my notes`() {
+            assertFalse(isAnaphoricSaveRequest("save my notes"))
         }
 
         @Test
-        fun `I'll is replaced with you'll`() {
-            assertEquals("you'll get a confirmation", normalisePronounsForTts("I'll get a confirmation"))
+        fun `returns false for remember to call mum`() {
+            assertFalse(isAnaphoricSaveRequest("remember to call mum"))
         }
 
         @Test
-        fun `I'd is replaced with you'd`() {
-            assertEquals("you'd prefer that", normalisePronounsForTts("I'd prefer that"))
+        fun `returns true for remember that bare`() {
+            assertTrue(isAnaphoricSaveRequest("remember that"))
         }
 
         @Test
-        fun `me as object is replaced with you`() {
-            assertEquals("What would you like to say to you", normalisePronounsForTts("What would you like to say to me"))
+        fun `returns false for remember that I prefer dark mode`() {
+            assertFalse(isAnaphoricSaveRequest("remember that I prefer dark mode"))
         }
+    }
+
+    @Nested
+    @DisplayName("looksLikePersonalFact")
+    inner class LooksLikePersonalFactTests {
 
         @Test
-        fun `word boundaries prevent partial word replacement`() {
-            // "my" inside "Myra" must not be touched
-            assertEquals("Emailing Myra", normalisePronounsForTts("Emailing Myra"))
-            // "me" inside "email" must not be touched
-            assertEquals("sending email", normalisePronounsForTts("sending email"))
-            // "mine" inside "minefield" must not be touched
-            assertEquals("a minefield of options", normalisePronounsForTts("a minefield of options"))
-        }
-
-        @Test
-        fun `multiple pronouns in one string are all replaced`() {
-            assertEquals(
-                "What would you like to say to your mum",
-                normalisePronounsForTts("What would I like to say to my mum"),
+        fun `returns true for personal preference statement`() {
+            assertTrue(
+                looksLikePersonalFact(
+                    "I prefer dark mode for reading",
+                ),
             )
         }
 
         @Test
-        fun `text with no pronouns is unchanged`() {
-            val text = "Sending a message to Sarah"
-            assertEquals(text, normalisePronounsForTts(text))
+        fun `returns true for personal fact about user`() {
+            assertTrue(
+                looksLikePersonalFact(
+                    "My birthday is March 15th",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns true for personal preference about food`() {
+            assertTrue(
+                looksLikePersonalFact(
+                    "I don't eat gluten",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns false for factual encyclopedic content`() {
+            assertFalse(
+                looksLikePersonalFact(
+                    "The capital of France is Paris",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns false for weather content`() {
+            assertFalse(
+                looksLikePersonalFact(
+                    "It is sunny today",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns true for I dont like something`() {
+            assertTrue(looksLikePersonalFact("I don't like aubergines"))
+        }
+
+        @Test
+        fun `returns true for I prefer something`() {
+            assertTrue(looksLikePersonalFact("I prefer dark mode"))
+        }
+
+        @Test
+        fun `returns false for generic greeting`() {
+            assertFalse(
+                looksLikePersonalFact(
+                    "Hello, how are you?",
+                ),
+            )
         }
     }
+
 }

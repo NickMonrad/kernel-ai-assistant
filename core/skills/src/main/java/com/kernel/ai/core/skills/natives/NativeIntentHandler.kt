@@ -30,6 +30,7 @@ import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.skills.QuickIntentRouter
@@ -107,6 +108,7 @@ interface ClockAlertController {
  *   create_list             — Create a named list (params: list_name)
  *   get_list_items          — Retrieve unchecked items from a list (params: list_name?)
  *   remove_from_list        — Remove an item from a list (params: item, list_name?)
+ *   add_reminder            — Creates a reminder notification (params: item, day, time)
  *   smart_home_on/off       — Stub pending HA/Google Home (#311/#312) (params: device)
  *   cancel_alarm            — App-owned alarm cancellation (params: label?)
  *   get_weather             — Opens Google search for weather (params: location?)
@@ -137,6 +139,7 @@ class NativeIntentHandler @Inject constructor(
     private val cookingConversionService: CookingConversionService,
     private val currencyConversionService: CurrencyConversionService,
     private val userProfileRepository: UserProfileRepository,
+    private val listNotificationScheduler: ListNotificationScheduler,
 ) {
 
     suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -198,6 +201,7 @@ class NativeIntentHandler @Inject constructor(
                 "create_list" -> createList(params)
                 "get_list_items" -> getListItems(params)
                 "remove_from_list" -> removeFromList(params)
+                "add_reminder" -> addReminder(params)
                 "smart_home_on" -> handleSmartHome(params["device"] ?: "device", true)
                 "smart_home_off" -> handleSmartHome(params["device"] ?: "device", false)
                 "get_weather" -> getWeather(params)
@@ -273,7 +277,7 @@ class NativeIntentHandler @Inject constructor(
             "pause_media", "stop_media", "next_track", "previous_track",
             "podcast_skip_forward", "podcast_skip_back", "podcast_speed",
             "open_app", "navigate_to", "find_nearby",
-            "add_to_list", "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list",
+            "add_to_list", "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list", "add_reminder",
             "smart_home_on", "smart_home_off",
             "get_weather", "get_date_diff", "get_system_info", "calculate_arithmetic", "convert_units", "convert_cooking_measure", "convert_currency",
             "save_important_date", "list_important_dates", "remove_important_date",
@@ -1915,11 +1919,60 @@ class NativeIntentHandler @Inject constructor(
                 else -> SkillResult.Failure("cancel_alarm", "No app alarm named $label found")
             }
         }
-
         val nextAlarm = runBlocking { clockRepository.cancelNextAlarm() }
             ?: return SkillResult.Failure("cancel_alarm", "No app alarms to cancel")
         return SkillResult.Success(
             "Cancelled next app alarm${nextAlarm.label?.let { value -> ": $value" } ?: ""}.",
+        )
+    }
+    private fun addReminder(params: Map<String, String>): SkillResult {
+        val item = params["item"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("add_reminder", "No task specified for reminder")
+        val rawListName = (params["list_name"] ?: "to-do list").lowercase().trim()
+        val listName = normalizeListName(rawListName)
+        val dayRaw = params["day"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("add_reminder", "No day specified for reminder")
+        val timeRaw = params["time"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("add_reminder", "No time specified for reminder")
+        val targetDate = resolveDate(dayRaw)
+            ?: return SkillResult.Failure("add_reminder", "Could not parse day: $dayRaw")
+        val targetTime = resolveTime(timeRaw)
+            ?: return SkillResult.Failure("add_reminder", "Could not parse time: $timeRaw")
+        val triggerAt = targetDate.atTime(targetTime).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val now = System.currentTimeMillis()
+        val result = runBlocking {
+            listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
+            val list = listNameDao.getByName(listName) ?: return@runBlocking null
+            val listId = list.id
+            listItemDao.insert(
+                ListItemEntity(
+                    listId = listId,
+                    text = item,
+                    createdAt = now,
+                    updatedAt = now,
+                    dueAt = triggerAt,
+                    notificationTime = triggerAt,
+                ),
+            )
+            val insertedItem = listItemDao.getByList(listId).lastOrNull { it.text == item }
+            val allItems = listItemDao.getByList(listId)
+            Triple(insertedItem, listId, allItems)
+        } ?: return SkillResult.Failure("add_reminder", "Could not create reminder list")
+        val (insertedItem, listId, allItems) = result
+        if (insertedItem != null) {
+            listNotificationScheduler.schedule(
+                itemId = insertedItem.id,
+                itemText = item,
+                listId = listId,
+                listName = listName,
+                triggerAtMs = triggerAt,
+            )
+        }
+        val dayDisplay = dayRaw.replaceFirstChar { it.uppercase() }
+        val timeDisplay = targetTime.format(DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH))
+        return SkillResult.DirectReply(
+            "Reminder set: \"$item\" on $dayDisplay at $timeDisplay.",
+            presentation = buildListPreview(listName, allItems),
         )
     }
 
