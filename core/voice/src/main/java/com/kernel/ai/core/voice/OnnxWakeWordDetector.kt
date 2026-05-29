@@ -27,27 +27,34 @@ private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
 // ── Frame / chunk sizes ───────────────────────────────────────────────────────
 /**
  * openWakeWord processes audio in 80ms frames = 1280 samples at 16kHz.
- * This is the fundamental unit of the melspectrogram frontend.
+ * This is the fundamental unit fed to the melspectrogram frontend.
  */
 private const val FRAME_SAMPLES = 1_280 // 80ms × 16 000 Hz
 
+/**
+ * Number of mel-spectrogram rows produced by melspectrogram.onnx for one 1280-sample chunk.
+ * Empirically verified: input [1, 1280] → output [1, 1, 5, 32], so 5 rows per chunk.
+ */
+private const val MEL_ROWS_PER_CHUNK = 5
+
+/** Number of mel frequency bins — mel model output dim 3. */
+private const val MEL_BINS = 32
+
+/**
+ * The embedding backbone (embedding_model.onnx) expects input shape [batch, 76, 32, 1].
+ * 76 mel rows = 15.2 chunks = ~1,216ms of audio history.
+ */
+private const val MEL_RING_SIZE = 76
+
 // ── Embedding ring buffer ─────────────────────────────────────────────────────
 /**
- * Number of backbone embedding frames fed to the classifier at each step.
+ * Number of embedding frames fed to the classifier at each step.
  *
- * openWakeWord's default model uses a sliding window of 28 embedding frames
- * (~2.24 s of context) as the classifier input.  Verified from the training
- * notebook: `window = features[i : i+28][None,]`.
- *
- * Each frame is [EMBEDDING_DIM]-dimensional (Google Speech Embedding backbone
- * produces 96-dim vectors).  The classifier receives shape [1, 28, 96] → flattened
- * to [1, 2688] by the first `nn.Flatten()` layer.
- *
- * NOTE: If you swap the backbone for a different model, update these two constants
- * and re-export the classifier.  Run
- * `python -c "import openwakeword; print(openwakeword.utils.get_embedding_shape())"` to verify.
+ * hey_jandal.onnx input shape: [1, 16, 96] — confirmed from model introspection.
+ * Each embedding covers ~1.2s of audio (76 mel rows × 80ms / 5 rows per chunk).
+ * 16 frames → ~19.5s of context for the classifier.
  */
-private const val EMBEDDING_FRAMES = 28
+private const val EMBEDDING_FRAMES = 16
 private const val EMBEDDING_DIM = 96
 
 // ── PCM verification ring buffer ─────────────────────────────────────────────
@@ -81,11 +88,11 @@ private const val ASSET_CLASSIFIER     = "models/wakeword/hey_jandal.onnx"
  * ```
  * AudioRecord (16kHz mono)
  *   → 80ms chunks (1280 samples)
- *   → [Stage 1] melspectrogram.onnx    — raw PCM → mel-spectrogram features
- *   → [Stage 2] embedding_model.onnx   — mel features → 96-dim embedding vector
- *   → ring buffer (last 28 embeddings) — ~2.24s of acoustic context
- *   → [Stage 3] hey_jandal.onnx        — embedding window → confidence [0,1]
- *   → dual-threshold decision
+  *   → 80ms chunks (1280 samples) → Stage 1: mel spectrogram (5 rows per chunk)
+  *   → mel ring buffer (last 76 rows) — ~1.2s of acoustic context
+  *   → [Stage 2] embedding_model.onnx   — [1,76,32,1] mel patch → 96-dim embedding vector
+  *   → embedding ring buffer (last 16 frames) — ~19.5s of context
+  *   → [Stage 3] hey_jandal.onnx        — [1,16,96] embedding window → confidence [0,1]
  *       confidence ≥ highThreshold                    → onDetected() immediately
  *       lowThreshold ≤ confidence < highThreshold     → verifyWindow(pcmRing) → onDetected() if true
  *       confidence < lowThreshold (or no verifier)    → ignore
@@ -105,18 +112,18 @@ private const val ASSET_CLASSIFIER     = "models/wakeword/hey_jandal.onnx"
  *
  * ## Model contracts
  *
- * ### Stage 1 — melspectrogram.onnx
- * - Input:  `float32[1, 1280]` — one 80ms frame of normalised PCM in [-1, 1]
- * - Output: `float32[1, 32, 32]` — mel spectrogram patch (verify with Netron)
- *
- * ### Stage 2 — embedding_model.onnx (Google Speech Embedding)
- * - Input:  mel spectrogram patch from Stage 1 (shape as above)
- * - Output: `float32[1, 96]` — one embedding vector per 80ms frame
- *
- * ### Stage 3 — hey_jandal.onnx (trained by #984)
- * - Input:  `float32[1, 28, 96]` — sliding window of 28 embedding frames
- * - Output: `float32[1, 1]` — wake word confidence in [0, 1]
- * - File:   assets/models/wakeword/hey_jandal.onnx
+  * ### Stage 1 — melspectrogram.onnx
+  * - Input:  `float32[1, 1280]` — one 80ms frame of normalised PCM in [-1, 1]
+  * - Output: `float32[1, 1, 5, 32]` — 5 mel rows × 32 bins per 80ms chunk
+  *
+  * ### Stage 2 — embedding_model.onnx (Google Speech Embedding)
+  * - Input:  `float32[1, 76, 32, 1]` — ring of 76 mel rows (last ~1.2s)
+  * - Output: `float32[1, 1, 1, 96]` — one 96-dim embedding vector
+  *
+  * ### Stage 3 — hey_jandal.onnx (trained by #984)
+  * - Input:  `float32[1, 16, 96]` — sliding window of 16 embedding frames
+  * - Output: `float32[1, 1]` — wake word confidence in [0, 1]
+  * - File:   assets/models/wakeword/hey_jandal.onnx
  *
  * ## Availability
  * [isAvailable] returns false and [start] is a no-op when any model file is absent,
@@ -277,19 +284,29 @@ class OnnxWakeWordDetector @Inject constructor(
         val classOutputName = classSession.outputNames.first()
 
         // Pre-allocate all hot-loop buffers — zero heap churn during detection.
+        //
+        // melRing: sliding window of MEL_RING_SIZE rows × MEL_BINS columns, stored flat row-major.
+        // Each 80ms chunk appends MEL_ROWS_PER_CHUNK new rows; the ring slides by that many rows
+        // each step.  Once full, we build the [1, 76, 32, 1] embedding model input from it.
+        val melRing = FloatArray(MEL_RING_SIZE * MEL_BINS)   // [76 × 32]
+        var melRowsFilled = 0
+        var chunkCount = 0
+
         val embeddingRing = Array(EMBEDDING_FRAMES) { FloatArray(EMBEDDING_DIM) }
-        var ringHead = 0
-        var framesAccumulated = 0
-        val chunk     = ShortArray(FRAME_SAMPLES)
-        val framePcm  = FloatArray(FRAME_SAMPLES)
-        // windowFlat is re-filled in place each iteration; allocated once here.
+        var embRingHead = 0
+        var embFramesAccumulated = 0
+        var inferenceCount = 0L
+        val chunk    = ShortArray(FRAME_SAMPLES)
+        val framePcm = FloatArray(FRAME_SAMPLES)
+        // windowFlat: [16 × 96] flattened, re-filled in place each classifier call.
         val windowFlat = FloatArray(EMBEDDING_FRAMES * EMBEDDING_DIM)
+        // embedInput4D: [1, 76, 32, 1] — reshaped mel ring for the embedding model.
+        val embedInput4D = FloatArray(MEL_RING_SIZE * MEL_BINS)
 
         // PCM ring buffer for STT verification (pre-allocated; only used when verifyWindow != null).
-        // Holds [VERIFY_RING_SAMPLES] shorts = WAKE_WORD_VERIFY_WINDOW_S seconds at 16kHz.
         val pcmRing     = if (verifyWindow != null) ShortArray(VERIFY_RING_SAMPLES) else ShortArray(0)
         var pcmRingHead = 0
-        var pcmFilled   = 0 // saturates at VERIFY_RING_SAMPLES
+        var pcmFilled   = 0
 
         try {
             audioRecord.startRecording()
@@ -310,11 +327,16 @@ class OnnxWakeWordDetector @Inject constructor(
                     }
                 }
                 if (totalRead < FRAME_SAMPLES) continue
+                chunkCount++
+                if (chunkCount % 100 == 0) {
+                    // Log mic activity every ~8s to confirm AudioRecord is delivering data.
+                    val rms = Math.sqrt(chunk.fold(0.0) { acc, s -> acc + s * s } / FRAME_SAMPLES)
+                    Log.d(TAG, "WakeWordDetector: alive chunk=$chunkCount rms=${"%.1f".format(rms)} melFilled=$melRowsFilled embAcc=$embFramesAccumulated")
+                }
 
-                // Feed the current frame into the PCM ring buffer (before ONNX stages so the
-                // buffer always reflects exactly what audio was last heard).
+
+                // Feed the current frame into the PCM ring buffer.
                 if (verifyWindow != null) {
-                    // Copy FRAME_SAMPLES shorts into the ring, wrapping at VERIFY_RING_SAMPLES.
                     val spaceToEnd = VERIFY_RING_SAMPLES - pcmRingHead
                     if (FRAME_SAMPLES <= spaceToEnd) {
                         chunk.copyInto(pcmRing, pcmRingHead, 0, FRAME_SAMPLES)
@@ -327,35 +349,89 @@ class OnnxWakeWordDetector @Inject constructor(
                     if (pcmFilled < VERIFY_RING_SAMPLES) pcmFilled += FRAME_SAMPLES
                 }
 
-                // Normalise 16-bit PCM to [-1, 1].
+                // openWakeWord's mel model expects raw 16-bit PCM values cast to float32
+                // (range ±32768), NOT normalised to [-1, 1]. Using the wrong scale shifts
+                // the mel output by ~88 units, putting embeddings completely out of the
+                // distribution the classifier was trained on (verified empirically).
                 for (i in 0 until FRAME_SAMPLES) {
-                    framePcm[i] = chunk[i] / 32768f
+                    framePcm[i] = chunk[i].toFloat()
                 }
 
-                // --- Stage 1: melspectrogram ---
-                val embedding: FloatArray = OnnxTensor.createTensor(
+                // ── Stage 1: melspectrogram ───────────────────────────────────────────
+                // Input:  [1, 1280] float32 PCM
+                // Output: [1, 1, 5, 32] mel spectrogram patch (5 rows × 32 bins per chunk)
+                val melRows: FloatArray = OnnxTensor.createTensor(
                     env,
                     FloatBuffer.wrap(framePcm),
                     longArrayOf(1L, FRAME_SAMPLES.toLong()),
-                ).use { melInput ->
-                    // --- Stage 2: embedding backbone ---
-                    melsSession.run(mapOf(melsInputName to melInput)).use { melOutput ->
-                        val melTensor = melOutput[melsOutputName].get() as OnnxTensor
-                        embedSession.run(mapOf(embedInputName to melTensor)).use { embedOutput ->
-                            val embedTensor = embedOutput[embedOutputName].get() as OnnxTensor
-                            ((embedTensor.value as Array<*>)[0] as FloatArray).copyOf()
+                ).use { melIn ->
+                    melsSession.run(mapOf(melsInputName to melIn)).use { melOut ->
+                        val t = melOut[melsOutputName].get() as OnnxTensor
+                        // t.value is Array<Array<Array<FloatArray>>> with shape [1,1,5,32].
+                        // Flatten the [5,32] patch and apply the openWakeWord mel transform:
+                        //   value / 10.0 + 2.0
+                        // This normalisation is applied by the reference Android implementation
+                        // (Re-MENTIA/openwakeword-android-kt MelSpectrogram.applyMelSpecTransform)
+                        // and matches the preprocessing used during training. Without it the
+                        // classifier sees out-of-distribution inputs and outputs ~0.001 for all audio.
+                        val rows = (((t.value as Array<*>)[0] as Array<*>)[0] as Array<*>)
+                        val flat = FloatArray(MEL_ROWS_PER_CHUNK * MEL_BINS)
+                        for (r in 0 until MEL_ROWS_PER_CHUNK) {
+                            val row = rows[r] as FloatArray
+                            val base = r * MEL_BINS
+                            for (b in 0 until MEL_BINS) {
+                                flat[base + b] = row[b] / 10.0f + 2.0f
+                            }
                         }
+                        flat
                     }
                 }
 
-                embedding.copyInto(embeddingRing[ringHead])
-                ringHead = (ringHead + 1) % EMBEDDING_FRAMES
-                if (framesAccumulated < EMBEDDING_FRAMES) framesAccumulated++
-                if (framesAccumulated < EMBEDDING_FRAMES) continue
+                // Slide mel ring: drop oldest MEL_ROWS_PER_CHUNK rows, append new rows.
+                if (melRowsFilled >= MEL_RING_SIZE) {
+                    // Ring full — shift left by MEL_ROWS_PER_CHUNK, append at the tail.
+                    melRing.copyInto(melRing, 0, MEL_ROWS_PER_CHUNK * MEL_BINS, MEL_RING_SIZE * MEL_BINS)
+                    melRows.copyInto(melRing, (MEL_RING_SIZE - MEL_ROWS_PER_CHUNK) * MEL_BINS)
+                } else {
+                    // Ring not yet full — append as many rows as fit (MEL_RING_SIZE may not be
+                    // a multiple of MEL_ROWS_PER_CHUNK, so clamp to avoid OOB on the last chunk).
+                    val rowsToInsert = minOf(MEL_ROWS_PER_CHUNK, MEL_RING_SIZE - melRowsFilled)
+                    melRows.copyInto(melRing, melRowsFilled * MEL_BINS, 0, rowsToInsert * MEL_BINS)
+                    melRowsFilled += rowsToInsert
+                }
+                if (melRowsFilled < MEL_RING_SIZE) continue // need more audio before first embedding
 
-                // --- Stage 3: classifier over the last 28 frames ---
+                // ── Stage 2: embedding backbone ───────────────────────────────────────
+                // Input:  [1, 76, 32, 1] — melRing reshaped; the model expects a channel dim of 1.
+                // Output: [1, 1, 1, 96] — one 96-dim embedding vector.
+                //
+                // melRing is already [76 × 32] row-major.  We reinterpret as [76 × 32 × 1] by
+                // passing the same flat array with shape [1, 76, 32, 1] — the channel is implicit
+                // (every element maps to exactly one channel-1 position).
+                melRing.copyInto(embedInput4D)
+                val embedding: FloatArray = OnnxTensor.createTensor(
+                    env,
+                    FloatBuffer.wrap(embedInput4D),
+                    longArrayOf(1L, MEL_RING_SIZE.toLong(), MEL_BINS.toLong(), 1L),
+                ).use { embedIn ->
+                    embedSession.run(mapOf(embedInputName to embedIn)).use { embedOut ->
+                        val t = embedOut[embedOutputName].get() as OnnxTensor
+                        // Output shape [1,1,1,96] — innermost array is FloatArray(96).
+                        (((t.value as Array<*>)[0] as Array<*>)[0] as Array<*>)[0] as FloatArray
+                    }
+                }
+
+                // Accumulate embedding in ring buffer.
+                embedding.copyInto(embeddingRing[embRingHead])
+                embRingHead = (embRingHead + 1) % EMBEDDING_FRAMES
+                if (embFramesAccumulated < EMBEDDING_FRAMES) embFramesAccumulated++
+                if (embFramesAccumulated < EMBEDDING_FRAMES) continue
+
+                // ── Stage 3: classifier over the last 16 embedding frames ─────────────
+                // Input:  [1, 16, 96]
+                // Output: [1, 1]
                 for (f in 0 until EMBEDDING_FRAMES) {
-                    val frameIdx = (ringHead + f) % EMBEDDING_FRAMES
+                    val frameIdx = (embRingHead + f) % EMBEDDING_FRAMES
                     embeddingRing[frameIdx].copyInto(windowFlat, f * EMBEDDING_DIM)
                 }
 
@@ -363,12 +439,18 @@ class OnnxWakeWordDetector @Inject constructor(
                     env,
                     FloatBuffer.wrap(windowFlat),
                     longArrayOf(1L, EMBEDDING_FRAMES.toLong(), EMBEDDING_DIM.toLong()),
-                ).use { classInput ->
-                    classSession.run(mapOf(classInputName to classInput)).use { classOutput ->
-                        val classTensor = classOutput[classOutputName].get() as OnnxTensor
-                        ((classTensor.value as Array<*>)[0] as FloatArray)[0]
+                ).use { classIn ->
+                    classSession.run(mapOf(classInputName to classIn)).use { classOut ->
+                        val t = classOut[classOutputName].get() as OnnxTensor
+                        ((t.value as Array<*>)[0] as FloatArray)[0]
                     }
                 }
+                inferenceCount++
+                // Log every inference during first 5s, then every ~1s (every 12 inferences).
+                if (inferenceCount <= 20 || inferenceCount % 12 == 0L) {
+                    Log.d(TAG, "WakeWordDetector: inference #$inferenceCount confidence=${"%.4f".format(confidence)}")
+                }
+
 
                 when {
                     // High-confidence fast path — activate immediately.

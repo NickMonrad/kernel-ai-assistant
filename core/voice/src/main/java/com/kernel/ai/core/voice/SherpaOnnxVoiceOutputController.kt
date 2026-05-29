@@ -296,6 +296,11 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         if (initializedKokoroVoice != null || initializedVoice != voice) {
             resetForVoice(voice)
         }
+        // If init previously failed only because the voice pack was missing, retry now that
+        // it may have been downloaded since. JNI/AAR failures stay permanently cached.
+        if (initState == InitState.UNAVAILABLE && voice.isDownloaded(context)) {
+            initState = InitState.UNINITIALIZED
+        }
         return when (initState) {
             InitState.AVAILABLE -> VoiceOutputResult.Spoken
             InitState.UNAVAILABLE -> VoiceOutputResult.Unavailable(unavailableMessage(voice))
@@ -304,15 +309,45 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     }
 
     private fun doInitialize(voice: SherpaPiperVoice): VoiceOutputResult {
-        // 1. Check AAR is on classpath via Class.forName (no import needed)
+        // libsherpa-onnx-jni.so was built against ORT as a shared library and calls
+        // OrtGetApiBase() at load time. On Android the linker resolves that symbol from
+        // whatever libonnxruntime.so is already open in this process. If ORT hasn't been
+        // loaded yet (e.g. inference engine not yet warm) the dlopen fails with
+        // UnsatisfiedLinkError. Loading it here is idempotent and ensures the symbol is
+        // present before Class.forName() triggers Sherpa's static <clinit>.
+        try {
+            System.loadLibrary("onnxruntime")
+        } catch (_: UnsatisfiedLinkError) {
+            // Already loaded or not present — either way, proceed and let Class.forName
+            // fail gracefully below if Sherpa truly can't find ORT.
+        }
+
+        // 1. Check AAR is on classpath via Class.forName (no import needed).
+        // UnsatisfiedLinkError must also be caught: Class.forName triggers OfflineTts.<clinit>
+        // which calls System.loadLibrary("sherpa-onnx-jni"). That JNI lib resolves OrtGetApiBase
+        // from libonnxruntime.so at dlopen time; if the linker can't find it (namespace isolation,
+        // version mismatch) Android throws UnsatisfiedLinkError — an Error, not an Exception —
+        // which would otherwise escape the coroutine and crash the process.
+        // ExceptionInInitializerError and NoClassDefFoundError are the JVM wrapper forms that
+        // Class.forName can surface when the static initialiser itself throws.
         val ttsClass = try {
             Class.forName(SHERPA_OFFLINE_TTS_CLASS)
         } catch (e: ClassNotFoundException) {
             Log.i(TAG, "Sherpa-ONNX not on classpath — AAR not present in APK.")
             initState = InitState.UNAVAILABLE
-            return VoiceOutputResult.Unavailable(
-                "Sherpa-ONNX runtime not available for ${voice.displayName}."
-            )
+            return VoiceOutputResult.Unavailable("Sherpa-ONNX runtime not available for ${voice.displayName}.")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "Sherpa-ONNX JNI failed to load (ORT symbol not found) — falling back to Android TTS", e)
+            initState = InitState.UNAVAILABLE
+            return VoiceOutputResult.Unavailable("Sherpa-ONNX JNI unavailable (${e.message?.take(80)})")
+        } catch (e: ExceptionInInitializerError) {
+            Log.e(TAG, "Sherpa-ONNX class init failed — falling back to Android TTS", e)
+            initState = InitState.UNAVAILABLE
+            return VoiceOutputResult.Unavailable("Sherpa-ONNX JNI unavailable (${e.message?.take(80)})")
+        } catch (e: NoClassDefFoundError) {
+            Log.e(TAG, "Sherpa-ONNX class not found after init failure — falling back to Android TTS", e)
+            initState = InitState.UNAVAILABLE
+            return VoiceOutputResult.Unavailable("Sherpa-ONNX JNI unavailable (${e.message?.take(80)})")
         }
 
         // 2. Use the voice pack downloaded to internal storage.
@@ -759,6 +794,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             initState = InitState.UNAVAILABLE
             return VoiceOutputResult.Unavailable(unavailableMessageKokoro(voice))
         }
+        // Preload ORT so Class.forName doesn't trigger a JNI link failure (same as doInitialize).
+        try { System.loadLibrary("onnxruntime") } catch (_: UnsatisfiedLinkError) { }
         return try {
             val config = buildOfflineTtsKokoroConfig(modelDir, voice)
             val ttsClass = Class.forName(SHERPA_OFFLINE_TTS_CLASS)
@@ -782,6 +819,18 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             Log.e(TAG, "Kokoro TTS init failed", e)
             initState = InitState.UNAVAILABLE
             VoiceOutputResult.Unavailable("Kokoro init failed: ${e.message}")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "Kokoro TTS JNI failed to load — falling back to Android TTS", e)
+            initState = InitState.UNAVAILABLE
+            VoiceOutputResult.Unavailable("Kokoro JNI unavailable (${e.message?.take(80)})")
+        } catch (e: ExceptionInInitializerError) {
+            Log.e(TAG, "Kokoro TTS class init failed — falling back to Android TTS", e)
+            initState = InitState.UNAVAILABLE
+            VoiceOutputResult.Unavailable("Kokoro JNI unavailable (${e.message?.take(80)})")
+        } catch (e: NoClassDefFoundError) {
+            Log.e(TAG, "Kokoro TTS class not found after init failure — falling back to Android TTS", e)
+            initState = InitState.UNAVAILABLE
+            VoiceOutputResult.Unavailable("Kokoro JNI unavailable (${e.message?.take(80)})")
         }
     }
 
