@@ -145,9 +145,15 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         backend = startBackend,
                     )
                 } catch (onDeviceEx: Exception) {
-                    // On-device recognizer failed to start (e.g. not installed, OOM). Attempt
-                    // platform recognizer once before giving up entirely.
+                    // On-device recognizer failed to start (e.g. not installed, OOM). Clean up
+                    // any partially-constructed recognizer before retrying with Platform, so we
+                    // don't orphan an instance that could fire stale callbacks.
                     if (startBackend == RecognizerBackend.OnDevice) {
+                        speechRecognizer?.apply {
+                            runCatching { cancel() }
+                            runCatching { destroy() }
+                        }
+                        speechRecognizer = null
                         Log.w(
                             TAG,
                             "On-device recognizer failed to start; retrying with platform backend",

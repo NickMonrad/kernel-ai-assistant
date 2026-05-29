@@ -1,6 +1,21 @@
 package com.kernel.ai.core.voice
 
+import android.content.Context
+import android.media.AudioManager
+import android.speech.SpeechRecognizer
+import io.mockk.every
+import io.mockk.coEvery
+import io.mockk.mockk
+import io.mockk.verify
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 class NativeAndroidVoiceInputControllerTest {
@@ -57,7 +72,7 @@ class NativeAndroidVoiceInputControllerTest {
             shouldRetryWithPlatformAfterRecognitionError(
                 backend = RecognizerBackend.OnDevice,
                 mode = VoiceCaptureMode.Command,
-                error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                error = SpeechRecognizer.ERROR_NO_MATCH,
                 heardSpeech = false,
                 sawPartialTranscript = false,
             ),
@@ -67,7 +82,7 @@ class NativeAndroidVoiceInputControllerTest {
             shouldRetryWithPlatformAfterRecognitionError(
                 backend = RecognizerBackend.OnDevice,
                 mode = VoiceCaptureMode.Command,
-                error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                error = SpeechRecognizer.ERROR_NO_MATCH,
                 heardSpeech = true,
                 sawPartialTranscript = false,
             ),
@@ -77,7 +92,7 @@ class NativeAndroidVoiceInputControllerTest {
             shouldRetryWithPlatformAfterRecognitionError(
                 backend = RecognizerBackend.Platform,
                 mode = VoiceCaptureMode.Command,
-                error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                error = SpeechRecognizer.ERROR_NO_MATCH,
                 heardSpeech = false,
                 sawPartialTranscript = false,
             ),
@@ -91,7 +106,7 @@ class NativeAndroidVoiceInputControllerTest {
             shouldRetryWithPlatformAfterRecognitionError(
                 backend = RecognizerBackend.OnDevice,
                 mode = VoiceCaptureMode.AlertCommand,
-                error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                error = SpeechRecognizer.ERROR_NO_MATCH,
                 heardSpeech = true,
                 sawPartialTranscript = false,
             ),
@@ -101,7 +116,7 @@ class NativeAndroidVoiceInputControllerTest {
             shouldRetryWithPlatformAfterRecognitionError(
                 backend = RecognizerBackend.OnDevice,
                 mode = VoiceCaptureMode.AlertCommand,
-                error = android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                error = SpeechRecognizer.ERROR_NO_MATCH,
                 heardSpeech = true,
                 sawPartialTranscript = true,
             ),
@@ -126,5 +141,95 @@ class NativeAndroidVoiceInputControllerTest {
 
         assertEquals(false, shouldForceRecognizerLanguage(unknownAvailability))
         assertEquals(true, shouldForceRecognizerLanguage(readyAvailability))
+    }
+}
+
+/**
+ * Integration-level tests for [NativeAndroidVoiceInputController.startListening].
+ *
+ * These tests construct a real controller with a mocked [AndroidNativeRecognitionSupport] so
+ * they exercise the actual dispatch/retry logic rather than just pure helper functions.
+ * Android framework stubs return default values (isReturnDefaultValues = true in build.gradle.kts),
+ * so SpeechRecognizer methods that are not explicitly stubbed are safe no-ops.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+class NativeAndroidVoiceInputControllerStartListeningTest {
+
+    private val testDispatcher = StandardTestDispatcher()
+
+    private lateinit var context: Context
+    private lateinit var recognitionSupport: AndroidNativeRecognitionSupport
+    private lateinit var controller: NativeAndroidVoiceInputController
+
+    private val availability = createRecognitionAvailability(
+        isRecognitionAvailable = true,
+        isOnDeviceRecognitionAvailable = true,
+        languageTag = "en-AU",
+        languageDisplayName = "English (Australia)",
+        localeStatus = AndroidNativeRecognitionLocaleStatus.Ready,
+    )
+
+    @BeforeEach
+    fun setUp() {
+        Dispatchers.setMain(testDispatcher)
+
+        context = mockk(relaxed = true)
+        val audioManager = mockk<AudioManager>(relaxed = true)
+        every { context.getSystemService(Context.AUDIO_SERVICE) } returns audioManager
+        recognitionSupport = mockk(relaxed = true)
+
+        // getAvailability / getCaptureAvailability both return the ready availability
+        coEvery { recognitionSupport.getAvailability() } returns availability
+        every { recognitionSupport.getCaptureAvailability() } returns availability
+
+        controller = NativeAndroidVoiceInputController(context, recognitionSupport)
+    }
+
+    @AfterEach
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    @Test
+    fun `startListening falls back to platform recognizer when on-device start throws`() = runTest {
+        // Arrange: on-device recognizer throws on startListening(); platform recognizer succeeds.
+        val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+
+        every { onDeviceRecognizer.startListening(any()) } throws
+            RuntimeException("on-device recognizer unavailable")
+
+        // Act
+        val result = controller.startListening(VoiceCaptureMode.Command)
+
+        // Assert: overall result is Started (platform succeeded)
+        assertEquals(VoiceInputStartResult.Started, result)
+
+        // Platform recognizer was started
+        verify(exactly = 1) { recognitionSupport.createPlatformSpeechRecognizer() }
+        verify(exactly = 1) { platformRecognizer.startListening(any()) }
+
+        // Orphaned on-device recognizer was cleaned up before the retry
+        verify(atLeast = 1) { onDeviceRecognizer.cancel() }
+        verify(atLeast = 1) { onDeviceRecognizer.destroy() }
+    }
+
+    @Test
+    fun `startListening returns Unavailable when both on-device and platform recognizers throw`() = runTest {
+        val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+
+        every { onDeviceRecognizer.startListening(any()) } throws RuntimeException("on-device unavailable")
+        every { platformRecognizer.startListening(any()) } throws RuntimeException("platform unavailable")
+
+        val result = controller.startListening(VoiceCaptureMode.Command)
+
+        assertEquals(true, result is VoiceInputStartResult.Unavailable)
     }
 }
