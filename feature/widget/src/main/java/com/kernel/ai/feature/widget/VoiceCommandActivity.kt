@@ -308,11 +308,12 @@ class VoiceCommandActivity : ComponentActivity() {
                                 navigator.navigateToActions(this@VoiceCommandActivity, transcript, isVoice = true)
                                 finish()
                             } else if (!retryAttempted) {
-                                // #790: blank transcript (silence/timeout) — retry once.
+                                // #790: blank transcript — retry once.
                                 retryAttempted = true
                                 partialText = ""
                                 Log.d(TAG, "VoiceCommandActivity: blank transcript — retrying")
-                                voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+                                val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+                                if (result !is VoiceInputStartResult.Started) finish()
                             } else {
                                 finish()
                             }
@@ -324,7 +325,8 @@ class VoiceCommandActivity : ComponentActivity() {
                                 retryAttempted = true
                                 partialText = ""
                                 Log.d(TAG, "VoiceCommandActivity: retrying after error")
-                                voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+                                val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+                                if (result !is VoiceInputStartResult.Started) finish()
                             } else {
                                 finish()
                             }
