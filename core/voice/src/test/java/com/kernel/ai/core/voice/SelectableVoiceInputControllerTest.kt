@@ -22,6 +22,7 @@ class SelectableVoiceInputControllerTest {
     private val voiceInputPreferences: VoiceInputPreferences = mockk()
     private val voskOfflineVoiceInputController: VoskOfflineVoiceInputController = mockk()
     private val nativeAndroidVoiceInputController: NativeAndroidVoiceInputController = mockk()
+    private val sherpaOnnxVoiceInputController: SherpaOnnxVoiceInputController = mockk()
 
     @Test
     fun `events only flow from the selected controller`() = runTest(dispatcher) {
@@ -32,14 +33,17 @@ class SelectableVoiceInputControllerTest {
         every { voiceInputPreferences.selectedEngine } returns selectedEngine
         every { voskOfflineVoiceInputController.events } returns voskEvents
         every { nativeAndroidVoiceInputController.events } returns nativeEvents
+        every { sherpaOnnxVoiceInputController.events } returns MutableSharedFlow()
         every { voskOfflineVoiceInputController.stopListening() } just runs
         every { nativeAndroidVoiceInputController.stopListening() } just runs
+        every { sherpaOnnxVoiceInputController.stopListening() } just runs
         coEvery { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command) } returns VoiceInputStartResult.Started
 
         val controller = SelectableVoiceInputController(
             voiceInputPreferences = voiceInputPreferences,
             voskOfflineVoiceInputController = voskOfflineVoiceInputController,
             nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
+            sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
         )
         val collectJob = launch { controller.events.collect { received += it } }
 
@@ -61,13 +65,16 @@ class SelectableVoiceInputControllerTest {
         every { voiceInputPreferences.selectedEngine } returns MutableStateFlow(VoiceInputEngine.Vosk)
         every { voskOfflineVoiceInputController.events } returns MutableSharedFlow()
         every { nativeAndroidVoiceInputController.events } returns MutableSharedFlow()
+        every { sherpaOnnxVoiceInputController.events } returns MutableSharedFlow()
         every { voskOfflineVoiceInputController.stopListening() } just runs
         every { nativeAndroidVoiceInputController.stopListening() } just runs
+        every { sherpaOnnxVoiceInputController.stopListening() } just runs
 
         val controller = SelectableVoiceInputController(
             voiceInputPreferences = voiceInputPreferences,
             voskOfflineVoiceInputController = voskOfflineVoiceInputController,
             nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
+            sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
         )
 
         controller.stopListening()

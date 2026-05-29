@@ -51,6 +51,7 @@ import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.VoiceInputStartResult
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -292,6 +293,7 @@ class VoiceCommandActivity : ComponentActivity() {
             }
         }
 
+        var retryAttempted = false
         lifecycleScope.launch {
             voiceInputController.events
                 .onStart { voiceInputController.startListening(VoiceCaptureMode.AlertCommand) }
@@ -305,12 +307,30 @@ class VoiceCommandActivity : ComponentActivity() {
                             Log.d(TAG, "VoiceCommandActivity: final transcript=\"$transcript\"")
                             if (transcript.isNotBlank() && !isFinishing) {
                                 navigator.navigateToActions(this@VoiceCommandActivity, transcript, isVoice = true)
+                                finish()
+                            } else if (!retryAttempted) {
+                                // #790: blank transcript — retry once.
+                                retryAttempted = true
+                                partialText = ""
+                                Log.d(TAG, "VoiceCommandActivity: blank transcript — retrying")
+                                val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+                                if (result !is VoiceInputStartResult.Started) finish()
+                            } else {
+                                finish()
                             }
-                            finish()
                         }
                         is VoiceInputEvent.Error -> {
                             Log.w(TAG, "VoiceCommandActivity: voice error — ${event.message}")
-                            finish()
+                            if (!retryAttempted) {
+                                // #790: retry once on error before closing.
+                                retryAttempted = true
+                                partialText = ""
+                                Log.d(TAG, "VoiceCommandActivity: retrying after error")
+                                val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+                                if (result !is VoiceInputStartResult.Started) finish()
+                            } else {
+                                finish()
+                            }
                         }
                         else -> Unit
                     }

@@ -1,5 +1,8 @@
 package com.kernel.ai.feature.settings
 
+import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
@@ -42,6 +45,7 @@ class VoiceViewModelTest {
     private val sherpaVoicePackDownloadManager: SherpaVoicePackDownloadManager = mockk()
     private val wakeWordPreferences: WakeWordPreferences = mockk(relaxed = true)
     private val wakeWordDetector: WakeWordDetector = mockk()
+    private val modelDownloadManager: ModelDownloadManager = mockk()
     private val heyJandalEnabled = MutableStateFlow(false)
     private val wakeWordThreshold = MutableStateFlow(0.80f)
     private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Vosk)
@@ -114,6 +118,11 @@ class VoiceViewModelTest {
         every { wakeWordDetector.isAvailable } returns false
         every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
         every { sherpaVoicePackDownloadManager.kokoroDownloadStates } returns kokoroDownloadStates
+        every { modelDownloadManager.downloadStates } returns MutableStateFlow(
+            KernelModel.entries.associateWith { DownloadState.NotDownloaded as DownloadState }
+        )
+        every { modelDownloadManager.startDownload(any()) } just Runs
+        every { modelDownloadManager.cancelDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.startDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.cancelDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.deleteVoice(any()) } just Runs
@@ -127,6 +136,7 @@ class VoiceViewModelTest {
             sherpaVoicePackDownloadManager,
             wakeWordPreferences,
             wakeWordDetector,
+            modelDownloadManager,
         )
     }
 
@@ -182,6 +192,7 @@ class VoiceViewModelTest {
             sherpaVoicePackDownloadManager,
             wakeWordPreferences,
             wakeWordDetector,
+            modelDownloadManager,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -209,6 +220,7 @@ class VoiceViewModelTest {
             sherpaVoicePackDownloadManager,
             wakeWordPreferences,
             wakeWordDetector,
+            modelDownloadManager,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -236,6 +248,7 @@ class VoiceViewModelTest {
             sherpaVoicePackDownloadManager,
             wakeWordPreferences,
             wakeWordDetector,
+            modelDownloadManager,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 

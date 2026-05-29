@@ -124,21 +124,37 @@ fun VoiceScreen(
         uiState = uiState,
         onBack = onBack,
         onRequestAssistantRole = {
-            // Samsung One UI overrides RoleManager.ROLE_ASSISTANT with a proprietary
-            // RoleControllerService that silently rejects third-party VIS packages.
-            // On Samsung we deep-link directly to the assistant chooser page; on all
-            // other OEMs we use the standard role request dialog.
-            if (Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
-                val settingsIntent = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)
-                try {
-                    assistantRoleLauncher.launch(settingsIntent)
-                } catch (_: Exception) {
-                    // Fallback: generic default-apps page if the specific page is unavailable
-                    assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            // Several OEM RoleControllerService implementations silently reject third-party
+            // VoiceInteractionService packages or return null from createRequestRoleIntent,
+            // making the standard role-request dialog a no-op. For these OEMs we deep-link
+            // directly into the system Default Apps settings page.
+            //
+            // Samsung One UI: rejects VIS via proprietary RoleControllerService → deep-link
+            //   to ACTION_VOICE_INPUT_SETTINGS (assistant sub-page within Default Apps).
+            // Other OEMs (incl. Honor MagicOS): attempt the standard role dialog first; if
+            //   the intent is null (broken RoleControllerService) fall back to
+            //   ACTION_MANAGE_DEFAULT_APPS_SETTINGS.
+            val isSamsung = Build.MANUFACTURER.equals("samsung", ignoreCase = true)
+            when {
+                isSamsung -> {
+                    try {
+                        assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+                    } catch (_: Exception) {
+                        assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                    }
                 }
-            } else {
-                val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                if (intent != null) assistantRoleLauncher.launch(intent)
+                else -> {
+                    val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                    if (intent != null) {
+                        assistantRoleLauncher.launch(intent)
+                    } else {
+                        try {
+                            assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                        } catch (_: Exception) {
+                            // No standard default-apps page — nothing more we can do.
+                        }
+                    }
+                }
             }
         },
         onHeyJandalEnabledChanged = { enabled ->
@@ -171,6 +187,9 @@ fun VoiceScreen(
         onCancelKokoroVoiceDownload = viewModel::cancelKokoroVoiceDownload,
         onDeleteKokoroVoice = viewModel::deleteKokoroVoice,
         onKokoroActiveSpeakerIdChanged = viewModel::setKokoroActiveSpeakerId,
+        onDownloadSherpaOnnxStt = viewModel::downloadSherpaOnnxStt,
+        onCancelSherpaOnnxSttDownload = viewModel::cancelSherpaOnnxSttDownload,
+        onDeleteSherpaOnnxStt = viewModel::deleteSherpaOnnxStt,
     )
 }
 
@@ -201,6 +220,9 @@ private fun VoiceScreenContent(
     onCancelKokoroVoiceDownload: (SherpaKokoroVoice) -> Unit,
     onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit,
     onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
+    onDownloadSherpaOnnxStt: () -> Unit,
+    onCancelSherpaOnnxSttDownload: () -> Unit,
+    onDeleteSherpaOnnxStt: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -303,6 +325,12 @@ private fun VoiceScreenContent(
                             )
                         },
                     )
+                    Text(
+                        text = "Higher values require greater confidence before triggering — fewer false activations, but may miss quiet or accented speech.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
                 }
             }
             HorizontalDivider()
@@ -324,6 +352,8 @@ private fun VoiceScreenContent(
                     VoiceInputEngine.AndroidNative -> uiState.androidNativeLanguageSummary
                     else -> null
                 }
+                val sherpaOnnxReady = engine != VoiceInputEngine.SherpaOnnx ||
+                    uiState.isSherpaOnnxSttDownloaded
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
@@ -338,6 +368,14 @@ private fun VoiceScreenContent(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
+                            if (engine == VoiceInputEngine.SherpaOnnx && !uiState.isSherpaOnnxSttDownloaded) {
+                                Text(
+                                    text = "Download required before use",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
                             if (engine == VoiceInputEngine.AndroidNative && warning != null) {
                                 VoiceWarningCard(
                                     message = warning,
@@ -349,7 +387,8 @@ private fun VoiceScreenContent(
                     trailingContent = {
                         RadioButton(
                             selected = uiState.selectedInputEngine == engine,
-                            onClick = { onVoiceInputEngineSelected(engine) },
+                            onClick = { if (sherpaOnnxReady) onVoiceInputEngineSelected(engine) },
+                            enabled = sherpaOnnxReady,
                         )
                     },
                 )
@@ -362,6 +401,23 @@ private fun VoiceScreenContent(
                         text = warning,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                // Sherpa-ONNX STT: always show download card until the model is downloaded
+                // so the user can download without first selecting the engine. Once downloaded,
+                // only show the card when the engine is actively selected.
+                if (engine == VoiceInputEngine.SherpaOnnx &&
+                    (!uiState.isSherpaOnnxSttDownloaded || uiState.selectedInputEngine == engine)
+                ) {
+                    SherpaOnnxSttDownloadCard(
+                        isDownloaded = uiState.isSherpaOnnxSttDownloaded,
+                        isDownloading = uiState.isSherpaOnnxSttDownloading,
+                        progress = uiState.sherpaOnnxSttProgress,
+                        error = uiState.sherpaOnnxSttError,
+                        onDownload = onDownloadSherpaOnnxStt,
+                        onCancel = onCancelSherpaOnnxSttDownload,
+                        onDelete = onDeleteSherpaOnnxStt,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
@@ -1309,6 +1365,98 @@ private fun VoiceInfoCard(
     }
 }
 
+
+/**
+ * Inline card shown under the Sherpa-ONNX STT engine row when the engine is selected.
+ * Mirrors the pattern of [SherpaVoiceRow] / [KokoroVoiceRow] but for the 4 STT model files,
+ * which are grouped as a single logical unit (~72 MB total).
+ */
+@Composable
+private fun SherpaOnnxSttDownloadCard(
+    isDownloaded: Boolean,
+    isDownloading: Boolean,
+    progress: Float,
+    error: String?,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isDownloaded)
+                MaterialTheme.colorScheme.primaryContainer
+            else
+                MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isDownloaded) "STT model ready" else "STT model required (~72 MB)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isDownloaded)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (!isDownloaded && !isDownloading) {
+                        Text(
+                            text = "Zipformer int8 · English · Fully offline",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                when {
+                    isDownloaded -> Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        TextButton(onClick = onDelete) { Text("Delete") }
+                    }
+                    isDownloading -> TextButton(onClick = onCancel) { Text("Cancel") }
+                    else -> TextButton(onClick = onDownload) { Text("Download") }
+                }
+            }
+            if (isDownloading) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = "${(progress * 100).toInt()}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (error != null) {
+                Text(
+                    text = "Download failed: $error",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun VoiceOutputSelectionCard(
     selectedEngine: VoiceOutputEngine,
@@ -1472,6 +1620,9 @@ private fun VoiceScreenPreview() {
             onCancelKokoroVoiceDownload = {},
             onDeleteKokoroVoice = {},
             onKokoroActiveSpeakerIdChanged = {},
+            onDownloadSherpaOnnxStt = {},
+            onCancelSherpaOnnxSttDownload = {},
+            onDeleteSherpaOnnxStt = {},
         )
     }
 }
