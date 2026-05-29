@@ -299,7 +299,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 result.javaClass.getDeclaredMethod("getText")
                     .also { it.isAccessible = true }
                     .invoke(result) as String
-            }.trim()
+            }.trim().lowercase(java.util.Locale.ROOT)
 
     // ── Synchronous transcription (wake word verification) ─────────────────────
 
