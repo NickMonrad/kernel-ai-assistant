@@ -177,15 +177,15 @@ class WakeWordService : Service() {
                 )
                 return@launch
             }
+            // ListeningStarted is emitted inside startListening() before it returns, so
+            // collecting it via onEach below always misses it. Play the cue here instead.
+            cuePlayer.playCue()
 
             // Collect until the session definitively ends (Transcript, Error, or
             // ListeningStopped). Using only filterIsInstance<Transcript>.first() would
             // block forever on a SharedFlow if the session ends with Error/timeout.
             val terminalEvent = try {
                 voiceInputController.events
-                    .onEach { event ->
-                        if (event is VoiceInputEvent.ListeningStarted) cuePlayer.playCue()
-                    }
                     .first { it is VoiceInputEvent.Transcript
                           || it is VoiceInputEvent.Error
                           || it is VoiceInputEvent.ListeningStopped }
