@@ -292,6 +292,7 @@ class VoiceCommandActivity : ComponentActivity() {
             }
         }
 
+        var retryAttempted = false
         lifecycleScope.launch {
             voiceInputController.events
                 .onStart { voiceInputController.startListening(VoiceCaptureMode.AlertCommand) }
@@ -305,12 +306,28 @@ class VoiceCommandActivity : ComponentActivity() {
                             Log.d(TAG, "VoiceCommandActivity: final transcript=\"$transcript\"")
                             if (transcript.isNotBlank() && !isFinishing) {
                                 navigator.navigateToActions(this@VoiceCommandActivity, transcript, isVoice = true)
+                                finish()
+                            } else if (!retryAttempted) {
+                                // #790: blank transcript (silence/timeout) — retry once.
+                                retryAttempted = true
+                                partialText = ""
+                                Log.d(TAG, "VoiceCommandActivity: blank transcript — retrying")
+                                voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+                            } else {
+                                finish()
                             }
-                            finish()
                         }
                         is VoiceInputEvent.Error -> {
                             Log.w(TAG, "VoiceCommandActivity: voice error — ${event.message}")
-                            finish()
+                            if (!retryAttempted) {
+                                // #790: retry once on error before closing.
+                                retryAttempted = true
+                                partialText = ""
+                                Log.d(TAG, "VoiceCommandActivity: retrying after error")
+                                voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+                            } else {
+                                finish()
+                            }
                         }
                         else -> Unit
                     }

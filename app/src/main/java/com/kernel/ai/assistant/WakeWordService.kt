@@ -101,18 +101,7 @@ class WakeWordService : Service() {
         }
 
         Log.i(TAG, "WakeWordService: starting wake word detection")
-        wakeWordDetector.start(
-            onDetected = { handleDetection() },
-            verifyWindow = { pcm ->
-                try {
-                    sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
-                        .containsWakePhrase()
-                } catch (e: Exception) {
-                    Log.w(TAG, "WakeWordService: wake word verification failed", e)
-                    false
-                }
-            },
-        )
+        rearmDetector()
 
         // Automatically yield the AudioRecord whenever another voice session is active.
         eventCollectorJob = serviceScope.launch {
@@ -123,21 +112,8 @@ class WakeWordService : Service() {
                         wakeWordDetector.stop()
                     }
                     is VoiceInputEvent.ListeningStopped -> {
-                        if (wakeWordDetector.isAvailable) {
-                            Log.i(TAG, "WakeWordService: re-arming after voice session (${event.mode})")
-                            wakeWordDetector.start(
-                                onDetected = { handleDetection() },
-                                verifyWindow = { pcm ->
-                                    try {
-                                        sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
-                                            .containsWakePhrase()
-                                    } catch (e: Exception) {
-                                        Log.w(TAG, "WakeWordService: wake word verification failed", e)
-                                        false
-                                    }
-                                },
-                            )
-                        }
+                        Log.i(TAG, "WakeWordService: re-arming after voice session (${event.mode})")
+                        rearmDetector()
                     }
                     else -> Unit
                 }
@@ -160,75 +136,62 @@ class WakeWordService : Service() {
 
     private fun handleDetection() {
         serviceScope.launch {
-            val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
-            if (startResult !is VoiceInputStartResult.Started) {
-                Log.w(TAG, "WakeWordService: STT unavailable after detection — $startResult; re-arming")
-                wakeWordDetector.start(
-                    onDetected = { handleDetection() },
-                    verifyWindow = { pcm ->
-                        try {
-                            sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
-                                .containsWakePhrase()
-                        } catch (e: Exception) {
-                            Log.w(TAG, "WakeWordService: wake word verification failed", e)
-                            false
-                        }
-                    },
-                )
-                return@launch
-            }
-            // ListeningStarted is emitted inside startListening() before it returns, so
-            // collecting it via onEach below always misses it. Play the cue here instead.
-            cuePlayer.playCue()
+            // Attempt STT up to twice (#790: 1 retry on silence/error after wake word).
+            var transcript: String? = null
+            for (attempt in 1..2) {
+                val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+                if (startResult !is VoiceInputStartResult.Started) {
+                    Log.w(TAG, "WakeWordService: STT unavailable after detection — $startResult; re-arming")
+                    break
+                }
+                // ListeningStarted is emitted inside startListening() before it returns, so
+                // collecting it via onEach always misses it. Play the cue only on the first
+                // attempt; a silent retry is less jarring than a second bloop.
+                if (attempt == 1) cuePlayer.playCue()
 
-            // Collect until the session definitively ends (Transcript, Error, or
-            // ListeningStopped). Using only filterIsInstance<Transcript>.first() would
-            // block forever on a SharedFlow if the session ends with Error/timeout.
-            val terminalEvent = try {
-                voiceInputController.events
-                    .first { it is VoiceInputEvent.Transcript
-                          || it is VoiceInputEvent.Error
-                          || it is VoiceInputEvent.ListeningStopped }
-            } catch (e: Exception) {
-                Log.w(TAG, "WakeWordService: transcript collection failed — re-arming", e)
-                wakeWordDetector.start(
-                    onDetected = { handleDetection() },
-                    verifyWindow = { pcm ->
-                        try {
-                            sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
-                                .containsWakePhrase()
-                        } catch (e: Exception) {
-                            Log.w(TAG, "WakeWordService: wake word verification failed", e)
-                            false
-                        }
-                    },
-                )
-                return@launch
+                val terminalEvent = try {
+                    voiceInputController.events
+                        .first { it is VoiceInputEvent.Transcript
+                              || it is VoiceInputEvent.Error
+                              || it is VoiceInputEvent.ListeningStopped }
+                } catch (e: Exception) {
+                    Log.w(TAG, "WakeWordService: transcript collection failed (attempt $attempt)", e)
+                    break
+                }
+
+                val text = (terminalEvent as? VoiceInputEvent.Transcript)?.text
+                if (!text.isNullOrBlank()) {
+                    transcript = text
+                    break
+                }
+                Log.w(TAG, "WakeWordService: no transcript on attempt $attempt ($terminalEvent)" +
+                    if (attempt < 2) " — retrying" else " — re-arming detector")
             }
 
-            val transcript = (terminalEvent as? VoiceInputEvent.Transcript)?.text
-            if (transcript.isNullOrBlank()) {
-                Log.w(TAG, "WakeWordService: session ended without transcript ($terminalEvent) — re-arming")
-                wakeWordDetector.start(
-                    onDetected = { handleDetection() },
-                    verifyWindow = { pcm ->
-                        try {
-                            sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
-                                .containsWakePhrase()
-                        } catch (e: Exception) {
-                            Log.w(TAG, "WakeWordService: wake word verification failed", e)
-                            false
-                        }
-                    },
-                )
-                return@launch
+            if (transcript != null) {
+                Log.d(TAG, "WakeWordService: routing transcript=\"$transcript\"")
+                routeTranscript(transcript)
+                // Re-arm is handled by the ListeningStopped observer above.
+            } else {
+                rearmDetector()
             }
-
-            Log.d(TAG, "WakeWordService: routing transcript=\"$transcript\"")
-            routeTranscript(transcript)
-
-            // Re-arm is handled by the ListeningStopped observer above.
         }
+    }
+
+    /** Re-arms [wakeWordDetector] with the standard callbacks. */
+    private fun rearmDetector() {
+        if (!wakeWordDetector.isAvailable) return
+        wakeWordDetector.start(
+            onDetected = { handleDetection() },
+            verifyWindow = { pcm ->
+                try {
+                    sherpaOnnxVoiceInputController.transcribeBlocking(pcm).containsWakePhrase()
+                } catch (e: Exception) {
+                    Log.w(TAG, "WakeWordService: wake word verification failed", e)
+                    false
+                }
+            },
+        )
     }
 
     private fun routeTranscript(transcript: String) {
@@ -334,21 +297,8 @@ class WakeWordService : Service() {
          */
         fun resume(context: Context) {
             instance?.get()?.let { svc ->
-                if (svc.wakeWordDetector.isAvailable) {
-                    Log.i("KernelAI", "WakeWordService: resuming wake word detection")
-                    svc.wakeWordDetector.start(
-                        onDetected = { svc.handleDetection() },
-                        verifyWindow = { pcm ->
-                            try {
-                                svc.sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
-                                    .containsWakePhrase()
-                            } catch (e: Exception) {
-                                Log.w("KernelAI", "WakeWordService: wake word verification failed", e)
-                                false
-                            }
-                        },
-                    )
-                }
+                Log.i("KernelAI", "WakeWordService: resuming wake word detection")
+                svc.rearmDetector()
             }
         }
     }
