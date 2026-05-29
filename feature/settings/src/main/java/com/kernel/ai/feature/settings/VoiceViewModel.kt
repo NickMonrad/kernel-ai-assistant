@@ -236,13 +236,17 @@ class VoiceViewModel @Inject constructor(
                 )
                 val allDownloaded = sttModels.all { states[it] is DownloadState.Downloaded }
                 val anyDownloading = sttModels.any { states[it] is DownloadState.Downloading }
-                // Weight progress by approximate file size (encoder dominates at ~67 MB).
-                val weights = longArrayOf(67_000_000L, 3_000_000L, 2_000_000L, 75_000L)
-                val totalWeight = weights.sum().toFloat()
-                val weightedProgress = sttModels.mapIndexed { i, model ->
-                    val p = (states[model] as? DownloadState.Downloading)?.progress ?: 0f
-                    p * weights[i]
-                }.sum() / totalWeight
+                // Weighted completion: Downloaded=full weight, Downloading=partial, else=0.
+                // Weights derived from approxSizeBytes so they stay in sync with KernelModel.
+                val totalBytes = sttModels.sumOf { it.approxSizeBytes }.toFloat()
+                val weightedProgress = sttModels.map { model ->
+                    val weight = model.approxSizeBytes.toFloat()
+                    when (val s = states[model]) {
+                        is DownloadState.Downloaded -> weight
+                        is DownloadState.Downloading -> s.progress * weight
+                        else -> 0f
+                    }
+                }.sum() / totalBytes
                 val error = sttModels
                     .mapNotNull { (states[it] as? DownloadState.Error)?.message }
                     .firstOrNull()
@@ -278,7 +282,12 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun cancelSherpaOnnxSttDownload() {
-        sttModels.forEach { modelDownloadManager.cancelDownload(it) }
+        // Only cancel parts that are actively downloading — skipping already-Downloaded entries
+        // prevents ModelDownloadManager from incorrectly resetting their state to NotDownloaded.
+        val currentStates = modelDownloadManager.downloadStates.value
+        sttModels
+            .filter { currentStates[it] is DownloadState.Downloading }
+            .forEach { modelDownloadManager.cancelDownload(it) }
     }
 
     fun setSpokenResponsesEnabled(enabled: Boolean) {

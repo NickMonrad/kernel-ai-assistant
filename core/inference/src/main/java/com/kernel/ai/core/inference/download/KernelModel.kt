@@ -39,6 +39,12 @@ enum class KernelModel(
      * downloading. Model Management shows it as "Built-in" — no download or delete controls.
      */
     val isBundled: Boolean = false,
+    /**
+     * If `false`, this model is managed by a feature-specific UI (e.g. Voice settings) and
+     * should be hidden from the generic Model Management screen to prevent partial installs.
+     * Defaults to `true` so existing entries are unaffected.
+     */
+    val showInModelManagement: Boolean = true,
 ) {
     GEMMA_4_E2B(
         displayName = "Gemma 4 E-2B",
@@ -149,6 +155,7 @@ enum class KernelModel(
         isRequired = false,
         preferredForTier = null,
         isGated = false,
+        showInModelManagement = false,
     ),
 
     SHERPA_STT_DECODER(
@@ -159,6 +166,7 @@ enum class KernelModel(
         isRequired = false,
         preferredForTier = null,
         isGated = false,
+        showInModelManagement = false,
     ),
 
     SHERPA_STT_JOINER(
@@ -169,6 +177,7 @@ enum class KernelModel(
         isRequired = false,
         preferredForTier = null,
         isGated = false,
+        showInModelManagement = false,
     ),
 
     SHERPA_STT_TOKENS(
@@ -179,6 +188,7 @@ enum class KernelModel(
         isRequired = false,
         preferredForTier = null,
         isGated = false,
+        showInModelManagement = false,
     );
     /**
      * Stable, single-sourced identifier for this model, used as the Room primary key in

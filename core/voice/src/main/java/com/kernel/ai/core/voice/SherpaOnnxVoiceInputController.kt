@@ -138,7 +138,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             activeJob = null
 
             val rec = ensureRecognizer() ?: return@withLock VoiceInputStartResult.Unavailable(
-                "Sherpa-ONNX STT model not available. Run scripts/download-models.sh stt first."
+                "Sherpa-ONNX STT model not available — download it from Settings → Voice."
             )
 
             requestAudioFocus()
