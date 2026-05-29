@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.settings
 
 import androidx.lifecycle.ViewModel
+import android.content.Context
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.SherpaKokoroVoice
@@ -17,12 +18,15 @@ import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.inference.download.localFile
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
 
 data class SherpaVoiceRowUiState(
@@ -91,6 +95,7 @@ class VoiceViewModel @Inject constructor(
     private val wakeWordPreferences: WakeWordPreferences,
     private val wakeWordDetector: WakeWordDetector,
     private val modelDownloadManager: ModelDownloadManager,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(VoiceUiState())
@@ -290,6 +295,18 @@ class VoiceViewModel @Inject constructor(
             .forEach { modelDownloadManager.cancelDownload(it) }
     }
 
+
+    fun deleteSherpaOnnxStt() {
+        viewModelScope.launch(Dispatchers.IO) {
+            sttModels.forEach { model ->
+                val file = model.localFile(context)
+                file.delete()
+                val tmp = java.io.File(file.absolutePath + ".tmp")
+                if (tmp.exists()) tmp.delete()
+                modelDownloadManager.refreshState(model)
+            }
+        }
+    }
     fun setSpokenResponsesEnabled(enabled: Boolean) {
         _uiState.update { it.copy(spokenResponsesEnabled = enabled) }
         viewModelScope.launch {

@@ -189,6 +189,7 @@ fun VoiceScreen(
         onKokoroActiveSpeakerIdChanged = viewModel::setKokoroActiveSpeakerId,
         onDownloadSherpaOnnxStt = viewModel::downloadSherpaOnnxStt,
         onCancelSherpaOnnxSttDownload = viewModel::cancelSherpaOnnxSttDownload,
+        onDeleteSherpaOnnxStt = viewModel::deleteSherpaOnnxStt,
     )
 }
 
@@ -221,6 +222,7 @@ private fun VoiceScreenContent(
     onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
     onDownloadSherpaOnnxStt: () -> Unit,
     onCancelSherpaOnnxSttDownload: () -> Unit,
+    onDeleteSherpaOnnxStt: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -409,6 +411,7 @@ private fun VoiceScreenContent(
                         error = uiState.sherpaOnnxSttError,
                         onDownload = onDownloadSherpaOnnxStt,
                         onCancel = onCancelSherpaOnnxSttDownload,
+                        onDelete = onDeleteSherpaOnnxStt,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
@@ -1370,6 +1373,7 @@ private fun SherpaOnnxSttDownloadCard(
     error: String?,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -1410,11 +1414,17 @@ private fun SherpaOnnxSttDownloadCard(
                     }
                 }
                 when {
-                    isDownloaded -> Icon(
-                        imageVector = Icons.Filled.CheckCircle,
-                        contentDescription = "Downloaded",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
+                    isDownloaded -> Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        TextButton(onClick = onDelete) { Text("Delete") }
+                    }
                     isDownloading -> TextButton(onClick = onCancel) { Text("Cancel") }
                     else -> TextButton(onClick = onDownload) { Text("Download") }
                 }
@@ -1606,6 +1616,7 @@ private fun VoiceScreenPreview() {
             onKokoroActiveSpeakerIdChanged = {},
             onDownloadSherpaOnnxStt = {},
             onCancelSherpaOnnxSttDownload = {},
+            onDeleteSherpaOnnxStt = {},
         )
     }
 }
