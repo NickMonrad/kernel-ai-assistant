@@ -13,10 +13,8 @@ class NativeAndroidVoiceInputControllerTest {
 
 
     @Test
-    fun `initialRecognizerBackend starts alert commands on platform`() {
-        assertEquals(RecognizerBackend.OnDevice, initialRecognizerBackend(VoiceCaptureMode.Command))
-        assertEquals(RecognizerBackend.OnDevice, initialRecognizerBackend(VoiceCaptureMode.SlotReply))
-        assertEquals(RecognizerBackend.Platform, initialRecognizerBackend(VoiceCaptureMode.AlertCommand))
+    fun `initialRecognizerBackend always starts on device`() {
+        assertEquals(RecognizerBackend.OnDevice, initialRecognizerBackend())
     }
 
 
