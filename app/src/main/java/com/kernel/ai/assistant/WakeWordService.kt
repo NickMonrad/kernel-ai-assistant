@@ -10,6 +10,8 @@ import android.content.Intent
 import android.os.IBinder
 import android.util.Log
 import com.kernel.ai.MainActivity
+import com.kernel.ai.core.voice.SherpaOnnxVoiceInputController
+import com.kernel.ai.core.voice.SherpaOnnxVoiceInputController.Companion.containsWakePhrase
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
@@ -61,6 +63,7 @@ class WakeWordService : Service() {
     @Inject lateinit var voiceInputController: VoiceInputController
     @Inject lateinit var cuePlayer: StartListeningCuePlayer
 
+    @Inject lateinit var sherpaOnnxVoiceInputController: SherpaOnnxVoiceInputController
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
@@ -79,7 +82,18 @@ class WakeWordService : Service() {
         }
 
         Log.i(TAG, "WakeWordService: starting wake word detection")
-        wakeWordDetector.start(onDetected = { handleDetection() })
+        wakeWordDetector.start(
+            onDetected = { handleDetection() },
+            verifyWindow = { pcm ->
+                try {
+                    sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
+                        .containsWakePhrase()
+                } catch (e: Exception) {
+                    Log.w(TAG, "WakeWordService: wake word verification failed", e)
+                    false
+                }
+            },
+        )
 
         // Automatically yield the AudioRecord whenever another voice session is active.
         serviceScope.launch {
@@ -92,7 +106,18 @@ class WakeWordService : Service() {
                     is VoiceInputEvent.ListeningStopped -> {
                         if (wakeWordDetector.isAvailable) {
                             Log.i(TAG, "WakeWordService: re-arming after voice session (${event.mode})")
-                            wakeWordDetector.start(onDetected = { handleDetection() })
+                            wakeWordDetector.start(
+                                onDetected = { handleDetection() },
+                                verifyWindow = { pcm ->
+                                    try {
+                                        sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
+                                            .containsWakePhrase()
+                                    } catch (e: Exception) {
+                                        Log.w(TAG, "WakeWordService: wake word verification failed", e)
+                                        false
+                                    }
+                                },
+                            )
                         }
                     }
                     else -> Unit
@@ -119,7 +144,18 @@ class WakeWordService : Service() {
             val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
             if (startResult !is VoiceInputStartResult.Started) {
                 Log.w(TAG, "WakeWordService: STT unavailable after detection — $startResult; re-arming")
-                wakeWordDetector.start(onDetected = { handleDetection() })
+                wakeWordDetector.start(
+                    onDetected = { handleDetection() },
+                    verifyWindow = { pcm ->
+                        try {
+                            sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
+                                .containsWakePhrase()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "WakeWordService: wake word verification failed", e)
+                            false
+                        }
+                    },
+                )
                 return@launch
             }
 
@@ -136,14 +172,36 @@ class WakeWordService : Service() {
                           || it is VoiceInputEvent.ListeningStopped }
             } catch (e: Exception) {
                 Log.w(TAG, "WakeWordService: transcript collection failed — re-arming", e)
-                wakeWordDetector.start(onDetected = { handleDetection() })
+                wakeWordDetector.start(
+                    onDetected = { handleDetection() },
+                    verifyWindow = { pcm ->
+                        try {
+                            sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
+                                .containsWakePhrase()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "WakeWordService: wake word verification failed", e)
+                            false
+                        }
+                    },
+                )
                 return@launch
             }
 
             val transcript = (terminalEvent as? VoiceInputEvent.Transcript)?.text
             if (transcript.isNullOrBlank()) {
                 Log.w(TAG, "WakeWordService: session ended without transcript ($terminalEvent) — re-arming")
-                wakeWordDetector.start(onDetected = { handleDetection() })
+                wakeWordDetector.start(
+                    onDetected = { handleDetection() },
+                    verifyWindow = { pcm ->
+                        try {
+                            sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
+                                .containsWakePhrase()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "WakeWordService: wake word verification failed", e)
+                            false
+                        }
+                    },
+                )
                 return@launch
             }
 
@@ -232,7 +290,18 @@ class WakeWordService : Service() {
             instance?.get()?.let { svc ->
                 if (svc.wakeWordDetector.isAvailable) {
                     Log.i("KernelAI", "WakeWordService: resuming wake word detection")
-                    svc.wakeWordDetector.start(onDetected = { svc.handleDetection() })
+                    svc.wakeWordDetector.start(
+                        onDetected = { svc.handleDetection() },
+                        verifyWindow = { pcm ->
+                            try {
+                                svc.sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
+                                    .containsWakePhrase()
+                            } catch (e: Exception) {
+                                Log.w("KernelAI", "WakeWordService: wake word verification failed", e)
+                                false
+                            }
+                        },
+                    )
                 }
             }
         }

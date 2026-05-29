@@ -3,11 +3,13 @@ package com.kernel.ai.core.voice
 import android.content.Context
 import android.content.res.AssetManager
 import android.media.AudioManager
+import com.kernel.ai.core.voice.SherpaOnnxVoiceInputController.Companion.containsWakePhrase
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.IOException
 import java.io.InputStream
@@ -52,5 +54,37 @@ class SherpaOnnxVoiceInputControllerTest {
         val result = controller.startListening(VoiceCaptureMode.Command)
 
         assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, result)
+    }
+
+    // ── containsWakePhrase ─────────────────────────────────────────────────────
+
+    @Test
+    fun `containsWakePhrase matches Hey Jandal`() {
+        assertTrue("Hey Jandal".containsWakePhrase())
+        assertTrue("hey jandal".containsWakePhrase())
+        assertTrue("HEY JANDAL".containsWakePhrase())
+    }
+
+    @Test
+    fun `containsWakePhrase matches ASR variants`() {
+        assertTrue("a jandel".containsWakePhrase())
+        assertTrue("hey handel".containsWakePhrase())
+        assertTrue("Hey Handal".containsWakePhrase())
+        assertTrue("a hando".containsWakePhrase())
+    }
+
+    @Test
+    fun `containsWakePhrase rejects non-matches`() {
+        assertFalse("hello world".containsWakePhrase())
+        assertFalse("hey there".containsWakePhrase())
+        assertFalse("jandal".containsWakePhrase())
+        assertFalse("".containsWakePhrase())
+    }
+
+    @Test
+    fun `containsWakePhrase matches without whitespace`() {
+        // \s* allows zero whitespace between particles
+        assertTrue("heyjandal".containsWakePhrase())
+        assertTrue("heyjandel".containsWakePhrase())
     }
 }
