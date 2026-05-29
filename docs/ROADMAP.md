@@ -169,7 +169,7 @@ Active follow-on model/runtime investigations now live under
 | [#690](https://github.com/NickMonrad/kernel-ai-assistant/issues/690) | Edge Gallery Gemma 4 E4B package comparison | ⬜ Pending | 🟢 Low |
 | [#691](https://github.com/NickMonrad/kernel-ai-assistant/issues/691) | Qwen 3.5 4B LiteRT investigation | ⬜ Pending | 🟡 Medium |
 | [#692](https://github.com/NickMonrad/kernel-ai-assistant/issues/692) | Inference stalls in Boring AI Mode | ⬜ Pending | 🟡 Medium |
-| [#694](https://github.com/NickMonrad/kernel-ai-assistant/issues/694) | Thinking-mode behavior review vs Edge Gallery | ⬜ Pending | 🟡 Medium |
+| [#694](https://github.com/NickMonrad/kernel-ai-assistant/issues/694) | Thinking-mode behavior review vs Edge Gallery | ✅ Done | 🟡 Medium |
 | [#792](https://github.com/NickMonrad/kernel-ai-assistant/issues/792) | MTP speculative decoding for Gemma 4 | ✅ Done — PR #792 | 🔴 High |
 | [#699](https://github.com/NickMonrad/kernel-ai-assistant/issues/699) | Qwen 3.5 0.8B LiteRT evaluation | ⬜ Pending | 🟢 Low |
 | [#701](https://github.com/NickMonrad/kernel-ai-assistant/issues/701) | External local-AI Android app review umbrella | ⬜ Pending | 🟢 Low |
@@ -203,9 +203,9 @@ Active follow-on model/runtime investigations now live under
 | [#619](https://github.com/NickMonrad/kernel-ai-assistant/issues/619) | `date_diff` tool — native date arithmetic (LLM is unreliable) | ✅ Done | 🔴 High |
 | [#608](https://github.com/NickMonrad/kernel-ai-assistant/issues/608) | Colloquial weather phrases fall through to LLM instead of weather skill | ✅ Done | 🔴 High |
 | [#261](https://github.com/NickMonrad/kernel-ai-assistant/issues/261) | Skill discoverability UI — settings screen with enable/disable | ⬜ Pending | 🟡 Medium |
-| [#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256) | SMS/email — pre-populate recipient from contacts | ⬜ Pending | 🟡 Medium |
+| [#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256) | SMS/email — pre-populate recipient from contacts | ✅ Done | 🟡 Medium |
 | [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Maps & location — navigate, open, nearby search | ⬜ Pending | 🟡 Medium |
-| [#327](https://github.com/NickMonrad/kernel-ai-assistant/issues/327) | Full date-specific alarms via `AlarmManager.setExact()` | ⬜ Pending | 🟢 Low |
+| [#327](https://github.com/NickMonrad/kernel-ai-assistant/issues/327) | Full date-specific alarms via `AlarmManager.setExact()` | ✅ Done | 🟢 Low |
 | [#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407) | WebSearchSkill — LLM tool calling via Brave/Tavily API | ⬜ Pending | 🟡 Medium |
 | [#631](https://github.com/NickMonrad/kernel-ai-assistant/issues/631) | Important dates — taught dates + calendar birthday integration | ✅ Done — PR #797 | 🟡 Medium |
 | [#638](https://github.com/NickMonrad/kernel-ai-assistant/issues/638) | Messaging-app intents (WhatsApp, Signal, Telegram, etc.) | ⬜ Pending | 🟡 Medium |
@@ -243,7 +243,7 @@ Active follow-on model/runtime investigations now live under
 
 | Sub-Issue | Title | Status | Priority |
 |-----------|-------|--------|----------|
-| [#334](https://github.com/NickMonrad/kernel-ai-assistant/issues/334) | search_memory misses episodic + nearby core memories | ⬜ Pending | 🔴 High |
+| [#334](https://github.com/NickMonrad/kernel-ai-assistant/issues/334) | search_memory misses episodic + nearby core memories | ✅ Done | 🔴 High |
 | [#235](https://github.com/NickMonrad/kernel-ai-assistant/issues/235) | Artifact entity — persistent structured documents in Room DB | ⬜ Pending | 🟡 Medium |
 
 **Already completed:**
@@ -263,11 +263,11 @@ Lower-priority skill additions — third-party integrations and local utilities.
 |-----------|-------|--------|----------|
 | [#311](https://github.com/NickMonrad/kernel-ai-assistant/issues/311) | Home Assistant integration | ⬜ Pending | Home & IoT |
 | [#312](https://github.com/NickMonrad/kernel-ai-assistant/issues/312) | Google Home integration | ⬜ Pending | Home & IoT |
-| [#313](https://github.com/NickMonrad/kernel-ai-assistant/issues/313) | DuckDuckGo web search | ⬜ Pending | Productivity |
+| [#313](https://github.com/NickMonrad/kernel-ai-assistant/issues/313) | DuckDuckGo web search | ✅ Done | Productivity |
 | [#314](https://github.com/NickMonrad/kernel-ai-assistant/issues/314) | Donetick task integration | ⬜ Pending | Productivity |
-| [#315](https://github.com/NickMonrad/kernel-ai-assistant/issues/315) | Personal notes & shopping list — Room DB | ⬜ Pending | Productivity |
+| [#315](https://github.com/NickMonrad/kernel-ai-assistant/issues/315) | Personal notes & shopping list — Room DB | ✅ Done | Productivity |
 | [#316](https://github.com/NickMonrad/kernel-ai-assistant/issues/316) | Plex media control | ⬜ Pending | Media |
-| [#317](https://github.com/NickMonrad/kernel-ai-assistant/issues/317) | Calendar invites to contacts | ⬜ Pending | Productivity |
+| [#317](https://github.com/NickMonrad/kernel-ai-assistant/issues/317) | Calendar invites to contacts | ✅ Done | Productivity |
 
 ---
 
@@ -289,21 +289,21 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | [#781](https://github.com/NickMonrad/kernel-ai-assistant/issues/781) | Semaine emotional TTS styles | ⛔ Closed — superseded by #817 | 🟢 Low |
 | [#782](https://github.com/NickMonrad/kernel-ai-assistant/issues/782) | VCTK speaker selection | ✅ Done — PR #805 | 🟢 Low |
 | [#817](https://github.com/NickMonrad/kernel-ai-assistant/issues/817) | Semaine speaker selection (Prudence / Spike / Obadiah / Poppy) | ✅ Done — PR #818 | 🟢 Low |
-| [#783](https://github.com/NickMonrad/kernel-ai-assistant/issues/783) | Kokoro-82M / VoxSherpa research | ⬜ Pending | 🟢 Low |
+| [#783](https://github.com/NickMonrad/kernel-ai-assistant/issues/783) | Kokoro-82M / VoxSherpa research | ✅ Done | 🟢 Low |
 | [#784](https://github.com/NickMonrad/kernel-ai-assistant/issues/784) | Kiwi language corpus tuning | ⬜ Pending | 🟢 Low |
 | [#763](https://github.com/NickMonrad/kernel-ai-assistant/issues/763) | Voice-friendly spoken response rendering | ✅ Done — PR #771 | 🟡 Medium |
 | [#785](https://github.com/NickMonrad/kernel-ai-assistant/issues/785) | Per-message speaker button | ✅ Done — PR #789 | 🟡 Medium |
 | [#786](https://github.com/NickMonrad/kernel-ai-assistant/issues/786) | Expanded TTS settings (pitch, auto-speak toggle, max spoken sentences) | ✅ Done — PR #789 | 🟡 Medium |
-| [#788](https://github.com/NickMonrad/kernel-ai-assistant/issues/788) | VITS noise_scale expressiveness tuning | ⬜ Pending | 🟢 Low |
+| [#788](https://github.com/NickMonrad/kernel-ai-assistant/issues/788) | VITS noise_scale expressiveness tuning | ✅ Done | 🟢 Low |
 | [#729](https://github.com/NickMonrad/kernel-ai-assistant/issues/729) | Better local TTS engine for conversational voice | ✅ Done — PR #804 | 🟡 Medium |
 | [#756](https://github.com/NickMonrad/kernel-ai-assistant/issues/756) | Research: evaluate custom Piper voice training | ⬜ Pending | 🟢 Low |
 | [#790](https://github.com/NickMonrad/kernel-ai-assistant/issues/790) | Voice slot-fill retry on no-speech + cancel phrases | ✅ Done — PR #825 | 🟡 Medium |
 | [#791](https://github.com/NickMonrad/kernel-ai-assistant/issues/791) | Start-listening audio cue for Quick Actions voice capture | ✅ Done — PR #825 | 🟢 Low |
-| [#823](https://github.com/NickMonrad/kernel-ai-assistant/issues/823) | Voice memo / note-taking native skill | ⬜ Pending | 🟡 Medium |
+| [#823](https://github.com/NickMonrad/kernel-ai-assistant/issues/823) | Voice memo / note-taking native skill | ✅ Done | 🟡 Medium |
 | [#675](https://github.com/NickMonrad/kernel-ai-assistant/issues/675) | Comprehensive Quick Actions + weather voice QA matrix | 🔴 Closed — superseded by #824 | 🟡 Medium |
 | [#824](https://github.com/NickMonrad/kernel-ai-assistant/issues/824) | QA gate: Phase 3F real-device voice validation (current stack) | ⬜ Pending | 🟡 Medium |
 | [#828](https://github.com/NickMonrad/kernel-ai-assistant/issues/828) | TTS pronoun normalisation (my/I → your/you) | ✅ Done — PR #830 | 🟢 Low |
-| [#588](https://github.com/NickMonrad/kernel-ai-assistant/issues/588) | VoiceSession architecture for slot-fill + follow-on assistant mode | ⬜ Pending | 🟡 Medium |
+| [#588](https://github.com/NickMonrad/kernel-ai-assistant/issues/588) | VoiceSession architecture for slot-fill + follow-on assistant mode | ✅ Done | 🟡 Medium |
 | [#617](https://github.com/NickMonrad/kernel-ai-assistant/issues/617) | Homescreen widget for quick actions / voice | ✅ Done — PR #847 | 🟡 Medium |
 | [#659](https://github.com/NickMonrad/kernel-ai-assistant/issues/659) | Translator skill with multilingual TTS | ⬜ Pending | 🟡 Medium |
 | [#727](https://github.com/NickMonrad/kernel-ai-assistant/issues/727) | Chat voice foundation for conversational push-to-talk | ✅ Done — PR #731 | 🟡 Medium |
@@ -509,12 +509,12 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#27](https://github.com/NickMonrad/kernel-ai-assistant/issues/27) | Keyboard gap at bottom of chat | Phase 2 | ✅ Done (#68) |
 | [#29](https://github.com/NickMonrad/kernel-ai-assistant/issues/29) | WASM Plugin/Skill Storefront | Phase 5 | ⬜ Pending |
 | [#31](https://github.com/NickMonrad/kernel-ai-assistant/issues/31) | LiteRT-LM auto-update mechanism | Phase 5 | ⬜ Pending |
-| [#32](https://github.com/NickMonrad/kernel-ai-assistant/issues/32) | Multimodal capabilities | Phase 5 | ⬜ Pending |
-| [#34](https://github.com/NickMonrad/kernel-ai-assistant/issues/34) | Skill building & baseline skills | Phase 5 | ⬜ Pending |
+| [#32](https://github.com/NickMonrad/kernel-ai-assistant/issues/32) | Multimodal capabilities | Phase 5 | ✅ Done |
+| [#34](https://github.com/NickMonrad/kernel-ai-assistant/issues/34) | Skill building & baseline skills | Phase 5 | ✅ Done |
 | [#36](https://github.com/NickMonrad/kernel-ai-assistant/issues/36) | Markdown/code blocks not rendering | Phase 2 | ✅ Done (#63) |
 | [#38](https://github.com/NickMonrad/kernel-ai-assistant/issues/38) | Handle gated model downloads | Phase 3 | ✅ Done |
 | [#43](https://github.com/NickMonrad/kernel-ai-assistant/issues/43) | Recipe skill datasources & regional produce | Phase 5 | ⬜ Pending |
-| [#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44) | SM8550 Qualcomm AI Engine delegate for EmbeddingGemma | Phase 6 | ⬜ Pending |
+| [#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44) | SM8550 Qualcomm AI Engine delegate for EmbeddingGemma | Phase 6 | ✅ Done |
 | [#46](https://github.com/NickMonrad/kernel-ai-assistant/issues/46) | Model Settings UI | Phase 3 | ✅ Done |
 | [#47](https://github.com/NickMonrad/kernel-ai-assistant/issues/47) | Self-Healing Identity System | Phase 4 | ⬜ Pending |
 | [#49](https://github.com/NickMonrad/kernel-ai-assistant/issues/49) | Semantic Caching via sqlite-vec | Phase 4 | ⬜ Pending |
@@ -546,7 +546,7 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#253](https://github.com/NickMonrad/kernel-ai-assistant/issues/253) | set_timer intent | Phase 3 | ✅ Done — #257/#262 |
 | [#254](https://github.com/NickMonrad/kernel-ai-assistant/issues/254) | GPS weather location name (Nominatim) | Phase 3 | ✅ Done — #257 |
 | [#255](https://github.com/NickMonrad/kernel-ai-assistant/issues/255) | Weather forecast for tomorrow / next N days | Phase 3 | ✅ Done — PR #269/#274 |
-| [#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256) | SMS/email — pre-populate recipient from contact name | Phase 3 | ⬜ Pending |
+| [#256](https://github.com/NickMonrad/kernel-ai-assistant/issues/256) | SMS/email — pre-populate recipient from contact name | Phase 3 | ✅ Done |
 | [#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258) | Maps & location skills (navigate, open, find nearby) | Phase 3/5 | ⬜ Pending — native intents Phase 3; JS nearby search Phase 5 |
 | [#260](https://github.com/NickMonrad/kernel-ai-assistant/issues/260) | Copy tool call content for debugging | Phase 3 | ✅ Done — PR #325/#326 |
 | [#261](https://github.com/NickMonrad/kernel-ai-assistant/issues/261) | Skill discoverability UI | Phase 3 | ⬜ Pending |
@@ -556,22 +556,22 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#231](https://github.com/NickMonrad/kernel-ai-assistant/issues/231) | NPU fallback rejects QTI Snapdragon devices | Phase 3 (device compat) | ⬜ Open — high priority bug, partial-match fix needed |
 | [#232](https://github.com/NickMonrad/kernel-ai-assistant/issues/232) | Chicory WASM performance design constraint | Phase 5 | ⬜ Open — design note, guides skill authoring guidelines |
 | [#272](https://github.com/NickMonrad/kernel-ai-assistant/issues/272) | GPS weather routing — model always used JS skill | Phase 3 | ✅ Done (PR #274) |
-| [#301](https://github.com/NickMonrad/kernel-ai-assistant/issues/301) | Switch vec0 tables to `distance_metric=cosine` | Phase 3A | ⬜ Pending |
+| [#301](https://github.com/NickMonrad/kernel-ai-assistant/issues/301) | Switch vec0 tables to `distance_metric=cosine` | Phase 3A | ✅ Done |
 | [#311](https://github.com/NickMonrad/kernel-ai-assistant/issues/311) | Home Assistant integration skill | Phase 3/5 | ⬜ Pending |
 | [#312](https://github.com/NickMonrad/kernel-ai-assistant/issues/312) | Google Home integration skill | Phase 3/5 | ⬜ Pending |
-| [#313](https://github.com/NickMonrad/kernel-ai-assistant/issues/313) | DuckDuckGo web search skill | Phase 3/5 | ⬜ Pending |
+| [#313](https://github.com/NickMonrad/kernel-ai-assistant/issues/313) | DuckDuckGo web search skill | Phase 3/5 | ✅ Done |
 | [#314](https://github.com/NickMonrad/kernel-ai-assistant/issues/314) | Donetick task integration | Phase 3/5 | ⬜ Pending |
-| [#315](https://github.com/NickMonrad/kernel-ai-assistant/issues/315) | Personal notes, reminders, shopping list — Room DB MVP | Phase 3 | ⬜ Pending |
+| [#315](https://github.com/NickMonrad/kernel-ai-assistant/issues/315) | Personal notes, reminders, shopping list — Room DB MVP | Phase 3 | ✅ Done |
 | [#316](https://github.com/NickMonrad/kernel-ai-assistant/issues/316) | Plex media skill | Phase 3/5 | ⬜ Pending |
-| [#317](https://github.com/NickMonrad/kernel-ai-assistant/issues/317) | Send calendar invites to contacts | Phase 3 | ⬜ Pending |
+| [#317](https://github.com/NickMonrad/kernel-ai-assistant/issues/317) | Send calendar invites to contacts | Phase 3 | ✅ Done |
 | [#319](https://github.com/NickMonrad/kernel-ai-assistant/issues/319) | resolveDate fails on natural date formats | Phase 3 (bug) | ✅ Done — PR #325 |
 | [#320](https://github.com/NickMonrad/kernel-ai-assistant/issues/320) | resolveTime single-digit minute padding | Phase 3 (bug) | ✅ Done — PR #325 |
 | [#321](https://github.com/NickMonrad/kernel-ai-assistant/issues/321) | Alarm AM/PM no-colon format (`10pm` → `01:00`) | Phase 3 (bug) | ✅ Done — PR #325 |
 | [#322](https://github.com/NickMonrad/kernel-ai-assistant/issues/322) | Model uses stale weather from memory instead of tool | Phase 3 (bug) | ✅ Done — PR #326 |
 | [#323](https://github.com/NickMonrad/kernel-ai-assistant/issues/323) | search_memory returns low-quality short fragments | Phase 3 (bug) | ✅ Done — PR #326 |
 | [#324](https://github.com/NickMonrad/kernel-ai-assistant/issues/324) | Tomorrow alarm sets for today | Phase 3 (bug) | ⚠ Partial — PR #326 warning label; full fix tracked in #327 |
-| [#327](https://github.com/NickMonrad/kernel-ai-assistant/issues/327) | Full date-specific alarm via `AlarmManager.setExact()` | Phase 3C | ⬜ Pending — needs permission, BroadcastReceiver, persistence |
-| [#334](https://github.com/NickMonrad/kernel-ai-assistant/issues/334) | search_memory misses episodic + nearby core memories | Phase 3D | ⬜ Pending |
+| [#327](https://github.com/NickMonrad/kernel-ai-assistant/issues/327) | Full date-specific alarm via `AlarmManager.setExact()` | Phase 3C | ✅ Done |
+| [#334](https://github.com/NickMonrad/kernel-ai-assistant/issues/334) | search_memory misses episodic + nearby core memories | Phase 3D | ✅ Done |
 | [#335](https://github.com/NickMonrad/kernel-ai-assistant/issues/335) | Alarm params: hours/minutes wrong for PM times | Phase 3 (bug) | ✅ Done — PR #339 |
 | [#336](https://github.com/NickMonrad/kernel-ai-assistant/issues/336) | System time / 24hr time prompt-induced error (1pm=13 bug) | Phase 3 (bug) | ✅ Done — PR #339 |
 | [#339](https://github.com/NickMonrad/kernel-ai-assistant/issues/339) | Alarm time param fix + get_system_info datetime + parser fix | Phase 3 (PR) | ✅ Merged |
@@ -610,7 +610,7 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#619](https://github.com/NickMonrad/kernel-ai-assistant/issues/619) | `date_diff` tool — native date arithmetic (LLM arithmetic unreliable) | Phase 3C | ✅ Done |
 | [#620](https://github.com/NickMonrad/kernel-ai-assistant/issues/620) | Bypass `needsConfirmation` for no-param MiniLM matches | Phase 3G | ✅ Done |
 | [#621](https://github.com/NickMonrad/kernel-ai-assistant/issues/621) | Multi-turn QIR: dispatch pending intent on user confirmation | Phase 3G | ✅ Done |
-| [#624](https://github.com/NickMonrad/kernel-ai-assistant/issues/624) | Add more NZ truth memories (Kiwi memes + cultural touchpoints) | Phase 3B | ⬜ Pending |
+| [#624](https://github.com/NickMonrad/kernel-ai-assistant/issues/624) | Add more NZ truth memories (Kiwi memes + cultural touchpoints) | Phase 3B | ✅ Done |
 | [#754](https://github.com/NickMonrad/kernel-ai-assistant/issues/754) | Verbal stop command during TTS playback | Phase 3F | ✅ Done — PR #789 |
 | [#755](https://github.com/NickMonrad/kernel-ai-assistant/issues/755) | Incremental / low-latency streaming TTS during generation | Phase 3F | ✅ Done — PR #780 |
 | [#763](https://github.com/NickMonrad/kernel-ai-assistant/issues/763) | Voice-friendly spoken response rendering | Phase 3F | ✅ Done — PR #771 |
@@ -626,18 +626,18 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 | [#729](https://github.com/NickMonrad/kernel-ai-assistant/issues/729) | Better local TTS engine for conversational voice | Phase 3F | ✅ Done — PR #804 |
 | [#741](https://github.com/NickMonrad/kernel-ai-assistant/issues/741) | Chat voice mode switch (one-shot vs back-and-forth) | Phase 3F | ✅ Done — PR #744 |
 | [#817](https://github.com/NickMonrad/kernel-ai-assistant/issues/817) | Semaine speaker selection (all 4 speakers) | Phase 3F | ✅ Done — PR #818 |
-| [#788](https://github.com/NickMonrad/kernel-ai-assistant/issues/788) | VITS noise_scale expressiveness tuning | Phase 3F | ⬜ Pending |
+| [#788](https://github.com/NickMonrad/kernel-ai-assistant/issues/788) | VITS noise_scale expressiveness tuning | Phase 3F | ✅ Done |
 | [#756](https://github.com/NickMonrad/kernel-ai-assistant/issues/756) | Research: evaluate custom Piper voice training | Phase 3F | ⬜ Pending |
-| [#783](https://github.com/NickMonrad/kernel-ai-assistant/issues/783) | Kokoro-82M / VoxSherpa + expressiveness research | Phase 3F | ⬜ Pending |
+| [#783](https://github.com/NickMonrad/kernel-ai-assistant/issues/783) | Kokoro-82M / VoxSherpa + expressiveness research | Phase 3F | ✅ Done |
 | [#784](https://github.com/NickMonrad/kernel-ai-assistant/issues/784) | Kiwi language corpus tuning | Phase 3F | ⬜ Pending |
 | [#790](https://github.com/NickMonrad/kernel-ai-assistant/issues/790) | Voice slot-fill retry on no-speech + cancel phrases | Phase 3F | ✅ Done — PR #825 |
 | [#791](https://github.com/NickMonrad/kernel-ai-assistant/issues/791) | Start-listening audio cue for Quick Actions voice capture | Phase 3F | ✅ Done — PR #825 |
-| [#823](https://github.com/NickMonrad/kernel-ai-assistant/issues/823) | Voice memo / note-taking native skill | Phase 3F | ⬜ Pending |
+| [#823](https://github.com/NickMonrad/kernel-ai-assistant/issues/823) | Voice memo / note-taking native skill | Phase 3F | ✅ Done |
 | [#824](https://github.com/NickMonrad/kernel-ai-assistant/issues/824) | QA gate: Phase 3F real-device voice validation (current stack) | Phase 3F | ⬜ Pending |
-| [#828](https://github.com/NickMonrad/kernel-ai-assistant/issues/828) | TTS pronoun normalisation (my/I → your/you) | Phase 3F | ⬜ Pending |
+| [#828](https://github.com/NickMonrad/kernel-ai-assistant/issues/828) | TTS pronoun normalisation (my/I → your/you) | Phase 3F | ✅ Done |
 | [#821](https://github.com/NickMonrad/kernel-ai-assistant/issues/821) | Sherpa-ONNX / Sherpa-ncnn STT + VAD evaluation | Phase 3F | ⬜ Pending |
 | [#675](https://github.com/NickMonrad/kernel-ai-assistant/issues/675) | Comprehensive Quick Actions + weather voice QA matrix | Phase 3F | 🔴 Closed |
-| [#588](https://github.com/NickMonrad/kernel-ai-assistant/issues/588) | VoiceSession architecture for slot-fill + follow-on assistant mode | Phase 3F | ⬜ Pending |
+| [#588](https://github.com/NickMonrad/kernel-ai-assistant/issues/588) | VoiceSession architecture for slot-fill + follow-on assistant mode | Phase 3F | ✅ Done |
 | [#905](https://github.com/NickMonrad/kernel-ai-assistant/issues/905) | Conversation archive, pin, and drag-to-reorder | Phase 3J | ✅ Done — PR #924 |
 
 ---

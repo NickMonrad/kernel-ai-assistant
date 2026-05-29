@@ -18,6 +18,7 @@ import android.provider.Settings
 import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.KeyEvent
+
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.ImportantDateRepository
@@ -30,8 +31,11 @@ import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import com.kernel.ai.core.memory.dao.NoteDao
+import com.kernel.ai.core.memory.entity.NoteEntity
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
+import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
@@ -123,6 +127,7 @@ interface ClockAlertController {
  *   set_brightness          — Sets screen brightness (params: value?, direction?, is_percent?)
  */
 @Singleton
+
 class NativeIntentHandler @Inject constructor(
     @ApplicationContext private val context: Context,
     private val clockRepository: ClockRepository,
@@ -137,6 +142,8 @@ class NativeIntentHandler @Inject constructor(
     private val cookingConversionService: CookingConversionService,
     private val currencyConversionService: CurrencyConversionService,
     private val userProfileRepository: UserProfileRepository,
+    private val noteDao: NoteDao,
+    private val noteSmartTitleUseCase: NoteSmartTitleUseCase,
 ) {
 
     suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -211,6 +218,8 @@ class NativeIntentHandler @Inject constructor(
                 "list_important_dates" -> listImportantDates()
                 "remove_important_date" -> removeImportantDate(params)
                 "save_memory" -> saveMemory(params)
+                "create_note" -> createNote(params)
+                "list_notes" -> listNotes()
                 "set_brightness" -> setBrightness(params)
                 else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
             }
@@ -278,6 +287,7 @@ class NativeIntentHandler @Inject constructor(
             "get_weather", "get_date_diff", "get_system_info", "calculate_arithmetic", "convert_units", "convert_cooking_measure", "convert_currency",
             "save_important_date", "list_important_dates", "remove_important_date",
             "save_memory",
+            "create_note", "list_notes",
         )
 
         private val GENERIC_MEDIA_QUERY_KEYS = setOf(
@@ -2852,5 +2862,60 @@ class NativeIntentHandler @Inject constructor(
         }
 
         return input
+    }
+
+
+    private suspend fun createNote(params: Map<String, String>): SkillResult {
+        val rawContent = params["content"]?.trim() ?: params["note"]?.trim() ?: ""
+        val title = params["title"]?.trim()?.takeIf { it.isNotBlank() }
+
+        // Reject blank input
+        if (rawContent.isBlank()) {
+            return SkillResult.Failure("create_note", "Nothing to save")
+        }
+
+        val now = System.currentTimeMillis()
+        val displayOrder = noteDao.getMaxActiveDisplayOrder() + 1.0
+        val note = NoteEntity(
+            title = title,
+            content = rawContent,
+            createdAt = now,
+            updatedAt = now,
+            displayOrder = displayOrder,
+        )
+
+        return try {
+            val id = noteDao.insertNote(note)
+            if (id == -1L) {
+                SkillResult.Failure("create_note", "Failed to create note")
+            } else {
+                if (title == null) {
+                    noteSmartTitleUseCase.schedule(id)
+                }
+                SkillResult.DirectReply("Note saved.")
+            }
+        } catch (e: Exception) {
+            SkillResult.Failure("create_note", e.message ?: "Failed to create note")
+        }
+    }
+
+    private suspend fun listNotes(): SkillResult {
+        return try {
+            val notes = noteDao.getAllActiveNotes()
+            if (notes.isEmpty()) {
+                SkillResult.DirectReply("No notes found.")
+            } else {
+                val display = notes.take(20)
+                val summary = display.joinToString("\n") { note ->
+                    val snippet = note.content.replace(Regex("\\s+"), " ").trim().take(50)
+                    val ellipsis = if (note.content.length > 50) "…" else ""
+                    "• ${note.title ?: "Untitled"}: $snippet$ellipsis"
+                }
+                val footer = if (notes.size > 20) "\n+${notes.size - 20} more" else ""
+                SkillResult.DirectReply("Your notes:\n$summary$footer")
+            }
+        } catch (e: Exception) {
+            SkillResult.Failure("list_notes", e.message ?: "Failed to list notes")
+        }
     }
 }

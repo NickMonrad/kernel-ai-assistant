@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Note
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DrawerValue
@@ -57,6 +58,8 @@ import com.kernel.ai.feature.settings.ScheduledAlarmsScreen
 import com.kernel.ai.feature.settings.SettingsScreen
 import com.kernel.ai.feature.settings.SidePanelScreen
 import com.kernel.ai.feature.settings.UserProfileScreen
+import com.kernel.ai.feature.settings.NotesScreen
+import com.kernel.ai.feature.settings.NoteDetailScreen
 import com.kernel.ai.feature.settings.VoiceScreen
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -83,6 +86,9 @@ private const val ROUTE_MEAL_PLANS = "meal_plans"
 private const val ROUTE_LISTS = "lists"
 private const val ROUTE_LIST_ITEMS = "lists/{listId}"
 private const val ROUTE_CONVERT = "convert"
+private const val ROUTE_NOTES = "settings/notes"
+private const val ROUTE_NOTE_DETAIL = "settings/notes/{noteId}"
+private const val ARG_NOTE_ID = "noteId"
 private const val ARG_LIST_ID = "listId"
 private const val ARG_CONVERSATION_ID = "conversationId"
 private const val ARG_INITIAL_QUERY = "initialQuery"
@@ -128,6 +134,9 @@ fun KernelNavHost(
     initialChatQuery: String? = null,
     initialQuickActionQuery: String? = null,
     initialQuickActionIsVoice: Boolean = false,
+    /** Monotonic counter incremented by MainActivity on every delivery — ensures the
+     *  [LaunchedEffect] re-fires even when the query text is identical to the prior one. */
+    quickActionSerial: Int = 0,
     initialSlotReply: String? = null,
 ) {
     val navController = rememberNavController()
@@ -150,7 +159,7 @@ fun KernelNavHost(
     // Widget/ADB: navigate to Actions tab with the query baked into the route URL so it
     // lands stably in backStackEntry.arguments (not a mutableStateOf that can null-out
     // before ActionsScreen's LaunchedEffect fires).
-    LaunchedEffect(initialQuickActionQuery, initialQuickActionIsVoice) {
+    LaunchedEffect(initialQuickActionQuery, initialQuickActionIsVoice, quickActionSerial) {
         if (!initialQuickActionQuery.isNullOrBlank()) {
             val encoded = encodeRouteQueryValue(initialQuickActionQuery)
             navController.navigate(
@@ -181,6 +190,20 @@ fun KernelNavHost(
                     onClick = {
                         coroutineScope.launch { drawerState.close() }
                         navController.navigate(ROUTE_LISTS) {
+                            popUpTo(ROUTE_LIST) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                )
+                NavigationDrawerItem(
+                    label = { Text("Notes") },
+                    icon = { Icon(Icons.Default.Note, contentDescription = null) },
+                    selected = currentBaseRoute == ROUTE_NOTES,
+                    onClick = {
+                        coroutineScope.launch { drawerState.close() }
+                        navController.navigate(ROUTE_NOTES) {
                             popUpTo(ROUTE_LIST) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
@@ -529,6 +552,30 @@ fun KernelNavHost(
                         onStartNewMealPlan = {
                             navController.navigate(buildNewMealPlanChatRoute())
                         },
+                    )
+                }
+                composable(ROUTE_NOTES) {
+                    NotesScreen(
+                        onBack = { navController.popBackStack() },
+                        onEditNote = { noteId ->
+                            navController.navigate("$ROUTE_NOTES/$noteId")
+                        },
+                        onNavigateToVoiceActions = {
+                            navController.navigate(ROUTE_ACTIONS_VOICE) {
+                                popUpTo(ROUTE_LIST) { saveState = true }
+                                launchSingleTop = true
+                            }
+                        },
+                    )
+                }
+                composable(
+                    ROUTE_NOTE_DETAIL,
+                    arguments = listOf(navArgument(ARG_NOTE_ID) { type = NavType.LongType }),
+                ) { backStackEntry ->
+                    val noteId = backStackEntry.arguments?.getLong(ARG_NOTE_ID) ?: return@composable
+                    NoteDetailScreen(
+                        noteId = noteId,
+                        onBack = { navController.popBackStack() },
                     )
                 }
 

@@ -16,7 +16,7 @@ permission:
     "cat *": allow
 ---
 
-You are the **code-reviewer** for the Kernel AI Assistant project.
+You are the **code-reviewer** for the Kernel AI Assistant project. Read `.omp/AGENTS.md` for architecture invariants before reviewing.
 
 ## Critical rule
 
@@ -35,7 +35,7 @@ Run before **every PR merge**. Re-reviews are **scoped to fix commits only** —
 - `tryExecuteToolCall()` must handle malformed JSON and unknown skills gracefully (fallthrough, never crash)
 - `safeTokenCount()` guard present for all token count operations (powers-of-2 edge cases)
 - Model weight leaks — weights lingering after conversation closes (LeakCanary scope)
-- E4B loading before FunctionGemma consideration (OOM prevention)
+- Background `generateOnce()` calls must pass `thinkingEnabled = false`
 
 ### Memory safety
 - sqlite-vec JNI bridge — native resource cleanup
