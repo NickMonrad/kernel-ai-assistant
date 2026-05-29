@@ -525,9 +525,11 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             setProperty(it, "maxActivePaths",  4)
         }
 
-        // OnlineRecognizer(config) — absolute filesystem paths; no AssetManager needed.
-        val ctor = clsRecognizer.getConstructor(clsRecCfg)
-        val instance = ctor.newInstance(recConfig)
+        // OnlineRecognizer(assetManager, config) — pass null assetManager since we use
+        // absolute filesystem paths rather than Android assets.
+        val ctor = clsRecognizer.getConstructor(android.content.res.AssetManager::class.java, clsRecCfg)
+        @Suppress("UNCHECKED_CAST")
+        val instance = ctor.newInstance(null, recConfig)
 
         // Cache reflected methods. createStream takes a hotwords String (Sherpa 1.13.0 API).
         mCreateStream    = clsRecognizer.getDeclaredMethod("createStream", String::class.java)

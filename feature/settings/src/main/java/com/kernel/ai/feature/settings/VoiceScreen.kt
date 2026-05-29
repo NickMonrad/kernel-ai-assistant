@@ -344,6 +344,8 @@ private fun VoiceScreenContent(
                     VoiceInputEngine.AndroidNative -> uiState.androidNativeLanguageSummary
                     else -> null
                 }
+                val sherpaOnnxReady = engine != VoiceInputEngine.SherpaOnnx ||
+                    uiState.isSherpaOnnxSttDownloaded
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
@@ -358,6 +360,14 @@ private fun VoiceScreenContent(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
+                            if (engine == VoiceInputEngine.SherpaOnnx && !uiState.isSherpaOnnxSttDownloaded) {
+                                Text(
+                                    text = "Download required before use",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
                             if (engine == VoiceInputEngine.AndroidNative && warning != null) {
                                 VoiceWarningCard(
                                     message = warning,
@@ -369,7 +379,8 @@ private fun VoiceScreenContent(
                     trailingContent = {
                         RadioButton(
                             selected = uiState.selectedInputEngine == engine,
-                            onClick = { onVoiceInputEngineSelected(engine) },
+                            onClick = { if (sherpaOnnxReady) onVoiceInputEngineSelected(engine) },
+                            enabled = sherpaOnnxReady,
                         )
                     },
                 )
@@ -385,8 +396,12 @@ private fun VoiceScreenContent(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
-                // Sherpa-ONNX STT: show model download card when this engine is selected.
-                if (engine == VoiceInputEngine.SherpaOnnx && uiState.selectedInputEngine == engine) {
+                // Sherpa-ONNX STT: always show download card until the model is downloaded
+                // so the user can download without first selecting the engine. Once downloaded,
+                // only show the card when the engine is actively selected.
+                if (engine == VoiceInputEngine.SherpaOnnx &&
+                    (!uiState.isSherpaOnnxSttDownloaded || uiState.selectedInputEngine == engine)
+                ) {
                     SherpaOnnxSttDownloadCard(
                         isDownloaded = uiState.isSherpaOnnxSttDownloaded,
                         isDownloading = uiState.isSherpaOnnxSttDownloading,
