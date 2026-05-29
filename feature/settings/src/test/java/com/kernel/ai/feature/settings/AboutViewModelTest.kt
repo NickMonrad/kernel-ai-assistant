@@ -79,15 +79,27 @@ class AboutViewModelTest {
         cacheDir.deleteRecursively()
     }
 
-    /** Stubs Runtime.getRuntime().exec() to return empty log output, avoiding real logcat calls. */
-    private fun stubRuntime() {
+    /** Stubs Runtime.getRuntime().exec() to return a non-empty log, avoiding real logcat calls. */
+    private fun stubRuntime(logContent: String = "I/KernelAI: test log entry\n") {
         mockkStatic(Runtime::class)
         val mockProcess = mockk<Process>()
         every { Runtime.getRuntime() } returns mockk(relaxed = true) {
             every { exec(any<Array<String>>()) } returns mockProcess
         }
-        every { mockProcess.inputStream } returns "".byteInputStream()
-        every { mockProcess.errorStream } returns "".byteInputStream()
+        every { mockProcess.inputStream } answers { logContent.byteInputStream() }
+        every { mockProcess.errorStream } answers { "".byteInputStream() }
+        every { mockProcess.waitFor() } returns 0
+    }
+
+    /** Stubs logcat to return blank output (simulates Honor MagicOS log-access restriction). */
+    private fun stubRuntimeEmpty(stderrText: String = "") {
+        mockkStatic(Runtime::class)
+        val mockProcess = mockk<Process>()
+        every { Runtime.getRuntime() } returns mockk(relaxed = true) {
+            every { exec(any<Array<String>>()) } returns mockProcess
+        }
+        every { mockProcess.inputStream } answers { "".byteInputStream() }
+        every { mockProcess.errorStream } answers { stderrText.byteInputStream() }
         every { mockProcess.waitFor() } returns 0
     }
 
@@ -197,10 +209,10 @@ class AboutViewModelTest {
         every { Intent.createChooser(any(), any()) } answers { firstArg<Intent>() }
 
         viewModel.exportLogs()
-        testDispatcher.scheduler.advanceUntilIdle()
-
+        // Loading is set synchronously before the coroutine runs — check before advancing.
         assertTrue(viewModel.uiState.value.exportState is ExportState.Loading)
 
+        testDispatcher.scheduler.advanceUntilIdle()
         testDispatcher.scheduler.advanceTimeBy(1.seconds)
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -239,6 +251,36 @@ class AboutViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(false, viewModel.uiState.value.verboseLogging)
+    }
+
+    @Test
+    fun `exportLogs with blank logcat output sets error state with ADB hint`() = testScope.runTest {
+        // Simulates Honor MagicOS (and similar OEMs) where the OS SELinux policy silently
+        // blocks logcat access for user apps — process exits 0 but stdout is empty.
+        stubRuntimeEmpty()
+
+        viewModel.exportLogs()
+        testDispatcher.scheduler.advanceUntilIdle()
+        testDispatcher.scheduler.advanceTimeBy(1.seconds)
+
+        val state = viewModel.uiState.value.exportState
+        assertTrue(state is ExportState.Error, "Expected Error state when logcat returns no output")
+        val message = (state as ExportState.Error).message
+        assertTrue(message.contains("No log entries captured"), "Error should explain empty capture")
+        assertTrue(message.contains("adb logcat"), "Error should include ADB fallback hint")
+    }
+
+    @Test
+    fun `exportLogs with blank logcat includes stderr detail in error message`() = testScope.runTest {
+        stubRuntimeEmpty(stderrText = "read: unexpected EOF!")
+
+        viewModel.exportLogs()
+        testDispatcher.scheduler.advanceUntilIdle()
+        testDispatcher.scheduler.advanceTimeBy(1.seconds)
+
+        val state = viewModel.uiState.value.exportState
+        assertTrue(state is ExportState.Error)
+        assertTrue((state as ExportState.Error).message.contains("read: unexpected EOF!"))
     }
 
 }
