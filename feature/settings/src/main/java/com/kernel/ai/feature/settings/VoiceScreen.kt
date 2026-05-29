@@ -124,21 +124,37 @@ fun VoiceScreen(
         uiState = uiState,
         onBack = onBack,
         onRequestAssistantRole = {
-            // Samsung One UI overrides RoleManager.ROLE_ASSISTANT with a proprietary
-            // RoleControllerService that silently rejects third-party VIS packages.
-            // On Samsung we deep-link directly to the assistant chooser page; on all
-            // other OEMs we use the standard role request dialog.
-            if (Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
-                val settingsIntent = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)
-                try {
-                    assistantRoleLauncher.launch(settingsIntent)
-                } catch (_: Exception) {
-                    // Fallback: generic default-apps page if the specific page is unavailable
-                    assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            // Several OEM RoleControllerService implementations silently reject third-party
+            // VoiceInteractionService packages or return null from createRequestRoleIntent,
+            // making the standard role-request dialog a no-op. For these OEMs we deep-link
+            // directly into the system Default Apps settings page.
+            //
+            // Samsung One UI: rejects VIS via proprietary RoleControllerService → deep-link
+            //   to ACTION_VOICE_INPUT_SETTINGS (assistant sub-page within Default Apps).
+            // Other OEMs (incl. Honor MagicOS): attempt the standard role dialog first; if
+            //   the intent is null (broken RoleControllerService) fall back to
+            //   ACTION_MANAGE_DEFAULT_APPS_SETTINGS.
+            val isSamsung = Build.MANUFACTURER.equals("samsung", ignoreCase = true)
+            when {
+                isSamsung -> {
+                    try {
+                        assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+                    } catch (_: Exception) {
+                        assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                    }
                 }
-            } else {
-                val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                if (intent != null) assistantRoleLauncher.launch(intent)
+                else -> {
+                    val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                    if (intent != null) {
+                        assistantRoleLauncher.launch(intent)
+                    } else {
+                        try {
+                            assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                        } catch (_: Exception) {
+                            // No standard default-apps page — nothing more we can do.
+                        }
+                    }
+                }
             }
         },
         onHeyJandalEnabledChanged = { enabled ->

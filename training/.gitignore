@@ -1,0 +1,20 @@
+# Python virtual environment
+venv/
+
+# Generated audio data — large, reproducible, not for version control
+wakeword/data/
+wakeword/piper_voices/
+
+# Shared reference voice (personal audio)
+shared/reference_voice*.wav
+
+# Trained model output — deployed via app assets, not committed to training/
+wakeword/output/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo

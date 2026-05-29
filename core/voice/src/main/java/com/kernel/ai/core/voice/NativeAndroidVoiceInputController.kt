@@ -47,8 +47,8 @@ internal enum class RecognizerBackend {
     Platform,
 }
 
-internal fun initialRecognizerBackend(mode: VoiceCaptureMode): RecognizerBackend =
-    if (mode == VoiceCaptureMode.AlertCommand) RecognizerBackend.Platform else RecognizerBackend.OnDevice
+internal fun initialRecognizerBackend(): RecognizerBackend =
+    RecognizerBackend.OnDevice
 
 internal fun shouldRetryWithPlatformAfterStartupTimeout(backend: RecognizerBackend): Boolean =
     backend == RecognizerBackend.OnDevice
@@ -136,12 +136,39 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 val sessionId = ++nextSessionId
                 currentMode = mode
                 activeSessionId = sessionId
-                startRecognizer(
-                    sessionId = sessionId,
-                    mode = mode,
-                    availability = availability,
-                    backend = initialRecognizerBackend(mode),
-                )
+                val startBackend = initialRecognizerBackend()
+                try {
+                    startRecognizer(
+                        sessionId = sessionId,
+                        mode = mode,
+                        availability = availability,
+                        backend = startBackend,
+                    )
+                } catch (onDeviceEx: Exception) {
+                    // On-device recognizer failed to start (e.g. not installed, OOM). Clean up
+                    // any partially-constructed recognizer before retrying with Platform, so we
+                    // don't orphan an instance that could fire stale callbacks.
+                    if (startBackend == RecognizerBackend.OnDevice) {
+                        speechRecognizer?.apply {
+                            runCatching { cancel() }
+                            runCatching { destroy() }
+                        }
+                        speechRecognizer = null
+                        Log.w(
+                            TAG,
+                            "On-device recognizer failed to start; retrying with platform backend",
+                            onDeviceEx,
+                        )
+                        startRecognizer(
+                            sessionId = sessionId,
+                            mode = mode,
+                            availability = availability,
+                            backend = RecognizerBackend.Platform,
+                        )
+                    } else {
+                        throw onDeviceEx
+                    }
+                }
                 VoiceInputStartResult.Started
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start Android native voice capture", e)

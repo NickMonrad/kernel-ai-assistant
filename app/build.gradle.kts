@@ -79,9 +79,9 @@ android {
         // LiteRT-LM (transitive) uses internal Kotlin 2.3.x build (metadata 2.3.0)
         freeCompilerArgs += "-Xskip-metadata-version-check"
     }
-    // Sherpa-ONNX 1.13.0 bundles its own libonnxruntime.so; onnxruntime-android
-    // (wake word / ONNX) provides a newer one. Pick the first seen (Gradle resolves
-    // Maven deps before local file deps, so onnxruntime-android wins).
+    // Sherpa-ONNX 1.13.0 bundles libonnxruntime.so (ORT 1.24.3). The wake word
+    // detector uses onnxruntime-android 1.24.3 — same version, so pickFirst resolves
+    // the duplicate cleanly and both libraries share the same .so at runtime.
     packaging {
         jniLibs {
             pickFirsts += setOf(
@@ -120,7 +120,12 @@ dependencies {
     //     Android TTS is used as the runtime fallback. Voice packs themselves now
     //     download on device from Settings -> Voice instead of being bundled into the APK.
     // Absent AAR → SherpaOnnxVoiceOutputController returns Unavailable → Android TTS used.
+    // Prefer the full AAR (with bundled ORT) so libsherpa-onnx-jni.so can resolve OrtGetApiBase
+    // in its own linker namespace. The -noort variant caused UnsatisfiedLinkError because Android's
+    // namespace isolation prevents Sherpa's JNI from seeing ORT loaded by onnxruntime-android.
     val sherpaAar = rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0.aar")
+        .takeIf { it.exists() }
+        ?: rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar")
     if (sherpaAar.exists()) {
         implementation(files(sherpaAar.absolutePath))
     }

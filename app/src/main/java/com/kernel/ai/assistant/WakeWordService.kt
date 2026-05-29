@@ -18,10 +18,13 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.WakeWordDetector
-import com.kernel.ai.feature.widget.VoiceCommandService
+import com.kernel.ai.core.voice.WakeWordHandoff
+import com.kernel.ai.feature.widget.EXTRA_PREFILLED_TRANSCRIPT
+import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
@@ -51,7 +54,15 @@ private const val NOTIFICATION_ID = 9_500
  * On wake word detection:
  * 1. Plays the start-listening cue
  * 2. Starts STT via [VoiceInputController] on [VoiceCaptureMode.AlertCommand]
- * 3. Routes the transcript to [VoiceCommandService]
+ * 3. Launches [VoiceCommandActivity] with the transcript pre-filled via
+ *    [EXTRA_PREFILLED_TRANSCRIPT] — shows the same bottom-sheet overlay as the long-press
+ *    flow, then routes to ActionsScreen for the voice reply.
+ *
+ * **Security:** [VoiceCommandActivity] is exported=true (required for assistant eligibility).
+ * To prevent external apps from injecting arbitrary transcripts, [pendingWakeWordTranscript]
+ * is set in this service's process memory immediately before [startActivity]. The activity
+ * reads and clears it, and only trusts the extra when the in-process value matches.
+ * External callers cannot access this JVM field.
  *
  * If [WakeWordDetector.isAvailable] is false (model not yet trained, see #984),
  * the service posts a notification explaining this and stops itself.
@@ -65,6 +76,7 @@ class WakeWordService : Service() {
 
     @Inject lateinit var sherpaOnnxVoiceInputController: SherpaOnnxVoiceInputController
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var eventCollectorJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -79,6 +91,13 @@ class WakeWordService : Service() {
             Log.i(TAG, "WakeWordService: model not yet available (#984) — stopping")
             stopSelf(startId)
             return START_NOT_STICKY
+        }
+
+        // Guard: if the detector and collector are already running (re-delivery of a
+        // START_STICKY intent or a spurious onResume retry), do not start duplicates.
+        if (eventCollectorJob?.isActive == true) {
+            Log.d(TAG, "WakeWordService: already running — ignoring duplicate onStartCommand")
+            return START_STICKY
         }
 
         Log.i(TAG, "WakeWordService: starting wake word detection")
@@ -96,7 +115,7 @@ class WakeWordService : Service() {
         )
 
         // Automatically yield the AudioRecord whenever another voice session is active.
-        serviceScope.launch {
+        eventCollectorJob = serviceScope.launch {
             voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
@@ -213,12 +232,22 @@ class WakeWordService : Service() {
     }
 
     private fun routeTranscript(transcript: String) {
-        val intent = Intent(this, VoiceCommandService::class.java).apply {
-            action = VoiceCommandService.ACTION_EXECUTE_COMMAND
-            putExtra(VoiceCommandService.EXTRA_TRANSCRIPT, transcript)
-            putExtra(VoiceCommandService.EXTRA_INPUT_MODE, "voice")
+        // Set the in-process authorisation token before launching the activity.
+        // VoiceCommandActivity checks this field and clears it on read — external callers
+        // cannot set it, so they cannot inject transcripts even though the activity is exported.
+        WakeWordHandoff.pendingTranscript = transcript
+        try {
+            startActivity(
+                Intent(this, VoiceCommandActivity::class.java).apply {
+                    putExtra(EXTRA_PREFILLED_TRANSCRIPT, transcript)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        } catch (e: Exception) {
+            // Clear the token if startActivity failed so it doesn't linger.
+            WakeWordHandoff.pendingTranscript = null
+            Log.e(TAG, "WakeWordService: failed to launch VoiceCommandActivity", e)
         }
-        startService(intent)
     }
 
     // ── Notification ───────────────────────────────────────────────────────────
@@ -257,6 +286,15 @@ class WakeWordService : Service() {
         const val ACTION_RESUME = "com.kernel.ai.assistant.WAKE_RESUME"
 
         /**
+         * In-process authorisation token for the prefilled-transcript overlay path.
+         *
+         * Set by [WakeWordService.routeTranscript] immediately before [startActivity];
+         * read and cleared by [VoiceCommandActivity]. Because this is a JVM field,
+         * external apps cannot write it — so [VoiceCommandActivity] can trust the
+         * prefilled transcript only when this matches the intent extra.
+         */
+
+        /**
          * Weak reference to the running service instance.
          * Set in [onCreate], cleared in [onDestroy].
          * All callers are in the same process — no IPC needed.
@@ -264,7 +302,15 @@ class WakeWordService : Service() {
         private var instance: WeakReference<WakeWordService>? = null
 
         fun start(context: Context) {
-            context.startForegroundService(Intent(context, WakeWordService::class.java))
+            try {
+                context.startForegroundService(Intent(context, WakeWordService::class.java))
+            } catch (e: Exception) {
+                // Android restricts startForegroundService() when the app is not in the
+                // foreground (ForegroundServiceStartNotAllowedException on API 31+).
+                // This can happen when the DataStore preference flow re-emits on restore.
+                // Log and ignore — the service will be started next time the app resumes.
+                Log.w(TAG, "WakeWordService: cannot start from background: ${e.message}")
+            }
         }
 
         fun stop(context: Context) {
