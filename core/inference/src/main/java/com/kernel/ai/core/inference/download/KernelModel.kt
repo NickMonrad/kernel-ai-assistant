@@ -39,6 +39,12 @@ enum class KernelModel(
      * downloading. Model Management shows it as "Built-in" — no download or delete controls.
      */
     val isBundled: Boolean = false,
+    /**
+     * If `false`, this model is managed by a feature-specific UI (e.g. Voice settings) and
+     * should be hidden from the generic Model Management screen to prevent partial installs.
+     * Defaults to `true` so existing entries are unaffected.
+     */
+    val showInModelManagement: Boolean = true,
 ) {
     GEMMA_4_E2B(
         displayName = "Gemma 4 E-2B",
@@ -132,8 +138,58 @@ enum class KernelModel(
         preferredForTier = null,
         isGated = false,
         isBundled = true,
-    );
+    ),
 
+    // ── Sherpa-ONNX Streaming STT (Zipformer int8, English) ──────────────────────────
+    //
+    // Four individual files from csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21
+    // (HuggingFace, Apache 2.0, public / ungated).  Downloaded on demand when the user
+    // selects "Sherpa-ONNX (Local)" in Settings → Voice.  Local file names are prefixed
+    // with "sherpa-stt-" to avoid any future collision with generic names like tokens.txt.
+
+    SHERPA_STT_ENCODER(
+        displayName = "Sherpa STT Encoder",
+        fileName = "sherpa-stt-encoder.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21/resolve/main/encoder-epoch-99-avg-1.int8.onnx",
+        approxSizeBytes = 67_000_000L, // ~67 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    SHERPA_STT_DECODER(
+        displayName = "Sherpa STT Decoder",
+        fileName = "sherpa-stt-decoder.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21/resolve/main/decoder-epoch-99-avg-1.int8.onnx",
+        approxSizeBytes = 3_000_000L, // ~3 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    SHERPA_STT_JOINER(
+        displayName = "Sherpa STT Joiner",
+        fileName = "sherpa-stt-joiner.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21/resolve/main/joiner-epoch-99-avg-1.int8.onnx",
+        approxSizeBytes = 2_000_000L, // ~2 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    SHERPA_STT_TOKENS(
+        displayName = "Sherpa STT Tokens",
+        fileName = "sherpa-stt-tokens.txt",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21/resolve/main/tokens.txt",
+        approxSizeBytes = 75_000L, // ~75 KB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    );
     /**
      * Stable, single-sourced identifier for this model, used as the Room primary key in
      * `com.kernel.ai.core.memory.entity.ModelSettingsEntity`.

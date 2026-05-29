@@ -109,8 +109,16 @@ class AboutViewModel @Inject constructor(
                         arrayOf("logcat", "-d", "-v", "threadtime", "--pid=$pid", "-t", "500"),
                     )
                     val logText = process.inputStream.bufferedReader().use { it.readText() }
-                    process.errorStream.bufferedReader().use { it.readText() } // drain stderr to avoid deadlock
-                    process.waitFor()
+                    val stderrText = process.errorStream.bufferedReader().use { it.readText() }
+                    val exitCode = process.waitFor()
+                    if (logText.isBlank()) {
+                        val detail = stderrText.trim().ifEmpty { "exit code $exitCode" }
+                        throw Exception(
+                            "No log entries captured ($detail). This device may restrict logcat " +
+                                "access for user apps. Use ADB instead:\n" +
+                                "adb logcat -s KernelAI",
+                        )
+                    }
                     val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"))
                     val versionName = try {
                         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"

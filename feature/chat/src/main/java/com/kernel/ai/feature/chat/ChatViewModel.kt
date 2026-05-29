@@ -242,6 +242,12 @@ class ChatViewModel @Inject constructor(
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
 
     private var pendingVoiceReply = false
+    /**
+    * Tracks automatic voice retries for the in-chat mic session (#790).
+    * Capped at 1 (conservative — the chat UI already shows the error inline).
+    * Reset on each fresh mic press via [startVoiceInput].
+    */
+    private var chatCommandVoiceRetryCount = 0
     private var awaitingVoicePlaybackCompletion = false
 
     /** Active voice interaction mode, or null when no voice session is running (#741). */
@@ -488,9 +494,28 @@ class ChatViewModel @Inject constructor(
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
-                        _voiceMode.value = null
-                        _voiceCaptureState.value = VoiceCaptureState.Idle
-                        _error.value = withVoiceSettingsHint(event.message)
+                        // #790: Retry once before surfacing the error to the user.
+                        if (chatCommandVoiceRetryCount < 1) {
+                            chatCommandVoiceRetryCount++
+                            Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/1")
+                            _voiceCaptureState.value = VoiceCaptureState.Preparing
+                            when (val r = voiceInputController.startListening(VoiceCaptureMode.Command)) {
+                                VoiceInputStartResult.Started -> {
+                                    if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
+                                        _voiceCaptureState.value = VoiceCaptureState.Listening()
+                                    }
+                                }
+                                is VoiceInputStartResult.Unavailable -> {
+                                    _voiceMode.value = null
+                                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                                    _error.value = withVoiceSettingsHint(r.message)
+                                }
+                            }
+                        } else {
+                            _voiceMode.value = null
+                            _voiceCaptureState.value = VoiceCaptureState.Idle
+                            _error.value = withVoiceSettingsHint(event.message)
+                        }
                     }
                     is VoiceInputEvent.ListeningStopped -> {
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
@@ -1033,6 +1058,8 @@ class ChatViewModel @Inject constructor(
     private fun startVoiceInput(mode: VoiceMode) {
         if (inferenceEngine.isGenerating.value || _isLoadingModel.value) return
         if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
+        // #790: Fresh mic press resets the retry budget.
+        chatCommandVoiceRetryCount = 0
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = mode
         viewModelScope.launch {
