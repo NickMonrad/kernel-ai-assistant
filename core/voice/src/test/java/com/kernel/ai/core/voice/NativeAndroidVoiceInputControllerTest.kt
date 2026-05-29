@@ -17,6 +17,16 @@ class NativeAndroidVoiceInputControllerTest {
         assertEquals(RecognizerBackend.OnDevice, initialRecognizerBackend())
     }
 
+    @Test
+    fun `initial backend arms the startup-timeout platform fallback`() {
+        // Contract: whichever backend initialRecognizerBackend() chooses, the startup-timeout
+        // safety net must be active so the async fallback fires if the recognizer stalls.
+        // This also covers the sync-throw path added in startListening: both code paths share
+        // the same RecognizerBackend.OnDevice value, so a change to either helper breaks here.
+        val backend = initialRecognizerBackend()
+        assertEquals(true, shouldRetryWithPlatformAfterStartupTimeout(backend))
+    }
+
 
     @Test
     fun `sessionResultTimeoutMs shortens alert command watchdog`() {

@@ -136,12 +136,33 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 val sessionId = ++nextSessionId
                 currentMode = mode
                 activeSessionId = sessionId
-                startRecognizer(
-                    sessionId = sessionId,
-                    mode = mode,
-                    availability = availability,
-                    backend = initialRecognizerBackend(),
-                )
+                val startBackend = initialRecognizerBackend()
+                try {
+                    startRecognizer(
+                        sessionId = sessionId,
+                        mode = mode,
+                        availability = availability,
+                        backend = startBackend,
+                    )
+                } catch (onDeviceEx: Exception) {
+                    // On-device recognizer failed to start (e.g. not installed, OOM). Attempt
+                    // platform recognizer once before giving up entirely.
+                    if (startBackend == RecognizerBackend.OnDevice) {
+                        Log.w(
+                            TAG,
+                            "On-device recognizer failed to start; retrying with platform backend",
+                            onDeviceEx,
+                        )
+                        startRecognizer(
+                            sessionId = sessionId,
+                            mode = mode,
+                            availability = availability,
+                            backend = RecognizerBackend.Platform,
+                        )
+                    } else {
+                        throw onDeviceEx
+                    }
+                }
                 VoiceInputStartResult.Started
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start Android native voice capture", e)

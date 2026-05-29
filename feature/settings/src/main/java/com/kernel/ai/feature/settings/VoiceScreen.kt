@@ -131,10 +131,10 @@ fun VoiceScreen(
             //
             // Samsung One UI: rejects VIS via proprietary RoleControllerService → deep-link
             //   to ACTION_VOICE_INPUT_SETTINGS (assistant sub-page within Default Apps).
-            // Honor MagicOS: createRequestRoleIntent(ROLE_ASSISTANT) returns null or the
-            //   dialog "Set" button is a no-op → fall back to ACTION_MANAGE_DEFAULT_APPS_SETTINGS.
+            // Other OEMs (incl. Honor MagicOS): attempt the standard role dialog first; if
+            //   the intent is null (broken RoleControllerService) fall back to
+            //   ACTION_MANAGE_DEFAULT_APPS_SETTINGS.
             val isSamsung = Build.MANUFACTURER.equals("samsung", ignoreCase = true)
-            val isHonor = Build.MANUFACTURER.equals("honor", ignoreCase = true)
             when {
                 isSamsung -> {
                     try {
@@ -143,16 +143,17 @@ fun VoiceScreen(
                         assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
                     }
                 }
-                isHonor -> {
-                    try {
-                        assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                    } catch (_: Exception) {
-                        // No standard default-apps page available — nothing more we can do.
-                    }
-                }
                 else -> {
                     val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                    if (intent != null) assistantRoleLauncher.launch(intent)
+                    if (intent != null) {
+                        assistantRoleLauncher.launch(intent)
+                    } else {
+                        try {
+                            assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                        } catch (_: Exception) {
+                            // No standard default-apps page — nothing more we can do.
+                        }
+                    }
                 }
             }
         },
