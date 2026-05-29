@@ -1,6 +1,7 @@
 # Jandal AI
 
-A high-performance, **local-first** intelligent agent for Android. All inference runs entirely on-device — no cloud APIs, no telemetry, no data leakage. Built on Google's **Gemma-4** model family via **LiteRT**.
+
+*Currently available on [Google Play](https://play.google.com/store/apps/details?id=com.kernel.ai) and GitHub releases.*
 
 ## How It Works
 
@@ -26,6 +27,8 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 | DI | Hilt |
 | Persistence | Room |
 | Min SDK | API 35 (Android 15) |
+| Speech-to-Text | Vosk (default), Android SpeechRecognizer (optional) |
+| Text-to-Speech | Android TTS (default), Sherpa Piper/Kokoro (optional) |
 
 ## Features
 
@@ -55,6 +58,7 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 🔎 **Tool call debugging** — expand any tool call chip to see request/result, tap to copy
 - 🧭 **Nav drawer** — Lists, Alarms, and Meal plans accessible from Chat, Actions, and all main screens via hamburger menu
 - 📋 **Lists** — create and manage named lists via chat ("add milk to shopping list") or the Lists UI; full CRUD with active/completed sections
+- 🗒️ **Notes** — create, edit, and manage free-form notes via chat or the Notes UI; smart auto-titles, pin/unpin, archive/unarchive, search, sort, drag-to-reorder, multi-select bulk archive/delete/restore/pin/share, and archived-only view
 - 🗓️ **Scheduled Alarms** — date-specific alarms scheduled via Jandal appear in the Alarms screen for review and cancellation
 - 📟 **Side panel** — slide-out drawer accessible from Chat and Settings shows active alarms and timers with live countdown; cancel any from the panel
 - 🎵 **Media controls** — pause, stop, skip, and previous track via Jandal ("skip song", "pause music")
@@ -67,21 +71,21 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 🔊 **Per-message speaker button** — `VolumeUp` icon on every assistant bubble; tap to play or stop that message's TTS independently of voice mode
 - ⚙️ **Expanded TTS settings** — pitch slider (Sherpa only, 0.5–2.0×), auto-speak chat replies toggle (decoupled from Quick Actions via `autoSpeakEnabled` field), max spoken sentences dropdown (0 = unlimited, 2, 3, 5); all grouped in a **"Chat voice behaviour"** section in Settings
 - 🛑 **Verbal stop command** — saying "stop", "stop speaking", "cancel", "be quiet", "shut up", or "silence" during TTS playback cancels speech and stops mic re-arm
-|- 🗣️ **VCTK multi-speaker selection** — choose from 109 VCTK voices (gender filter, speaker ID, accent label) in Settings → Voice; sid mapping sourced directly from the Piper model config
-|- 🗣️ **Semaine multi-speaker selection** — 4 distinct voices (Prudence, Spike, Obadiah, Poppy) selectable in Settings → Voice (#818, PR #818)
-|- 📐 **Deterministic unit conversion** — length, mass, volume, temperature, speed with alias normalisation and spoken-STT variants (#676, PR #816)
-|- 💱 **Deterministic currency conversion** — ISO code resolution via Frankfurter/ECB rates with same-currency short-circuit and clear error for unsupported currencies (#831, PR #848)
-|- 🗣️ **TTS pronoun normalisation** — converts first-person pronouns (my/I → your/you) in spoken summaries so the assistant speaks in third person (#828, PR #830)
-|- 🔊 **Voice fallthrough preservation** — Actions→Chat fallthrough preserves the user's voice-speak expectation so replies are spoken even after cross-screen navigation (#832, PR #833)
-|- ⏱️ **Slot-fill retry on no-speech** — system retries the slot-fill prompt instead of failing; cancel phrases abort the flow; start-listening audio cue confirms mic activity (#790/#791, PR #825)
-|- 🔒 **Blank response guard** — retries without RAG before showing fallback when LiteRT produces 0 tokens; keeps chat awake during load and generation (#839/#841, PRs #840/#842)
-|- 🎙️ **Homescreen Glance widget** — quick actions and voice from the launcher via GlanceAppWidget; VoiceCommandActivity and WidgetTextInputActivity with task isolation (#617, PR #847)
-|- 🔧 **Audio quality fixes** — AudioTrack tail cutoff prevention via hardware-latency silence padding; expectedSlotPromptSpeech normalisation to match TTS output; SID=0 clamp for single-speaker voices; aye pronunciation correction (#837/#828/#810, PRs #838/#836/#811)
-|- 🍽️ **Deterministic meal planner** — app-owned meal-planning sessions with bounded JSON generation, draft-plan approval, progressive recipe reveal, visible `x of y` progress, interruption-safe resume, quantity sanity validation, cuisine preferences, Kiwi wording normalization, batch day replace/regenerate, and quick-action/chat handoff (#859/#869/#931/#932/#971, PRs #864/#875/this PR)
-|- 📚 **Meal plans browser** — drawer-accessible Recent plans and Favourites tabs with recipe search, canonical favourite toggles, recipe re-add to Lists, and ingredient export into existing user lists (#933, PR #934)
-|- 💬 **Multi-turn dialog** — expanded confirmation, digression, and slot-filling coverage across more intents (#708, PR #712)
-|- ⏰ **Alarms CRUD UI** — create, edit, and toggle alarms directly from the Alarms screen; full CRUD via nav drawer (#479, PR #484)
-|- 🗒️ **Lists management upgrades** — rename, pin, sort, edit items, favorites, and due dates (#662)
+- 🗣️ **VCTK multi-speaker selection** — choose from 109 VCTK voices (gender filter, speaker ID, accent label) in Settings → Voice; sid mapping sourced directly from the Piper model config
+- 🗣️ **Semaine multi-speaker selection** — 4 distinct voices (Prudence, Spike, Obadiah, Poppy) selectable in Settings → Voice (#818, PR #818)
+- 📐 **Deterministic unit conversion** — length, mass, volume, temperature, speed with alias normalisation and spoken-STT variants (#676, PR #816)
+- 💱 **Deterministic currency conversion** — ISO code resolution via Frankfurter/ECB rates with same-currency short-circuit and clear error for unsupported currencies (#831, PR #848)
+- 🗣️ **TTS pronoun normalisation** — converts first-person pronouns (my/I → your/you) in spoken summaries so the assistant speaks in third person (#828, PR #830)
+- 🔊 **Voice fallthrough preservation** — Actions→Chat fallthrough preserves the user's voice-speak expectation so replies are spoken even after cross-screen navigation (#832, PR #833)
+- ⏱️ **Slot-fill retry on no-speech** — system retries the slot-fill prompt instead of failing; cancel phrases abort the flow; start-listening audio cue confirms mic activity (#790/#791, PR #825)
+- 🔒 **Blank response guard** — retries without RAG before showing fallback when LiteRT produces 0 tokens; keeps chat awake during load and generation (#839/#841, PRs #840/#842)
+- 🎙️ **Homescreen Glance widget** — quick actions and voice from the launcher via GlanceAppWidget; VoiceCommandActivity and WidgetTextInputActivity with task isolation (#617, PR #847)
+- 🔧 **Audio quality fixes** — AudioTrack tail cutoff prevention via hardware-latency silence padding; expectedSlotPromptSpeech normalisation to match TTS output; SID=0 clamp for single-speaker voices; aye pronunciation correction (#837/#828/#810, PRs #838/#836/#811)
+- 🍽️ **Deterministic meal planner** — app-owned meal-planning sessions with bounded JSON generation, draft-plan approval, progressive recipe reveal, visible `x of y` progress, interruption-safe resume, quantity sanity validation, cuisine preferences, Kiwi wording normalization, batch day replace/regenerate, and quick-action/chat handoff (#859/#869/#931/#932/#971, PRs #864/#875/this PR)
+- 📚 **Meal plans browser** — drawer-accessible Recent plans and Favourites tabs with recipe search, canonical favourite toggles, recipe re-add to Lists, and ingredient export into existing user lists (#933, PR #934)
+- 💬 **Multi-turn dialog** — expanded confirmation, digression, and slot-filling coverage across more intents (#708, PR #712)
+- ⏰ **Alarms CRUD UI** — create, edit, and toggle alarms directly from the Alarms screen; full CRUD via nav drawer (#479, PR #484)
+- 🗒️ **Lists management upgrades** — rename, pin, sort, edit items, favorites, and due dates (#662)
 
 ### Coming Soon
 - 🗒️ **Lists — hierarchical items** — nested sub-items within lists *(#928)*
