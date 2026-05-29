@@ -133,9 +133,12 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult =
         sessionMutex.withLock {
-            // Cancel any previous session that somehow survived.
-            activeJob?.cancel()
+            // Cancel any previous session and wait for it to fully unwind — prevents
+            // a new AudioRecord from being created while the old one is still releasing.
+            val previousJob = activeJob
             activeJob = null
+            previousJob?.cancel()
+            previousJob?.join()
 
             val rec = ensureRecognizer() ?: return@withLock VoiceInputStartResult.Unavailable(
                 "Sherpa-ONNX STT model not available — download it from Settings → Voice."
@@ -200,6 +203,9 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         val floatBuf = FloatArray(CHUNK_SAMPLES)
         var lastPartial = ""
         val started = System.currentTimeMillis()
+        // Tracks whether the loop exited via endpoint or timeout (events already emitted).
+        // If false, the loop was stopped externally and the post-loop block must flush + stop.
+        var exitedFromLoop = false
 
         try {
             ar.startRecording()
@@ -230,6 +236,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                     // listening — the caller controls session lifetime, not the endpoint rule.
                     if (text.isNotEmpty()) {
                         _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+                        exitedFromLoop = true
                         isRecording = false
                         break
                     }
@@ -247,6 +254,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                         )
                     }
                     _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
+                    exitedFromLoop = true
                     isRecording = false
                     break
                 }
@@ -259,13 +267,14 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 }
             }
 
-            // Stopped externally — flush and emit whatever was in-flight.
-            if (!isRecording) {
+            // Stopped externally — flush whatever was in-flight; always signal ListeningStopped
+            // so callers (e.g. WakeWordService) can reliably re-arm even on an empty utterance.
+            if (!exitedFromLoop) {
                 val text = signalEndAndDrain(rec, stream)
                 if (text.isNotEmpty()) {
                     _events.tryEmit(VoiceInputEvent.Transcript(mode, text))
-                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
                 }
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
             }
         } finally {
             mStreamRelease!!.invoke(stream)
@@ -323,20 +332,26 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     fun transcribeBlocking(pcm: ShortArray): String {
         if (pcm.isEmpty()) return ""
         val rec = ensureRecognizerBlocking() ?: return ""
+        // Create the stream outside try so the finally block can always release it.
+        val stream = mCreateStream!!.invoke(rec, "")
         return try {
-            val stream = mCreateStream!!.invoke(rec, "")
             val floats = FloatArray(pcm.size) { pcm[it] / 32768f }
             mAcceptWaveform!!.invoke(stream, floats, SAMPLE_RATE)
             mInputFinished!!.invoke(stream)
+            var iters = 0
             while (mIsReady!!.invoke(rec, stream) as Boolean) {
                 mDecode!!.invoke(rec, stream)
+                // Guard: Sherpa should need at most a handful of decode passes per utterance.
+                // A stuck loop here would stall the wakeword detector thread indefinitely.
+                if (++iters > 500) break
             }
-            val text = resultText(rec, stream)
-            mStreamRelease!!.invoke(stream)
-            text
+            resultText(rec, stream)
         } catch (e: Exception) {
             Log.e(TAG, "transcribeBlocking failed", e)
             ""
+        } finally {
+            // Always release the native stream, even on exception.
+            runCatching { mStreamRelease!!.invoke(stream) }
         }
     }
 
@@ -364,14 +379,21 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             AudioFormat.ENCODING_PCM_16BIT,
         )
         if (minBuf <= 0) return null
-        return AudioRecord(
+        val ar = AudioRecord(
             MediaRecorder.AudioSource.MIC,
             SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
             maxOf(minBuf * 2, CHUNK_SAMPLES * 2 * 2), // 2 bytes/sample, 2 chunks headroom
-        ).takeIf { it.state == AudioRecord.STATE_INITIALIZED }
-            ?: run { null.also { Log.e(TAG, "AudioRecord init failed") } }
+        )
+        // Release on failure — takeIf drops the object without calling release(), leaking
+        // the underlying audio handle on OEMs that allocate it eagerly in the constructor.
+        if (ar.state != AudioRecord.STATE_INITIALIZED) {
+            ar.release()
+            Log.e(TAG, "AudioRecord init failed")
+            return null
+        }
+        return ar
     }
 
     private fun stopAudioRecord(ar: AudioRecord) {

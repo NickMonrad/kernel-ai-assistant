@@ -3,7 +3,6 @@
 #
 # Usage:
 #   ./scripts/download-models.sh              # download everything
-#   ./scripts/download-models.sh stt          # only STT model
 #   ./scripts/download-models.sh wakeword     # only wake word models
 #
 # After download, SHA-256 hashes are verified.  Any mismatch exits non-zero.
@@ -69,75 +68,6 @@ verify_sha256() {
     fi
 }
 
-# ── STT model: Sherpa-ONNX streaming Zipformer (int8, NZ English) ─────────────
-# Model: sherpa-onnx-streaming-zipformer-en-2023-02-21 (int8)
-# Source: https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
-STT_BASE_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
-STT_MODEL_DIR="$ASSETS_DIR/stt"
-STT_ARCHIVE="sherpa-onnx-streaming-zipformer-en-2023-02-21.tar.bz2"
-
-download_stt() {
-    echo ""
-    echo "=== STT model (Zipformer int8 streaming, ~70 MB) ==="
-
-    local need_download=false
-    for f in \
-        "encoder-epoch-99-avg-1.int8.onnx" \
-        "decoder-epoch-99-avg-1.int8.onnx" \
-        "joiner-epoch-99-avg-1.int8.onnx" \
-        "tokens.txt"
-    do
-        [[ -f "$STT_MODEL_DIR/$f" ]] || { need_download=true; break; }
-    done
-
-    if [[ "$need_download" == false ]]; then
-        green "  STT model files already present — skipping."
-        return
-    fi
-
-    local tmp_archive="/tmp/$STT_ARCHIVE"
-    if [[ ! -f "$tmp_archive" ]]; then
-        echo "  downloading archive…"
-        if command -v curl &>/dev/null; then
-            curl -fL --progress-bar \
-                -o "$tmp_archive" \
-                "$STT_BASE_URL/$STT_ARCHIVE"
-        else
-            wget -q --show-progress -O "$tmp_archive" "$STT_BASE_URL/$STT_ARCHIVE"
-        fi
-    else
-        yellow "  archive already cached at $tmp_archive"
-    fi
-
-    echo "  extracting…"
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    tar -xjf "$tmp_archive" -C "$tmp_dir"
-
-    mkdir -p "$STT_MODEL_DIR"
-    # The archive unpacks to a directory named after the model.
-    local extracted_dir
-    extracted_dir=$(find "$tmp_dir" -maxdepth 1 -type d | grep -v "^$tmp_dir$" | head -1)
-
-    for f in \
-        "encoder-epoch-99-avg-1.int8.onnx" \
-        "decoder-epoch-99-avg-1.int8.onnx" \
-        "joiner-epoch-99-avg-1.int8.onnx" \
-        "tokens.txt"
-    do
-        if [[ -f "$extracted_dir/$f" ]]; then
-            cp "$extracted_dir/$f" "$STT_MODEL_DIR/$f"
-            green "  installed: $f"
-        else
-            red "  ERROR: expected file not found in archive: $f"
-            rm -rf "$tmp_dir"
-            exit 1
-        fi
-    done
-
-    rm -rf "$tmp_dir"
-    green "  STT model ready."
-}
 
 # ── Wake word models (openWakeWord pipeline) ──────────────────────────────────
 # Stage 1 + 2 models are fixed upstream downloads; Stage 3 is trained locally.
@@ -173,11 +103,11 @@ download_wakeword() {
 FILTER="${1:-all}"
 
 case "$FILTER" in
-    stt)       download_stt ;;
     wakeword)  download_wakeword ;;
-    all)       download_stt; download_wakeword ;;
+    all)       download_wakeword ;;
     *)
-        red "Unknown filter '$FILTER'. Valid options: stt, wakeword, all"
+        red "Unknown filter '$FILTER'. Valid option: wakeword, all"
+        red "STT models are downloaded on-device via Settings → Voice."
         exit 1
         ;;
 esac
