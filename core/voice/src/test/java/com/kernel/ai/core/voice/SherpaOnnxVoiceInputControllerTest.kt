@@ -87,4 +87,13 @@ class SherpaOnnxVoiceInputControllerTest {
         assertTrue("heyjandal".containsWakePhrase())
         assertTrue("heyjandel".containsWakePhrase())
     }
+
+    @Test
+    fun `containsWakePhrase rejects embedded substrings`() {
+        // \b word boundaries prevent matching inside larger words
+        assertFalse("they jandal".containsWakePhrase())
+        assertFalse("hey jandalish".containsWakePhrase())
+        assertTrue("oh heyjandal who".containsWakePhrase())
+        assertTrue("say hey jandal now".containsWakePhrase())
+    }
 }

@@ -86,7 +86,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         fun String.containsWakePhrase(): Boolean {
             val lower = lowercase()
             // Accept "hey" or "a" (common ASR substitution for "hey") before the name.
-            val namePattern = Regex("""(?:hey|a)\s*(?:jandal|jandel|handel|handal|hando)""")
+            val namePattern = Regex("""\b(?:hey|a)\s*(?:jandal|jandel|handel|handal|hando)\b""")
             return namePattern.containsMatchIn(lower)
         }
     }
