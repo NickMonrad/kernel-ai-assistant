@@ -108,6 +108,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     @Volatile private var mGetResult: java.lang.reflect.Method? = null
     @Volatile private var mReset: java.lang.reflect.Method? = null
     @Volatile private var mStreamRelease: java.lang.reflect.Method? = null
+    @Volatile private var mGetText: java.lang.reflect.Method? = null
 
     // ── Session state ──────────────────────────────────────────────────────────
 
@@ -293,13 +294,12 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         return resultText(rec, stream)
     }
 
-    private fun resultText(rec: Any, stream: Any): String =
-        mGetResult!!.invoke(rec, stream)
-            .let { result ->
-                result.javaClass.getDeclaredMethod("getText")
-                    .also { it.isAccessible = true }
-                    .invoke(result) as String
-            }.trim().lowercase(java.util.Locale.ROOT)
+    private fun resultText(rec: Any, stream: Any): String {
+        val result = mGetResult!!.invoke(rec, stream)!!
+        val getText = mGetText ?: result.javaClass.getDeclaredMethod("getText")
+            .also { it.isAccessible = true; mGetText = it }  // populate lazily if ensureRecognizer missed
+        return (getText.invoke(result) as String).trim().lowercase(java.util.Locale.ROOT)
+    }
 
     // ── Synchronous transcription (wake word verification) ─────────────────────
 
@@ -541,6 +541,17 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         mAcceptWaveform  = clsStream.getDeclaredMethod("acceptWaveform", FloatArray::class.java, Int::class.javaPrimitiveType)
         mInputFinished   = clsStream.getDeclaredMethod("inputFinished")
         mStreamRelease   = clsStream.getDeclaredMethod("release")
+
+        // getText() is on the OnlineRecognizerResult class returned by getResult().
+        // Cache it here using a dummy decode result to avoid per-call getDeclaredMethod().
+        val dummyStream = mCreateStream!!.invoke(instance, "")!!
+        try {
+            val dummyResult = mGetResult!!.invoke(instance, dummyStream)!!
+            mGetText = dummyResult.javaClass.getDeclaredMethod("getText")
+                .also { it.isAccessible = true }
+        } finally {
+            mStreamRelease!!.invoke(dummyStream)
+        }
 
         recognizer = instance
         return instance

@@ -21,12 +21,14 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class SherpaVoiceRowUiState(
@@ -274,7 +276,6 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
-
     private val sttModels = listOf(
         KernelModel.SHERPA_STT_ENCODER,
         KernelModel.SHERPA_STT_DECODER,
@@ -295,7 +296,6 @@ class VoiceViewModel @Inject constructor(
             .forEach { modelDownloadManager.cancelDownload(it) }
     }
 
-
     fun deleteSherpaOnnxStt() {
         viewModelScope.launch(Dispatchers.IO) {
             sttModels.forEach { model ->
@@ -305,8 +305,14 @@ class VoiceViewModel @Inject constructor(
                 if (tmp.exists()) tmp.delete()
                 modelDownloadManager.refreshState(model)
             }
+            if (_uiState.value.selectedInputEngine == VoiceInputEngine.SherpaOnnx) {
+                withContext(Dispatchers.Main) {
+                    setVoiceInputEngine(VoiceInputEngine.Vosk)
+                }
+            }
         }
     }
+
     fun setSpokenResponsesEnabled(enabled: Boolean) {
         _uiState.update { it.copy(spokenResponsesEnabled = enabled) }
         viewModelScope.launch {

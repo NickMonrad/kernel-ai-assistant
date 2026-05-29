@@ -78,6 +78,9 @@ class WakeWordService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var eventCollectorJob: Job? = null
 
+    /** True while [handleDetection] owns a live STT session; suppresses the observer's re-arm. */
+    @Volatile private var isHandlingDetection = false
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -111,7 +114,9 @@ class WakeWordService : Service() {
                         Log.i(TAG, "WakeWordService: yielding mic to voice session (${event.mode})")
                         wakeWordDetector.stop()
                     }
+
                     is VoiceInputEvent.ListeningStopped -> {
+                        if (isHandlingDetection) return@collect
                         Log.i(TAG, "WakeWordService: re-arming after voice session (${event.mode})")
                         rearmDetector()
                     }
@@ -134,46 +139,55 @@ class WakeWordService : Service() {
 
     // ── Detection handoff ──────────────────────────────────────────────────────
 
+
     private fun handleDetection() {
         serviceScope.launch {
-            // Attempt STT up to twice (#790: 1 retry on silence/error after wake word).
-            var transcript: String? = null
-            for (attempt in 1..2) {
-                val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
-                if (startResult !is VoiceInputStartResult.Started) {
-                    Log.w(TAG, "WakeWordService: STT unavailable after detection — $startResult; re-arming")
-                    break
-                }
-                // ListeningStarted is emitted inside startListening() before it returns, so
-                // collecting it via onEach always misses it. Play the cue only on the first
-                // attempt; a silent retry is less jarring than a second bloop.
-                if (attempt == 1) cuePlayer.playCue()
+            isHandlingDetection = true
+            try {
+                // Attempt STT up to twice (#790: 1 retry on silence/error after wake word).
+                var transcript: String? = null
+                var lastAttemptRanSession = false
+                for (attempt in 1..2) {
+                    val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+                    if (startResult !is VoiceInputStartResult.Started) {
+                        Log.w(TAG, "WakeWordService: STT unavailable after detection — $startResult; re-arming")
+                        break
+                    }
+                    // ListeningStarted is emitted inside startListening() before it returns, so
+                    // collecting it via onEach always misses it. Play the cue only on the first
+                    // attempt; a silent retry is less jarring than a second bloop.
+                    if (attempt == 1) cuePlayer.playCue()
+                    lastAttemptRanSession = true
 
-                val terminalEvent = try {
-                    voiceInputController.events
-                        .first { it is VoiceInputEvent.Transcript
-                              || it is VoiceInputEvent.Error
-                              || it is VoiceInputEvent.ListeningStopped }
-                } catch (e: Exception) {
-                    Log.w(TAG, "WakeWordService: transcript collection failed (attempt $attempt)", e)
-                    break
+                    val terminalEvent = try {
+                        voiceInputController.events
+                            .first { it is VoiceInputEvent.Transcript
+                                  || it is VoiceInputEvent.Error
+                                  || it is VoiceInputEvent.ListeningStopped }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "WakeWordService: transcript collection failed (attempt $attempt)", e)
+                        lastAttemptRanSession = false
+                        break
+                    }
+
+                    val text = (terminalEvent as? VoiceInputEvent.Transcript)?.text
+                    if (!text.isNullOrBlank()) {
+                        transcript = text
+                        break
+                    }
+                    Log.w(TAG, "WakeWordService: no transcript on attempt $attempt ($terminalEvent)" +
+                        if (attempt < 2) " — retrying" else " — re-arming detector")
                 }
 
-                val text = (terminalEvent as? VoiceInputEvent.Transcript)?.text
-                if (!text.isNullOrBlank()) {
-                    transcript = text
-                    break
+                if (transcript != null) {
+                    Log.d(TAG, "WakeWordService: routing transcript=\"$transcript\"")
+                    routeTranscript(transcript)
+                    // Re-arm is handled by the ListeningStopped observer above.
+                } else if (!lastAttemptRanSession) {
+                    rearmDetector()
                 }
-                Log.w(TAG, "WakeWordService: no transcript on attempt $attempt ($terminalEvent)" +
-                    if (attempt < 2) " — retrying" else " — re-arming detector")
-            }
-
-            if (transcript != null) {
-                Log.d(TAG, "WakeWordService: routing transcript=\"$transcript\"")
-                routeTranscript(transcript)
-                // Re-arm is handled by the ListeningStopped observer above.
-            } else {
-                rearmDetector()
+            } finally {
+                isHandlingDetection = false
             }
         }
     }
