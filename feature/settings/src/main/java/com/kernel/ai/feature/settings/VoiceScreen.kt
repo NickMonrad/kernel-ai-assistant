@@ -325,6 +325,12 @@ private fun VoiceScreenContent(
                             )
                         },
                     )
+                    Text(
+                        text = "Higher values require greater confidence before triggering — fewer false activations, but may miss quiet or accented speech.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
                 }
             }
             HorizontalDivider()
