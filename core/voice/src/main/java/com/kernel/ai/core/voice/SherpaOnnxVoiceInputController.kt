@@ -58,11 +58,13 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         private const val CLS_RECOGNIZER  = "$SHERPA_PKG.OnlineRecognizer"
         private const val CLS_STREAM      = "$SHERPA_PKG.OnlineStream"
 
-        // Asset paths — relative to assets root; no leading "/" or "assets/" prefix.
-        private const val STT_ENCODER = "models/stt/encoder-epoch-99-avg-1.int8.onnx"
-        private const val STT_DECODER = "models/stt/decoder-epoch-99-avg-1.int8.onnx"
-        private const val STT_JOINER  = "models/stt/joiner-epoch-99-avg-1.int8.onnx"
-        private const val STT_TOKENS  = "models/stt/tokens.txt"
+
+        // Filesystem file names — prefixed "sherpa-stt-" to match KernelModel entries in
+        // core:inference.  Absolute paths resolved at runtime from sttModelsDir().
+        private const val ENCODER_FILE = "sherpa-stt-encoder.int8.onnx"
+        private const val DECODER_FILE = "sherpa-stt-decoder.int8.onnx"
+        private const val JOINER_FILE  = "sherpa-stt-joiner.int8.onnx"
+        private const val TOKENS_FILE  = "sherpa-stt-tokens.txt"
 
         /**
          * Returns true when [this] transcript contains a recognisable form of "Hey Jandal".
@@ -408,15 +410,26 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         }
     }
 
+    // ── STT model file paths ──────────────────────────────────────────────────
+
+    /**
+     * Returns the shared external models directory, mirroring [KernelModel.localFile()].
+     * Falls back to internal storage when external is unavailable.
+     */
+    private fun sttModelsDir(): java.io.File =
+        context.getExternalFilesDir("models") ?: java.io.File(context.filesDir, "models")
+
+    private fun sttFile(fileName: String): java.io.File = java.io.File(sttModelsDir(), fileName)
+
     // ── Availability ───────────────────────────────────────────────────────────
 
     /**
-     * Returns true when all four STT model files exist in assets.
+     * Returns true when all four STT model files exist in the shared external models directory.
      * Safe to call without triggering reflection.
      */
     suspend fun isAvailable(): Boolean = withContext(Dispatchers.IO) {
-        listOf(STT_ENCODER, STT_DECODER, STT_JOINER, STT_TOKENS).all { path ->
-            runCatching { context.assets.open(path).use { true } }.getOrDefault(false)
+        listOf(ENCODER_FILE, DECODER_FILE, JOINER_FILE, TOKENS_FILE).all { name ->
+            sttFile(name).let { it.exists() && it.length() > 0 }
         }
     }
 
@@ -469,13 +482,13 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             setProperty(it, "featureDim", 80)
         }
         val transducerConfig = clsTransducer.getDeclaredConstructor().newInstance().also {
-            setProperty(it, "encoder", STT_ENCODER)
-            setProperty(it, "decoder", STT_DECODER)
-            setProperty(it, "joiner",  STT_JOINER)
+            setProperty(it, "encoder", sttFile(ENCODER_FILE).absolutePath)
+            setProperty(it, "decoder", sttFile(DECODER_FILE).absolutePath)
+            setProperty(it, "joiner",  sttFile(JOINER_FILE).absolutePath)
         }
         val modelConfig = clsModel.getDeclaredConstructor().newInstance().also {
             setProperty(it, "transducer", transducerConfig)
-            setProperty(it, "tokens",     STT_TOKENS)
+            setProperty(it, "tokens", sttFile(TOKENS_FILE).absolutePath)
             setProperty(it, "numThreads", 2)
             setProperty(it, "debug",      false)
             setProperty(it, "provider",   "cpu")
@@ -490,12 +503,9 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             setProperty(it, "maxActivePaths",  4)
         }
 
-        // OnlineRecognizer(assetManager, config) — model paths are relative to assets root.
-        val ctor = clsRecognizer.getConstructor(
-            android.content.res.AssetManager::class.java,
-            clsRecCfg,
-        )
-        val instance = ctor.newInstance(context.assets, recConfig)
+        // OnlineRecognizer(config) — absolute filesystem paths; no AssetManager needed.
+        val ctor = clsRecognizer.getConstructor(clsRecCfg)
+        val instance = ctor.newInstance(recConfig)
 
         // Cache reflected methods. createStream takes a hotwords String (Sherpa 1.13.0 API).
         mCreateStream    = clsRecognizer.getDeclaredMethod("createStream", String::class.java)

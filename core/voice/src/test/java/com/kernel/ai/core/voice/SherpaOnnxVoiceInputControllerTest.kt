@@ -1,47 +1,60 @@
 package com.kernel.ai.core.voice
 
 import android.content.Context
-import android.content.res.AssetManager
 import android.media.AudioManager
 import com.kernel.ai.core.voice.SherpaOnnxVoiceInputController.Companion.containsWakePhrase
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import java.io.IOException
-import java.io.InputStream
+import java.io.File
+import java.nio.file.Files
 
 class SherpaOnnxVoiceInputControllerTest {
-    private val assetManager: AssetManager = mockk()
+
+    // Real temp directory used as the models dir — avoids mocking File I/O while
+    // remaining completely deterministic and side-effect-free.
+    private val tempModelsDir: File = Files.createTempDirectory("stt-test-models").toFile()
+
     private val audioManager: AudioManager = mockk(relaxed = true)
     private val context: Context = mockk {
-        every { assets } returns assetManager
+        every { getExternalFilesDir("models") } returns tempModelsDir
         every { getSystemService(Context.AUDIO_SERVICE) } returns audioManager
     }
     private val controller = SherpaOnnxVoiceInputController(context)
 
-    @Test
-    fun `isAvailable returns false when all assets throw`() = runTest {
-        every { assetManager.open(any<String>()) } throws IOException()
+    @AfterEach
+    fun cleanup() {
+        tempModelsDir.deleteRecursively()
+    }
 
+    // ── Availability ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `isAvailable returns false when all model files absent`() = runTest {
+        // tempModelsDir is empty — nothing created.
         assertFalse(controller.isAvailable())
     }
 
     @Test
-    fun `isAvailable returns false when one asset throws`() = runTest {
-        every { assetManager.open(match { it.endsWith("tokens.txt") }) } throws IOException()
-        every { assetManager.open(match { !it.endsWith("tokens.txt") }) } returns InputStream.nullInputStream()
+    fun `isAvailable returns false when one model file absent`() = runTest {
+        // Create 3 of the 4 required files — tokens.txt is missing.
+        listOf(
+            "sherpa-stt-encoder.int8.onnx",
+            "sherpa-stt-decoder.int8.onnx",
+            "sherpa-stt-joiner.int8.onnx",
+        ).forEach { File(tempModelsDir, it).writeText("stub") }
 
         assertFalse(controller.isAvailable())
     }
 
     @Test
     fun `startListening returns Unavailable when model files absent`() = runTest {
-        every { assetManager.open(any<String>()) } throws IOException()
-
+        // No files in tempModelsDir → isAvailable() == false → Unavailable.
         val result = controller.startListening(VoiceCaptureMode.Command)
 
         assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, result)
@@ -49,7 +62,11 @@ class SherpaOnnxVoiceInputControllerTest {
 
     @Test
     fun `startListening returns Unavailable when Sherpa class not found`() = runTest {
-        every { assetManager.open(any<String>()) } returns InputStream.nullInputStream()
+        // All four model files present → isAvailable() == true.
+        // initRecognizer() then calls Class.forName("com.k2fsa.sherpa.onnx.FeatureConfig"),
+        // which throws ClassNotFoundException because the AAR is not on the unit-test
+        // classpath → ensureRecognizer() returns null → Unavailable.
+        createAllStubModelFiles()
 
         val result = controller.startListening(VoiceCaptureMode.Command)
 
@@ -95,5 +112,16 @@ class SherpaOnnxVoiceInputControllerTest {
         assertFalse("hey jandalish".containsWakePhrase())
         assertTrue("oh heyjandal who".containsWakePhrase())
         assertTrue("say hey jandal now".containsWakePhrase())
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private fun createAllStubModelFiles() {
+        listOf(
+            "sherpa-stt-encoder.int8.onnx",
+            "sherpa-stt-decoder.int8.onnx",
+            "sherpa-stt-joiner.int8.onnx",
+            "sherpa-stt-tokens.txt",
+        ).forEach { name -> File(tempModelsDir, name).writeText("stub") }
     }
 }

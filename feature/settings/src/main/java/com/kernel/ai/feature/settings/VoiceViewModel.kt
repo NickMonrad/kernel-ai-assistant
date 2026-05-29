@@ -14,6 +14,9 @@ import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WAKE_WORD_DEFAULT_THRESHOLD
 import com.kernel.ai.core.voice.WakeWordPreferences
+import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.inference.download.ModelDownloadManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -68,6 +71,15 @@ data class VoiceUiState(
     val isWakeWordModelAvailable: Boolean = false,
     /** Wake word confidence threshold in [0, 1].  Reflects [WakeWordPreferences.confidenceThreshold]. */
     val wakeWordThreshold: Float = WAKE_WORD_DEFAULT_THRESHOLD,
+    // ── Sherpa-ONNX STT model download state ─────────────────────────────────
+    /** True when all four STT model files are present in external storage. */
+    val isSherpaOnnxSttDownloaded: Boolean = false,
+    /** True when at least one STT model file is actively downloading. */
+    val isSherpaOnnxSttDownloading: Boolean = false,
+    /** Combined download progress across all STT model files (0–1). */
+    val sherpaOnnxSttProgress: Float = 0f,
+    /** Non-null when a download attempt failed. */
+    val sherpaOnnxSttError: String? = null,
 )
 
 @HiltViewModel
@@ -78,6 +90,7 @@ class VoiceViewModel @Inject constructor(
     private val sherpaVoicePackDownloadManager: SherpaVoicePackDownloadManager,
     private val wakeWordPreferences: WakeWordPreferences,
     private val wakeWordDetector: WakeWordDetector,
+    private val modelDownloadManager: ModelDownloadManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(VoiceUiState())
@@ -213,6 +226,36 @@ class VoiceViewModel @Inject constructor(
             }
         }
         _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
+        viewModelScope.launch {
+            modelDownloadManager.downloadStates.collect { states ->
+                val sttModels = listOf(
+                    KernelModel.SHERPA_STT_ENCODER,
+                    KernelModel.SHERPA_STT_DECODER,
+                    KernelModel.SHERPA_STT_JOINER,
+                    KernelModel.SHERPA_STT_TOKENS,
+                )
+                val allDownloaded = sttModels.all { states[it] is DownloadState.Downloaded }
+                val anyDownloading = sttModels.any { states[it] is DownloadState.Downloading }
+                // Weight progress by approximate file size (encoder dominates at ~67 MB).
+                val weights = longArrayOf(67_000_000L, 3_000_000L, 2_000_000L, 75_000L)
+                val totalWeight = weights.sum().toFloat()
+                val weightedProgress = sttModels.mapIndexed { i, model ->
+                    val p = (states[model] as? DownloadState.Downloading)?.progress ?: 0f
+                    p * weights[i]
+                }.sum() / totalWeight
+                val error = sttModels
+                    .mapNotNull { (states[it] as? DownloadState.Error)?.message }
+                    .firstOrNull()
+                _uiState.update {
+                    it.copy(
+                        isSherpaOnnxSttDownloaded = allDownloaded,
+                        isSherpaOnnxSttDownloading = anyDownloading && !allDownloaded,
+                        sherpaOnnxSttProgress = weightedProgress,
+                        sherpaOnnxSttError = error,
+                    )
+                }
+            }
+        }
     }
 
     fun setVoiceInputEngine(engine: VoiceInputEngine) {
@@ -220,6 +263,22 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             voiceInputPreferences.setSelectedEngine(engine)
         }
+    }
+
+
+    private val sttModels = listOf(
+        KernelModel.SHERPA_STT_ENCODER,
+        KernelModel.SHERPA_STT_DECODER,
+        KernelModel.SHERPA_STT_JOINER,
+        KernelModel.SHERPA_STT_TOKENS,
+    )
+
+    fun downloadSherpaOnnxStt() {
+        sttModels.forEach { modelDownloadManager.startDownload(it) }
+    }
+
+    fun cancelSherpaOnnxSttDownload() {
+        sttModels.forEach { modelDownloadManager.cancelDownload(it) }
     }
 
     fun setSpokenResponsesEnabled(enabled: Boolean) {
