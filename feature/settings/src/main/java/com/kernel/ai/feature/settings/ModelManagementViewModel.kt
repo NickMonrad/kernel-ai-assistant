@@ -55,7 +55,7 @@ class ModelManagementViewModel @Inject constructor(
         jandalPersona.personaMode,
     ) { downloadStates, hfAuthenticated, hfUsername, preferredModel, personaMode ->
         ModelManagementUiState(
-            models = KernelModel.entries.map { model ->
+            models = KernelModel.entries.filter { it.showInModelManagement }.map { model ->
                 ModelRowState(
                     model = model,
                     downloadState = downloadStates[model] ?: DownloadState.NotDownloaded,
