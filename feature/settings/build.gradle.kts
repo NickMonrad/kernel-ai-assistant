@@ -51,6 +51,7 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)
+    implementation(libs.activity.compose)
 
     // Hilt
     implementation(libs.hilt.android)

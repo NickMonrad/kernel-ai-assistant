@@ -87,6 +87,8 @@ class VoskOfflineVoiceInputController @Inject constructor(
                 speechService?.shutdown()
                 speechService = null
                 releaseAudioFocus()
+                _events.tryEmit(VoiceInputEvent.Error(mode, e.message ?: "Failed to start offline voice input."))
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode))
                 VoiceInputStartResult.Unavailable(
                     e.message ?: "Failed to start offline voice input."
                 )

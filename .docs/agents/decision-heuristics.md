@@ -14,7 +14,7 @@ Load this when multiple valid approaches exist.
 
 - Prefer `android` CLI when available; fall back to Gradle + `adb`
 - Prefer explicit Intents over implicit for SMS, email, and other external actions
-- Prefer `Dispatchers.Default` or dedicated LLM dispatcher — never `Dispatchers.Main` for inference
+- Prefer dedicated LLM dispatcher — never `Dispatchers.Main` for inference
 - Prefer Material 3 components over custom Compose implementations
 - Prefer Room entities over raw SQL where possible
 
@@ -23,7 +23,6 @@ Load this when multiple valid approaches exist.
 - Always mock `InferenceEngine` in tests — never load real models
 - Prefer `safeTokenCount()` guard for all token count operations
 - Verify quantization before assuming OOM is a memory issue
-- E4B loads before FunctionGemma consideration — never change this order
 
 ## Wasm-specific heuristics
 
@@ -34,6 +33,5 @@ Load this when multiple valid approaches exist.
 
 ## Documentation heuristics
 
-- Keep `AGENTS.md`, `.opencode/agents/`, `copilot-instructions.md`, and `README.md` aligned
+- Update `.omp/AGENTS.md` first when architecture or conventions change — other files follow
 - Update `specification.md` when API contracts change
-- Document architecture decisions in `copilot-instructions.md`, not in code comments

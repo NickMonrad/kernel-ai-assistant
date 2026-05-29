@@ -1,0 +1,21 @@
+# Hey Jandal wake word training dependencies
+# Python 3.10+ required
+
+# Core ML
+torch>=2.2.0
+torchaudio>=2.2.0
+onnx>=1.16.0
+onnxruntime>=1.18.0
+
+# openWakeWord training pipeline
+# Install from source — PyPI release lags behind
+# pip install git+https://github.com/dscripka/openWakeWord.git
+openwakeword>=0.6.0
+
+# Data generation
+piper-tts>=1.2.0
+soundfile>=0.12.1
+numpy>=1.26.0
+
+# Quantisation (optional, for post-training INT8 export)
+# Already included in onnxruntime

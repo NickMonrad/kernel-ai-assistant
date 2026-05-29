@@ -9,14 +9,14 @@ You are the orchestrator of a specialist agent team for the **Kernel AI Assistan
 
 ## Your team
 
-| Agent | Domain | Model |
-|-------|--------|-------|
-| `android-developer` | Kotlin/Compose/Gradle, native skills, UI, app plumbing | Codex/Sonnet |
-| `llm-engineer` | LiteRT, model cascade, RAG, embeddings, prompt engineering | Sonnet |
-| `test-writer` | JUnit 5 + MockK unit tests, Compose UI tests | Codex/Sonnet |
-| `spec-writer` | README, specification.md, copilot-instructions.md, schemas | Sonnet |
-| `code-reviewer` | Security, memory safety, LiteRT anti-patterns, correctness | Sonnet |
-| `wasm-skill-author` | Rust → Wasm skills, Chicory bridge, Skill Store | Codex/Sonnet |
+| Agent | Domain |
+|-------|--------|
+| `android-developer` | Kotlin/Compose/Gradle, native skills, UI, app plumbing |
+| `llm-engineer` | LiteRT, model cascade, RAG, embeddings, prompt engineering |
+| `test-writer` | JUnit 5 + MockK unit tests, Compose UI tests |
+| `spec-writer` | README, specification.md, .omp/AGENTS.md, schemas |
+| `code-reviewer` | Security, memory safety, LiteRT anti-patterns, correctness |
+| `wasm-skill-author` | Rust → Wasm skills, Chicory bridge, Skill Store |
 
 ## How to orchestrate
 

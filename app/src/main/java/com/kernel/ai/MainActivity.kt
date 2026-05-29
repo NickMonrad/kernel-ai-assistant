@@ -17,6 +17,9 @@ import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.navigation.KernelNavHost
 import dagger.hilt.android.AndroidEntryPoint
+import com.kernel.ai.assistant.WakeWordService
+import com.kernel.ai.core.voice.WakeWordPreferences
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import net.openid.appauth.AuthorizationException
 import net.openid.appauth.AuthorizationResponse
@@ -32,15 +35,25 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var authRepository: HuggingFaceAuthRepository
 
     /** Injected for ADB `--es profile_text` test support — triggers profile parse + logcat output. */
+    @Inject lateinit var wakeWordPreferences: WakeWordPreferences
+
     @Inject lateinit var userProfileRepository: UserProfileRepository
 
     /** Bridges ADB `--es chat_input` extras (onCreate + onNewIntent) into the nav graph. */
     private val adbChatInput = mutableStateOf<String?>(null)
 
+    /** One-shot widget/Side-key query delivered via onCreate or onNewIntent.
+     *  The [serial] increments on every delivery so [LaunchedEffect] re-fires
+     *  even when the query text is identical to the previous one. */
+    private data class QuickActionRequest(val query: String, val isVoice: Boolean, val serial: Int)
+
+
     /** Bridges ADB `--es quick_action_input` extras into ActionsViewModel.executeAction(). */
-    private val adbQuickActionInput = mutableStateOf<String?>(null)
+    private val adbQuickActionInput = mutableStateOf<QuickActionRequest?>(null)
+    private var quickActionSerial = 0
 
     /** True when quick_action_input was delivered from the widget voice mic (needs voice TTS reply). */
+    @Deprecated("Folded into QuickActionRequest.isVoice — kept only so KernelNavHost can read it without overload churn")
     private val adbQuickActionIsVoice = mutableStateOf(false)
 
     /** Bridges ADB `--es slot_reply_input` extras into ActionsViewModel.onSlotReply(). */
@@ -58,8 +71,11 @@ class MainActivity : ComponentActivity() {
         // re-seeding here would cause LaunchedEffect to navigate again with a fresh
         // (unconsumed) entry and re-execute the query unexpectedly.
         if (savedInstanceState == null) {
-            adbQuickActionInput.value = intent.getStringExtra("quick_action_input")
-            adbQuickActionIsVoice.value = intent.getBooleanExtra("quick_action_is_voice", false)
+            intent.getStringExtra("quick_action_input")?.takeIf { it.isNotBlank() }?.let {
+                val voice = intent.getBooleanExtra("quick_action_is_voice", false)
+                adbQuickActionInput.value = QuickActionRequest(it, voice, ++quickActionSerial)
+                adbQuickActionIsVoice.value = voice
+            }
         }
         adbSlotReplyInput.value = intent.getStringExtra("slot_reply_input")
         handleAdbProfileText(intent)
@@ -68,13 +84,29 @@ class MainActivity : ComponentActivity() {
             KernelAITheme {
                 KernelNavHost(
                     initialChatQuery = adbChatInput.value,
-                    initialQuickActionQuery = adbQuickActionInput.value,
-                    initialQuickActionIsVoice = adbQuickActionIsVoice.value,
+                    initialQuickActionQuery = adbQuickActionInput.value?.query,
+                    initialQuickActionIsVoice = adbQuickActionInput.value?.isVoice ?: false,
+                    quickActionSerial = adbQuickActionInput.value?.serial ?: 0,
                     initialSlotReply = adbSlotReplyInput.value,
                 )
             }
         }
     }
+
+    /**
+     * Retry starting WakeWordService now that we are in the foreground.
+     * Application.onCreate fires the heyJandalEnabled collector before the activity is
+     * visible, so startForegroundService() fails with mAllowStartForeground=false there.
+     */
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch {
+            if (wakeWordPreferences.heyJandalEnabled.first()) {
+                WakeWordService.start(this@MainActivity)
+            }
+        }
+    }
+
 
     /**
      * Called when AppAuth's PendingIntent delivers the OAuth result back to this activity.
@@ -88,9 +120,10 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         intent.getStringExtra("chat_input")?.let { adbChatInput.value = it }
-        intent.getStringExtra("quick_action_input")?.let {
-            adbQuickActionInput.value = it
-            adbQuickActionIsVoice.value = intent.getBooleanExtra("quick_action_is_voice", false)
+        intent.getStringExtra("quick_action_input")?.takeIf { it.isNotBlank() }?.let {
+            val voice = intent.getBooleanExtra("quick_action_is_voice", false)
+            adbQuickActionInput.value = QuickActionRequest(it, voice, ++quickActionSerial)
+            adbQuickActionIsVoice.value = voice
         }
         intent.getStringExtra("slot_reply_input")?.let { adbSlotReplyInput.value = it }
         handleAdbProfileText(intent)
