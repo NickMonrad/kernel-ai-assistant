@@ -1033,7 +1033,7 @@ class ActionsViewModelVoiceTest {
         every { runIntentSkill.description } returns "Run intent"
         every { runIntentSkill.schema } returns SkillSchema()
         coEvery { runIntentSkill.execute(any()) } returnsMany listOf(
-            SkillResult.Failure("make_call", "Phone permission is required for auto-dial."),
+SkillResult.Failure("make_call", "Phone permission is required for auto-dial. Check Settings → App Permissions to grant it."),
             SkillResult.Success("Calling susan monrad"),
         )
 
@@ -1048,7 +1048,7 @@ class ActionsViewModelVoiceTest {
             quickActionDao.insert(
                 match {
                     it.skillName == "make_call" &&
-                        it.resultText == "Phone permission is required for auto-dial." &&
+it.resultText == "Phone permission is required for auto-dial. Check Settings → App Permissions to grant it." &&
                         !it.isSuccess
                 }
             )
