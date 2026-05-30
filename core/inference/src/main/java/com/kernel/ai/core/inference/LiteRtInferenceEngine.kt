@@ -453,11 +453,9 @@ private fun stripOverlappingReplayPrefix(current: String, emitted: String, minOv
  * All operations are dispatched to [LlmDispatcher] (single named thread)
  * to guarantee safety and keep the "llm-inference" thread visible in profiling.
  *
- * Backend selection: AUTO tries NPU → GPU → CPU. The first backend that
- * initialises successfully is used for the lifetime of the engine.
- *
- * NPU note: SamplerConfig must be null when using Backend.NPU (hardware
- * sampler is used instead). This matches Gallery reference behaviour.
+ * Backend selection: AUTO resolves to [HardwareProfileDetector.profile]'s recommended
+ * backend (GPU for FLAGSHIP/MID_RANGE, CPU for LOW_POWER — see [HardwareProfileDetector]).
+ * SamplerConfig must be null for NPU (hardware sampler is used instead).
  */
 @OptIn(ExperimentalApi::class)
 @Singleton
