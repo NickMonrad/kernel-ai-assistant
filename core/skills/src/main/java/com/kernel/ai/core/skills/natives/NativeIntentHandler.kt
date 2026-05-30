@@ -61,7 +61,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 private const val TAG = "KernelAI"
-private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
+private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial. Check Settings → App Permissions to grant it."
 
 interface ClockAlertController {
     fun dismissActiveTimerAlerts(): Boolean
