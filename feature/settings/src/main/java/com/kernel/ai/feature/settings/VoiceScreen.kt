@@ -124,11 +124,14 @@ fun VoiceScreen(
         uiState = uiState,
         onBack = onBack,
         onRequestAssistantRole = {
-            // Samsung One UI overrides RoleManager.ROLE_ASSISTANT with a proprietary
-            // RoleControllerService that silently rejects third-party VIS packages.
-            // On Samsung we deep-link directly to the assistant chooser page; on all
-            // other OEMs we use the standard role request dialog.
-            if (Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
+            // Samsung One UI and Honor Magic OS both override RoleManager.ROLE_ASSISTANT
+            // with proprietary RoleControllerServices that silently reject third-party VIS
+            // packages. On these OEMs we deep-link directly to the assistant chooser page;
+            // on all other OEMs we use the standard role request dialog.
+            val manufacturer = Build.MANUFACTURER
+            if (manufacturer.equals("samsung", ignoreCase = true) ||
+                manufacturer.equals("honor", ignoreCase = true)
+            ) {
                 val settingsIntent = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)
                 try {
                     assistantRoleLauncher.launch(settingsIntent)
