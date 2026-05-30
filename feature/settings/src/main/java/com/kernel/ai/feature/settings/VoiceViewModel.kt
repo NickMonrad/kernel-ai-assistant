@@ -8,6 +8,8 @@ import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceInputEngine
+import com.kernel.ai.core.voice.ParakeetModelSize
+import com.kernel.ai.core.voice.ParakeetVoiceInputController
 import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -96,6 +98,8 @@ data class VoiceUiState(
     val isParakeetCtcDownloading: Boolean = false,
     val parakeetCtcProgress: Float = 0f,
     val parakeetCtcError: String? = null,
+    /** Selected Parakeet model size (0.25B or 2B). */
+    val selectedParakeetModelSize: ParakeetModelSize = ParakeetModelSize._0_25B,
 )
 
 @HiltViewModel
@@ -310,6 +314,7 @@ class VoiceViewModel @Inject constructor(
             modelDownloadManager.downloadStates.collect { states ->
                 val parakeetModels = listOf(
                     KernelModel.PARAKEET_CTC_0_25B,
+                    KernelModel.PARAKEET_CTC_2B,
                     KernelModel.PARAKEET_CTC_TOKENIZER,
                 )
                 val allDownloaded = parakeetModels.all { states[it] is DownloadState.Downloaded }
@@ -334,6 +339,12 @@ class VoiceViewModel @Inject constructor(
                         parakeetCtcError = error,
                     )
                 }
+            }
+        }
+        // Parakeet model size selector
+        viewModelScope.launch {
+            voiceInputPreferences.parakeetModelSize.collect { size ->
+                _uiState.update { it.copy(selectedParakeetModelSize = size) }
             }
         }
     }
@@ -436,6 +447,12 @@ class VoiceViewModel @Inject constructor(
                     setVoiceInputEngine(VoiceInputEngine.Vosk)
                 }
             }
+        }
+    }
+    fun setParakeetModelSize(size: ParakeetModelSize) {
+        _uiState.update { it.copy(selectedParakeetModelSize = size) }
+        viewModelScope.launch {
+            voiceInputPreferences.setParakeetModelSize(size)
         }
     }
 

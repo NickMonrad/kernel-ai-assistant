@@ -207,19 +207,36 @@ enum class KernelModel(
     // ── Parakeet CTC (0.25B, INT8, English) ─────────────────────────────────
     //
     // NVIDIA's Parakeet-CTC FastConformer 0.25B INT8, TFLite-converted by
-    // litert-community.  ~300 MB.  Requires a separate SentencePiece tokenizer.
+    // litert-community.  ~100 MB.  Requires a separate SentencePiece tokenizer.
     // Push-to-talk only — bounded to ~5 s audio segments.
     PARAKEET_CTC_0_25B(
         displayName = "Parakeet CTC 0.25B",
         fileName = "parakeet-ctc-0.25b_i8.tflite",
         downloadUrl = "https://huggingface.co/litert-community/parakeet-ctc-0.25b/resolve/main/parakeet-ctc-0.25b_i8.tflite",
-        approxSizeBytes = 314_572_800L, // ~300 MB
+        approxSizeBytes = 100_000_000L, // ~100 MB
         isRequired = false,
         preferredForTier = null,
-        isGated = false,
+        isGated = true,
+        licenceUrl = "https://huggingface.co/litert-community/parakeet-ctc-0.25b",
         showInModelManagement = false,
     ),
-    /** SentencePiece tokenizer required by Parakeet CTC — shared vocab with the 0.6B model. */
+    // ── Parakeet CTC (2.0B, INT8, English) ─────────────────────────────────
+    //
+    // NVIDIA's Parakeet-CTC FastConformer 2.0B INT8, TFLite-converted by
+    // litert-community.  ~1.2 GB.  Requires a separate SentencePiece tokenizer.
+    // Push-to-talk only — bounded to ~5 s audio segments.  Highest accuracy
+    // of the available Parakeet CTC variants.
+    PARAKEET_CTC_2B(
+        displayName = "Parakeet CTC 2.0B",
+        fileName = "parakeet-ctc-2.0b_i8.tflite",
+        downloadUrl = "https://huggingface.co/litert-community/parakeet-ctc-2.0b/resolve/main/parakeet-ctc-2.0b_i8.tflite",
+        approxSizeBytes = 1_200_000_000L, // ~1.2 GB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = true,
+        licenceUrl = "https://huggingface.co/litert-community/parakeet-ctc-2.0b",
+        showInModelManagement = false,
+    ),
     PARAKEET_CTC_TOKENIZER(
         displayName = "Parakeet CTC Tokenizer",
         fileName = "parakeet-ctc-tokenizer.model",

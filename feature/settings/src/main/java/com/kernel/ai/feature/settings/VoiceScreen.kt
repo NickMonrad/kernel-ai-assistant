@@ -64,6 +64,8 @@ import com.kernel.ai.core.voice.SemaineSpeakerMetadata
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VctkSpeakerMetadata
+import com.kernel.ai.core.voice.ParakeetModelSize
+import com.kernel.ai.core.voice.ParakeetVoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
@@ -196,6 +198,7 @@ fun VoiceScreen(
         onDownloadParakeetCtc = viewModel::downloadParakeetCtc,
         onCancelParakeetCtcDownload = viewModel::cancelParakeetCtcDownload,
         onDeleteParakeetCtc = viewModel::deleteParakeetCtc,
+        onParakeetModelSizeSelected = viewModel::setParakeetModelSize,
     )
 }
 
@@ -235,6 +238,7 @@ private fun VoiceScreenContent(
     onDownloadSherpaOnnxStt: () -> Unit,
     onCancelSherpaOnnxSttDownload: () -> Unit,
     onDeleteSherpaOnnxStt: () -> Unit,
+    onParakeetModelSizeSelected: (ParakeetModelSize) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -485,6 +489,8 @@ private fun VoiceScreenContent(
                         onDownload = onDownloadParakeetCtc,
                         onCancel = onCancelParakeetCtcDownload,
                         onDelete = onDeleteParakeetCtc,
+                        selectedModelSize = uiState.selectedParakeetModelSize,
+                        onModelSizeSelected = onParakeetModelSizeSelected,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
@@ -1614,6 +1620,8 @@ private fun ParakeetCtcDownloadCard(
     isDownloading: Boolean,
     progress: Float,
     error: String?,
+    selectedModelSize: ParakeetModelSize,
+    onModelSizeSelected: (ParakeetModelSize) -> Unit,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
@@ -1641,7 +1649,7 @@ private fun ParakeetCtcDownloadCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (isDownloaded) "Parakeet model ready" else "Parakeet model required (~300 MB)",
+                        text = if (isDownloaded) "Parakeet model ready" else "Parakeet model required",
                         style = MaterialTheme.typography.labelMedium,
                         color = if (isDownloaded)
                             MaterialTheme.colorScheme.onPrimaryContainer
@@ -1650,7 +1658,7 @@ private fun ParakeetCtcDownloadCard(
                     )
                     if (!isDownloaded && !isDownloading) {
                         Text(
-                            text = "0.25B CTC · English · Fully offline",
+                            text = "${selectedModelSize.displayName} CTC · English · Fully offline",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1670,6 +1678,30 @@ private fun ParakeetCtcDownloadCard(
                     }
                     isDownloading -> TextButton(onClick = onCancel) { Text("Cancel") }
                     else -> TextButton(onClick = onDownload) { Text("Download") }
+                }
+            }
+            if (!isDownloaded) {
+                // Model size selector
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Model size:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FilterChip(
+                        selected = selectedModelSize == ParakeetModelSize._0_25B,
+                        onClick = { onModelSizeSelected(ParakeetModelSize._0_25B) },
+                        label = { Text("0.25B (~100 MB)") },
+                    )
+                    FilterChip(
+                        selected = selectedModelSize == ParakeetModelSize._2B,
+                        onClick = { onModelSizeSelected(ParakeetModelSize._2B) },
+                        label = { Text("2.0B (~1.2 GB)") },
+                    )
                 }
             }
             if (isDownloading) {
@@ -1866,6 +1898,7 @@ private fun VoiceScreenPreview() {
             onDownloadParakeetCtc = {},
             onCancelParakeetCtcDownload = {},
             onDeleteParakeetCtc = {},
+            onParakeetModelSizeSelected = {},
         )
     }
 }

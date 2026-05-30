@@ -23,6 +23,7 @@ class VoiceInputPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val selectedEngineKey = stringPreferencesKey("selected_voice_input_engine")
+    private val parakeetModelSizeKey = stringPreferencesKey("parakeet_model_size")
     private val autoStartAlertVoiceCommandsEnabledKey =
         booleanPreferencesKey("auto_start_alert_voice_commands_enabled")
 
@@ -47,6 +48,25 @@ class VoiceInputPreferences @Inject constructor(
             }
         }
         .map { prefs -> prefs[autoStartAlertVoiceCommandsEnabledKey] ?: true }
+    val parakeetModelSize: Flow<ParakeetModelSize> = context.voiceInputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading parakeet model size preference; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs ->
+            ParakeetModelSize.valueOf(
+                prefs[parakeetModelSizeKey] ?: ParakeetModelSize._0_25B.name
+            )
+        }
+    suspend fun setParakeetModelSize(size: ParakeetModelSize) {
+        context.voiceInputPrefsDataStore.edit { prefs ->
+            prefs[parakeetModelSizeKey] = size.name
+        }
+    }
 
     suspend fun setSelectedEngine(engine: VoiceInputEngine) {
         context.voiceInputPrefsDataStore.edit { prefs ->

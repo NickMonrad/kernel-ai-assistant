@@ -46,6 +46,8 @@ class VoiceViewModelTest {
     private val wakeWordPreferences: WakeWordPreferences = mockk(relaxed = true)
     private val wakeWordDetector: WakeWordDetector = mockk()
     private val modelDownloadManager: ModelDownloadManager = mockk()
+    private val context: android.content.Context = mockk(relaxed = true)
+    private val parakeetModelSize = MutableStateFlow(com.kernel.ai.core.voice.ParakeetModelSize._0_25B)
     private val heyJandalEnabled = MutableStateFlow(false)
     private val wakeWordThreshold = MutableStateFlow(0.80f)
     private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Vosk)
@@ -88,9 +90,11 @@ class VoiceViewModelTest {
                 localeStatus = AndroidNativeRecognitionLocaleStatus.Ready,
             )
         every { voiceInputPreferences.selectedEngine } returns selectedInputEngine
+        every { voiceInputPreferences.parakeetModelSize } returns parakeetModelSize
         every { voiceInputPreferences.autoStartAlertVoiceCommandsEnabled } returns autoStartAlertVoiceCommandsEnabled
         coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(any()) } just Runs
+        coEvery { voiceInputPreferences.setParakeetModelSize(any()) } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         every { voiceOutputPreferences.selectedEngine } returns selectedOutputEngine
         every { voiceOutputPreferences.selectedSherpaVoice } returns selectedSherpaVoice
@@ -128,7 +132,6 @@ class VoiceViewModelTest {
         every { sherpaVoicePackDownloadManager.deleteVoice(any()) } just Runs
         every { sherpaVoicePackDownloadManager.startKokoroDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.cancelKokoroDownload(any()) } just Runs
-        every { sherpaVoicePackDownloadManager.deleteKokoroVoice(any()) } just Runs
         viewModel = VoiceViewModel(
             androidNativeRecognitionSupport,
             voiceInputPreferences,
@@ -137,6 +140,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            context,
         )
     }
 
@@ -193,6 +197,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -221,6 +226,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -249,6 +255,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 

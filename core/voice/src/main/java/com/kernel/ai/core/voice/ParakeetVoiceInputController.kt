@@ -27,40 +27,53 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * VoiceInputController backed by Parakeet CTC via TFLite Interpreter.
+ * Parakeet CTC model size variants.
  *
- * Uses the LiteRT-community TFLite conversion of NVIDIA's Parakeet-CTC FastConformer model.
- * Input: raw 16 kHz mono PCM16 audio → MFCC features (80-dim mel filters) → TFLite inference →
- * CTC greedy decoding → text.
+ * Each variant maps to a distinct model file and download source.
+ * The tokenizer is shared across all variants.
+ */
+enum class ParakeetModelSize(
+    val fileName: String,
+    val displayName: String,
+    val approxSizeBytes: Long,
+) {
+    _0_25B(
+        fileName = "parakeet-ctc-0.25b_i8.tflite",
+        displayName = "0.25B",
+        approxSizeBytes = 100_000_000L,
+    ),
+    _2B(
+        fileName = "parakeet-ctc-2.0b_i8.tflite",
+        displayName = "2.0B",
+        approxSizeBytes = 1_200_000_000L,
+    ),
+}
+/**
+ * Parakeet CTC STT controller using TFLite.
  *
- * **Design: push-to-talk / batch-only.** Parakeet CTC is bounded to ~5 seconds of audio
- * (the "5s" variant in the model files). No streaming partials.
+ * Supports push-to-talk mode with bounded ~5 s audio segments.
+ * Loads a FastConformer CTC model and a SentencePiece tokenizer.
  *
- * Threading model:
- * - `startListening`/`stopListening` are serialised by [sessionMutex].
- * - Model + tokenizer are cached after first use.
- * - Audio capture runs on [Dispatchers.IO]; [_events] is a [MutableSharedFlow].
+ * Model files are expected in the app's models directory:
+ * - `parakeet-ctc-0.25b_i8.tflite` (0.25B variant)
+ * - `parakeet-ctc-2.0b_i8.tflite` (2B variant)
+ * - `parakeet-ctc-tokenizer.model` (shared tokenizer)
  */
 @Singleton
 class ParakeetVoiceInputController @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : VoiceInputController {
-
     companion object {
         private const val TAG = "ParakeetSTT"
         private const val SAMPLE_RATE = 16000
         private const val CHUNK_SAMPLES = (0.1 * SAMPLE_RATE).toInt() // 100 ms
         private const val LISTEN_TIMEOUT_MS = 15_000L
-
         /** Default model file — generic INT8 variant (~596 MB). */
         const val MODEL_FILE = "parakeet-ctc-0.6b_i8.tflite"
-
         /** SM8550-specific model file — FP32 variant (~1.2 GB, Qualcomm-optimised). */
         const val MODEL_FILE_SM8550 = "parakeet-ctc-0.6b_SM8550_i8.tflite"
-
         /** SentencePiece tokeniser model file. */
         const val TOKENIZER_FILE = "parakeet-ctc-tokenizer.model"
-
         /**
          * Returns true when [this] transcript contains a recognisable form of "Hey Jandal".
          */
@@ -70,13 +83,19 @@ class ParakeetVoiceInputController @Inject constructor(
             return namePattern.containsMatchIn(lower)
         }
     }
-
     // ── Model state ────────────────────────────────────────────────────────────
-
     private var interpreter: Interpreter? = null
     private val modelMutex = Mutex()
-
     private var tokenizer: ParakeetTokenizer? = null
+    /** Selected Parakeet model size (0.25B or 2B). Defaults to 0.25B. */
+    var selectedModelSize: ParakeetModelSize = ParakeetModelSize._0_25B
+        set(value) {
+            field = value
+            // Reset interpreter when model size changes — model file is different
+            interpreter?.close()
+            interpreter = null
+        }
+
 
     // ── Session state ──────────────────────────────────────────────────────────
 
@@ -352,6 +371,16 @@ class ParakeetVoiceInputController @Inject constructor(
         // Fall back to generic INT8
         val generic = File(modelsDir, MODEL_FILE)
         if (generic.exists() && generic.length() > 0) return generic
+        // For 2B variant, try the selected model file
+        if (selectedModelSize == ParakeetModelSize._2B) {
+            val model2b = File(modelsDir, ParakeetModelSize._2B.fileName)
+            if (model2b.exists() && model2b.length() > 0) return model2b
+        }
+        // For 0.25B variant, try the selected model file
+        if (selectedModelSize == ParakeetModelSize._0_25B) {
+            val model025 = File(modelsDir, ParakeetModelSize._0_25B.fileName)
+            if (model025.exists() && model025.length() > 0) return model025
+        }
         return null
     }
 

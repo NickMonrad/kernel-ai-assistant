@@ -23,6 +23,8 @@ class SelectableVoiceInputControllerTest {
     private val voskOfflineVoiceInputController: VoskOfflineVoiceInputController = mockk()
     private val nativeAndroidVoiceInputController: NativeAndroidVoiceInputController = mockk()
     private val sherpaOnnxVoiceInputController: SherpaOnnxVoiceInputController = mockk()
+    private val whisperVoiceInputController: WhisperVoiceInputController = mockk()
+    private val parakeetVoiceInputController: ParakeetVoiceInputController = mockk()
 
     @Test
     fun `events only flow from the selected controller`() = runTest(dispatcher) {
@@ -34,9 +36,13 @@ class SelectableVoiceInputControllerTest {
         every { voskOfflineVoiceInputController.events } returns voskEvents
         every { nativeAndroidVoiceInputController.events } returns nativeEvents
         every { sherpaOnnxVoiceInputController.events } returns MutableSharedFlow()
+        every { whisperVoiceInputController.events } returns MutableSharedFlow()
+        every { parakeetVoiceInputController.events } returns MutableSharedFlow()
         every { voskOfflineVoiceInputController.stopListening() } just runs
         every { nativeAndroidVoiceInputController.stopListening() } just runs
         every { sherpaOnnxVoiceInputController.stopListening() } just runs
+        every { whisperVoiceInputController.stopListening() } just runs
+        every { parakeetVoiceInputController.stopListening() } just runs
         coEvery { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command) } returns VoiceInputStartResult.Started
 
         val controller = SelectableVoiceInputController(
@@ -44,6 +50,8 @@ class SelectableVoiceInputControllerTest {
             voskOfflineVoiceInputController = voskOfflineVoiceInputController,
             nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
             sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
+            whisperVoiceInputController = whisperVoiceInputController,
+            parakeetVoiceInputController = parakeetVoiceInputController,
         )
         val collectJob = launch { controller.events.collect { received += it } }
 
@@ -61,25 +69,34 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
-    fun `stopListening stops both controllers to avoid orphaned sessions`() = runTest(dispatcher) {
+    fun `stopListening stops all controllers to avoid orphaned sessions`() = runTest(dispatcher) {
         every { voiceInputPreferences.selectedEngine } returns MutableStateFlow(VoiceInputEngine.Vosk)
         every { voskOfflineVoiceInputController.events } returns MutableSharedFlow()
         every { nativeAndroidVoiceInputController.events } returns MutableSharedFlow()
         every { sherpaOnnxVoiceInputController.events } returns MutableSharedFlow()
+        every { whisperVoiceInputController.events } returns MutableSharedFlow()
+        every { parakeetVoiceInputController.events } returns MutableSharedFlow()
         every { voskOfflineVoiceInputController.stopListening() } just runs
         every { nativeAndroidVoiceInputController.stopListening() } just runs
         every { sherpaOnnxVoiceInputController.stopListening() } just runs
+        every { whisperVoiceInputController.stopListening() } just runs
+        every { parakeetVoiceInputController.stopListening() } just runs
 
         val controller = SelectableVoiceInputController(
             voiceInputPreferences = voiceInputPreferences,
             voskOfflineVoiceInputController = voskOfflineVoiceInputController,
             nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
             sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
+            whisperVoiceInputController = whisperVoiceInputController,
+            parakeetVoiceInputController = parakeetVoiceInputController,
         )
 
         controller.stopListening()
 
         verify(exactly = 1) { voskOfflineVoiceInputController.stopListening() }
         verify(exactly = 1) { nativeAndroidVoiceInputController.stopListening() }
+        verify(exactly = 1) { sherpaOnnxVoiceInputController.stopListening() }
+        verify(exactly = 1) { whisperVoiceInputController.stopListening() }
+        verify(exactly = 1) { parakeetVoiceInputController.stopListening() }
     }
 }
