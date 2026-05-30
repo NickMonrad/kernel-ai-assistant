@@ -279,9 +279,9 @@ Lower-priority skill additions — third-party integrations and local utilities.
 | [#672](https://github.com/NickMonrad/kernel-ai-assistant/issues/672) | Generic spoken response / TTS foundation | ✅ Done — PR #711 | 🟡 Medium |
 | [#678](https://github.com/NickMonrad/kernel-ai-assistant/issues/678) | Optional native Android STT engine alongside Vosk | ✅ Done — PR #714 | 🟡 Medium |
 | [#717](https://github.com/NickMonrad/kernel-ai-assistant/issues/717) | Harden Android native STT on-device recognizer path | ✅ Done — PR #718 | 🟡 Medium |
-| [#700](https://github.com/NickMonrad/kernel-ai-assistant/issues/700) | Parakeet CTC STT evaluation | ⬜ Pending (see #821) | 🟡 Medium |
-| [#703](https://github.com/NickMonrad/kernel-ai-assistant/issues/703) | Whisper.cpp vs Vosk STT evaluation | ⬜ Pending (see #821) | 🟡 Medium |
-| [#821](https://github.com/NickMonrad/kernel-ai-assistant/issues/821) | Sherpa-ONNX / Sherpa-ncnn STT + VAD evaluation | ⬜ Pending | 🟡 Medium |
+| [#700](https://github.com/NickMonrad/kernel-ai-assistant/issues/700) | Parakeet CTC STT evaluation | ⬜ Deferred (see #1008) | 🟡 Medium |
+| [#703](https://github.com/NickMonrad/kernel-ai-assistant/issues/703) | Whisper.cpp vs Vosk STT evaluation | ⬜ Deferred (see #1008) | 🟡 Medium |
+| [#821](https://github.com/NickMonrad/kernel-ai-assistant/issues/821) | Sherpa-ONNX / Sherpa-ncnn STT + VAD evaluation | ✅ Done — adopted as default STT (#996, #1008) | 🟡 Medium |
 | [#754](https://github.com/NickMonrad/kernel-ai-assistant/issues/754) | Verbal stop command during TTS playback | ✅ Done — PR #789 | 🟡 Medium |
 | [#755](https://github.com/NickMonrad/kernel-ai-assistant/issues/755) | Incremental / low-latency streaming TTS during generation | ✅ Done — PR #780 | 🔴 High |
 | [#770](https://github.com/NickMonrad/kernel-ai-assistant/issues/770) | Sherpa voice quality evaluation | ✅ Done — PR #780 | 🟡 Medium |
