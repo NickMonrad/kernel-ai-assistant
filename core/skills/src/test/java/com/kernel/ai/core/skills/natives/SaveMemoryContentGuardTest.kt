@@ -22,6 +22,20 @@ class SaveMemoryContentGuardTest {
     }
 
     @Test
+    fun `asks recipe specific clarification for issue 937 repro labels`() {
+        // The two garbage saves reported in #937: "Save this recipe to memory" and
+        // "Save the pancakes recipe to memory" reached save_memory with these contents.
+        assertEquals(
+            "Do you want me to remember the full recipe, or a specific fact about it?",
+            clarificationPromptForSaveMemory("recipe to memory", "Nick"),
+        )
+        assertEquals(
+            "Do you want me to remember the full recipe, or a specific fact about it?",
+            clarificationPromptForSaveMemory("pancakes recipe", "Nick"),
+        )
+    }
+
+    @Test
     fun `allows concrete personal facts through`() {
         assertNull(clarificationPromptForSaveMemory("Nick prefers dark mode", "Nick"))
     }
