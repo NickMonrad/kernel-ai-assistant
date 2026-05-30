@@ -69,6 +69,59 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
+    fun `events receive synchronous startup error from newly selected controller`() = runTest(dispatcher) {
+        val selectedEngine = MutableStateFlow(VoiceInputEngine.AndroidNative)
+        val voskEvents = MutableSharedFlow<VoiceInputEvent>()
+        val nativeEvents = MutableSharedFlow<VoiceInputEvent>()
+        val received = mutableListOf<VoiceInputEvent>()
+        every { voiceInputPreferences.selectedEngine } returns selectedEngine
+        every { voskOfflineVoiceInputController.events } returns voskEvents
+        every { nativeAndroidVoiceInputController.events } returns nativeEvents
+        every { sherpaOnnxVoiceInputController.events } returns MutableSharedFlow()
+        every { whisperVoiceInputController.events } returns MutableSharedFlow()
+        every { parakeetVoiceInputController.events } returns MutableSharedFlow()
+        every { voskOfflineVoiceInputController.stopListening() } just runs
+        every { nativeAndroidVoiceInputController.stopListening() } just runs
+        every { sherpaOnnxVoiceInputController.stopListening() } just runs
+        every { whisperVoiceInputController.stopListening() } just runs
+        every { parakeetVoiceInputController.stopListening() } just runs
+        coEvery { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command) } coAnswers {
+            nativeEvents.emit(
+                VoiceInputEvent.Error(
+                    mode = VoiceCaptureMode.Command,
+                    message = "startup failed",
+                ),
+            )
+            VoiceInputStartResult.Started
+        }
+
+        val controller = SelectableVoiceInputController(
+            voiceInputPreferences = voiceInputPreferences,
+            voskOfflineVoiceInputController = voskOfflineVoiceInputController,
+            nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
+            sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
+            whisperVoiceInputController = whisperVoiceInputController,
+            parakeetVoiceInputController = parakeetVoiceInputController,
+        )
+        val collectJob = launch { controller.events.collect { received += it } }
+        advanceUntilIdle()
+
+        controller.startListening(VoiceCaptureMode.Command)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                VoiceInputEvent.Error(
+                    mode = VoiceCaptureMode.Command,
+                    message = "startup failed",
+                ),
+            ),
+            received,
+        )
+        collectJob.cancel()
+    }
+
+    @Test
     fun `stopListening stops all controllers to avoid orphaned sessions`() = runTest(dispatcher) {
         every { voiceInputPreferences.selectedEngine } returns MutableStateFlow(VoiceInputEngine.Vosk)
         every { voskOfflineVoiceInputController.events } returns MutableSharedFlow()

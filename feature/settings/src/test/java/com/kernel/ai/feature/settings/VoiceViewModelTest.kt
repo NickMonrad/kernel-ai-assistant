@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import android.content.Context
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -46,7 +47,7 @@ class VoiceViewModelTest {
     private val wakeWordPreferences: WakeWordPreferences = mockk(relaxed = true)
     private val wakeWordDetector: WakeWordDetector = mockk()
     private val modelDownloadManager: ModelDownloadManager = mockk()
-    private val context: android.content.Context = mockk(relaxed = true)
+    private val context: Context = mockk(relaxed = true)
     private val parakeetModelSize = MutableStateFlow(com.kernel.ai.core.voice.ParakeetModelSize._0_25B)
     private val heyJandalEnabled = MutableStateFlow(false)
     private val wakeWordThreshold = MutableStateFlow(0.80f)
@@ -132,6 +133,7 @@ class VoiceViewModelTest {
         every { sherpaVoicePackDownloadManager.deleteVoice(any()) } just Runs
         every { sherpaVoicePackDownloadManager.startKokoroDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.cancelKokoroDownload(any()) } just Runs
+        every { sherpaVoicePackDownloadManager.deleteKokoroVoice(any()) } just Runs
         viewModel = VoiceViewModel(
             androidNativeRecognitionSupport,
             voiceInputPreferences,
@@ -262,6 +264,22 @@ class VoiceViewModelTest {
         assertEquals(
             "Android native speech recognition could not verify on-device support for English (New Zealand) on this device. It may fail unless that language is supported and installed locally.",
             viewModel.uiState.value.androidNativeAvailabilityMessage,
+        )
+    }
+
+    @Test
+    fun `resolveAndroidNativeAvailabilityMessage returns platform warning`() {
+        val availability = AndroidNativeRecognitionAvailability(
+            isRecognitionAvailable = true,
+            isOnDeviceRecognitionAvailable = false,
+            languageTag = "en-US",
+            languageDisplayName = "English (United States)",
+            localeStatus = AndroidNativeRecognitionLocaleStatus.Unknown,
+        )
+
+        assertEquals(
+            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack or keep using Vosk for guaranteed local voice input.",
+            resolveAndroidNativeAvailabilityMessage(availability),
         )
     }
 

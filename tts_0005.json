@@ -1,0 +1,1 @@
+{"text": " Hey Jambu!", "segments": [{"id": 0, "seek": 0, "start": 0.0, "end": 1.0, "text": " Hey Jambu!", "tokens": [50364, 1911, 508, 2173, 84, 0, 50414], "temperature": 0.0, "avg_logprob": -0.9237332940101624, "compression_ratio": 0.5555555555555556, "no_speech_prob": 0.08600100874900818}], "language": "en"}

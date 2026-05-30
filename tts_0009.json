@@ -1,0 +1,1 @@
+{"text": " Hey, Jando.", "segments": [{"id": 0, "seek": 0, "start": 0.0, "end": 1.0, "text": " Hey, Jando.", "tokens": [50364, 1911, 11, 508, 1806, 13, 50414], "temperature": 0.0, "avg_logprob": -0.8315902352333069, "compression_ratio": 0.5789473684210527, "no_speech_prob": 0.14237701892852783}], "language": "en"}

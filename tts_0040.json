@@ -1,0 +1,1 @@
+{"text": " I'll tell you how to do it.", "segments": [{"id": 0, "seek": 0, "start": 0.0, "end": 2.0, "text": " I'll tell you how to do it.", "tokens": [50364, 286, 603, 980, 291, 577, 281, 360, 309, 13, 50464], "temperature": 0.0, "avg_logprob": -0.9856978257497152, "compression_ratio": 0.8181818181818182, "no_speech_prob": 0.27768877148628235}], "language": "en"}

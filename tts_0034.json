@@ -1,0 +1,1 @@
+{"text": " Hey Django.", "segments": [{"id": 0, "seek": 0, "start": 0.0, "end": 0.84, "text": " Hey Django.", "tokens": [50364, 1911, 33464, 17150, 13, 50406], "temperature": 0.0, "avg_logprob": -0.8853722299848285, "compression_ratio": 0.5789473684210527, "no_speech_prob": 0.17255648970603943}], "language": "en"}

@@ -1,0 +1,4 @@
+{
+    "kotlinLanguageServer.executable": "${workspaceFolder}/scripts/kotlin-lsp-owner.py",
+    "kotlinLanguageServer.stdio": true
+}

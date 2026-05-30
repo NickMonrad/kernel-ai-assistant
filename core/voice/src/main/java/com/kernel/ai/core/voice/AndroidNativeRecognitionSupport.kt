@@ -1,7 +1,11 @@
 package com.kernel.ai.core.voice
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.provider.Settings
+import android.speech.RecognitionService
 import android.speech.RecognitionSupport
 import android.speech.RecognitionSupportCallback
 import android.speech.RecognizerIntent
@@ -21,6 +25,9 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 private const val TAG = "NativeVoiceInput"
+private const val VOICE_RECOGNITION_SERVICE_SETTING = "voice_recognition_service"
+private const val NO_EXTERNAL_RECOGNIZER_MESSAGE =
+    "Android speech recognition is unavailable because no external recognition service is configured on this device."
 
 data class AndroidNativeRecognitionAvailability(
     val isRecognitionAvailable: Boolean,
@@ -59,10 +66,54 @@ enum class AndroidNativeRecognitionLocaleStatus {
     Unknown,
 }
 
+private data class ParsedRecognitionComponent(
+    val packageName: String,
+    val className: String,
+) {
+    fun flatten(): String = "$packageName/$className"
+}
+
 private data class LocaleSupportCache(
     val languageTag: String,
     val localeStatus: AndroidNativeRecognitionLocaleStatus,
 )
+internal fun selectPlatformRecognitionService(
+    configuredService: String?,
+    availableServices: List<String>,
+    selfPackageName: String,
+): String? {
+    fun parse(componentName: String): ParsedRecognitionComponent? {
+        val slash = componentName.indexOf('/')
+        if (slash <= 0 || slash == componentName.lastIndex) return null
+        val packageName = componentName.substring(0, slash)
+        val rawClassName = componentName.substring(slash + 1)
+        if (packageName.isBlank() || rawClassName.isBlank()) return null
+        val className = when {
+            rawClassName.startsWith('.') -> "$packageName$rawClassName"
+            '.' in rawClassName -> rawClassName
+            else -> "$packageName.$rawClassName"
+        }
+        return ParsedRecognitionComponent(packageName = packageName, className = className)
+    }
+
+    val availableComponents = availableServices.mapNotNull { raw ->
+        parse(raw)?.let { component -> raw to component }
+    }
+    val externalComponents = availableComponents.filter { (_, component) ->
+        component.packageName != selfPackageName
+    }
+    val configuredExternalComponent = configuredService
+        ?.let(::parse)
+        ?.takeIf { it.packageName != selfPackageName }
+
+    return when {
+        externalComponents.isEmpty() -> null
+        configuredExternalComponent == null -> externalComponents.first().second.flatten()
+        externalComponents.any { (_, component) -> component == configuredExternalComponent } ->
+            configuredExternalComponent.flatten()
+        else -> externalComponents.first().second.flatten()
+    }
+}
 
 
 @Singleton
@@ -143,9 +194,39 @@ class AndroidNativeRecognitionSupport @Inject constructor(
 
     fun createOnDeviceSpeechRecognizer(): SpeechRecognizer =
         SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-
-    fun createPlatformSpeechRecognizer(): SpeechRecognizer =
-        SpeechRecognizer.createSpeechRecognizer(context)
+    fun createPlatformSpeechRecognizer(): SpeechRecognizer {
+        val configuredService = Settings.Secure.getString(
+            context.contentResolver,
+            VOICE_RECOGNITION_SERVICE_SETTING,
+        )?.takeIf { it.isNotBlank() }
+        val availableServices = context.packageManager.queryIntentServices(
+            Intent(RecognitionService.SERVICE_INTERFACE),
+            PackageManager.ResolveInfoFlags.of(0),
+        ).mapNotNull { resolveInfo ->
+            resolveInfo.serviceInfo?.let { serviceInfo ->
+                ComponentName(serviceInfo.packageName, serviceInfo.name).flattenToShortString()
+            }
+        }
+        val selectedService = selectPlatformRecognitionService(
+            configuredService = configuredService,
+            availableServices = availableServices,
+            selfPackageName = context.packageName,
+        )
+        Log.i(
+            TAG,
+            "Platform recognition service selection: configured=$configuredService " +
+                "available=$availableServices selected=$selectedService",
+        )
+        val selectedComponent = selectedService?.let(ComponentName::unflattenFromString)
+        if (selectedComponent == null) {
+            Log.w(
+                TAG,
+                "No external platform recognition service available: configured=$configuredService available=$availableServices",
+            )
+            throw IllegalStateException(NO_EXTERNAL_RECOGNIZER_MESSAGE)
+        }
+        return SpeechRecognizer.createSpeechRecognizer(context, selectedComponent)
+    }
 
     private suspend fun checkLocaleSupport(languageTag: String): AndroidNativeRecognitionLocaleStatus {
         // Run in an independent scope so the RecognitionSupportCallback closure
@@ -225,6 +306,7 @@ class AndroidNativeRecognitionSupport @Inject constructor(
         }
     }
 }
+
 
 internal fun createRecognitionAvailability(
     isRecognitionAvailable: Boolean,

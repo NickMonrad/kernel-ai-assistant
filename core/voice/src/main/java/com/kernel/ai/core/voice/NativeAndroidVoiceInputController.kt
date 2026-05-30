@@ -26,10 +26,17 @@ import kotlinx.coroutines.withContext
 private const val TAG = "NativeVoiceInput"
 private const val ON_DEVICE_READY_TIMEOUT_MS = 1_500L
 private const val SESSION_RESULT_TIMEOUT_MS = 6_000L
-private const val ALERT_SESSION_RESULT_TIMEOUT_MS = 2_500L
+private const val ALERT_SESSION_SILENCE_TIMEOUT_MS = 2_500L
 
-internal fun sessionResultTimeoutMs(mode: VoiceCaptureMode): Long =
-    if (mode == VoiceCaptureMode.AlertCommand) ALERT_SESSION_RESULT_TIMEOUT_MS else SESSION_RESULT_TIMEOUT_MS
+internal fun sessionResultTimeoutMs(
+    mode: VoiceCaptureMode,
+    hasSpeechProgress: Boolean = false,
+): Long =
+    if (mode == VoiceCaptureMode.AlertCommand && !hasSpeechProgress) {
+        ALERT_SESSION_SILENCE_TIMEOUT_MS
+    } else {
+        SESSION_RESULT_TIMEOUT_MS
+    }
 
 
 
@@ -47,8 +54,16 @@ internal enum class RecognizerBackend {
     Platform,
 }
 
-internal fun initialRecognizerBackend(): RecognizerBackend =
-    RecognizerBackend.OnDevice
+internal fun initialRecognizerBackend(mode: VoiceCaptureMode): RecognizerBackend =
+    if (mode == VoiceCaptureMode.AlertCommand) {
+        // Wake-word / alert flows are cue-driven. Starting on-device first can report ready,
+        // play the cue, then silently fall back to platform seconds later on some devices
+        // (observed on S23). Start directly on the vetted platform recognizer for alert
+        // commands so the cue aligns with the backend that will actually capture speech.
+        RecognizerBackend.Platform
+    } else {
+        RecognizerBackend.OnDevice
+    }
 
 internal fun shouldRetryWithPlatformAfterStartupTimeout(backend: RecognizerBackend): Boolean =
     backend == RecognizerBackend.OnDevice
@@ -78,6 +93,7 @@ internal fun shouldRetryWithPlatformAfterWatchdogTimeout(
     backend: RecognizerBackend,
     sawPartialTranscript: Boolean,
 ): Boolean = backend == RecognizerBackend.OnDevice && !sawPartialTranscript
+
 
 @Singleton
 class NativeAndroidVoiceInputController @Inject constructor(
@@ -109,11 +125,13 @@ class NativeAndroidVoiceInputController @Inject constructor(
     @Volatile
     private var startupFallbackJob: Job? = null
 
+
     private var nextSessionId: Long = 0L
 
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         return withContext(Dispatchers.Main.immediate) {
             stopListeningInternal(emitStopped = false)
+
 
             val availability = if (shouldUseCachedCaptureAvailability(mode)) {
                 recognitionSupport.getCaptureAvailability()
@@ -136,7 +154,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 val sessionId = ++nextSessionId
                 currentMode = mode
                 activeSessionId = sessionId
-                val startBackend = initialRecognizerBackend()
+                val startBackend = initialRecognizerBackend(mode)
                 try {
                     startRecognizer(
                         sessionId = sessionId,
@@ -144,7 +162,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         availability = availability,
                         backend = startBackend,
                     )
-                } catch (onDeviceEx: Exception) {
+                } catch (startEx: Exception) {
                     // On-device recognizer failed to start (e.g. not installed, OOM). Clean up
                     // any partially-constructed recognizer before retrying with Platform, so we
                     // don't orphan an instance that could fire stale callbacks.
@@ -157,7 +175,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         Log.w(
                             TAG,
                             "On-device recognizer failed to start; retrying with platform backend",
-                            onDeviceEx,
+                            startEx,
                         )
                         startRecognizer(
                             sessionId = sessionId,
@@ -166,7 +184,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                             backend = RecognizerBackend.Platform,
                         )
                     } else {
-                        throw onDeviceEx
+                        throw startEx
                     }
                 }
                 VoiceInputStartResult.Started
@@ -325,7 +343,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         private fun resetSessionWatchdog() {
             sessionWatchdogJob?.cancel()
             sessionWatchdogJob = kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
-                delay(sessionResultTimeoutMs(mode))
+                delay(sessionResultTimeoutMs(mode, hasSpeechProgress = heardSpeech || sawPartialTranscript))
                 if (sessionCompleted || activeSessionId != sessionId) return@launch
                 if (
                     shouldRetryWithPlatformAfterWatchdogTimeout(

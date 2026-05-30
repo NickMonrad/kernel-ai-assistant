@@ -44,6 +44,7 @@ import com.kernel.ai.feature.chat.ActionsScreen
 import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
 import com.kernel.ai.feature.convert.ConvertScreen
+import com.kernel.ai.feature.settings.AppPermissionsScreen
 import com.kernel.ai.feature.settings.AboutScreen
 import com.kernel.ai.feature.settings.ContactAliasesScreen
 import com.kernel.ai.feature.settings.ImportantDatesScreen
@@ -78,6 +79,7 @@ private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
 private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management?scrollTo={scrollTo}"
 private const val ARG_SCROLL_TO = "scrollTo"
 private const val ROUTE_ABOUT = "settings/about"
+private const val ROUTE_APP_PERMISSIONS = "settings/app_permissions"
 private const val ROUTE_CHAT_PREFERENCES = "settings/chat_preferences"
 private const val ROUTE_CONTACT_ALIASES = "settings/contact_aliases"
 private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
@@ -525,6 +527,9 @@ fun KernelNavHost(
                         onNavigateToAbout = {
                             navController.navigate(ROUTE_ABOUT)
                         },
+                        onNavigateToAppPermissions = {
+                            navController.navigate(ROUTE_APP_PERMISSIONS)
+                        },
                     )
                 }
 
@@ -625,6 +630,12 @@ fun KernelNavHost(
                         buildType = com.kernel.ai.BuildConfig.BUILD_TYPE,
                         gitSha = com.kernel.ai.BuildConfig.GIT_SHA,
                         buildTimestamp = com.kernel.ai.BuildConfig.BUILD_TIMESTAMP,
+                    )
+                }
+
+                composable(ROUTE_APP_PERMISSIONS) {
+                    AppPermissionsScreen(
+                        onBack = { navController.popBackStack() },
                     )
                 }
 

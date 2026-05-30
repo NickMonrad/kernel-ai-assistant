@@ -1,0 +1,1 @@
+{"text": " Hey, Jandle.", "segments": [{"id": 0, "seek": 0, "start": 0.0, "end": 1.0, "text": " Hey, Jandle.", "tokens": [50364, 1911, 11, 508, 474, 306, 13, 50414], "temperature": 0.0, "avg_logprob": -0.7918748325771756, "compression_ratio": 0.6, "no_speech_prob": 0.05392744019627571}], "language": "en"}

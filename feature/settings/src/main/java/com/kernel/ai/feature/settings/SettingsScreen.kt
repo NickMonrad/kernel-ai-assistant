@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
@@ -61,6 +62,7 @@ fun SettingsScreen(
     onNavigateToModelManagement: (preferred: Boolean) -> Unit = {},
     onNavigateToChatPreferences: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
+    onNavigateToAppPermissions: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -222,6 +224,17 @@ fun SettingsScreen(
                 headlineContent = { Text("Chat Preferences") },
                 supportingContent = { Text("Font size, bubble theme, colours, wallpaper") },
                 leadingContent = { Icon(Icons.Default.Forum, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToAppPermissions() },
+                headlineContent = { Text("App Permissions") },
+                supportingContent = { Text("View and grant required permissions") },
+                leadingContent = { Icon(Icons.Default.Security, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()

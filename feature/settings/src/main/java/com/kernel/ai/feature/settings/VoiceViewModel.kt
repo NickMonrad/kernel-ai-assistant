@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import android.content.Context
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
+import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
@@ -101,6 +102,10 @@ data class VoiceUiState(
     /** Selected Parakeet model size (0.25B or 2B). */
     val selectedParakeetModelSize: ParakeetModelSize = ParakeetModelSize._0_25B,
 )
+internal fun resolveAndroidNativeAvailabilityMessage(
+    availability: AndroidNativeRecognitionAvailability,
+): String? = availability.warningMessage
+
 
 @HiltViewModel
 class VoiceViewModel @Inject constructor(
@@ -120,9 +125,10 @@ class VoiceViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val availability = androidNativeRecognitionSupport.getAvailability()
+            val nativeWarning = resolveAndroidNativeAvailabilityMessage(availability)
             _uiState.update {
                 it.copy(
-                    androidNativeAvailabilityMessage = availability.warningMessage,
+                    androidNativeAvailabilityMessage = nativeWarning,
                     androidNativeLanguageSummary = availability.languageSummary,
                 )
             }
