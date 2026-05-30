@@ -28,26 +28,26 @@ class NativeAndroidVoiceInputControllerTest {
 
 
     @Test
-    fun `initialRecognizerBackend always starts on device`() {
-        assertEquals(RecognizerBackend.OnDevice, initialRecognizerBackend())
+    fun `initialRecognizerBackend starts alert commands on platform and other modes on device`() {
+        assertEquals(RecognizerBackend.OnDevice, initialRecognizerBackend(VoiceCaptureMode.Command))
+        assertEquals(RecognizerBackend.OnDevice, initialRecognizerBackend(VoiceCaptureMode.SlotReply))
+        assertEquals(RecognizerBackend.Platform, initialRecognizerBackend(VoiceCaptureMode.AlertCommand))
     }
 
     @Test
-    fun `initial backend arms the startup-timeout platform fallback`() {
-        // Contract: whichever backend initialRecognizerBackend() chooses, the startup-timeout
-        // safety net must be active so the async fallback fires if the recognizer stalls.
-        // This also covers the sync-throw path added in startListening: both code paths share
-        // the same RecognizerBackend.OnDevice value, so a change to either helper breaks here.
-        val backend = initialRecognizerBackend()
-        assertEquals(true, shouldRetryWithPlatformAfterStartupTimeout(backend))
+    fun `only on-device initial backend arms startup-timeout platform fallback`() {
+        assertEquals(true, shouldRetryWithPlatformAfterStartupTimeout(initialRecognizerBackend(VoiceCaptureMode.Command)))
+        assertEquals(true, shouldRetryWithPlatformAfterStartupTimeout(initialRecognizerBackend(VoiceCaptureMode.SlotReply)))
+        assertEquals(false, shouldRetryWithPlatformAfterStartupTimeout(initialRecognizerBackend(VoiceCaptureMode.AlertCommand)))
     }
 
 
     @Test
-    fun `sessionResultTimeoutMs shortens alert command watchdog`() {
+    fun `sessionResultTimeoutMs keeps alert pre-speech timeout short but allows more time after progress`() {
         assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.Command))
         assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.SlotReply))
         assertEquals(2_500L, sessionResultTimeoutMs(VoiceCaptureMode.AlertCommand))
+        assertEquals(6_000L, sessionResultTimeoutMs(VoiceCaptureMode.AlertCommand, hasSpeechProgress = true))
     }
 
 
@@ -122,6 +122,7 @@ class NativeAndroidVoiceInputControllerTest {
             ),
         )
     }
+
 
     @Test
     fun `shouldForceRecognizerLanguage only forces verified locale`() {
