@@ -98,3 +98,78 @@ The app operates on a **Brain–Memory–Action** triad using a three-tier Resid
 - 🎙️ **"Hey Jandal" wake word** — always-on local detection → instant action routing *(Phase 3F)*
 
 ## Roadmap
+
+Work is organised by **launch priority** against the Google Play Store release. The
+sequencing below follows the slices in [`docs/PLAN-launch-slice.md`](docs/PLAN-launch-slice.md),
+which is the living plan derived from the full backlog review. Labels: 🔴 `launch:blocking`
+must ship before publish · 🟡 `launch:post` follows shortly after · ⚪ `launch:deferred` is
+consciously parked.
+
+> Counts as of the last backlog review: **24 blocking · 45 post · 17 deferred**. Tracked
+> under [Epic #1014 — Play Store Launch Readiness & QA](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014).
+
+### 🔴 Launch Blocking — ordered by delivery slice
+
+**Slice 1 · Foundation & stability** _(do first — unblocks everything)_
+
+| Issue | Size | Summary |
+|-------|------|---------|
+| [#915](https://github.com/NickMonrad/kernel-ai-assistant/issues/915) · [#916](https://github.com/NickMonrad/kernel-ai-assistant/issues/916) | L · S | Toolchain upgrade — AGP 9 / Gradle 9 / Kotlin 2.3.x / Hilt (touches every module) |
+| [#428](https://github.com/NickMonrad/kernel-ai-assistant/issues/428) | M | Memory profiling — peak RAM & concurrent model usage (feeds #430/#432) |
+| [#692](https://github.com/NickMonrad/kernel-ai-assistant/issues/692) | M | Fix inference stalls in Boring AI Mode |
+| [#937](https://github.com/NickMonrad/kernel-ai-assistant/issues/937) · [#957](https://github.com/NickMonrad/kernel-ai-assistant/issues/957) | M · S | Memory + intent-routing correctness bugs |
+
+**Slice 2 · Heavy hitters — memory-safe model lifecycle** _(highest risk)_
+
+| Issue | Size | Summary |
+|-------|------|---------|
+| [#430](https://github.com/NickMonrad/kernel-ai-assistant/issues/430) | XL | Dynamic model loading state machine — never hold Gemma-4 + EmbeddingGemma at once |
+| [#432](https://github.com/NickMonrad/kernel-ai-assistant/issues/432) | L | Compatibility-tier model swap — auto E-2B + smaller KV cache on 8GB devices |
+
+**Slice 3 · Navigation & visual quality** _(store-listing readiness)_
+
+| Issue | Size | Summary |
+|-------|------|---------|
+| [#747](https://github.com/NickMonrad/kernel-ai-assistant/issues/747) | M | Back-button & blank-screen navigation bug |
+| [#751](https://github.com/NickMonrad/kernel-ai-assistant/issues/751) | L | Navigation refactor — surface Lists / People / Clock / Settings |
+| [#226](https://github.com/NickMonrad/kernel-ai-assistant/issues/226) | L | Jandal visual identity — palette, loading states, 🩴 treatment |
+| [#961](https://github.com/NickMonrad/kernel-ai-assistant/issues/961) | M | In-chat model settings controls |
+
+**Slice 4 · Finish in-flight capabilities**
+
+| Issue | Size | Summary |
+|-------|------|---------|
+| [#996](https://github.com/NickMonrad/kernel-ai-assistant/issues/996) | S | Wire Sherpa-ONNX as wake-word dual-threshold verify window |
+| [#885](https://github.com/NickMonrad/kernel-ai-assistant/issues/885) · [#886](https://github.com/NickMonrad/kernel-ai-assistant/issues/886) | M · M | Messaging — reply via RemoteInput; send to named group chats |
+| [#261](https://github.com/NickMonrad/kernel-ai-assistant/issues/261) | M | Skill discoverability |
+| [#928](https://github.com/NickMonrad/kernel-ai-assistant/issues/928) | L | Hierarchical list items |
+| [#713](https://github.com/NickMonrad/kernel-ai-assistant/issues/713) | L | Vision foundation — single-image Q&A + image-in-chat |
+| [#756](https://github.com/NickMonrad/kernel-ai-assistant/issues/756) · [#824](https://github.com/NickMonrad/kernel-ai-assistant/issues/824) | M · M | Voice — Piper voice-training research; Phase 3F on-device QA gate |
+
+**Slice 5 · Release gate** _(run last)_
+
+| Issue | Size | Summary |
+|-------|------|---------|
+| [#427](https://github.com/NickMonrad/kernel-ai-assistant/issues/427) | XL | Comprehensive verification — full feature matrix on physical S23 Ultra |
+| [#868](https://github.com/NickMonrad/kernel-ai-assistant/issues/868) | S | Documentation & licence/attribution review |
+| [#441](https://github.com/NickMonrad/kernel-ai-assistant/issues/441) | M | Publish to Play Store — account, signing, listing, policy compliance |
+
+### 🟡 Post-Launch — fast-follow after publish
+
+- **Memory & data** — cosine-distance vec tables ([#647](https://github.com/NickMonrad/kernel-ai-assistant/issues/647)), anaphoric "remember that" ([#958](https://github.com/NickMonrad/kernel-ai-assistant/issues/958)), low-confidence search filtering ([#959](https://github.com/NickMonrad/kernel-ai-assistant/issues/959)), Artifact entity ([#235](https://github.com/NickMonrad/kernel-ai-assistant/issues/235))
+- **Skills** — WebSearch ([#407](https://github.com/NickMonrad/kernel-ai-assistant/issues/407)), calendar events ([#942](https://github.com/NickMonrad/kernel-ai-assistant/issues/942)), podcast quick actions ([#587](https://github.com/NickMonrad/kernel-ai-assistant/issues/587)), map/location ([#258](https://github.com/NickMonrad/kernel-ai-assistant/issues/258)), Plex API ([#594](https://github.com/NickMonrad/kernel-ai-assistant/issues/594)) & YouTube Music ([#596](https://github.com/NickMonrad/kernel-ai-assistant/issues/596))
+- **Voice** — STT Kiwi/Māori normalisation epic ([#935](https://github.com/NickMonrad/kernel-ai-assistant/issues/935)), translator skill ([#659](https://github.com/NickMonrad/kernel-ai-assistant/issues/659)), TTS HW accel ([#852](https://github.com/NickMonrad/kernel-ai-assistant/issues/852)), Kokoro quality ([#854](https://github.com/NickMonrad/kernel-ai-assistant/issues/854)), wake-word FP tuning ([#986](https://github.com/NickMonrad/kernel-ai-assistant/issues/986))
+- **Chat UX & vision** — thinking-message refactor ([#964](https://github.com/NickMonrad/kernel-ai-assistant/issues/964)), Ephemeral Vision pipeline ([#287](https://github.com/NickMonrad/kernel-ai-assistant/issues/287)), multimodal audio input ([#943](https://github.com/NickMonrad/kernel-ai-assistant/issues/943))
+- **Optimisation & runtime** — Matryoshka 256-dim embeddings ([#429](https://github.com/NickMonrad/kernel-ai-assistant/issues/429)), battery deferral ([#431](https://github.com/NickMonrad/kernel-ai-assistant/issues/431)), tok/s benchmark ([#803](https://github.com/NickMonrad/kernel-ai-assistant/issues/803)), grounded-numeric reliability ([#968](https://github.com/NickMonrad/kernel-ai-assistant/issues/968))
+- **Test harness** — UIAutomator coverage ([#548](https://github.com/NickMonrad/kernel-ai-assistant/issues/548)) plus harness hardening ([#554](https://github.com/NickMonrad/kernel-ai-assistant/issues/554), [#560](https://github.com/NickMonrad/kernel-ai-assistant/issues/560), [#562](https://github.com/NickMonrad/kernel-ai-assistant/issues/562), [#563](https://github.com/NickMonrad/kernel-ai-assistant/issues/563))
+
+### ⚪ Deferred — parked behind larger phases
+
+- **Phase 4 — Dreaming Engine** ([#705](https://github.com/NickMonrad/kernel-ai-assistant/issues/705)) incl. graph-DB memory research ([#419](https://github.com/NickMonrad/kernel-ai-assistant/issues/419))
+- **Phase 5 — Wasm Runtime + Skill Store** ([#706](https://github.com/NickMonrad/kernel-ai-assistant/issues/706)) incl. MCP integration research ([#944](https://github.com/NickMonrad/kernel-ai-assistant/issues/944))
+- **Phase 6 — Device Optimisation** ([#707](https://github.com/NickMonrad/kernel-ai-assistant/issues/707)) incl. S21 generation failure ([#684](https://github.com/NickMonrad/kernel-ai-assistant/issues/684))
+- **Model experiments** ([#704](https://github.com/NickMonrad/kernel-ai-assistant/issues/704)) — Qwen 3.5 4B/0.8B ([#691](https://github.com/NickMonrad/kernel-ai-assistant/issues/691), [#699](https://github.com/NickMonrad/kernel-ai-assistant/issues/699)), llama.cpp backend ([#702](https://github.com/NickMonrad/kernel-ai-assistant/issues/702))
+- **Alternative STT** — Parakeet CTC ([#700](https://github.com/NickMonrad/kernel-ai-assistant/issues/700)) & whisper.cpp ([#703](https://github.com/NickMonrad/kernel-ai-assistant/issues/703)) — gated on the Sherpa-default decision ([#1008](https://github.com/NickMonrad/kernel-ai-assistant/issues/1008))
+- **Fun / content skills** — joke ([#819](https://github.com/NickMonrad/kernel-ai-assistant/issues/819)), storytelling ([#820](https://github.com/NickMonrad/kernel-ai-assistant/issues/820)), learn-something-new ([#949](https://github.com/NickMonrad/kernel-ai-assistant/issues/949))
+
+> Full sequencing, dependencies, and critical path: [`docs/PLAN-launch-slice.md`](docs/PLAN-launch-slice.md).

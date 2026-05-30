@@ -115,7 +115,9 @@ storytelling, #949 learn-something), and TTS quality polish (#852, #854, #784).
 
 ## 5. Open decisions to resolve (cheap, unblock planning)
 
-- **#1008** — Make Sherpa-ONNX the default STT and remove Vosk? Decide before #824 QA.
+- **#1008** — The Sherpa-ONNX Zipformer STT engine has shipped (#821 / PR #995) and is being
+  adopted as the default. The remaining open question is whether to **remove Vosk entirely**;
+  decide before the #824 QA gate.
 - **#986 vs #996** — kept both: #996 is the blocking wiring, #986 is now the post-launch
   FP-rate tuning follow-up. Close #986 once on-device data shows acceptable FP rate.
 - **Priority taxonomy** — the repo mixes `priority:p0/p1/p2` (20 issues) with
@@ -156,3 +158,10 @@ the blocking implementation).
 **Left intentionally unparented** (genuinely cross-cutting / no good epic): #298 (CI warnings),
 #866 (converter input), #945 (system-prompt override), #1010 (reminder QIR routing), and the
 deferred fun skills #819/#820/#949 — to avoid diluting the Core Skills epic.
+
+**Combined from PR #1015** (closed as superseded): README markup fixes, STT/TTS tech-stack
+rows, Notes feature bullet, `ROADMAP.md` #821 → Done (Sherpa-ONNX adopted as default STT), and
+removal of four stale planning docs. The previously empty README `## Roadmap` section was then
+populated with the launch-tiered structure (Blocking/Post/Deferred) ordered to match the slices
+above. Also fixed a label conflict on **#692** (had both `launch:blocking` and `launch:post`;
+kept blocking).
