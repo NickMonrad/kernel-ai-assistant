@@ -55,8 +55,8 @@ import com.kernel.ai.core.voice.VoiceInputStartResult
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -295,9 +295,16 @@ class VoiceCommandActivity : ComponentActivity() {
 
         var retryAttempted = false
         lifecycleScope.launch {
-            voiceInputController.events
-                .onStart { voiceInputController.startListening(VoiceCaptureMode.AlertCommand) }
-                .collect { event ->
+            suspend fun showUnavailableAndFinish(message: String) {
+                val errorText = message.ifBlank { "Voice commands are unavailable right now." }
+                Log.w(TAG, "VoiceCommandActivity: voice unavailable — $errorText")
+                partialText = errorText
+                delay(2_000)
+                if (!isFinishing) finish()
+            }
+
+            val eventCollectorJob = launch(start = CoroutineStart.UNDISPATCHED) {
+                voiceInputController.events.collect { event ->
                     when (event) {
                         is VoiceInputEvent.PartialTranscript -> {
                             partialText = event.text
@@ -309,12 +316,13 @@ class VoiceCommandActivity : ComponentActivity() {
                                 navigator.navigateToActions(this@VoiceCommandActivity, transcript, isVoice = true)
                                 finish()
                             } else if (!retryAttempted) {
-                                // #790: blank transcript — retry once.
                                 retryAttempted = true
                                 partialText = ""
                                 Log.d(TAG, "VoiceCommandActivity: blank transcript — retrying")
-                                val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
-                                if (result !is VoiceInputStartResult.Started) finish()
+                                when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
+                                    is VoiceInputStartResult.Started -> Unit
+                                    is VoiceInputStartResult.Unavailable -> showUnavailableAndFinish(result.message)
+                                }
                             } else {
                                 finish()
                             }
@@ -322,19 +330,29 @@ class VoiceCommandActivity : ComponentActivity() {
                         is VoiceInputEvent.Error -> {
                             Log.w(TAG, "VoiceCommandActivity: voice error — ${event.message}")
                             if (!retryAttempted) {
-                                // #790: retry once on error before closing.
                                 retryAttempted = true
                                 partialText = ""
                                 Log.d(TAG, "VoiceCommandActivity: retrying after error")
-                                val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
-                                if (result !is VoiceInputStartResult.Started) finish()
+                                when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
+                                    is VoiceInputStartResult.Started -> Unit
+                                    is VoiceInputStartResult.Unavailable -> showUnavailableAndFinish(result.message)
+                                }
                             } else {
-                                finish()
+                                showUnavailableAndFinish(event.message)
                             }
                         }
                         else -> Unit
                     }
                 }
+            }
+
+            when (val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
+                is VoiceInputStartResult.Started -> Unit
+                is VoiceInputStartResult.Unavailable -> {
+                    eventCollectorJob.cancel()
+                    showUnavailableAndFinish(startResult.message)
+                }
+            }
         }
     }
 
