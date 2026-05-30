@@ -816,8 +816,8 @@ class ChatTextUtilsTest {
         }
 
         @Test
-        fun `returns true for personal fact about user`() {
-            assertTrue(
+        fun `returns false for birthday because important dates handle it`() {
+            assertFalse(
                 looksLikePersonalFact(
                     "My birthday is March 15th",
                 ),
@@ -855,6 +855,10 @@ class ChatTextUtilsTest {
         fun `returns true for I dont like something`() {
             assertTrue(looksLikePersonalFact("I don't like aubergines"))
         }
+        @Test
+        fun `returns true for I do not like something`() {
+            assertTrue(looksLikePersonalFact("I do not like aubergines"))
+        }
 
         @Test
         fun `returns true for I prefer something`() {
@@ -868,6 +872,31 @@ class ChatTextUtilsTest {
                     "Hello, how are you?",
                 ),
             )
+        }
+
+        @Test
+        fun `returns false for I need something`() {
+            assertFalse(looksLikePersonalFact("I need a recipe for dinner"))
+        }
+
+        @Test
+        fun `returns false for I want something`() {
+            assertFalse(looksLikePersonalFact("I want to buy a new phone"))
+        }
+
+        @Test
+        fun `returns false for My shopping list has eggs`() {
+            assertFalse(looksLikePersonalFact("My shopping list has eggs"))
+        }
+
+        @Test
+        fun `returns true for I have a dog`() {
+            assertTrue(looksLikePersonalFact("I have a dog"))
+        }
+
+        @Test
+        fun `returns true for My name is John`() {
+            assertTrue(looksLikePersonalFact("My name is John"))
         }
     }
 

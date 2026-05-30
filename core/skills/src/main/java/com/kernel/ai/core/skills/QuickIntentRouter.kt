@@ -439,7 +439,7 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ ->
                 val item = match.groupValues[1].trim()
-                val day = match.groupValues[2].trim().lowercase()
+                val day = normalizeDayName(match.groupValues[2].trim().lowercase())
                 val timeParsed = parseAlarmTime(match.groupValues[3].trim())
                 buildMap {
                     put("item", item)
@@ -459,7 +459,7 @@ class QuickIntentRouter(
             paramExtractor = { match, _ ->
                 mapOf(
                     "item" to match.groupValues[1].trim(),
-                    "day" to match.groupValues[2].trim().lowercase(),
+                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
                 )
             },
             requiredSlots = slotContract("add_reminder"),
@@ -474,7 +474,7 @@ class QuickIntentRouter(
             paramExtractor = { match, _ ->
                 mapOf(
                     "item" to match.groupValues[1].trim(),
-                    "day" to match.groupValues[2].trim().lowercase(),
+                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
                 )
             },
             requiredSlots = slotContract("add_reminder"),

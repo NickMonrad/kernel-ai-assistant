@@ -597,8 +597,9 @@ internal fun looksLikePersonalFact(text: String): Boolean {
     val lower = text.lowercase().trim()
     if (lower.endsWith("?")) return false
     return Regex(
-        """^i\s+(?:am|'m|don'?t|do|have|love|hate|like|dislike|prefer|want|need|can'?t|cannot|don't|am not)\b|
-           ^my\s+\w|
+        """^i\s+(?:am|'m|have|love|hate|like|dislike|prefer|can'?t|cannot|am not)\b|
+           ^i\s+(?:do\s+not|don'?t)\s+(?:like|love|hate|prefer|eat)\b|
+           ^my\s+(?:name|dog|cat|partner|child|spouse|sibling|mother|father|brother|sister|son|daughter|husband|wife|girlfriend|boyfriend)\b|
            ^i\s+\w+\s+(?:allergic|intolerant|vegetarian|vegan|gluten|lactose)\b""",
         setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
     ).containsMatchIn(lower)

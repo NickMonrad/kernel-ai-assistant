@@ -3647,6 +3647,32 @@ class QuickIntentRouterTest {
             val result = hybridRouter.route("remind me tomorrow at 7")
             assertRegexMatch(result, "set_alarm", "remind me tomorrow at 7")
         }
+        @Test
+        fun `abbreviated weekday fri normalizes to full name`() {
+            val result = hybridRouter.route("remind me to call mum fri at 5pm")
+            assertRegexMatch(result, "add_reminder", "remind me to call mum fri at 5pm")
+            val match = result as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("friday", match.intent.params["day"])
+        }
+
+        @Test
+        fun `abbreviated weekday sat normalizes to full name`() {
+            val result = hybridRouter.route("remind me to water plants sat at 10am")
+            assertRegexMatch(result, "add_reminder", "remind me to water plants sat at 10am")
+            val match = result as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("saturday", match.intent.params["day"])
+        }
+
+        @Test
+        fun `slot fill with abbreviated day mon normalizes`() {
+            val result = hybridRouter.route("remind me to call dentist mon")
+            assertInstanceOf(
+                QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+                result,
+            )
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("monday", needsSlot.intent.params["day"])
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

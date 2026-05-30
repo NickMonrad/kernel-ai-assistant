@@ -77,7 +77,7 @@ class KernelAIToolSet @Inject constructor(
     // Gateway tools — each delegates to the matching Skill.execute()
     // -------------------------------------------------------------------------
 
-    @Tool(description = "Loads full instructions for a complex gateway skill (meal_planner, run_js, run_intent, create_calendar_event). Call only when the required parameters or intent names for that skill are unclear.")
+    @Tool(description = "Loads full instructions for a complex gateway skill (meal_planner, run_js, run_intent). Call only when the required parameters or intent names for that skill are unclear.")
     fun loadSkill(
         @ToolParam(description = "The skill name to load.") skillName: String,
     ): Map<String, String> {

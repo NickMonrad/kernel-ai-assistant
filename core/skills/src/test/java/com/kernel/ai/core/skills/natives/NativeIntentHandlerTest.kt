@@ -2104,18 +2104,56 @@ class NativeIntentHandlerTest {
             coEvery { listNameDao.insert(any()) } just Runs
             coEvery { listNameDao.getByName(any()) } returns fakeList
             coEvery { listItemDao.insert(any()) } just Runs
-            coEvery { listItemDao.getByList(1L) } returns listOf(fakeItem)
+            coEvery { listItemDao.getByList(1L) } returns emptyList()
             every { listNotificationScheduler.schedule(any(), any(), any(), any(), any()) } just Runs
         }
 
         @Test
-        fun `add_reminder with valid params returns DirectReply and schedules notification`() {
+        fun `add_reminder with valid params persists notification time and schedules notification`() {
+            val insertedItemSlot = slot<ListItemEntity>()
+            coEvery { listItemDao.insert(capture(insertedItemSlot)) } just Runs
+            coEvery { listItemDao.getByList(1L) } answers {
+                if (insertedItemSlot.isCaptured) listOf(insertedItemSlot.captured.copy(id = 42L)) else emptyList()
+            }
             val result = handleIntent(
                 "add_reminder",
                 mapOf("item" to "call the blinds people", "day" to "monday", "time" to "9:00"),
             )
             assertInstanceOf(SkillResult.DirectReply::class.java, result)
-            verify { listNotificationScheduler.schedule(any(), eq("call the blinds people"), any(), any(), any()) }
+            assertTrue(insertedItemSlot.isCaptured)
+            val notificationTime = insertedItemSlot.captured.notificationTime
+            assertNotNull(notificationTime)
+            assertEquals(insertedItemSlot.captured.dueAt, notificationTime)
+            verify {
+                listNotificationScheduler.schedule(
+                    eq(42L),
+                    eq("call the blinds people"),
+                    eq(1L),
+                    eq("to-do list"),
+                    eq(notificationTime!!),
+                )
+            }
+        }
+
+        @Test
+        fun `add_reminder rolls back inserted item when scheduling fails`() {
+            val insertedItemSlot = slot<ListItemEntity>()
+            coEvery { listItemDao.insert(capture(insertedItemSlot)) } just Runs
+            coEvery { listItemDao.getByList(1L) } answers {
+                if (insertedItemSlot.isCaptured) listOf(insertedItemSlot.captured.copy(id = 42L)) else emptyList()
+            }
+            every { listNotificationScheduler.schedule(any(), any(), any(), any(), any()) } throws RuntimeException("boom")
+
+            val result = handleIntent(
+                "add_reminder",
+                mapOf("item" to "call the blinds people", "day" to "monday", "time" to "9:00"),
+            )
+
+            assertEquals(
+                SkillResult.Failure("add_reminder", "Could not schedule the alarm. The reminder was not saved."),
+                result,
+            )
+            coVerify { listItemDao.deleteItem(42L) }
         }
 
         @Test

@@ -1940,10 +1940,17 @@ class NativeIntentHandler @Inject constructor(
             ?: return SkillResult.Failure("add_reminder", "Could not parse time: $timeRaw")
         val triggerAt = targetDate.atTime(targetTime).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val now = System.currentTimeMillis()
+        if (triggerAt <= now) {
+            return SkillResult.Failure(
+                "add_reminder",
+                "That time is in the past. Please specify a future date and time.",
+            )
+        }
         val result = runBlocking {
             listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
             val list = listNameDao.getByName(listName) ?: return@runBlocking null
             val listId = list.id
+            val existingItemIds = listItemDao.getByList(listId).mapTo(mutableSetOf()) { it.id }
             listItemDao.insert(
                 ListItemEntity(
                     listId = listId,
@@ -1954,18 +1961,36 @@ class NativeIntentHandler @Inject constructor(
                     notificationTime = triggerAt,
                 ),
             )
-            val insertedItem = listItemDao.getByList(listId).lastOrNull { it.text == item }
             val allItems = listItemDao.getByList(listId)
+            val insertedItem = allItems.lastOrNull {
+                it.id !in existingItemIds &&
+                    it.text == item &&
+                    it.dueAt == triggerAt &&
+                    it.notificationTime == triggerAt
+            }
             Triple(insertedItem, listId, allItems)
         } ?: return SkillResult.Failure("add_reminder", "Could not create reminder list")
         val (insertedItem, listId, allItems) = result
-        if (insertedItem != null) {
-            listNotificationScheduler.schedule(
-                itemId = insertedItem.id,
-                itemText = item,
-                listId = listId,
-                listName = listName,
-                triggerAtMs = triggerAt,
+        var scheduleOk = false
+        try {
+            if (insertedItem != null) {
+                listNotificationScheduler.schedule(
+                    itemId = insertedItem.id,
+                    itemText = item,
+                    listId = listId,
+                    listName = listName,
+                    triggerAtMs = triggerAt,
+                )
+                scheduleOk = true
+            }
+        } catch (_: Exception) {
+            // Rollback: delete the item so the DB doesn't contain unscheduled reminders
+            runBlocking { insertedItem?.let { listItemDao.deleteItem(it.id) } }
+        }
+        if (!scheduleOk) {
+            return SkillResult.Failure(
+                "add_reminder",
+                "Could not schedule the alarm. The reminder was not saved.",
             )
         }
         val dayDisplay = dayRaw.replaceFirstChar { it.uppercase() }
