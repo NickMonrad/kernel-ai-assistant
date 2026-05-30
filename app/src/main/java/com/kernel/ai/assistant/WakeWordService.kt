@@ -154,28 +154,56 @@ class WakeWordService : Service() {
                 // is true, so re-arm is always done explicitly at the end of this function.
                 var transcript: String? = null
                 for (attempt in 1..2) {
+                    val startupEventDeferred = async(start = CoroutineStart.UNDISPATCHED) {
+                        voiceInputController.events.first {
+                            it is VoiceInputEvent.ListeningStarted
+                                || it is VoiceInputEvent.Transcript
+                                || it is VoiceInputEvent.Error
+                                || it is VoiceInputEvent.ListeningStopped
+                        }
+                    }
                     val terminalEventDeferred = async(start = CoroutineStart.UNDISPATCHED) {
-                        voiceInputController.events.first { it is VoiceInputEvent.Transcript
-                              || it is VoiceInputEvent.Error
-                              || it is VoiceInputEvent.ListeningStopped }
+                        voiceInputController.events.first {
+                            it is VoiceInputEvent.Transcript
+                                || it is VoiceInputEvent.Error
+                                || it is VoiceInputEvent.ListeningStopped
+                        }
                     }
                     val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
                     if (startResult !is VoiceInputStartResult.Started) {
+                        startupEventDeferred.cancel()
                         terminalEventDeferred.cancel()
                         Log.w(TAG, "WakeWordService: STT unavailable after detection — $startResult")
                         val message = (startResult as? VoiceInputStartResult.Unavailable)?.message
                         if (!message.isNullOrBlank()) showWakeWordError(message)
                         break
                     }
-                    // Play the cue only on the first attempt; use the audible variant here so
-                    // wake-word capture remains noticeable even in silent/vibrate mode.
-                    if (attempt == 1) cuePlayer.playCue(forceAudible = true)
 
-                    val terminalEvent = try {
-                        terminalEventDeferred.await()
+                    val startupEvent = try {
+                        startupEventDeferred.await()
                     } catch (e: Exception) {
-                        Log.w(TAG, "WakeWordService: transcript collection failed (attempt $attempt)", e)
+                        terminalEventDeferred.cancel()
+                        Log.w(TAG, "WakeWordService: startup event collection failed (attempt $attempt)", e)
                         break
+                    }
+
+                    val terminalEvent = when (startupEvent) {
+                        is VoiceInputEvent.ListeningStarted -> {
+                            // Play the cue only after the recognizer reports it is actually ready
+                            // for speech, so users can start speaking on the bloop without losing
+                            // the start of the command on slower devices.
+                            if (attempt == 1) cuePlayer.playCue(forceAudible = true)
+                            try {
+                                terminalEventDeferred.await()
+                            } catch (e: Exception) {
+                                Log.w(TAG, "WakeWordService: transcript collection failed (attempt $attempt)", e)
+                                break
+                            }
+                        }
+                        else -> {
+                            terminalEventDeferred.cancel()
+                            startupEvent
+                        }
                     }
 
                     val text = (terminalEvent as? VoiceInputEvent.Transcript)?.text
