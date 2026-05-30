@@ -49,6 +49,8 @@ dependencies {
     implementation(libs.vosk.android)
     // ONNX Runtime — wake word inference (OnnxWakeWordDetector, 3-stage openWakeWord pipeline)
     implementation(libs.onnxruntime.android)
+    // TFLite Interpreter — Parakeet CTC inference (CPU-only)
+    implementation(libs.tflite)
 
     // WorkManager — required for VoicePackDownloadWorker / SherpaVoicePackDownloadManager
     implementation(libs.work.runtime.ktx)

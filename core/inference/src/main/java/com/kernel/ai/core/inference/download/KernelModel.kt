@@ -189,6 +189,46 @@ enum class KernelModel(
         preferredForTier = null,
         isGated = false,
         showInModelManagement = false,
+    ),
+    // ── whisper.cpp STT (tiny model, English) ─────────────────────────────────
+    //
+    // The "tiny" quantised model (ggml-tiny.bin) from ggerganov/whisper.cpp.
+    // ~75 MB, runs on all devices, English-only.  Push-to-talk only — no streaming partials.
+    WHISPER_TINY(
+        displayName = "Whisper.cpp Tiny",
+        fileName = "whisper-tiny.bin",
+        downloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+        approxSizeBytes = 75_000_000L, // ~75 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+    // ── Parakeet CTC (0.25B, INT8, English) ─────────────────────────────────
+    //
+    // NVIDIA's Parakeet-CTC FastConformer 0.25B INT8, TFLite-converted by
+    // litert-community.  ~300 MB.  Requires a separate SentencePiece tokenizer.
+    // Push-to-talk only — bounded to ~5 s audio segments.
+    PARAKEET_CTC_0_25B(
+        displayName = "Parakeet CTC 0.25B",
+        fileName = "parakeet-ctc-0.25b_i8.tflite",
+        downloadUrl = "https://huggingface.co/litert-community/parakeet-ctc-0.25b/resolve/main/parakeet-ctc-0.25b_i8.tflite",
+        approxSizeBytes = 314_572_800L, // ~300 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+    /** SentencePiece tokenizer required by Parakeet CTC — shared vocab with the 0.6B model. */
+    PARAKEET_CTC_TOKENIZER(
+        displayName = "Parakeet CTC Tokenizer",
+        fileName = "parakeet-ctc-tokenizer.model",
+        downloadUrl = "https://huggingface.co/litert-community/parakeet-ctc-0.25b/resolve/main/parakeet-ctc-tokenizer.model",
+        approxSizeBytes = 4_000_000L, // ~4 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
     );
     /**
      * Stable, single-sourced identifier for this model, used as the Room primary key in

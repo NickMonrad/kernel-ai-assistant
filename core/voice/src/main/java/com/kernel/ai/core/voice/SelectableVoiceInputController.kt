@@ -15,38 +15,40 @@ class SelectableVoiceInputController @Inject constructor(
     private val voskOfflineVoiceInputController: VoskOfflineVoiceInputController,
     private val nativeAndroidVoiceInputController: NativeAndroidVoiceInputController,
     private val sherpaOnnxVoiceInputController: SherpaOnnxVoiceInputController,
+    private val whisperVoiceInputController: WhisperVoiceInputController,
+    private val parakeetVoiceInputController: ParakeetVoiceInputController,
 ) : VoiceInputController {
-
     private val activeController = MutableStateFlow<VoiceInputController>(voskOfflineVoiceInputController)
-
     override val events: Flow<VoiceInputEvent> = activeController.flatMapLatest { controller ->
         controller.events
     }
-
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         val controller = when (voiceInputPreferences.selectedEngine.first()) {
             VoiceInputEngine.Vosk -> voskOfflineVoiceInputController
             VoiceInputEngine.AndroidNative -> nativeAndroidVoiceInputController
             VoiceInputEngine.SherpaOnnx -> sherpaOnnxVoiceInputController
+            VoiceInputEngine.WhisperCpp -> whisperVoiceInputController
+            VoiceInputEngine.ParakeetCtc -> parakeetVoiceInputController
         }
         activeController.value = controller
         stopInactiveControllers(controller)
         return controller.startListening(mode)
     }
-
     override fun stopListening() {
         stopAllControllers()
     }
-
     private fun stopInactiveControllers(active: VoiceInputController) {
         if (active !== voskOfflineVoiceInputController) voskOfflineVoiceInputController.stopListening()
         if (active !== nativeAndroidVoiceInputController) nativeAndroidVoiceInputController.stopListening()
         if (active !== sherpaOnnxVoiceInputController) sherpaOnnxVoiceInputController.stopListening()
+        if (active !== whisperVoiceInputController) whisperVoiceInputController.stopListening()
+        if (active !== parakeetVoiceInputController) parakeetVoiceInputController.stopListening()
     }
-
     private fun stopAllControllers() {
         voskOfflineVoiceInputController.stopListening()
         nativeAndroidVoiceInputController.stopListening()
         sherpaOnnxVoiceInputController.stopListening()
+        whisperVoiceInputController.stopListening()
+        parakeetVoiceInputController.stopListening()
     }
 }

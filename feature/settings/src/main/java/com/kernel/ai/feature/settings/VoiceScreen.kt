@@ -190,6 +190,12 @@ fun VoiceScreen(
         onDownloadSherpaOnnxStt = viewModel::downloadSherpaOnnxStt,
         onCancelSherpaOnnxSttDownload = viewModel::cancelSherpaOnnxSttDownload,
         onDeleteSherpaOnnxStt = viewModel::deleteSherpaOnnxStt,
+        onDownloadWhisperCpp = viewModel::downloadWhisperCpp,
+        onCancelWhisperCppDownload = viewModel::cancelWhisperCppDownload,
+        onDeleteWhisperCpp = viewModel::deleteWhisperCpp,
+        onDownloadParakeetCtc = viewModel::downloadParakeetCtc,
+        onCancelParakeetCtcDownload = viewModel::cancelParakeetCtcDownload,
+        onDeleteParakeetCtc = viewModel::deleteParakeetCtc,
     )
 }
 
@@ -217,6 +223,12 @@ private fun VoiceScreenContent(
     onActiveSpeakerIdChanged: (Int) -> Unit,
     onKokoroVoiceSelected: (SherpaKokoroVoice) -> Unit,
     onDownloadKokoroVoice: (SherpaKokoroVoice) -> Unit,
+    onDownloadWhisperCpp: () -> Unit,
+    onCancelWhisperCppDownload: () -> Unit,
+    onDeleteWhisperCpp: () -> Unit,
+    onDownloadParakeetCtc: () -> Unit,
+    onCancelParakeetCtcDownload: () -> Unit,
+    onDeleteParakeetCtc: () -> Unit,
     onCancelKokoroVoiceDownload: (SherpaKokoroVoice) -> Unit,
     onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit,
     onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
@@ -354,6 +366,11 @@ private fun VoiceScreenContent(
                 }
                 val sherpaOnnxReady = engine != VoiceInputEngine.SherpaOnnx ||
                     uiState.isSherpaOnnxSttDownloaded
+                val whisperCppReady = engine != VoiceInputEngine.WhisperCpp ||
+                    uiState.isWhisperCppDownloaded
+                val parakeetCtcReady = engine != VoiceInputEngine.ParakeetCtc ||
+                    uiState.isParakeetCtcDownloaded
+                val anyEngineReady = sherpaOnnxReady && whisperCppReady && parakeetCtcReady
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
@@ -376,6 +393,22 @@ private fun VoiceScreenContent(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
+                            if (engine == VoiceInputEngine.WhisperCpp && !uiState.isWhisperCppDownloaded) {
+                                Text(
+                                    text = "Download required before use",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                            if (engine == VoiceInputEngine.ParakeetCtc && !uiState.isParakeetCtcDownloaded) {
+                                Text(
+                                    text = "Download required before use",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
                             if (engine == VoiceInputEngine.AndroidNative && warning != null) {
                                 VoiceWarningCard(
                                     message = warning,
@@ -387,8 +420,8 @@ private fun VoiceScreenContent(
                     trailingContent = {
                         RadioButton(
                             selected = uiState.selectedInputEngine == engine,
-                            onClick = { if (sherpaOnnxReady) onVoiceInputEngineSelected(engine) },
-                            enabled = sherpaOnnxReady,
+                            onClick = { if (anyEngineReady) onVoiceInputEngineSelected(engine) },
+                            enabled = anyEngineReady,
                         )
                     },
                 )
@@ -418,6 +451,40 @@ private fun VoiceScreenContent(
                         onDownload = onDownloadSherpaOnnxStt,
                         onCancel = onCancelSherpaOnnxSttDownload,
                         onDelete = onDeleteSherpaOnnxStt,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                // whisper.cpp STT: always show download card until the model is downloaded
+                // so the user can download without first selecting the engine. Once downloaded,
+                // only show the card when the engine is actively selected.
+                if (engine == VoiceInputEngine.WhisperCpp &&
+                    (!uiState.isWhisperCppDownloaded || uiState.selectedInputEngine == engine)
+                ) {
+                    WhisperCppDownloadCard(
+                        isDownloaded = uiState.isWhisperCppDownloaded,
+                        isDownloading = uiState.isWhisperCppDownloading,
+                        progress = uiState.whisperCppProgress,
+                        error = uiState.whisperCppError,
+                        onDownload = onDownloadWhisperCpp,
+                        onCancel = onCancelWhisperCppDownload,
+                        onDelete = onDeleteWhisperCpp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                // Parakeet CTC STT: always show download card until the model is downloaded
+                // so the user can download without first selecting the engine. Once downloaded,
+                // only show the card when the engine is actively selected.
+                if (engine == VoiceInputEngine.ParakeetCtc &&
+                    (!uiState.isParakeetCtcDownloaded || uiState.selectedInputEngine == engine)
+                ) {
+                    ParakeetCtcDownloadCard(
+                        isDownloaded = uiState.isParakeetCtcDownloaded,
+                        isDownloading = uiState.isParakeetCtcDownloading,
+                        progress = uiState.parakeetCtcProgress,
+                        error = uiState.parakeetCtcError,
+                        onDownload = onDownloadParakeetCtc,
+                        onCancel = onCancelParakeetCtcDownload,
+                        onDelete = onDeleteParakeetCtc,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
@@ -1456,6 +1523,176 @@ private fun SherpaOnnxSttDownloadCard(
         }
     }
 }
+@Composable
+private fun WhisperCppDownloadCard(
+    isDownloaded: Boolean,
+    isDownloading: Boolean,
+    progress: Float,
+    error: String?,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isDownloaded)
+                MaterialTheme.colorScheme.primaryContainer
+            else
+                MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isDownloaded) "Whisper model ready" else "Whisper model required (~75 MB)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isDownloaded)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (!isDownloaded && !isDownloading) {
+                        Text(
+                            text = "tiny model · English · Fully offline",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                when {
+                    isDownloaded -> Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        TextButton(onClick = onDelete) { Text("Delete") }
+                    }
+                    isDownloading -> TextButton(onClick = onCancel) { Text("Cancel") }
+                    else -> TextButton(onClick = onDownload) { Text("Download") }
+                }
+            }
+            if (isDownloading) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = "${(progress * 100).toInt()}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (error != null) {
+                Text(
+                    text = "Download failed: $error",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+@Composable
+private fun ParakeetCtcDownloadCard(
+    isDownloaded: Boolean,
+    isDownloading: Boolean,
+    progress: Float,
+    error: String?,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isDownloaded)
+                MaterialTheme.colorScheme.primaryContainer
+            else
+                MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isDownloaded) "Parakeet model ready" else "Parakeet model required (~300 MB)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isDownloaded)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (!isDownloaded && !isDownloading) {
+                        Text(
+                            text = "0.25B CTC · English · Fully offline",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                when {
+                    isDownloaded -> Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        TextButton(onClick = onDelete) { Text("Delete") }
+                    }
+                    isDownloading -> TextButton(onClick = onCancel) { Text("Cancel") }
+                    else -> TextButton(onClick = onDownload) { Text("Download") }
+                }
+            }
+            if (isDownloading) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = "${(progress * 100).toInt()}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (error != null) {
+                Text(
+                    text = "Download failed: $error",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun VoiceOutputSelectionCard(
@@ -1623,6 +1860,12 @@ private fun VoiceScreenPreview() {
             onDownloadSherpaOnnxStt = {},
             onCancelSherpaOnnxSttDownload = {},
             onDeleteSherpaOnnxStt = {},
+            onDownloadWhisperCpp = {},
+            onCancelWhisperCppDownload = {},
+            onDeleteWhisperCpp = {},
+            onDownloadParakeetCtc = {},
+            onCancelParakeetCtcDownload = {},
+            onDeleteParakeetCtc = {},
         )
     }
 }

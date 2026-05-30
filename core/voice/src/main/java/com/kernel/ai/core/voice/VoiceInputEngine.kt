@@ -19,6 +19,16 @@ enum class VoiceInputEngine(
         description = "Fully offline streaming speech recognition using the Sherpa-ONNX Zipformer model. Highest accuracy for NZ English with no network dependency.",
         warning = null,
     ),
+    WhisperCpp(
+        displayName = "Whisper.cpp",
+        description = "Offline speech recognition using whisper.cpp (tiny model). Strong general-purpose transcription quality.",
+        warning = "Requires downloading the whisper.cpp model file (~75 MB). Push-to-talk only — no streaming partials.",
+    ),
+    ParakeetCtc(
+        displayName = "Parakeet CTC",
+        description = "Offline speech recognition using NVIDIA's Parakeet CTC model via TFLite. High accuracy for English.",
+        warning = "Requires downloading the Parakeet model (~596 MB INT8) and tokenizer (~4 MB). Push-to-talk only — no streaming partials.",
+    ),
     ;
 
     companion object {

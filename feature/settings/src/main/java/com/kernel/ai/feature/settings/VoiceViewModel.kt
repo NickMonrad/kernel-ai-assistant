@@ -86,6 +86,16 @@ data class VoiceUiState(
     val sherpaOnnxSttProgress: Float = 0f,
     /** Non-null when a download attempt failed. */
     val sherpaOnnxSttError: String? = null,
+    // ── whisper.cpp STT model download state ─────────────────────────────────
+    val isWhisperCppDownloaded: Boolean = false,
+    val isWhisperCppDownloading: Boolean = false,
+    val whisperCppProgress: Float = 0f,
+    val whisperCppError: String? = null,
+    // ── Parakeet CTC model download state ────────────────────────────────────
+    val isParakeetCtcDownloaded: Boolean = false,
+    val isParakeetCtcDownloading: Boolean = false,
+    val parakeetCtcProgress: Float = 0f,
+    val parakeetCtcError: String? = null,
 )
 
 @HiltViewModel
@@ -267,6 +277,65 @@ class VoiceViewModel @Inject constructor(
                 }
             }
         }
+        // Whisper.cpp STT download state
+        viewModelScope.launch {
+            modelDownloadManager.downloadStates.collect { states ->
+                val whisperModels = listOf(KernelModel.WHISPER_TINY)
+                val allDownloaded = whisperModels.all { states[it] is DownloadState.Downloaded }
+                val anyDownloading = whisperModels.any { states[it] is DownloadState.Downloading }
+                val totalBytes = whisperModels.sumOf { it.approxSizeBytes }.toFloat()
+                val weightedProgress = whisperModels.map { model ->
+                    val weight = model.approxSizeBytes.toFloat()
+                    when (val s = states[model]) {
+                        is DownloadState.Downloaded -> weight
+                        is DownloadState.Downloading -> s.progress * weight
+                        else -> 0f
+                    }
+                }.sum() / totalBytes
+                val error = whisperModels
+                    .mapNotNull { (states[it] as? DownloadState.Error)?.message }
+                    .firstOrNull()
+                _uiState.update {
+                    it.copy(
+                        isWhisperCppDownloaded = allDownloaded,
+                        isWhisperCppDownloading = anyDownloading && !allDownloaded,
+                        whisperCppProgress = weightedProgress,
+                        whisperCppError = error,
+                    )
+                }
+            }
+        }
+        // Parakeet CTC download state
+        viewModelScope.launch {
+            modelDownloadManager.downloadStates.collect { states ->
+                val parakeetModels = listOf(
+                    KernelModel.PARAKEET_CTC_0_25B,
+                    KernelModel.PARAKEET_CTC_TOKENIZER,
+                )
+                val allDownloaded = parakeetModels.all { states[it] is DownloadState.Downloaded }
+                val anyDownloading = parakeetModels.any { states[it] is DownloadState.Downloading }
+                val totalBytes = parakeetModels.sumOf { it.approxSizeBytes }.toFloat()
+                val weightedProgress = parakeetModels.map { model ->
+                    val weight = model.approxSizeBytes.toFloat()
+                    when (val s = states[model]) {
+                        is DownloadState.Downloaded -> weight
+                        is DownloadState.Downloading -> s.progress * weight
+                        else -> 0f
+                    }
+                }.sum() / totalBytes
+                val error = parakeetModels
+                    .mapNotNull { (states[it] as? DownloadState.Error)?.message }
+                    .firstOrNull()
+                _uiState.update {
+                    it.copy(
+                        isParakeetCtcDownloaded = allDownloaded,
+                        isParakeetCtcDownloading = anyDownloading && !allDownloaded,
+                        parakeetCtcProgress = weightedProgress,
+                        parakeetCtcError = error,
+                    )
+                }
+            }
+        }
     }
 
     fun setVoiceInputEngine(engine: VoiceInputEngine) {
@@ -306,6 +375,63 @@ class VoiceViewModel @Inject constructor(
                 modelDownloadManager.refreshState(model)
             }
             if (_uiState.value.selectedInputEngine == VoiceInputEngine.SherpaOnnx) {
+                withContext(Dispatchers.Main) {
+                    setVoiceInputEngine(VoiceInputEngine.Vosk)
+                }
+            }
+        }
+    }
+    // ── Whisper.cpp STT actions ───────────────────────────────────────────────
+    private val whisperModels = listOf(KernelModel.WHISPER_TINY)
+    fun downloadWhisperCpp() {
+        whisperModels.forEach { modelDownloadManager.startDownload(it) }
+    }
+    fun cancelWhisperCppDownload() {
+        val currentStates = modelDownloadManager.downloadStates.value
+        whisperModels
+            .filter { currentStates[it] is DownloadState.Downloading }
+            .forEach { modelDownloadManager.cancelDownload(it) }
+    }
+    fun deleteWhisperCpp() {
+        viewModelScope.launch(Dispatchers.IO) {
+            whisperModels.forEach { model ->
+                val file = model.localFile(context)
+                file.delete()
+                val tmp = java.io.File(file.absolutePath + ".tmp")
+                if (tmp.exists()) tmp.delete()
+                modelDownloadManager.refreshState(model)
+            }
+            if (_uiState.value.selectedInputEngine == VoiceInputEngine.WhisperCpp) {
+                withContext(Dispatchers.Main) {
+                    setVoiceInputEngine(VoiceInputEngine.Vosk)
+                }
+            }
+        }
+    }
+    // ── Parakeet CTC actions ──────────────────────────────────────────────────
+    private val parakeetModels = listOf(
+        KernelModel.PARAKEET_CTC_0_25B,
+        KernelModel.PARAKEET_CTC_TOKENIZER,
+    )
+    fun downloadParakeetCtc() {
+        parakeetModels.forEach { modelDownloadManager.startDownload(it) }
+    }
+    fun cancelParakeetCtcDownload() {
+        val currentStates = modelDownloadManager.downloadStates.value
+        parakeetModels
+            .filter { currentStates[it] is DownloadState.Downloading }
+            .forEach { modelDownloadManager.cancelDownload(it) }
+    }
+    fun deleteParakeetCtc() {
+        viewModelScope.launch(Dispatchers.IO) {
+            parakeetModels.forEach { model ->
+                val file = model.localFile(context)
+                file.delete()
+                val tmp = java.io.File(file.absolutePath + ".tmp")
+                if (tmp.exists()) tmp.delete()
+                modelDownloadManager.refreshState(model)
+            }
+            if (_uiState.value.selectedInputEngine == VoiceInputEngine.ParakeetCtc) {
                 withContext(Dispatchers.Main) {
                     setVoiceInputEngine(VoiceInputEngine.Vosk)
                 }
