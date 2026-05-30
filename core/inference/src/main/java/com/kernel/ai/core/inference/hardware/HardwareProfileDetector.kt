@@ -17,10 +17,13 @@ private const val TAG = "HardwareProfileDetector"
  * Detection logic:
  * 1. Query total physical RAM via [ActivityManager.MemoryInfo].
  * 2. Read [Build.SOC_MANUFACTURER] / [Build.SOC_MODEL] (API 31+).
- * 3. Identify Qualcomm Hexagon NPU by manufacturer string.
- * 4. Map RAM + NPU presence to a [HardwareTier] and recommended [BackendType].
+ * 3. Map RAM to a [HardwareTier] and select the recommended [BackendType].
  *
- * The profile is computed once and cached — calling [detect] is idempotent.
+ * Backend selection: FLAGSHIP and MID_RANGE devices use GPU (OpenCL). LOW_POWER uses CPU.
+ * NPU is not used as the default — see [LiteRtInferenceEngine] for explicit-NPU handling.
+ *
+ * The [profile] property is computed once on first access and cached — subsequent reads
+ * return the same [HardwareProfile] instance.
  */
 @Singleton
 class HardwareProfileDetector @Inject constructor(
@@ -36,13 +39,14 @@ class HardwareProfileDetector @Inject constructor(
         val socManufacturer = Build.SOC_MANUFACTURER.orEmpty()
         val socModel = Build.SOC_MODEL.orEmpty()
 
-        val hasQualcommNpu = socManufacturer.equals("Qualcomm", ignoreCase = true) ||
-            socManufacturer.equals("QUALCOMM", ignoreCase = true)
-
         val tier = HardwareTier.fromRamBytes(totalRam)
 
+        // E4B is documented to run on GPU (OpenCL / Adreno 740). NPU (Hexagon via FastRPC)
+        // is not used as the recommended backend — it requires /dev/cdsp* device nodes that
+        // are absent on the SM8550 target and Engine.initialize() hangs with no timeout when
+        // CDSP is unreachable. Explicit BackendType.NPU is still honoured via
+        // createEngineWithFallback's standard fallback chain (GPU → CPU on failure).
         val recommendedBackend = when {
-            tier == HardwareTier.FLAGSHIP && hasQualcommNpu -> BackendType.NPU
             tier == HardwareTier.FLAGSHIP -> BackendType.GPU
             tier == HardwareTier.MID_RANGE -> BackendType.GPU
             else -> BackendType.CPU
@@ -59,7 +63,6 @@ class HardwareProfileDetector @Inject constructor(
             totalRamBytes = totalRam,
             socManufacturer = socManufacturer,
             socModel = socModel,
-            hasQualcommNpu = hasQualcommNpu,
             recommendedBackend = recommendedBackend,
             recommendedMaxTokens = recommendedMaxTokens,
         )
@@ -67,7 +70,7 @@ class HardwareProfileDetector @Inject constructor(
         Log.i(
             TAG,
             "Hardware profile: tier=${tier.name}, ram=${profile.ramLabel}, " +
-                "soc=$socManufacturer $socModel, npu=$hasQualcommNpu, " +
+                "soc=$socManufacturer $socModel, " +
                 "backend=$recommendedBackend, maxTokens=$recommendedMaxTokens",
         )
 
