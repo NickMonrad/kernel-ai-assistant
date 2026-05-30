@@ -4,6 +4,7 @@ import android.content.Context
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
@@ -27,6 +28,7 @@ import io.mockk.just
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -49,6 +51,7 @@ class VoiceViewModelTest {
     private val wakeWordPreferences: WakeWordPreferences = mockk(relaxed = true)
     private val wakeWordDetector: WakeWordDetector = mockk()
     private val modelDownloadManager: ModelDownloadManager = mockk()
+    private val authRepository: HuggingFaceAuthRepository = mockk()
     private val context: Context = mockk(relaxed = true)
     private val parakeetModelSize = MutableStateFlow(com.kernel.ai.core.voice.ParakeetModelSize._0_25B)
     private val heyJandalEnabled = MutableStateFlow(false)
@@ -78,6 +81,8 @@ class VoiceViewModelTest {
                 VoicePackDownloadState.NotDownloaded
             },
         )
+    private val hfAuthenticated = MutableStateFlow(false)
+    private val hfUsername = MutableStateFlow<String?>(null)
 
     private lateinit var viewModel: VoiceViewModel
 
@@ -136,6 +141,9 @@ class VoiceViewModelTest {
         every { sherpaVoicePackDownloadManager.deleteVoice(any()) } just Runs
         every { sherpaVoicePackDownloadManager.startKokoroDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.cancelKokoroDownload(any()) } just Runs
+        every { authRepository.isAuthenticated } returns hfAuthenticated
+        every { authRepository.authResult } returns MutableSharedFlow<Result<Unit>>(replay = 0)
+        every { authRepository.username } returns hfUsername
         every { sherpaVoicePackDownloadManager.deleteKokoroVoice(any()) } just Runs
         viewModel = VoiceViewModel(
             androidNativeRecognitionSupport,
@@ -145,6 +153,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            authRepository,
             context,
         )
     }
@@ -202,6 +211,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            authRepository,
             context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -222,7 +232,6 @@ class VoiceViewModelTest {
                 languageDisplayName = "English (New Zealand)",
                 localeStatus = AndroidNativeRecognitionLocaleStatus.NotSupported,
             )
-
         viewModel = VoiceViewModel(
             androidNativeRecognitionSupport,
             voiceInputPreferences,
@@ -231,6 +240,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            authRepository,
             context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -251,7 +261,6 @@ class VoiceViewModelTest {
                 languageDisplayName = "English (New Zealand)",
                 localeStatus = AndroidNativeRecognitionLocaleStatus.Unknown,
             )
-
         viewModel = VoiceViewModel(
             androidNativeRecognitionSupport,
             voiceInputPreferences,
@@ -260,6 +269,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            authRepository,
             context,
         )
         testDispatcher.scheduler.advanceUntilIdle()

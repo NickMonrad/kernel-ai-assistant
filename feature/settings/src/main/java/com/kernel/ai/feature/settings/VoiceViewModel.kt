@@ -22,6 +22,7 @@ import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 
@@ -89,24 +90,30 @@ data class VoiceUiState(
     val sherpaOnnxSttProgress: Float = 0f,
     /** Non-null when a download attempt failed. */
     val sherpaOnnxSttError: String? = null,
+    /** True when the latest STT error was LICENCE_REQUIRED. */
+    val sherpaOnnxSttLicenceRequired: Boolean = false,
     // ── whisper.cpp STT model download state ─────────────────────────────────
     val isWhisperCppDownloaded: Boolean = false,
     val isWhisperCppDownloading: Boolean = false,
     val whisperCppProgress: Float = 0f,
     val whisperCppError: String? = null,
+    /** True when the latest Whisper error was LICENCE_REQUIRED. */
+    val whisperCppLicenceRequired: Boolean = false,
     // ── Parakeet CTC model download state ────────────────────────────────────
     val isParakeetCtcDownloaded: Boolean = false,
     val isParakeetCtcDownloading: Boolean = false,
     val parakeetCtcProgress: Float = 0f,
     val parakeetCtcError: String? = null,
+    /** True when the latest Parakeet error was LICENCE_REQUIRED. */
+    val parakeetCtcLicenceRequired: Boolean = false,
     /** Selected Parakeet model size (0.25B or 2B). */
     val selectedParakeetModelSize: ParakeetModelSize = ParakeetModelSize._0_25B,
+    /** True when the user is authenticated with HuggingFace. */
+    val hfAuthenticated: Boolean = false,
 )
 internal fun resolveAndroidNativeAvailabilityMessage(
     availability: AndroidNativeRecognitionAvailability,
 ): String? = availability.warningMessage
-
-
 @HiltViewModel
 class VoiceViewModel @Inject constructor(
     private val androidNativeRecognitionSupport: AndroidNativeRecognitionSupport,
@@ -116,6 +123,7 @@ class VoiceViewModel @Inject constructor(
     private val wakeWordPreferences: WakeWordPreferences,
     private val wakeWordDetector: WakeWordDetector,
     private val modelDownloadManager: ModelDownloadManager,
+    private val authRepository: HuggingFaceAuthRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -277,12 +285,14 @@ class VoiceViewModel @Inject constructor(
                 val error = sttModels
                     .mapNotNull { (states[it] as? DownloadState.Error)?.message }
                     .firstOrNull()
+                val licenceRequired = sttModels.any { (states[it] as? DownloadState.Error)?.licenceRequired == true }
                 _uiState.update {
                     it.copy(
                         isSherpaOnnxSttDownloaded = allDownloaded,
                         isSherpaOnnxSttDownloading = anyDownloading && !allDownloaded,
                         sherpaOnnxSttProgress = weightedProgress,
                         sherpaOnnxSttError = error,
+                        sherpaOnnxSttLicenceRequired = licenceRequired,
                     )
                 }
             }
@@ -305,12 +315,14 @@ class VoiceViewModel @Inject constructor(
                 val error = whisperModels
                     .mapNotNull { (states[it] as? DownloadState.Error)?.message }
                     .firstOrNull()
+                val licenceRequired = whisperModels.any { (states[it] as? DownloadState.Error)?.licenceRequired == true }
                 _uiState.update {
                     it.copy(
                         isWhisperCppDownloaded = allDownloaded,
                         isWhisperCppDownloading = anyDownloading && !allDownloaded,
                         whisperCppProgress = weightedProgress,
                         whisperCppError = error,
+                        whisperCppLicenceRequired = licenceRequired,
                     )
                 }
             }
@@ -337,12 +349,14 @@ class VoiceViewModel @Inject constructor(
                 val error = parakeetModels
                     .mapNotNull { (states[it] as? DownloadState.Error)?.message }
                     .firstOrNull()
+                val licenceRequired = parakeetModels.any { (states[it] as? DownloadState.Error)?.licenceRequired == true }
                 _uiState.update {
                     it.copy(
                         isParakeetCtcDownloaded = allDownloaded,
                         isParakeetCtcDownloading = anyDownloading && !allDownloaded,
                         parakeetCtcProgress = weightedProgress,
                         parakeetCtcError = error,
+                        parakeetCtcLicenceRequired = licenceRequired,
                     )
                 }
             }
@@ -351,6 +365,11 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             voiceInputPreferences.parakeetModelSize.collect { size ->
                 _uiState.update { it.copy(selectedParakeetModelSize = size) }
+            }
+        }
+        viewModelScope.launch {
+            authRepository.isAuthenticated.collect { authenticated ->
+                _uiState.update { it.copy(hfAuthenticated = authenticated) }
             }
         }
     }
@@ -425,6 +444,12 @@ class VoiceViewModel @Inject constructor(
             }
         }
     }
+    fun updateWhisperCpp() {
+        whisperModels.forEach { modelDownloadManager.startDownload(it, force = true) }
+    }
+    fun updateSherpaOnnxStt() {
+        sttModels.forEach { modelDownloadManager.startDownload(it, force = true) }
+    }
     // ── Parakeet CTC actions ──────────────────────────────────────────────────
     private val parakeetModels = listOf(
         KernelModel.PARAKEET_CTC_0_25B,
@@ -454,6 +479,9 @@ class VoiceViewModel @Inject constructor(
                 }
             }
         }
+    }
+    fun updateParakeetCtc() {
+        parakeetModels.forEach { modelDownloadManager.startDownload(it, force = true) }
     }
     fun setParakeetModelSize(size: ParakeetModelSize) {
         _uiState.update { it.copy(selectedParakeetModelSize = size) }

@@ -39,6 +39,10 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -76,12 +80,17 @@ import android.provider.Settings
 import android.Manifest
 import android.app.role.RoleManager
 import android.content.pm.PackageManager
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Lock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Assistant
 import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -193,12 +202,19 @@ fun VoiceScreen(
         onDownloadSherpaOnnxStt = viewModel::downloadSherpaOnnxStt,
         onCancelSherpaOnnxSttDownload = viewModel::cancelSherpaOnnxSttDownload,
         onDeleteSherpaOnnxStt = viewModel::deleteSherpaOnnxStt,
+        onUpdateSherpaOnnxStt = viewModel::updateSherpaOnnxStt,
+        onRetrySherpaOnnxStt = viewModel::updateSherpaOnnxStt,
         onDownloadWhisperCpp = viewModel::downloadWhisperCpp,
         onCancelWhisperCppDownload = viewModel::cancelWhisperCppDownload,
         onDeleteWhisperCpp = viewModel::deleteWhisperCpp,
+        onUpdateWhisperCpp = viewModel::updateWhisperCpp,
+        onRetryWhisperCpp = viewModel::updateWhisperCpp,
         onDownloadParakeetCtc = viewModel::downloadParakeetCtc,
         onCancelParakeetCtcDownload = viewModel::cancelParakeetCtcDownload,
         onDeleteParakeetCtc = viewModel::deleteParakeetCtc,
+        onUpdateParakeetCtc = viewModel::updateParakeetCtc,
+        onAcceptParakeetLicence = {},
+        onRetryParakeetCtc = viewModel::updateParakeetCtc,
         onParakeetModelSizeSelected = viewModel::setParakeetModelSize,
     )
 }
@@ -227,18 +243,25 @@ private fun VoiceScreenContent(
     onActiveSpeakerIdChanged: (Int) -> Unit,
     onKokoroVoiceSelected: (SherpaKokoroVoice) -> Unit,
     onDownloadKokoroVoice: (SherpaKokoroVoice) -> Unit,
-    onDownloadWhisperCpp: () -> Unit,
-    onCancelWhisperCppDownload: () -> Unit,
-    onDeleteWhisperCpp: () -> Unit,
-    onDownloadParakeetCtc: () -> Unit,
-    onCancelParakeetCtcDownload: () -> Unit,
-    onDeleteParakeetCtc: () -> Unit,
     onCancelKokoroVoiceDownload: (SherpaKokoroVoice) -> Unit,
     onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit,
     onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
     onDownloadSherpaOnnxStt: () -> Unit,
     onCancelSherpaOnnxSttDownload: () -> Unit,
     onDeleteSherpaOnnxStt: () -> Unit,
+    onUpdateSherpaOnnxStt: () -> Unit,
+    onRetrySherpaOnnxStt: () -> Unit,
+    onDownloadWhisperCpp: () -> Unit,
+    onCancelWhisperCppDownload: () -> Unit,
+    onDeleteWhisperCpp: () -> Unit,
+    onUpdateWhisperCpp: () -> Unit,
+    onRetryWhisperCpp: () -> Unit,
+    onDownloadParakeetCtc: () -> Unit,
+    onCancelParakeetCtcDownload: () -> Unit,
+    onDeleteParakeetCtc: () -> Unit,
+    onUpdateParakeetCtc: () -> Unit,
+    onAcceptParakeetLicence: () -> Unit,
+    onRetryParakeetCtc: () -> Unit,
     onParakeetModelSizeSelected: (ParakeetModelSize) -> Unit,
 ) {
     Scaffold(
@@ -453,15 +476,15 @@ private fun VoiceScreenContent(
                         isDownloading = uiState.isSherpaOnnxSttDownloading,
                         progress = uiState.sherpaOnnxSttProgress,
                         error = uiState.sherpaOnnxSttError,
+                        hfAuthenticated = uiState.hfAuthenticated,
                         onDownload = onDownloadSherpaOnnxStt,
                         onCancel = onCancelSherpaOnnxSttDownload,
+                        onUpdate = onUpdateSherpaOnnxStt,
                         onDelete = onDeleteSherpaOnnxStt,
+                        onRetry = onRetrySherpaOnnxStt,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
-                // whisper.cpp STT: always show download card until the model is downloaded
-                // so the user can download without first selecting the engine. Once downloaded,
-                // only show the card when the engine is actively selected.
                 if (engine == VoiceInputEngine.WhisperCpp &&
                     (!uiState.isWhisperCppDownloaded || uiState.selectedInputEngine == engine)
                 ) {
@@ -470,9 +493,12 @@ private fun VoiceScreenContent(
                         isDownloading = uiState.isWhisperCppDownloading,
                         progress = uiState.whisperCppProgress,
                         error = uiState.whisperCppError,
+                        hfAuthenticated = uiState.hfAuthenticated,
                         onDownload = onDownloadWhisperCpp,
                         onCancel = onCancelWhisperCppDownload,
+                        onUpdate = onUpdateWhisperCpp,
                         onDelete = onDeleteWhisperCpp,
+                        onRetry = onRetryWhisperCpp,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
@@ -482,16 +508,29 @@ private fun VoiceScreenContent(
                 if (engine == VoiceInputEngine.ParakeetCtc &&
                     (!uiState.isParakeetCtcDownloaded || uiState.selectedInputEngine == engine)
                 ) {
+                    if (!uiState.isParakeetCtcDownloaded) {
+                        HuggingFaceAuthRow(
+                            isAuthenticated = uiState.hfAuthenticated,
+                            onSignIn = onAcceptParakeetLicence,
+                            onViewLicence = onAcceptParakeetLicence,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
                     ParakeetCtcDownloadCard(
                         isDownloaded = uiState.isParakeetCtcDownloaded,
                         isDownloading = uiState.isParakeetCtcDownloading,
                         progress = uiState.parakeetCtcProgress,
                         error = uiState.parakeetCtcError,
-                        onDownload = onDownloadParakeetCtc,
-                        onCancel = onCancelParakeetCtcDownload,
-                        onDelete = onDeleteParakeetCtc,
+                        licenceRequired = uiState.parakeetCtcLicenceRequired,
                         selectedModelSize = uiState.selectedParakeetModelSize,
                         onModelSizeSelected = onParakeetModelSizeSelected,
+                        hfAuthenticated = uiState.hfAuthenticated,
+                        onDownload = onDownloadParakeetCtc,
+                        onCancel = onCancelParakeetCtcDownload,
+                        onUpdate = onUpdateParakeetCtc,
+                        onDelete = onDeleteParakeetCtc,
+                        onAcceptLicence = onAcceptParakeetLicence,
+                        onRetry = onRetryParakeetCtc,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
@@ -1439,11 +1478,158 @@ private fun VoiceInfoCard(
     }
 }
 
-
+private val HfOrange = Color(0xFFFF9D00)
+private const val PARAKEET_CTC_LICENCE_URL = "https://huggingface.co/litert-community/parakeet-ctc-0.25b"
 /**
- * Inline card shown under the Sherpa-ONNX STT engine row when the engine is selected.
- * Mirrors the pattern of [SherpaVoiceRow] / [KokoroVoiceRow] but for the 4 STT model files,
- * which are grouped as a single logical unit (~72 MB total).
+ * HuggingFace auth row — shown before the Parakeet card when the user is not authenticated.
+ * Reuses the same visual pattern as [ModelManagementScreen.HuggingFaceRow].
+ */
+@Composable
+private fun HuggingFaceAuthRow(
+    isAuthenticated: Boolean,
+    onSignIn: () -> Unit,
+    onViewLicence: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val uriHandler = LocalUriHandler.current
+    if (isAuthenticated) {
+        ListItem(
+            modifier = modifier.fillMaxWidth(),
+            headlineContent = { Text("HuggingFace: signed in") },
+            supportingContent = {
+                TextButton(onClick = { uriHandler.openUri(PARAKEET_CTC_LICENCE_URL) }, contentPadding = PaddingValues(0.dp)) {
+                    Text("View licence", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            leadingContent = { Icon(Icons.Default.AccountCircle, contentDescription = null, tint = HfOrange) },
+        )
+    } else {
+        ListItem(
+            modifier = modifier.fillMaxWidth(),
+            headlineContent = { Text("HuggingFace: not signed in") },
+            supportingContent = {
+                Text("Accept the licence on HuggingFace before downloading Parakeet CTC models.")
+                TextButton(onClick = { uriHandler.openUri(PARAKEET_CTC_LICENCE_URL) }, contentPadding = PaddingValues(0.dp)) {
+                    Text("View licence", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            leadingContent = { Icon(Icons.Default.AccountCircle, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            trailingContent = {
+                Button(
+                    onClick = onSignIn,
+                    colors = ButtonDefaults.buttonColors(containerColor = HfOrange),
+                ) { Text("Sign in", color = Color.Black) }
+            },
+        )
+    }
+}
+/**
+ * Base download card for STT models. Follows the [ModelManagementScreen.ModelRow] pattern:
+ * ListItem with headline, supporting content (progress / error), and trailing action buttons.
+ */
+@Composable
+private fun SttDownloadCard(
+    title: String,
+    subtitle: String,
+    isDownloaded: Boolean,
+    isDownloading: Boolean,
+    progress: Float,
+    error: String?,
+    licenceRequired: Boolean,
+    isGated: Boolean,
+    hfAuthenticated: Boolean,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onUpdate: () -> Unit,
+    onDelete: () -> Unit,
+    onAcceptLicence: () -> Unit,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val uriHandler = LocalUriHandler.current
+    ListItem(
+        modifier = modifier.fillMaxWidth(),
+        headlineContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title)
+                if (isGated && !hfAuthenticated) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        Icons.Default.Lock,
+                        contentDescription = "Gated",
+                        modifier = Modifier.size(14.dp),
+                        tint = HfOrange,
+                    )
+                }
+            }
+        },
+        supportingContent = {
+            Column {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                when {
+                    isDownloading -> {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text(
+                            text = "${(progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    error != null -> {
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    else -> Unit
+                }
+            }
+        },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                when {
+                    isDownloaded -> {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = "Downloaded",
+                            tint = Color(0xFF4CAF50),
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        TextButton(onClick = onUpdate) { Text("Update") }
+                        TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                    }
+                    isDownloading -> {
+                        TextButton(onClick = onCancel) { Text("Cancel") }
+                    }
+                    licenceRequired -> {
+                        Column(horizontalAlignment = Alignment.End) {
+                            TextButton(onClick = onAcceptLicence) { Text("Accept licence") }
+                            TextButton(onClick = onRetry) { Text("Retry") }
+                        }
+                    }
+                    else -> {
+                        val gatedBlocked = isGated && !hfAuthenticated
+                        TextButton(onClick = onDownload, enabled = !gatedBlocked) {
+                            Text("Download")
+                        }
+                    }
+                }
+            }
+        },
+    )
+}
+/**
+ * Inline card shown under the Sherpa-ONNX STT engine row.
  */
 @Composable
 private fun SherpaOnnxSttDownloadCard(
@@ -1451,276 +1637,132 @@ private fun SherpaOnnxSttDownloadCard(
     isDownloading: Boolean,
     progress: Float,
     error: String?,
+    hfAuthenticated: Boolean,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
+    onUpdate: () -> Unit,
     onDelete: () -> Unit,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isDownloaded)
-                MaterialTheme.colorScheme.primaryContainer
-            else
-                MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (isDownloaded) "STT model ready" else "STT model required (~72 MB)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (isDownloaded)
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (!isDownloaded && !isDownloading) {
-                        Text(
-                            text = "Zipformer int8 · English · Fully offline",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                when {
-                    isDownloaded -> Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        TextButton(onClick = onDelete) { Text("Delete") }
-                    }
-                    isDownloading -> TextButton(onClick = onCancel) { Text("Cancel") }
-                    else -> TextButton(onClick = onDownload) { Text("Download") }
-                }
-            }
-            if (isDownloading) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    text = "${(progress * 100).toInt()}%",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (error != null) {
-                Text(
-                    text = "Download failed: $error",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
+    SttDownloadCard(
+        title = "Sherpa-ONNX STT",
+        subtitle = "Zipformer int8 · English · Fully offline · ~72 MB",
+        isDownloaded = isDownloaded,
+        isDownloading = isDownloading,
+        progress = progress,
+        error = error,
+        licenceRequired = false,
+        isGated = false,
+        hfAuthenticated = hfAuthenticated,
+        onDownload = onDownload,
+        onCancel = onCancel,
+        onUpdate = onUpdate,
+        onDelete = onDelete,
+        onAcceptLicence = {},
+        onRetry = onRetry,
+        modifier = modifier,
+    )
 }
+/**
+ * Inline card shown under the Whisper.cpp STT engine row.
+ */
 @Composable
 private fun WhisperCppDownloadCard(
     isDownloaded: Boolean,
     isDownloading: Boolean,
     progress: Float,
     error: String?,
+    hfAuthenticated: Boolean,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
+    onUpdate: () -> Unit,
     onDelete: () -> Unit,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isDownloaded)
-                MaterialTheme.colorScheme.primaryContainer
-            else
-                MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (isDownloaded) "Whisper model ready" else "Whisper model required (~75 MB)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (isDownloaded)
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (!isDownloaded && !isDownloading) {
-                        Text(
-                            text = "tiny model · English · Fully offline",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                when {
-                    isDownloaded -> Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        TextButton(onClick = onDelete) { Text("Delete") }
-                    }
-                    isDownloading -> TextButton(onClick = onCancel) { Text("Cancel") }
-                    else -> TextButton(onClick = onDownload) { Text("Download") }
-                }
-            }
-            if (isDownloading) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    text = "${(progress * 100).toInt()}%",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (error != null) {
-                Text(
-                    text = "Download failed: $error",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
+    SttDownloadCard(
+        title = "Whisper.cpp",
+        subtitle = "tiny model · English · Fully offline · ~75 MB",
+        isDownloaded = isDownloaded,
+        isDownloading = isDownloading,
+        progress = progress,
+        error = error,
+        licenceRequired = false,
+        isGated = false,
+        hfAuthenticated = hfAuthenticated,
+        onDownload = onDownload,
+        onCancel = onCancel,
+        onUpdate = onUpdate,
+        onDelete = onDelete,
+        onAcceptLicence = {},
+        onRetry = onRetry,
+        modifier = modifier,
+    )
 }
+/**
+ * Inline card shown under the Parakeet CTC STT engine row.
+ * Includes model size selector and HuggingFace gating.
+ */
 @Composable
 private fun ParakeetCtcDownloadCard(
     isDownloaded: Boolean,
     isDownloading: Boolean,
     progress: Float,
     error: String?,
+    licenceRequired: Boolean,
     selectedModelSize: ParakeetModelSize,
     onModelSizeSelected: (ParakeetModelSize) -> Unit,
+    hfAuthenticated: Boolean,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
+    onUpdate: () -> Unit,
     onDelete: () -> Unit,
+    onAcceptLicence: () -> Unit,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isDownloaded)
-                MaterialTheme.colorScheme.primaryContainer
-            else
-                MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+    Column(modifier = modifier) {
+        SttDownloadCard(
+            title = "Parakeet CTC",
+            subtitle = "${selectedModelSize.displayName} CTC · English · Fully offline",
+            isDownloaded = isDownloaded,
+            isDownloading = isDownloading,
+            progress = progress,
+            error = error,
+            licenceRequired = licenceRequired,
+            isGated = true,
+            hfAuthenticated = hfAuthenticated,
+            onDownload = onDownload,
+            onCancel = onCancel,
+            onUpdate = onUpdate,
+            onDelete = onDelete,
+            onAcceptLicence = onAcceptLicence,
+            onRetry = onRetry,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (!isDownloaded && !isDownloading && !licenceRequired) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (isDownloaded) "Parakeet model ready" else "Parakeet model required",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (isDownloaded)
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (!isDownloaded && !isDownloading) {
-                        Text(
-                            text = "${selectedModelSize.displayName} CTC · English · Fully offline",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                when {
-                    isDownloaded -> Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        TextButton(onClick = onDelete) { Text("Delete") }
-                    }
-                    isDownloading -> TextButton(onClick = onCancel) { Text("Cancel") }
-                    else -> TextButton(onClick = onDownload) { Text("Download") }
-                }
-            }
-            if (!isDownloaded) {
-                // Model size selector
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Model size:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    FilterChip(
-                        selected = selectedModelSize == ParakeetModelSize._0_25B,
-                        onClick = { onModelSizeSelected(ParakeetModelSize._0_25B) },
-                        label = { Text("0.25B (~100 MB)") },
-                    )
-                    FilterChip(
-                        selected = selectedModelSize == ParakeetModelSize._2B,
-                        onClick = { onModelSizeSelected(ParakeetModelSize._2B) },
-                        label = { Text("2.0B (~1.2 GB)") },
-                    )
-                }
-            }
-            if (isDownloading) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth(),
-                )
                 Text(
-                    text = "${(progress * 100).toInt()}%",
+                    text = "Model size:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            if (error != null) {
-                Text(
-                    text = "Download failed: $error",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                FilterChip(
+                    selected = selectedModelSize == ParakeetModelSize._0_25B,
+                    onClick = { onModelSizeSelected(ParakeetModelSize._0_25B) },
+                    label = { Text("0.25B (~100 MB)") },
+                )
+                FilterChip(
+                    selected = selectedModelSize == ParakeetModelSize._2B,
+                    onClick = { onModelSizeSelected(ParakeetModelSize._2B) },
+                    label = { Text("2.0B (~1.2 GB)") },
                 )
             }
         }
@@ -1893,12 +1935,19 @@ private fun VoiceScreenPreview() {
             onDownloadSherpaOnnxStt = {},
             onCancelSherpaOnnxSttDownload = {},
             onDeleteSherpaOnnxStt = {},
+            onUpdateSherpaOnnxStt = {},
+            onRetrySherpaOnnxStt = {},
             onDownloadWhisperCpp = {},
             onCancelWhisperCppDownload = {},
             onDeleteWhisperCpp = {},
+            onUpdateWhisperCpp = {},
+            onRetryWhisperCpp = {},
             onDownloadParakeetCtc = {},
             onCancelParakeetCtcDownload = {},
             onDeleteParakeetCtc = {},
+            onUpdateParakeetCtc = {},
+            onAcceptParakeetLicence = {},
+            onRetryParakeetCtc = {},
             onParakeetModelSizeSelected = {},
         )
     }
