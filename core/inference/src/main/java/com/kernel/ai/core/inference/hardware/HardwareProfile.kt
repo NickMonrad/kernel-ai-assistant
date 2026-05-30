@@ -9,7 +9,6 @@ import com.kernel.ai.core.inference.BackendType
  * @param totalRamBytes     Physical RAM reported by [android.app.ActivityManager].
  * @param socManufacturer   SoC vendor (e.g. "Qualcomm") from [android.os.Build.SOC_MANUFACTURER].
  * @param socModel          SoC model string (e.g. "SM8550") from [android.os.Build.SOC_MODEL].
- * @param hasQualcommNpu    True when a Qualcomm Hexagon NPU is likely present.
  * @param recommendedBackend  The best backend for this device without trial-and-error.
  * @param recommendedMaxTokens  Safe KV-cache window for this tier.
  */
@@ -18,7 +17,6 @@ data class HardwareProfile(
     val totalRamBytes: Long,
     val socManufacturer: String,
     val socModel: String,
-    val hasQualcommNpu: Boolean,
     val recommendedBackend: BackendType,
     val recommendedMaxTokens: Int,
 ) {

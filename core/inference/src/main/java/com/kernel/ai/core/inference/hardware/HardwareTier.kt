@@ -4,9 +4,9 @@ package com.kernel.ai.core.inference.hardware
  * Device capability tier used to select appropriate model sizes and backends.
  *
  * Thresholds are based on total RAM:
- * - [FLAGSHIP] ≥10 GB  → Full RAG + E-2B + NPU, maxTokens=8192
- * - [MID_RANGE] ≥6 GB  → E-2B + GPU, maxTokens=2048
- * - [LOW_POWER] <6 GB  → Intent routing only + CPU, maxTokens=1024
+ * - [FLAGSHIP] ≥10 GB  → Full RAG + E-4B + GPU (OpenCL / Adreno 740), maxTokens=8000
+ * - [MID_RANGE] ≥6 GB  → E-2B + GPU, maxTokens=2000
+ * - [LOW_POWER] <6 GB  → Intent routing only + CPU, maxTokens=1000
  */
 enum class HardwareTier {
     FLAGSHIP,
