@@ -183,7 +183,7 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Look up a topic on Wikipedia and return grounded factual context. Use for explicit Wikipedia searches or encyclopedia-style fact lookups.")
+    @Tool(description = "Look up a named person, place, organisation, event, or other encyclopedia topic on Wikipedia. Use ONLY for explicit Wikipedia searches or fact lookups about a specific named entity. NOT for unit, measurement, or cooking conversions (cups, grams, ml, tbsp), arithmetic, weather, date/time, definitions, or how-to questions — answer those directly without a tool.")
     fun queryWikipedia(
         @ToolParam(description = "The topic, entity, or article title to look up on Wikipedia.") query: String,
     ): Map<String, String> {
