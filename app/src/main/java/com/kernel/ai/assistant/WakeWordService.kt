@@ -8,6 +8,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 import android.util.Log
 import com.kernel.ai.MainActivity
 import com.kernel.ai.core.voice.SherpaOnnxVoiceInputController
@@ -153,10 +156,13 @@ class WakeWordService : Service() {
                     val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
                     if (startResult !is VoiceInputStartResult.Started) {
                         Log.w(TAG, "WakeWordService: STT unavailable after detection — $startResult")
+                        val message = (startResult as? VoiceInputStartResult.Unavailable)?.message
+                        if (!message.isNullOrBlank()) showWakeWordError(message)
                         break
                     }
-                    // Play the cue only on the first attempt; a silent retry is less jarring.
-                    if (attempt == 1) cuePlayer.playCue()
+                    // Play the cue only on the first attempt; use the audible variant here so
+                    // wake-word capture remains noticeable even in silent/vibrate mode.
+                    if (attempt == 1) cuePlayer.playCue(forceAudible = true)
 
                     val terminalEvent = try {
                         voiceInputController.events
@@ -187,6 +193,12 @@ class WakeWordService : Service() {
                 isHandlingDetection = false
                 rearmDetector()
             }
+        }
+    }
+
+    private fun showWakeWordError(message: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
         }
     }
 

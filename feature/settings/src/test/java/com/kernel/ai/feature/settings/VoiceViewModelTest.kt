@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import android.content.Context
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -46,6 +47,7 @@ class VoiceViewModelTest {
     private val wakeWordPreferences: WakeWordPreferences = mockk(relaxed = true)
     private val wakeWordDetector: WakeWordDetector = mockk()
     private val modelDownloadManager: ModelDownloadManager = mockk()
+    private val context: Context = mockk(relaxed = true)
     private val heyJandalEnabled = MutableStateFlow(false)
     private val wakeWordThreshold = MutableStateFlow(0.80f)
     private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Vosk)
@@ -137,6 +139,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            context,
         )
     }
 
@@ -193,6 +196,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -221,6 +225,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -249,12 +254,45 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
             "Android native speech recognition could not verify on-device support for English (New Zealand) on this device. It may fail unless that language is supported and installed locally.",
             viewModel.uiState.value.androidNativeAvailabilityMessage,
+        )
+    }
+
+    @Test
+    fun `resolveAndroidNativeAvailabilityMessage keeps platform warning on non-Honor`() {
+        val availability = AndroidNativeRecognitionAvailability(
+            isRecognitionAvailable = true,
+            isOnDeviceRecognitionAvailable = false,
+            languageTag = "en-US",
+            languageDisplayName = "English (United States)",
+            localeStatus = AndroidNativeRecognitionLocaleStatus.Unknown,
+        )
+
+        assertEquals(
+            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack or keep using Vosk for guaranteed local voice input.",
+            resolveAndroidNativeAvailabilityMessage(availability, manufacturer = "google"),
+        )
+    }
+
+    @Test
+    fun `resolveAndroidNativeAvailabilityMessage shows Honor fallback warning on Honor`() {
+        val availability = AndroidNativeRecognitionAvailability(
+            isRecognitionAvailable = true,
+            isOnDeviceRecognitionAvailable = true,
+            languageTag = "en-AU",
+            languageDisplayName = "English (Australia)",
+            localeStatus = AndroidNativeRecognitionLocaleStatus.Ready,
+        )
+
+        assertEquals(
+            "Android native speech recognition is failing on this device. Switch to Sherpa-ONNX or Vosk in Settings → Voice.",
+            resolveAndroidNativeAvailabilityMessage(availability, manufacturer = "HONOR"),
         )
     }
 

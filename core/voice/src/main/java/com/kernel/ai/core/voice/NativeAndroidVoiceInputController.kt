@@ -79,6 +79,13 @@ internal fun shouldRetryWithPlatformAfterWatchdogTimeout(
     sawPartialTranscript: Boolean,
 ): Boolean = backend == RecognizerBackend.OnDevice && !sawPartialTranscript
 
+internal fun honorAndroidNativeBlockingReason(manufacturer: String?): String? =
+    if (manufacturer?.equals("honor", ignoreCase = true) == true) {
+        "Android native speech recognition is failing on this device. Switch to Sherpa-ONNX or Vosk in Settings → Voice."
+    } else {
+        null
+    }
+
 @Singleton
 class NativeAndroidVoiceInputController @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -109,11 +116,17 @@ class NativeAndroidVoiceInputController @Inject constructor(
     @Volatile
     private var startupFallbackJob: Job? = null
 
+
     private var nextSessionId: Long = 0L
 
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         return withContext(Dispatchers.Main.immediate) {
             stopListeningInternal(emitStopped = false)
+            honorAndroidNativeBlockingReason(Build.MANUFACTURER)?.let { reason ->
+                Log.w(TAG, "Blocking Android native STT start on Honor: mode=$mode reason=$reason")
+                return@withContext VoiceInputStartResult.Unavailable(reason)
+            }
+
 
             val availability = if (shouldUseCachedCaptureAvailability(mode)) {
                 recognitionSupport.getCaptureAvailability()
