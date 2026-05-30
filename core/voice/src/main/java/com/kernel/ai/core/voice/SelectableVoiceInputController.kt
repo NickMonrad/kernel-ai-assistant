@@ -5,9 +5,10 @@ import javax.inject.Singleton
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flatMapLatest
-
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 @OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
 class SelectableVoiceInputController @Inject constructor(
@@ -19,8 +20,17 @@ class SelectableVoiceInputController @Inject constructor(
     private val parakeetVoiceInputController: ParakeetVoiceInputController,
 ) : VoiceInputController {
     private val activeController = MutableStateFlow<VoiceInputController>(voskOfflineVoiceInputController)
-    override val events: Flow<VoiceInputEvent> = activeController.flatMapLatest { controller ->
-        controller.events
+
+    override val events: Flow<VoiceInputEvent> = merge(
+        voskOfflineVoiceInputController.events.map { event -> voskOfflineVoiceInputController to event },
+        nativeAndroidVoiceInputController.events.map { event -> nativeAndroidVoiceInputController to event },
+        sherpaOnnxVoiceInputController.events.map { event -> sherpaOnnxVoiceInputController to event },
+        whisperVoiceInputController.events.map { event -> whisperVoiceInputController to event },
+        parakeetVoiceInputController.events.map { event -> parakeetVoiceInputController to event },
+    ).filter { (controller, _) ->
+        controller === activeController.value
+    }.map { (_, event) ->
+        event
     }
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         val controller = when (voiceInputPreferences.selectedEngine.first()) {
