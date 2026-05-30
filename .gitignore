@@ -11,6 +11,7 @@ build/
 .settings/
 .project
 .classpath
+.vscode/settings.json
 
 # Android
 local.properties
@@ -54,3 +55,10 @@ third_party/sherpa-onnx/
 
 # Legacy local Sherpa voice assets (kept ignored if they still exist from old setup flows).
 core/voice/src/main/assets/sherpa-tts/
+# ── TTS training artifacts — generated, not source ───────────────────────────
+tts_*.json
+tts_*.srt
+tts_*.tsv
+tts_*.txt
+tts_*.vtt
+training/wakeword/

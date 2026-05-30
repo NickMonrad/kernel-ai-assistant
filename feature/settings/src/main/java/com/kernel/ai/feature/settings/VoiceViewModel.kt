@@ -330,15 +330,10 @@ class VoiceViewModel @Inject constructor(
         // Parakeet CTC download state
         viewModelScope.launch {
             modelDownloadManager.downloadStates.collect { states ->
-                val parakeetModels = listOf(
-                    KernelModel.PARAKEET_CTC_0_25B,
-                    KernelModel.PARAKEET_CTC_2B,
-                    KernelModel.PARAKEET_CTC_TOKENIZER,
-                )
-                val allDownloaded = parakeetModels.all { states[it] is DownloadState.Downloaded }
-                val anyDownloading = parakeetModels.any { states[it] is DownloadState.Downloading }
-                val totalBytes = parakeetModels.sumOf { it.approxSizeBytes }.toFloat()
-                val weightedProgress = parakeetModels.map { model ->
+                val allDownloaded = allParakeetModels.all { states[it] is DownloadState.Downloaded }
+                val anyDownloading = allParakeetModels.any { states[it] is DownloadState.Downloading }
+                val totalBytes = allParakeetModels.sumOf { it.approxSizeBytes }.toFloat()
+                val weightedProgress = allParakeetModels.map { model ->
                     val weight = model.approxSizeBytes.toFloat()
                     when (val s = states[model]) {
                         is DownloadState.Downloaded -> weight
@@ -346,10 +341,10 @@ class VoiceViewModel @Inject constructor(
                         else -> 0f
                     }
                 }.sum() / totalBytes
-                val error = parakeetModels
+                val error = allParakeetModels
                     .mapNotNull { (states[it] as? DownloadState.Error)?.message }
                     .firstOrNull()
-                val licenceRequired = parakeetModels.any { (states[it] as? DownloadState.Error)?.licenceRequired == true }
+                val licenceRequired = allParakeetModels.any { (states[it] as? DownloadState.Error)?.licenceRequired == true }
                 _uiState.update {
                     it.copy(
                         isParakeetCtcDownloaded = allDownloaded,
@@ -450,28 +445,50 @@ class VoiceViewModel @Inject constructor(
     fun updateSherpaOnnxStt() {
         sttModels.forEach { modelDownloadManager.startDownload(it, force = true) }
     }
-    // ── Parakeet CTC actions ──────────────────────────────────────────────────
-    private val parakeetModels = listOf(
+    /** Kernel models for the selected Parakeet variant + shared tokenizer. */
+    private fun parakeetModels(): List<KernelModel> = listOf(
+        if (_uiState.value.selectedParakeetModelSize == ParakeetModelSize._2B) {
+            KernelModel.PARAKEET_CTC_2B
+        } else {
+            KernelModel.PARAKEET_CTC_0_25B
+        },
+        KernelModel.PARAKEET_CTC_TOKENIZER,
+    )
+    /** All Parakeet model entries (both variants + tokenizer) for state tracking. */
+    private val allParakeetModels = listOf(
         KernelModel.PARAKEET_CTC_0_25B,
+        KernelModel.PARAKEET_CTC_2B,
         KernelModel.PARAKEET_CTC_TOKENIZER,
     )
     fun downloadParakeetCtc() {
-        parakeetModels.forEach { modelDownloadManager.startDownload(it) }
+        parakeetModels().forEach { modelDownloadManager.startDownload(it) }
     }
     fun cancelParakeetCtcDownload() {
         val currentStates = modelDownloadManager.downloadStates.value
-        parakeetModels
+        parakeetModels()
             .filter { currentStates[it] is DownloadState.Downloading }
             .forEach { modelDownloadManager.cancelDownload(it) }
     }
     fun deleteParakeetCtc() {
         viewModelScope.launch(Dispatchers.IO) {
-            parakeetModels.forEach { model ->
+            // Delete the selected variant + tokenizer
+            parakeetModels().forEach { model ->
                 val file = model.localFile(context)
                 file.delete()
                 val tmp = java.io.File(file.absolutePath + ".tmp")
                 if (tmp.exists()) tmp.delete()
                 modelDownloadManager.refreshState(model)
+            }
+            // Also delete the other variant if it exists (stale file cleanup)
+            val otherVariant = if (_uiState.value.selectedParakeetModelSize == ParakeetModelSize._2B) {
+                KernelModel.PARAKEET_CTC_0_25B
+            } else {
+                KernelModel.PARAKEET_CTC_2B
+            }
+            val otherFile = otherVariant.localFile(context)
+            if (otherFile.exists()) {
+                otherFile.delete()
+                modelDownloadManager.refreshState(otherVariant)
             }
             if (_uiState.value.selectedInputEngine == VoiceInputEngine.ParakeetCtc) {
                 withContext(Dispatchers.Main) {
@@ -481,7 +498,7 @@ class VoiceViewModel @Inject constructor(
         }
     }
     fun updateParakeetCtc() {
-        parakeetModels.forEach { modelDownloadManager.startDownload(it, force = true) }
+        parakeetModels().forEach { modelDownloadManager.startDownload(it, force = true) }
     }
     fun setParakeetModelSize(size: ParakeetModelSize) {
         _uiState.update { it.copy(selectedParakeetModelSize = size) }

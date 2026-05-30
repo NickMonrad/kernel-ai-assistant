@@ -62,7 +62,11 @@ class WhisperVoiceInputController @Inject constructor(
     }
 
     init {
-        System.loadLibrary("whisper_jni")
+        try {
+            System.loadLibrary("whisper_jni")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "whisper_jni native library not available: ${e.message}")
+        }
     }
 
     // ── JNI native methods ─────────────────────────────────────────────────────
