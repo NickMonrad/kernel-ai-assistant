@@ -318,6 +318,8 @@ class MemoryRepositoryImpl @Inject constructor(
 
     override fun observeCoreMemories(): Flow<List<CoreMemoryEntity>> = coreDao.observeAll()
 
+    override suspend fun getAllCoreMemories(): List<CoreMemoryEntity> = coreDao.getAll()
+
     override fun observeEpisodicCount(): Flow<Int> = episodicDao.observeCount()
 
     override fun observeEpisodicMemories(): Flow<List<EpisodicMemoryEntity>> = episodicDao.observeAll()

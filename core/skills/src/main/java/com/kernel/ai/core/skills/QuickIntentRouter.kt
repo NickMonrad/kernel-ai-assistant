@@ -374,6 +374,54 @@ class QuickIntentRouter(
             }
         }
 
+    // Numeric slash fractions ("2/3 of a cup", "1/2 cup") and mixed numbers ("1 1/2 cups") arrive
+    // when STT transcribes spoken fractions as glyphs (e.g. "two thirds" → "2/3"). The digit-only
+    // [cookingConversionValuePattern] and the written-fraction normaliser above both reject these,
+    // so they fall through to the LLM. We rewrite them to a decimal value before regex matching,
+    // consuming the whole "<fraction> of a " bridge so the result is "0.666667 cup" (a value the
+    // cooking-conversion patterns accept). Scoped by the same cooking-unit lookahead so unrelated
+    // phrases ("2/3 of the class") are left untouched. Mixed numbers are normalised first so the
+    // leading whole number is not mistaken for a standalone simple fraction.
+    private val cookingMixedFractionRegex = Regex(
+        """\b(\d+)\s+(\d+)\s*/\s*(\d+)\s+(?:of\s+)?(?:an?\s+)?(?=$cookingFractionUnitLookaheadPattern\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val cookingSimpleFractionRegex = Regex(
+        """(?<!\d)(\d+)\s*/\s*(\d+)\s+(?:of\s+)?(?:an?\s+)?(?=$cookingFractionUnitLookaheadPattern\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun fractionToDecimalString(numerator: Int, denominator: Int, whole: Int = 0): String? {
+        if (denominator == 0) return null
+        val decimal = BigDecimal(whole)
+            .add(BigDecimal(numerator).divide(BigDecimal(denominator), 6, RoundingMode.HALF_UP))
+            .stripTrailingZeros()
+        return decimal.toPlainString()
+    }
+
+    private fun normalizeNumericCookingFractions(input: String): String {
+        val mixedNormalized = cookingMixedFractionRegex.replace(input) { match ->
+            val whole = match.groupValues[1].toIntOrNull()
+            val numerator = match.groupValues[2].toIntOrNull()
+            val denominator = match.groupValues[3].toIntOrNull()
+            if (whole == null || numerator == null || denominator == null) {
+                match.value
+            } else {
+                fractionToDecimalString(numerator, denominator, whole)?.let { "$it " } ?: match.value
+            }
+        }
+        return cookingSimpleFractionRegex.replace(mixedNormalized) { match ->
+            val numerator = match.groupValues[1].toIntOrNull()
+            val denominator = match.groupValues[2].toIntOrNull()
+            if (numerator == null || denominator == null) {
+                match.value
+            } else {
+                fractionToDecimalString(numerator, denominator)?.let { "$it " } ?: match.value
+            }
+        }
+    }
+
     private val currencyConversionValuePattern = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?"
     private val currencyConversionNounPattern = "(?:dollars?|euros?|pounds?|yen|yuan|francs?|rupees?|pesos?|rand(?:s)?|won|dirhams?|riyals?|ringgit|krona|krone|lira|shekels?|baht|forint|zloty|koruna|leu|lei|real|reais|taka)"
     private val currencyConversionTermPattern = "(?:[A-Za-z]{3}|$currencyConversionNounPattern|[A-Za-z][A-Za-z.'’-]*(?:\\s+[A-Za-z][A-Za-z.'’-]*){0,4}\\s+$currencyConversionNounPattern)"
@@ -4144,7 +4192,11 @@ class QuickIntentRouter(
 
         // Written-out fractional cooking quantities are rewritten to decimals (regex-only, like
         // the alias normalisation above) so they reach the deterministic cooking-conversion path.
-        val fractionNormalized = normalizeWrittenCookingFractions(aliasNormalized)
+        // Numeric slash fractions ("2/3 of a cup", "1 1/2 cups") are handled too, since STT often
+        // transcribes spoken fractions as glyphs.
+        val fractionNormalized = normalizeNumericCookingFractions(
+            normalizeWrittenCookingFractions(aliasNormalized),
+        )
 
         // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.
         //   Pass 1: specific patterns (isFallback = false) — tried in declaration order.

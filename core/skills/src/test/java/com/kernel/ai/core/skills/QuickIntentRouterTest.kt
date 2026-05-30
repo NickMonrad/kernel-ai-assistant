@@ -953,6 +953,56 @@ class QuickIntentRouterTest {
             assertEquals("grams", intent.params["to_unit"])
         }
 
+        @Test
+        fun `routes numeric slash-fraction cooking phrase deterministically`() {
+            val result = regexOnlyRouter.route("Convert 2/3 of a cup of flour to grams")
+            assertRegexMatch(result, "convert_cooking_measure", "numeric slash fraction")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("0.666667", intent.params["amount"])
+            assertEquals("cup", intent.params["from_unit"])
+            assertEquals("flour", intent.params["ingredient"])
+            assertEquals("grams", intent.params["to_unit"])
+        }
+
+        @Test
+        fun `routes half slash-fraction without of-a bridge`() {
+            val result = regexOnlyRouter.route("Convert 1/2 cup of butter to grams")
+            assertRegexMatch(result, "convert_cooking_measure", "1/2 cup")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("0.5", intent.params["amount"])
+            assertEquals("cup", intent.params["from_unit"])
+            assertEquals("butter", intent.params["ingredient"])
+            assertEquals("grams", intent.params["to_unit"])
+        }
+
+        @Test
+        fun `routes mixed-number slash fraction cooking phrase`() {
+            val result = regexOnlyRouter.route("Convert 1 1/2 cups of flour to grams")
+            assertRegexMatch(result, "convert_cooking_measure", "mixed number 1 1/2")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("1.5", intent.params["amount"])
+            assertEquals("cups", intent.params["from_unit"])
+            assertEquals("flour", intent.params["ingredient"])
+            assertEquals("grams", intent.params["to_unit"])
+        }
+
+        @ParameterizedTest(name = "Non-cooking numeric fraction left untouched: \"{0}\"")
+        @ValueSource(
+            strings = [
+                "what is 2/3 of the class",
+                "I got 2/3 of the questions right",
+                "1/0 of a cup of flour to grams",
+            ],
+        )
+        fun `does not misroute non-cooking numeric fractions to cooking conversion`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            val routedIntent = (result as? QuickIntentRouter.RouteResult.RegexMatch)?.intent?.intentName
+            assertNotEquals("convert_cooking_measure", routedIntent)
+        }
+
         @ParameterizedTest(name = "Non-cooking fraction left untouched: \"{0}\"")
         @ValueSource(
             strings = [

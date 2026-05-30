@@ -215,6 +215,31 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `resolveTime parses bare lowercase am meridiem from slot reply`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveTime",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        assertEquals(LocalTime.of(9, 0), method.invoke(handler, "9am") as LocalTime?)
+        assertEquals(LocalTime.of(21, 0), method.invoke(handler, "9pm") as LocalTime?)
+        assertEquals(LocalTime.of(0, 0), method.invoke(handler, "12am") as LocalTime?)
+        assertEquals(LocalTime.of(12, 0), method.invoke(handler, "12pm") as LocalTime?)
+        assertEquals(LocalTime.of(9, 0), method.invoke(handler, "9 am") as LocalTime?)
+    }
+
+    @Test
+    fun `resolveTime rejects invalid bare meridiem hours`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveTime",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        assertNull(method.invoke(handler, "13pm") as LocalTime?)
+        assertNull(method.invoke(handler, "0am") as LocalTime?)
+    }
+
+    @Test
     fun `resolveTime recovers flattened three oclock format`() {
         val method = NativeIntentHandler::class.java.getDeclaredMethod(
             "resolveTime",

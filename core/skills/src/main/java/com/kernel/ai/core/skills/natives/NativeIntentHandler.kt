@@ -2914,9 +2914,9 @@ class NativeIntentHandler @Inject constructor(
                 }
             }
             .let { normalized ->
-                Regex("""^(\d{1,2})\s*(AM|PM)$""").replace(normalized) { m ->
+                Regex("""^(\d{1,2})\s*(AM|PM)$""", RegexOption.IGNORE_CASE).replace(normalized) { m ->
                     val h = m.groupValues[1].toIntOrNull() ?: 0
-                    if (h in 1..12) "${m.groupValues[1]}:00${m.groupValues[2]}" else m.value
+                    if (h in 1..12) "${m.groupValues[1]}:00${m.groupValues[2].uppercase()}" else m.value
                 }
             }
             .trim()

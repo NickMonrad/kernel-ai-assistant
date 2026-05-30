@@ -357,6 +357,37 @@ class RagRepository @Inject constructor(
      * @return Combined list of matching memories; empty if the embedding engine is not ready
      *   or no results pass the relevance threshold.
      */
+    /**
+     * Snapshot of the user's explicitly-saved core memories, most-recently-accessed first.
+     *
+     * Used for generic self-referential recall (e.g. "what do you remember about me") where a
+     * topical similarity search has no content words to match against. Filtered to user facts
+     * (category=="user", source=="user") so agent-identity / NZ-truth / persona-seed rows are not
+     * surfaced. Returns up to [limit] entries.
+     */
+    suspend fun getAllUserCoreMemories(limit: Int = 20): List<MemorySearchResult> = withContext(Dispatchers.IO) {
+        runCatching {
+            memoryRepository.getAllCoreMemories()
+                .asSequence()
+                .filter { it.category == "user" && it.source == "user" }
+                .sortedByDescending { it.lastAccessedAt }
+                .take(limit.coerceAtLeast(1))
+                .map { entity ->
+                    MemorySearchResult(
+                        id = entity.id,
+                        content = entity.content,
+                        source = "core",
+                        score = 1f,
+                        lastAccessedAt = entity.lastAccessedAt,
+                    )
+                }
+                .toList()
+        }.getOrElse {
+            Log.w(TAG, "getAllUserCoreMemories failed: ${it.message}")
+            emptyList()
+        }
+    }
+
     suspend fun searchCoreAndEpisodic(
         query: String,
         topK: Int = DEFAULT_TOP_K,
