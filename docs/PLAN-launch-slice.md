@@ -165,3 +165,47 @@ removal of four stale planning docs. The previously empty README `## Roadmap` se
 populated with the launch-tiered structure (Blocking/Post/Deferred) ordered to match the slices
 above. Also fixed a label conflict on **#692** (had both `launch:blocking` and `launch:post`;
 kept blocking).
+
+---
+
+## 7. Milestone reorganisation (applied to GitHub)
+
+Milestones were phase-based only, so the launch gate had no progress view: the 24
+`launch:blocking` issues were scattered across Phase 3/4/6 and "no milestone", and 46 open
+issues had no milestone at all. Reorganised as follows:
+
+**New release milestone:**
+- Created **"v1.0 — Play Store Launch"** and assigned all **24 `launch:blocking`** issues to it
+  (#226, #261, #427, #428, #430, #432, #441, #692, #713, #747, #751, #756, #824, #868, #885,
+  #886, #915, #916, #928, #937, #957, #961, #996, #1014). GitHub allows only one milestone per
+  issue, so the 15 blockers previously in phase milestones moved here; their phase/domain
+  grouping is still preserved via labels (`optimisation`, `voice`, `Phase 3`, `roadmap`) and via
+  epics. This gives a single "X of 24 done before publish" progress bar mirroring epic #1014.
+
+**Stale milestone removed:**
+- Deleted the empty, **closed** "Phase 3: Voice Interface" milestone (0 issues) — it duplicated
+  and contradicted the still-active voice work, which lives under "Phase 3: Resident Agent +
+  Native Skills" + the `voice` label + epic #350.
+
+**Backfilled the unmilestoned issues by domain / parent epic:**
+- #803 → Phase 6 (optimisation); #944 → Phase 5 (Wasm/Skill Store).
+- ~30 current Phase-3-domain issues (voice, memory, skills, ui, settings, intent-routing) → the
+  "Phase 3: Resident Agent + Native Skills" milestone, matching their parent epics.
+- **Left the 5 `launch:deferred` items intentionally unmilestoned** (#819, #820, #940, #949,
+  #977) — they are genuinely unscheduled, so milestoning them would only turn Phase 3 into a
+  dumping ground.
+
+**Labels:**
+- Deleted the 4 unused `release:*` version labels (`release:v0.4.0`, `v0.5.0`, `v0.6.0`,
+  `v1.0.0` — 0 issues each); the `launch:*` taxonomy supersedes them. Kept `release:backlog`
+  (still applied to 14 closed issues).
+- Fixed a `launch:blocking` + `launch:post` conflict on **#916** (kept blocking) — same fix
+  previously applied to #692.
+
+**Resulting open milestone distribution:** v1.0 — Play Store Launch (24), Phase 3 (64),
+Phase 5 (6), Phase 6 (5), Phase 4 (4), Tech Debt & Research (6). Every open issue now carries a
+milestone except the 5 deliberately-unscheduled `launch:deferred` items.
+
+**Note / follow-up:** the repo still mixes two priority schemes (`priority:p0/p1/p2` and
+`priority:low/medium/high`) — see §5. Standardising on `low/medium/high` remains a recommended
+follow-up pass.
