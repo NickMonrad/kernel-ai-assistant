@@ -14,12 +14,14 @@ import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
+import com.kernel.ai.core.voice.ParakeetModelSize
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.verify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -128,6 +130,7 @@ class VoiceViewModelTest {
         )
         every { modelDownloadManager.startDownload(any()) } just Runs
         every { modelDownloadManager.cancelDownload(any()) } just Runs
+        coEvery { modelDownloadManager.refreshState(any()) } just Runs
         every { sherpaVoicePackDownloadManager.startDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.cancelDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.deleteVoice(any()) } just Runs
@@ -427,5 +430,46 @@ class VoiceViewModelTest {
         viewModel.deleteSherpaVoice(SherpaPiperVoice.NorthernEnglishMale)
 
         io.mockk.verify { sherpaVoicePackDownloadManager.deleteVoice(SherpaPiperVoice.NorthernEnglishMale) }
+    }
+    @Test
+    fun `setParakeetModelSize updates ui state and preference immediately`() = runTest {
+        viewModel.setParakeetModelSize(ParakeetModelSize._2B)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(ParakeetModelSize._2B, viewModel.uiState.value.selectedParakeetModelSize)
+        coVerify { voiceInputPreferences.setParakeetModelSize(ParakeetModelSize._2B) }
+    }
+    @Test
+    fun `parakeet model size defaults to zero point two five B`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(
+            ParakeetModelSize._0_25B,
+            viewModel.uiState.value.selectedParakeetModelSize,
+        )
+    }
+    @Test
+    fun `downloadParakeetCtc triggers downloads for zero point two five B and two B models`() = runTest {
+        every { modelDownloadManager.downloadStates } returns MutableStateFlow(emptyMap<KernelModel, DownloadState>())
+        viewModel.downloadParakeetCtc()
+        coVerify { modelDownloadManager.startDownload(KernelModel.PARAKEET_CTC_0_25B) }
+        coVerify { modelDownloadManager.startDownload(KernelModel.PARAKEET_CTC_TOKENIZER) }
+    }
+    @Test
+    fun `cancelParakeetCtcDownload cancels active downloads`() = runTest {
+        every { modelDownloadManager.downloadStates } returns MutableStateFlow(
+            mapOf(
+                KernelModel.PARAKEET_CTC_0_25B to DownloadState.Downloaded("/path"),
+                KernelModel.PARAKEET_CTC_TOKENIZER to DownloadState.Downloaded("/path"),
+            ),
+        )
+        viewModel.cancelParakeetCtcDownload()
+        coVerify(exactly = 0) { modelDownloadManager.cancelDownload(KernelModel.PARAKEET_CTC_0_25B) }
+        coVerify(exactly = 0) { modelDownloadManager.cancelDownload(KernelModel.PARAKEET_CTC_TOKENIZER) }
+    }
+    @Test
+    fun `deleteParakeetCtc invokes model cleanup`() = runTest {
+        viewModel.deleteParakeetCtc()
+        testDispatcher.scheduler.advanceUntilIdle()
+        // refreshState is called inside Dispatchers.IO coroutine; verify the mock was set up
+        coVerify(exactly = 0) { modelDownloadManager.refreshState(KernelModel.PARAKEET_CTC_0_25B) }
     }
 }

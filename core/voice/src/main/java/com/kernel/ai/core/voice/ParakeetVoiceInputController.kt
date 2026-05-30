@@ -68,10 +68,6 @@ class ParakeetVoiceInputController @Inject constructor(
         private const val SAMPLE_RATE = 16000
         private const val CHUNK_SAMPLES = (0.1 * SAMPLE_RATE).toInt() // 100 ms
         private const val LISTEN_TIMEOUT_MS = 15_000L
-        /** Default model file — generic INT8 variant (~596 MB). */
-        const val MODEL_FILE = "parakeet-ctc-0.6b_i8.tflite"
-        /** SM8550-specific model file — FP32 variant (~1.2 GB, Qualcomm-optimised). */
-        const val MODEL_FILE_SM8550 = "parakeet-ctc-0.6b_SM8550_i8.tflite"
         /** SentencePiece tokeniser model file. */
         const val TOKENIZER_FILE = "parakeet-ctc-tokenizer.model"
         /**
@@ -195,7 +191,7 @@ class ParakeetVoiceInputController @Inject constructor(
         }
 
         // Extract MFCC features and run inference
-        val mfcc = ParakeetMfccExtractor().extract(pcmBuffer)
+        val mfcc = ParakeetMfccExtractor.extract(pcmBuffer)
         val decoded = runInference(mfcc)
 
         if (decoded.isNotBlank()) {
@@ -364,24 +360,8 @@ class ParakeetVoiceInputController @Inject constructor(
     }
 
     private fun findModelFile(): File? {
-        val modelsDir = modelsDir()
-        // Try SM8550 variant first (device-specific, Qualcomm-optimised)
-        val sm8550 = File(modelsDir, MODEL_FILE_SM8550)
-        if (sm8550.exists() && sm8550.length() > 0) return sm8550
-        // Fall back to generic INT8
-        val generic = File(modelsDir, MODEL_FILE)
-        if (generic.exists() && generic.length() > 0) return generic
-        // For 2B variant, try the selected model file
-        if (selectedModelSize == ParakeetModelSize._2B) {
-            val model2b = File(modelsDir, ParakeetModelSize._2B.fileName)
-            if (model2b.exists() && model2b.length() > 0) return model2b
-        }
-        // For 0.25B variant, try the selected model file
-        if (selectedModelSize == ParakeetModelSize._0_25B) {
-            val model025 = File(modelsDir, ParakeetModelSize._0_25B.fileName)
-            if (model025.exists() && model025.length() > 0) return model025
-        }
-        return null
+        val modelFile = File(modelsDir(), selectedModelSize.fileName)
+        return if (modelFile.exists() && modelFile.length() > 0) modelFile else null
     }
 
     private fun tokenizerFile(): File = File(modelsDir(), TOKENIZER_FILE)
@@ -420,58 +400,46 @@ class ParakeetVoiceInputController @Inject constructor(
  *
  * This is a simplified implementation suitable for batch-only push-to-talk.
  */
-class ParakeetMfccExtractor {
-
-    companion object {
-        private const val SAMPLE_RATE = 16000
-        private const val WINDOW_SIZE_MS = 25L
-        private const val HOP_SIZE_MS = 10L
-        private const val NUM_MEL_FILTERS = 80
-        private const val FFT_SIZE = 512
-        private const val NUM_CEPSTRUM = 80
-        private const val MIN_LOG_DELTA = 1e-10f
-
-        // Precomputed triangular window
-        private val WINDOW = FloatArray(FFT_SIZE) { i ->
-            (0.5f - 0.5f * kotlin.math.cos(2.0 * kotlin.math.PI * i / (FFT_SIZE - 1))).toFloat()
-        }
-
-        // Precomputed mel filterbank
-        private val MEL_FILTERS: Array<FloatArray> = computeMelFiltersStatic(NUM_MEL_FILTERS, FFT_SIZE, SAMPLE_RATE)
-
-        private fun computeMelFiltersStatic(numFilters: Int, fftSize: Int, sampleRate: Int): Array<FloatArray> {
-            val halfSize = fftSize / 2 + 1
-            val melLow = 2595f * kotlin.math.log10(1f / 700f)
-            val melHigh = 2595f * kotlin.math.log10(1f + (sampleRate / 2f) / 700f)
-
-            val melPoints = FloatArray(numFilters + 2)
-            for (i in melPoints.indices) {
-                melPoints[i] = melLow + i * (melHigh - melLow) / (numFilters + 1)
-            }
-
-            val hzPoints = FloatArray(numFilters + 2)
-            for (i in hzPoints.indices) {
-                hzPoints[i] = 700f * (Math.pow(10.0, melPoints[i] / 2595.0) - 1.0).toFloat()
-            }
-
-            val binPoints = hzPoints.map { 1 + (it * (fftSize + 1) / sampleRate).toInt() }.toIntArray()
-
-            val filters = Array(numFilters) { FloatArray(halfSize) }
-            for (i in 0 until numFilters) {
-                for (f in binPoints[i] until binPoints[i + 1]) {
-                    val denom = binPoints[i + 1] - binPoints[i]
-                    filters[i][f] = if (denom == 0) 0f else (f - binPoints[i]).toFloat() / denom
-                }
-                for (f in binPoints[i + 1] until binPoints[i + 2]) {
-                    val denom = binPoints[i + 2] - binPoints[i + 1]
-                    filters[i][f] = if (denom == 0) 0f else (binPoints[i + 2] - f).toFloat() / denom
-                }
-            }
-
-            return filters
-        }
+object ParakeetMfccExtractor {
+    private const val SAMPLE_RATE = 16000
+    private const val WINDOW_SIZE_MS = 25L
+    private const val HOP_SIZE_MS = 10L
+    private const val NUM_MEL_FILTERS = 80
+    private const val FFT_SIZE = 512
+    private const val NUM_CEPSTRUM = 80
+    private const val MIN_LOG_DELTA = 1e-10f
+    // Precomputed triangular window
+    private val WINDOW = FloatArray(FFT_SIZE) { i ->
+        (0.5f - 0.5f * kotlin.math.cos(2.0 * kotlin.math.PI * i / (FFT_SIZE - 1))).toFloat()
     }
-
+    // Precomputed mel filterbank
+    private val MEL_FILTERS: Array<FloatArray> = computeMelFilters(NUM_MEL_FILTERS, FFT_SIZE, SAMPLE_RATE)
+    private fun computeMelFilters(numFilters: Int, fftSize: Int, sampleRate: Int): Array<FloatArray> {
+        val halfSize = fftSize / 2 + 1
+        val melLow = 2595f * kotlin.math.log10(1f / 700f)
+        val melHigh = 2595f * kotlin.math.log10(1f + (sampleRate / 2f) / 700f)
+        val melPoints = FloatArray(numFilters + 2)
+        for (i in melPoints.indices) {
+            melPoints[i] = melLow + i * (melHigh - melLow) / (numFilters + 1)
+        }
+        val hzPoints = FloatArray(numFilters + 2)
+        for (i in hzPoints.indices) {
+            hzPoints[i] = 700f * (Math.pow(10.0, melPoints[i] / 2595.0) - 1.0).toFloat()
+        }
+        val binPoints = hzPoints.map { 1 + (it * (fftSize + 1) / sampleRate).toInt() }.toIntArray()
+        val filters = Array(numFilters) { FloatArray(halfSize) }
+        for (i in 0 until numFilters) {
+            for (f in binPoints[i] until binPoints[i + 1]) {
+                val denom = binPoints[i + 1] - binPoints[i]
+                filters[i][f] = if (denom == 0) 0f else (f - binPoints[i]).toFloat() / denom
+            }
+            for (f in binPoints[i + 1] until binPoints[i + 2]) {
+                val denom = binPoints[i + 2] - binPoints[i + 1]
+                filters[i][f] = if (denom == 0) 0f else (binPoints[i + 2] - f).toFloat() / denom
+            }
+        }
+        return filters
+    }
     /**
      * Extract MFCC features from raw PCM16 audio.
      *
@@ -480,15 +448,11 @@ class ParakeetMfccExtractor {
      */
     fun extract(pcm: List<Short>): FloatArray {
         if (pcm.isEmpty()) return FloatArray(0)
-
         val windowSamples = (WINDOW_SIZE_MS * SAMPLE_RATE / 1000).toInt()
         val hopSamples = (HOP_SIZE_MS * SAMPLE_RATE / 1000).toInt()
-
         val numFrames = ((pcm.size - windowSamples) / hopSamples) + 1
         if (numFrames <= 0) return FloatArray(0)
-
         val features = FloatArray(numFrames * NUM_CEPSTRUM)
-
         for (frame in 0 until numFrames) {
             val offset = frame * hopSamples
             // Apply window and convert to float
@@ -496,28 +460,22 @@ class ParakeetMfccExtractor {
             for (i in 0 until windowSamples) {
                 windowed[i] = pcm[offset + i] / 32768f * WINDOW[i]
             }
-
             // FFT magnitude spectrum (DFT)
             val magnitudes = computeMagnitudeSpectrum(windowed)
-
             // Apply mel filterbank
             val melSpectrum = computeMelSpectrum(magnitudes)
-
             // Log energy
             for (i in 0 until NUM_CEPSTRUM) {
                 features[frame * NUM_CEPSTRUM + i] =
                     Math.log((melSpectrum[i] + MIN_LOG_DELTA).toDouble()).toFloat()
             }
         }
-
         return features
     }
-
     /** Compute magnitude spectrum via simple DFT (for 512-point window). */
     private fun computeMagnitudeSpectrum(windowed: FloatArray): FloatArray {
         val halfSize = FFT_SIZE / 2 + 1
         val magnitudes = FloatArray(halfSize)
-
         for (k in 0 until halfSize) {
             var real = 0f
             var imag = 0f
@@ -528,10 +486,8 @@ class ParakeetMfccExtractor {
             }
             magnitudes[k] = real * real + imag * imag
         }
-
         return magnitudes
     }
-
     /** Apply mel filterbank to magnitude spectrum. */
     private fun computeMelSpectrum(magnitudes: FloatArray): FloatArray {
         val melSpectrum = FloatArray(NUM_MEL_FILTERS)

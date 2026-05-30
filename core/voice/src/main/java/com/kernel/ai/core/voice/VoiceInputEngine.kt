@@ -27,7 +27,7 @@ enum class VoiceInputEngine(
     ParakeetCtc(
         displayName = "Parakeet CTC",
         description = "Offline speech recognition using NVIDIA's Parakeet CTC model via TFLite. High accuracy for English.",
-        warning = "Requires downloading the Parakeet model (~596 MB INT8) and tokenizer (~4 MB). Push-to-talk only — no streaming partials.",
+        warning = "Requires downloading the Parakeet model (100 MB–1.2 GB depending on variant) and tokenizer (~4 MB). Push-to-talk only — no streaming partials.",
     ),
     ;
 

@@ -49,7 +49,7 @@ class WhisperVoiceInputController @Inject constructor(
         private const val LISTEN_TIMEOUT_MS = 15_000L
 
         /** Model file name stored in external models directory. */
-        const val MODEL_FILE = "whisper-tiny.en.bin"
+        const val MODEL_FILE = "ggml-tiny.bin"
 
         /**
          * Returns true when [this] transcript contains a recognisable form of "Hey Jandal".
