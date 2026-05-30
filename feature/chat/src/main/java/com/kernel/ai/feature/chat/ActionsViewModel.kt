@@ -41,7 +41,7 @@ private const val TAG = "KernelAI"
 private const val SLOT_REPLY_REARM_DELAY_MS = 350L
 private const val VOICE_REPLY_TTS_DELAY_MS = 150L
 private const val VOICE_COMMAND_DUPLICATE_WINDOW_MS = 2_000L
-private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial."
+private const val PHONE_PERMISSION_REQUIRED_ERROR = "Phone permission is required for auto-dial. Check Settings → App Permissions to grant it."
 private const val SLOT_REPLY_MAX_VOICE_RETRIES = 2
 private const val COMMAND_MAX_VOICE_RETRIES = 1
 private val VOICE_ESCAPE_PHRASES = setOf("stop", "cancel", "stop that")
@@ -444,7 +444,7 @@ class ActionsViewModel @Inject constructor(
 
     fun onPhonePermissionDenied() {
         pendingPhonePermissionAction = null
-        _error.value = "Phone permission is required for auto-dial."
+_error.value = "Phone permission is required for auto-dial. Check Settings → App Permissions to grant it."
     }
 
     /**

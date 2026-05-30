@@ -9,7 +9,7 @@ package com.kernel.ai.core.voice
  * is truly open, not on button-press alone.
  */
 interface StartListeningCuePlayer {
-    fun playCue()
+    fun playCue(forceAudible: Boolean = false)
 
     /**
      * Releases any native audio resources held by this player.

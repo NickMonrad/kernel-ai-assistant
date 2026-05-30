@@ -129,14 +129,15 @@ fun VoiceScreen(
             // making the standard role-request dialog a no-op. For these OEMs we deep-link
             // directly into the system Default Apps settings page.
             //
-            // Samsung One UI: rejects VIS via proprietary RoleControllerService → deep-link
-            //   to ACTION_VOICE_INPUT_SETTINGS (assistant sub-page within Default Apps).
-            // Other OEMs (incl. Honor MagicOS): attempt the standard role dialog first; if
-            //   the intent is null (broken RoleControllerService) fall back to
-            //   ACTION_MANAGE_DEFAULT_APPS_SETTINGS.
-            val isSamsung = Build.MANUFACTURER.equals("samsung", ignoreCase = true)
+            // Samsung One UI and Honor Magic OS: reject or no-op third-party VIS packages →
+            // deep-link to ACTION_VOICE_INPUT_SETTINGS (assistant sub-page within Default Apps).
+            // Other OEMs: attempt the standard role dialog first; if the intent is null
+            // (broken RoleControllerService) fall back to ACTION_MANAGE_DEFAULT_APPS_SETTINGS.
+            val manufacturer = Build.MANUFACTURER
+            val usesSettingsFlow = manufacturer.equals("samsung", ignoreCase = true) ||
+                manufacturer.equals("honor", ignoreCase = true)
             when {
-                isSamsung -> {
+                usesSettingsFlow -> {
                     try {
                         assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
                     } catch (_: Exception) {
