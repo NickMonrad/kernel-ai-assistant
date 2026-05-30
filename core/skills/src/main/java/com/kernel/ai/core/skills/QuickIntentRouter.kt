@@ -1,5 +1,7 @@
 package com.kernel.ai.core.skills
 
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -323,6 +325,54 @@ class QuickIntentRouter(
     private fun normalizeCookingPhrase(raw: String): String = raw.trim()
         .trim(',', '.', '?', '!')
         .replace(Regex("""\s+"""), " ")
+
+    // Written-out fractional cooking quantities ("quarter of a cup", "half a cup",
+    // "three quarters of a cup") never reach the numeric cooking-conversion patterns because
+    // [cookingConversionValuePattern] only accepts digits. We rewrite them to a decimal value
+    // ("0.25 cup") before regex matching so the existing convert_cooking_measure patterns fire
+    // deterministically instead of falling through to the LLM (which has misrouted these to
+    // query_wikipedia). Scoped via a unit lookahead so unrelated phrasings such as
+    // "half an hour" are left untouched.
+    private val cookingFractionUnitLookaheadPattern =
+        "(?:$cookingIngredientVolumeUnitPattern|$cookingIngredientMassUnitPattern)"
+
+    private val writtenFractionNumeratorWords = mapOf(
+        "a" to 1, "an" to 1, "one" to 1, "two" to 2, "three" to 3,
+        "four" to 4, "five" to 5, "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9,
+    )
+
+    private val writtenFractionDenominatorWords = mapOf(
+        "half" to 2, "halves" to 2,
+        "quarter" to 4, "quarters" to 4,
+        "third" to 3, "thirds" to 3,
+        "fourth" to 4, "fourths" to 4,
+        "fifth" to 5, "fifths" to 5,
+        "sixth" to 6, "sixths" to 6,
+        "eighth" to 8, "eighths" to 8,
+    )
+
+    private val cookingFractionRegex = Regex(
+        """\b(?:(one|two|three|four|five|six|seven|eight|nine|an?)[\s-]+)?""" +
+            """(halves|half|quarters|quarter|thirds|third|fourths|fourth|fifths|fifth|sixths|sixth|eighths|eighth)""" +
+            """\s+(?:of\s+)?(?:an?\s+)?(?=$cookingFractionUnitLookaheadPattern\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun normalizeWrittenCookingFractions(input: String): String =
+        cookingFractionRegex.replace(input) { match ->
+            val numeratorWord = match.groupValues[1].lowercase()
+            val denominatorWord = match.groupValues[2].lowercase()
+            val numerator = if (numeratorWord.isEmpty()) 1 else writtenFractionNumeratorWords[numeratorWord]
+            val denominator = writtenFractionDenominatorWords[denominatorWord]
+            if (numerator == null || denominator == null) {
+                match.value
+            } else {
+                val decimal = BigDecimal(numerator)
+                    .divide(BigDecimal(denominator), 6, RoundingMode.HALF_UP)
+                    .stripTrailingZeros()
+                "${decimal.toPlainString()} "
+            }
+        }
 
     private val currencyConversionValuePattern = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?"
     private val currencyConversionNounPattern = "(?:dollars?|euros?|pounds?|yen|yuan|francs?|rupees?|pesos?|rand(?:s)?|won|dirhams?|riyals?|ringgit|krona|krone|lira|shekels?|baht|forint|zloty|koruna|leu|lei|real|reais|taka)"
@@ -4092,6 +4142,10 @@ class QuickIntentRouter(
             },
         )
 
+        // Written-out fractional cooking quantities are rewritten to decimals (regex-only, like
+        // the alias normalisation above) so they reach the deterministic cooking-conversion path.
+        val fractionNormalized = normalizeWrittenCookingFractions(aliasNormalized)
+
         // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.
         //   Pass 1: specific patterns (isFallback = false) — tried in declaration order.
         //   Pass 2: fallback/catch-all patterns (isFallback = true) — only if Pass 1 misses.
@@ -4100,8 +4154,8 @@ class QuickIntentRouter(
         val specificPatterns = patterns.filter { !it.isFallback }
         val fallbackPatterns = patterns.filter { it.isFallback }
 
-        tryMatchPatterns(aliasNormalized, specificPatterns)?.let { return it }
-        tryMatchPatterns(aliasNormalized, fallbackPatterns)?.let { return it }
+        tryMatchPatterns(fractionNormalized, specificPatterns)?.let { return it }
+        tryMatchPatterns(fractionNormalized, fallbackPatterns)?.let { return it }
 
 
         // Stage 2: BERT-tiny classifier (if available)

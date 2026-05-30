@@ -9,6 +9,7 @@ import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.params.provider.ValueSource
 import java.util.stream.Stream
 
 /**
@@ -938,6 +939,32 @@ class QuickIntentRouterTest {
             assertEquals(expectedFromUnit, intent.params["from_unit"])
             assertEquals(expectedIngredient, intent.params["ingredient"])
             assertEquals(expectedToUnit, intent.params["to_unit"])
+        }
+
+        @Test
+        fun `routes the issue 1018 phrase deterministically instead of falling through`() {
+            val result = regexOnlyRouter.route("How much is quarter of a cup of butter in grams")
+            assertRegexMatch(result, "convert_cooking_measure", "issue #1018 phrase")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("0.25", intent.params["amount"])
+            assertEquals("cup", intent.params["from_unit"])
+            assertEquals("butter", intent.params["ingredient"])
+            assertEquals("grams", intent.params["to_unit"])
+        }
+
+        @ParameterizedTest(name = "Non-cooking fraction left untouched: \"{0}\"")
+        @ValueSource(
+            strings = [
+                "remind me to call mum in half an hour",
+                "what is a quarter of 80",
+                "set a quarter hour timer",
+            ],
+        )
+        fun `does not misroute non-cooking fraction phrases to cooking conversion`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            val routedIntent = (result as? QuickIntentRouter.RouteResult.RegexMatch)?.intent?.intentName
+            assertNotEquals("convert_cooking_measure", routedIntent)
         }
     }
 
@@ -3411,6 +3438,14 @@ class QuickIntentRouterTest {
             Arguments.of("convert 1 Australian tablespoon honey to grams", "1", "Australian tablespoon", "honey", "grams"),
             Arguments.of("how many kilograms are in 500 g of butter", "500", "g", "butter", "kilograms"),
             Arguments.of("how many grams are in 1 kg of butter", "1", "kg", "butter", "grams"),
+            // Written-out fractional quantities (issue #1018) — normalised to decimals before routing.
+            Arguments.of("How much is quarter of a cup of butter in grams", "0.25", "cup", "butter", "grams"),
+            Arguments.of("how much is a quarter of a cup of butter in grams", "0.25", "cup", "butter", "grams"),
+            Arguments.of("how much is half a cup of butter in grams", "0.5", "cup", "butter", "grams"),
+            Arguments.of("convert three quarters of a cup of plain flour to grams", "0.75", "cup", "plain flour", "grams"),
+            Arguments.of("how many grams is a quarter of a cup of sugar", "0.25", "cup", "sugar", "grams"),
+            Arguments.of("convert two thirds of a cup of milk to grams", "0.666667", "cup", "milk", "grams"),
+            Arguments.of("convert an eighth of a cup of butter to grams", "0.125", "cup", "butter", "grams"),
         )
 
         @JvmStatic
