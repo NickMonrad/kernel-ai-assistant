@@ -223,9 +223,9 @@ class ParakeetVoiceInputController @Inject constructor(
         val input = FloatArray(1 * numFrames * 80)
         System.arraycopy(mfcc, 0, input, 0, mfcc.size)
 
-        // Output shape: [1, numFrames, vocabSize]
-        // Parakeet CTC vocab size is 128 (including blank)
-        val vocabSize = 128
+        // Output shape: [1, numFrames, vocabSize] — derive vocabSize from model output tensor
+        val outputTensor = interp.getOutputTensor(0)
+        val vocabSize = outputTensor.shape().get(2).toInt()
         val output = FloatArray(numFrames * vocabSize)
 
         // FIX: Use interp.run(tensor, output) — not runForMultipleInputsOutputs
@@ -472,19 +472,51 @@ object ParakeetMfccExtractor {
         }
         return features
     }
-    /** Compute magnitude spectrum via simple DFT (for 512-point window). */
+    /** Compute magnitude spectrum via radix-2 Cooley-Tukey FFT. */
     private fun computeMagnitudeSpectrum(windowed: FloatArray): FloatArray {
-        val halfSize = FFT_SIZE / 2 + 1
+        val n = windowed.size
+        // Bit-reversal permutation + butterfly
+        val re = windowed.clone()
+        val im = FloatArray(n)
+        var j = 0
+        for (i in 1 until n) {
+            var bit = n ushr 1
+            while (j and bit != 0) {
+                j = j and bit.inv()
+                bit = bit ushr 1
+            }
+            j = j or bit
+            if (i < j) {
+                val temp = re[i]; re[i] = re[j]; re[j] = temp
+                val tempI = im[i]; im[i] = im[j]; im[j] = tempI
+            }
+        }
+        // Cooley-Tukey butterfly
+        var length = 2
+        while (length <= n) {
+            val half = length shr 1
+            val angleStep = -2.0 * kotlin.math.PI / length
+            for (start in 0 until n step length) {
+                for (k in 0 until half) {
+                    val angle = angleStep * k
+                    val cosW = kotlin.math.cos(angle).toFloat()
+                    val sinW = kotlin.math.sin(angle).toFloat()
+                    val p = start + k + half
+                    val tRe = cosW * re[p] - sinW * im[p]
+                    val tIm = cosW * im[p] + sinW * re[p]
+                    re[p] = re[start + k] - tRe
+                    im[p] = im[start + k] - tIm
+                    re[start + k] += tRe
+                    im[start + k] += tIm
+                }
+            }
+            length = length shl 1
+        }
+        // Magnitude squared (only first half, DC + Nyquist)
+        val halfSize = n / 2 + 1
         val magnitudes = FloatArray(halfSize)
         for (k in 0 until halfSize) {
-            var real = 0f
-            var imag = 0f
-            for (n in 0 until FFT_SIZE) {
-                val angle = -2.0 * kotlin.math.PI * k * n / FFT_SIZE
-                real += windowed[n] * kotlin.math.cos(angle).toFloat()
-                imag += windowed[n] * kotlin.math.sin(angle).toFloat()
-            }
-            magnitudes[k] = real * real + imag * imag
+            magnitudes[k] = re[k] * re[k] + im[k] * im[k]
         }
         return magnitudes
     }
@@ -519,11 +551,10 @@ class ParakeetTokenizer(modelFile: File) {
     val unkId: Int
 
     init {
-        val raw = parseVocab(modelFile.readBytes())
-        raw.forEachIndexed { id, (piece, score, type) ->
-            vocab[piece] = Piece(id, score, type)
+        val raw = SentencePieceProtobufReader.parseVocab(modelFile.readBytes())
+        raw.forEachIndexed { id, piece ->
+            vocab[piece.piece] = Piece(id, piece.score, piece.type)
         }
-
         blankId = vocab["<blank>"]?.id ?: vocab["▁"]?.id ?: 0
         spaceId = vocab["▁"]?.id ?: vocab[" "]?.id ?: 1
         unkId = vocab["<unk>"]?.id ?: vocab["�"]?.id ?: 2
@@ -554,120 +585,5 @@ class ParakeetTokenizer(modelFile: File) {
         }
 
         return chars.toString().trim()
-    }
-
-    // ── Protobuf parser (SentencePiece binary format) ──────────────────────────
-
-    private data class RawPiece(val piece: String, val score: Float, val type: Int)
-
-    private fun parseVocab(data: ByteArray): List<RawPiece> {
-        val result = mutableListOf<RawPiece>()
-        var pos = 0
-
-        // Skip protobuf header: magic bytes + version varint
-        if (data.size > 4) {
-            val (magic, next) = readVarint(data, 0)
-            pos = next
-        }
-
-        // Parse fields — vocab entries are field 2 (length-delimited)
-        while (pos < data.size) {
-            val (field, wireType) = readTag(data, pos)
-            pos++
-
-            if (field != 2) {
-                // Skip non-vocab fields
-                pos = skipField(data, pos, wireType)
-                continue
-            }
-
-            // Field 2: vocab entry — contains piece string, score, type
-            // FIX: readVocabEntry returns Triple<Triple<...>, Int, Int>, not 4-tuple
-            val entry = readVocabEntry(data, pos)
-            val (piece, score, type) = entry.first
-            val next = entry.second
-            result.add(RawPiece(piece, score, type))
-            pos = next
-        }
-
-        return result
-    }
-
-    private fun readTag(data: ByteArray, pos: Int): Pair<Int, Int> {
-        val byte = data[pos].toInt() and 0xFF
-        return Pair(byte shr 3, byte and 7)
-    }
-
-    private fun readVarint(data: ByteArray, start: Int): Pair<Long, Int> {
-        var result = 0L
-        var shift = 0
-        var pos = start
-        while (pos < data.size) {
-            val byte = data[pos].toInt() and 0xFF
-            result = result or ((byte and 0x7F).toLong() shl shift)
-            shift += 7
-            pos++
-            if ((byte and 0x80) == 0) break
-        }
-        return Pair(result, pos)
-    }
-
-    private fun readPackedString(data: ByteArray, pos: Int): Pair<String, Int> {
-        val (len, next) = readVarint(data, pos)
-        val bytes = data.copyOfRange(next, next + len.toInt())
-        return Pair(bytes.decodeToString(), next + len.toInt())
-    }
-
-    private fun readVocabEntry(data: ByteArray, pos: Int): Triple<Triple<String, Float, Int>, Int, Int> {
-        // Vocab entries contain nested sub-fields: piece (string), score (float), type (int)
-        var offset = pos
-        var piece = ""
-        var score = 0f
-        var type = 0
-
-        // First sub-field: piece string
-        val (pieceStr, next1) = readPackedString(data, offset)
-        piece = pieceStr
-        offset = next1
-
-        // Second sub-field: score (float = 4 bytes, wire type 5)
-        if (offset + 4 <= data.size) {
-            score = java.nio.ByteBuffer.wrap(data, offset, 4).float
-            offset += 4
-        }
-
-        // Third sub-field: type (varint = wire type 0)
-        if (offset < data.size) {
-            val (typeVal, next2) = readVarint(data, offset)
-            type = typeVal.toInt()
-            offset = next2
-        }
-
-        return Triple(Triple(piece, score, type), offset, offset)
-    }
-
-    private fun skipField(data: ByteArray, pos: Int, wireType: Int): Int {
-        return when (wireType) {
-            0 -> { // Varint
-                var p = pos
-                while (p < data.size && (data[p].toInt() and 0x80) != 0) p++
-                p + 1
-            }
-            1 -> { // 64-bit
-                pos + 8
-            }
-            2 -> { // Length-delimited
-                val (len, next) = readVarint(data, pos)
-                next + len.toInt()
-            }
-            5 -> { // 32-bit
-                pos + 4
-            }
-            else -> pos + 1
-        }
-    }
-
-    companion object {
-        private const val TYPE_UNUSED = 5
     }
 }
