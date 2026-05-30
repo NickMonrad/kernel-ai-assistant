@@ -1006,6 +1006,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+
     fun retryDownload(model: KernelModel) {
         downloadManager.startDownload(model, force = false)
     }
@@ -1474,6 +1475,15 @@ class ChatViewModel @Inject constructor(
                             }
                         }
                         is SkillResult.Failure -> {
+                            if (!inferenceEngine.isReady.value) {
+                                appendAssistantMessage(
+                                    convId,
+                                    skillResult.error,
+                                    shouldIndex = false,
+                                    spokenSummary = skillResult.error,
+                                )
+                                return@launch
+                            }
                             systemContext = "[System: ${pendingConfirmation.intentName} failed — ${skillResult.error}]"
                         }
                         else -> { /* fall through to E4B unchanged */ }
@@ -1610,6 +1620,15 @@ class ChatViewModel @Inject constructor(
                             }
                         }
                         is com.kernel.ai.core.skills.SkillResult.Failure -> {
+                            if (!inferenceEngine.isReady.value) {
+                                appendAssistantMessage(
+                                    convId,
+                                    skillResult.error,
+                                    shouldIndex = false,
+                                    spokenSummary = skillResult.error,
+                                )
+                                return@launch
+                            }
                             // Action failed — inject error context so E4B can explain naturally.
                             systemContext = "[System: ${matchedIntent.intentName} failed — ${skillResult.error}]"
                         }
@@ -1619,6 +1638,76 @@ class ChatViewModel @Inject constructor(
                 } // end else (non-calendar or calendar with params)
             }
 
+            val directBypassHistory = _messages.value.dropLast(1) // exclude just-added user message
+            val previousBypassUser = directBypassHistory.lastOrNull { it.role == ChatMessage.Role.USER }?.content
+            val priorImportantDateIntent = when (val priorRoute = previousBypassUser?.let { quickIntentRouter.route(it) }) {
+                is QuickIntentRouter.RouteResult.RegexMatch ->
+                    priorRoute.intent.takeIf { it.intentName == "save_important_date" }
+                else -> null
+            }
+            val anaphoricIntent = when {
+                !isAnaphoricSaveRequest(text) || previousBypassUser == null -> null
+                priorImportantDateIntent != null -> priorImportantDateIntent
+                looksLikeImportantDateFact(previousBypassUser) -> null
+                looksLikePersonalFact(previousBypassUser) ->
+                    QuickIntentRouter.MatchedIntent(
+                        intentName = "save_memory",
+                        params = mapOf("content" to previousBypassUser),
+                    )
+                else -> null
+            }
+            if (anaphoricIntent != null) {
+                val directSkill = skillRegistry.get(anaphoricIntent.intentName)
+                val (skill, callParams) = when {
+                    directSkill != null -> directSkill to anaphoricIntent.params
+                    else -> {
+                        val runIntent = skillRegistry.get("run_intent")
+                        runIntent to (mapOf("intent_name" to anaphoricIntent.intentName) + anaphoricIntent.params)
+                    }
+                }
+                if (skill != null) {
+                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                    when (skillResult) {
+                        is SkillResult.DirectReply -> {
+                            appendAssistantMessageWithToolCall(
+                                convId = convId,
+                                content = skillResult.content,
+                                skillName = anaphoricIntent.intentName,
+                                requestJson = callParams.toString(),
+                                isSuccess = true,
+                                presentation = skillResult.presentation,
+                                spokenSummary = spokenSummaryFrom(skillResult),
+                            )
+                            return@launch
+                        }
+                        is SkillResult.Success -> {
+                            appendAssistantMessageWithToolCall(
+                                convId = convId,
+                                content = skillResult.content,
+                                skillName = anaphoricIntent.intentName,
+                                requestJson = callParams.toString(),
+                                isSuccess = true,
+                                presentation = skillResult.presentation,
+                                spokenSummary = spokenSummaryFrom(skillResult),
+                            )
+                            return@launch
+                        }
+                        is SkillResult.Failure -> {
+                            if (!inferenceEngine.isReady.value) {
+                                appendAssistantMessage(
+                                    convId,
+                                    skillResult.error,
+                                    shouldIndex = false,
+                                    spokenSummary = skillResult.error,
+                                )
+                                return@launch
+                            }
+                            systemContext = "[System: ${anaphoricIntent.intentName} failed — ${skillResult.error}]"
+                        }
+                        else -> Unit
+                    }
+                }
+            }
             // Lazy-init Gemma-4 if not yet loaded.
             if (!inferenceEngine.isReady.value) {
                 initGemma4()
@@ -1672,30 +1761,7 @@ class ChatViewModel @Inject constructor(
             val previousUser = priorMessages.lastOrNull { it.role == ChatMessage.Role.USER }?.content
             val isToolFollowUp = looksLikeToolFollowUp(text, previousUser, previousAssistant)
 
-            // #958: Direct anaphoric save-memory — "remember that" when previous user turn
-            // is a concrete personal fact. Bypasses LLM to guarantee the right content is saved.
-            // The skill's own NativeIntentHandler.saveMemory() handles first-person normalisation.
-            if (isAnaphoricSaveRequest(text) && previousUser != null && looksLikePersonalFact(previousUser)) {
-                val saveSkill = skillRegistry.get("save_memory")
-                val replyText = if (saveSkill != null) {
-                    val saveResult = saveSkill.execute(
-                        SkillCall(skillName = saveSkill.name, arguments = mapOf("content" to previousUser)),
-                    )
-                    when (saveResult) {
-                        is SkillResult.Success, is SkillResult.DirectReply -> "Got it, I'll remember that."
-                        else -> null
-                    }
-                } else null
-                if (replyText != null) {
-                    // Update the streaming placeholder (already in _messages) with the reply text
-                    _messages.update { msgs ->
-                        msgs.map { if (it.id == assistantMsgId) it.copy(content = replyText, isStreaming = false) else it }
-                    }
-                    conversationRepository.addMessage(convId, "assistant", replyText)
-                    finalizeVoicePlaybackForResponse(replyText)
-                    return@launch
-                }
-            }
+
             val forceMinimalContext = forceMinimalContextForNextMessage
             if (forceMinimalContext) {
                 forceMinimalContextForNextMessage = false
@@ -2418,6 +2484,8 @@ class ChatViewModel @Inject constructor(
         if (result is VoiceOutputResult.Unavailable) {
             _error.value = result.message
             stopVoicePlayback()
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+            _voiceMode.value = null
         }
     }
 
@@ -2538,6 +2606,9 @@ class ChatViewModel @Inject constructor(
     private fun looksLikeToolQuery(query: String): Boolean = com.kernel.ai.feature.chat.looksLikeToolQuery(query)
 
     private fun looksLikeAnaphora(text: String): Boolean = com.kernel.ai.feature.chat.looksLikeAnaphora(text)
+
+    private fun looksLikeImportantDateFact(text: String): Boolean =
+        com.kernel.ai.feature.chat.looksLikeImportantDateFact(text)
     private fun looksLikeToolFollowUp(
         text: String,
         previousUser: String?,

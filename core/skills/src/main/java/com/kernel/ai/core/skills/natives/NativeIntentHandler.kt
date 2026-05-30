@@ -1956,8 +1956,13 @@ class NativeIntentHandler @Inject constructor(
                 "That time is in the past. Please specify a future date and time.",
             )
         }
+
         val result = runBlocking {
-            listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
+            val existingList = listNameDao.getByName(listName)
+            val createdList = existingList == null
+            if (createdList) {
+                listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
+            }
             val list = listNameDao.getByName(listName) ?: return@runBlocking null
             val listId = list.id
             val existingItemIds = listItemDao.getByList(listId).mapTo(mutableSetOf()) { it.id }
@@ -1978,9 +1983,16 @@ class NativeIntentHandler @Inject constructor(
                     it.dueAt == triggerAt &&
                     it.notificationTime == triggerAt
             }
-            Triple(insertedItem, listId, allItems)
+            ReminderInsertResult(
+                insertedItem = insertedItem,
+                listId = listId,
+                listName = listName,
+                allItems = allItems,
+                createdList = createdList,
+            )
         } ?: return SkillResult.Failure("add_reminder", "Could not create reminder list")
-        val (insertedItem, listId, allItems) = result
+
+        val (insertedItem, listId, persistedListName, allItems, createdList) = result
         var scheduleOk = false
         try {
             if (insertedItem != null) {
@@ -1988,14 +2000,16 @@ class NativeIntentHandler @Inject constructor(
                     itemId = insertedItem.id,
                     itemText = item,
                     listId = listId,
-                    listName = listName,
+                    listName = persistedListName,
                     triggerAtMs = triggerAt,
                 )
                 scheduleOk = true
             }
         } catch (_: Exception) {
-            // Rollback: delete the item so the DB doesn't contain unscheduled reminders
-            runBlocking { insertedItem?.let { listItemDao.deleteItem(it.id) } }
+            runBlocking {
+                insertedItem?.let { listItemDao.deleteItem(it.id) }
+                if (createdList) listNameDao.deleteById(listId)
+            }
         }
         if (!scheduleOk) {
             return SkillResult.Failure(
@@ -2003,13 +2017,22 @@ class NativeIntentHandler @Inject constructor(
                 "Could not schedule the alarm. The reminder was not saved.",
             )
         }
+
         val dayDisplay = dayRaw.replaceFirstChar { it.uppercase() }
         val timeDisplay = targetTime.format(DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH))
         return SkillResult.DirectReply(
             "Reminder set: \"$item\" on $dayDisplay at $timeDisplay.",
-            presentation = buildListPreview(listName, allItems),
+            presentation = buildListPreview(persistedListName, allItems),
         )
     }
+
+    private data class ReminderInsertResult(
+        val insertedItem: ListItemEntity?,
+        val listId: Long,
+        val listName: String,
+        val allItems: List<ListItemEntity>,
+        val createdList: Boolean,
+    )
 
     // ── Get Weather ───────────────────────────────────────────────────────────
 
@@ -2107,9 +2130,17 @@ class NativeIntentHandler @Inject constructor(
     private fun removeImportantDate(params: Map<String, String>): SkillResult {
         val label = params["label"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("remove_important_date", "No label specified")
-        val deleted = runBlocking { importantDateRepository.deleteByLabel(label) }
-        return if (deleted > 0) {
-            SkillResult.DirectReply("Removed important date ${label.trim()}.")
+        val userName = runBlocking { userProfileRepository.getName() }?.trim()?.takeIf { it.isNotBlank() }
+        val candidateLabels = linkedSetOf(resolveStoredImportantDateLabel(label, userName), label)
+        val removedLabel = runBlocking {
+            candidateLabels.firstNotNullOfOrNull { candidate ->
+                val existing = importantDateRepository.findByLabel(candidate) ?: return@firstNotNullOfOrNull null
+                val deleted = importantDateRepository.deleteByLabel(candidate)
+                existing.label.takeIf { deleted > 0 }
+            }
+        }
+        return if (removedLabel != null) {
+            SkillResult.DirectReply("Removed important date $removedLabel.")
         } else {
             SkillResult.DirectReply("I couldn't find an important date named ${label.trim()}.")
         }

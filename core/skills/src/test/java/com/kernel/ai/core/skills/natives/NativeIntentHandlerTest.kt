@@ -1080,6 +1080,42 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `remove important date resolves self birthday label through profile name`() {
+        val profileRepository = mockk<UserProfileRepository>(relaxed = true)
+        val namedHandler = NativeIntentHandler(
+            context = context,
+            clockRepository = clockRepository,
+            clockAlertController = clockAlertController,
+            listItemDao = listItemDao,
+            listNameDao = listNameDao,
+            contactAliasRepository = contactAliasRepository,
+            importantDateRepository = importantDateRepository,
+            calendarBirthdayLookup = calendarBirthdayLookup,
+            memoryRepository = mockk<MemoryRepository>(relaxed = true),
+            embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
+            cookingConversionService = cookingConversionService,
+            currencyConversionService = currencyConversionService,
+            userProfileRepository = profileRepository,
+            noteDao = noteDao,
+            noteSmartTitleUseCase = noteSmartTitleUseCase,
+            listNotificationScheduler = listNotificationScheduler,
+        )
+        val stored = ImportantDateEntity(label = "Nick's birthday", normalizedLabel = "nick birthday", month = 4, day = 3)
+        coEvery { profileRepository.getName() } returns "Nick"
+        coEvery { importantDateRepository.findByLabel("Nick's birthday") } returns stored
+        coEvery { importantDateRepository.deleteByLabel("Nick's birthday") } returns 1
+
+        val result = runBlocking {
+            namedHandler.handle("remove_important_date", mapOf("label" to "birthday"))
+        }
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals("Removed important date Nick's birthday.", reply.content)
+        coVerify(exactly = 1) { importantDateRepository.findByLabel("Nick's birthday") }
+        coVerify(exactly = 1) { importantDateRepository.deleteByLabel("Nick's birthday") }
+    }
+
+    @Test
     fun `list important dates returns stored entries`() {
         coEvery { importantDateRepository.getAll() } returns listOf(
             ImportantDateEntity(label = "mum's birthday", normalizedLabel = "mum birthday", month = 3, day = 15),
@@ -1097,13 +1133,30 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `remove important date deletes by label`() {
+        val stored = ImportantDateEntity(label = "mum's birthday", normalizedLabel = "mum birthday", month = 3, day = 15)
+        coEvery { importantDateRepository.findByLabel("mum's birthday") } returns stored
         coEvery { importantDateRepository.deleteByLabel("mum's birthday") } returns 1
 
         val result = handleIntent("remove_important_date", mapOf("label" to "mum's birthday"))
 
         assertTrue(result is SkillResult.DirectReply)
         assertEquals("Removed important date mum's birthday.", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { importantDateRepository.findByLabel("mum's birthday") }
         coVerify(exactly = 1) { importantDateRepository.deleteByLabel("mum's birthday") }
+    }
+
+    @Test
+    fun `remove important date does not claim success when delete fails`() {
+        val stored = ImportantDateEntity(label = "mum's birthday", normalizedLabel = "mum birthday", month = 3, day = 15)
+        coEvery { importantDateRepository.findByLabel("mum's birthday") } returns stored
+        coEvery { importantDateRepository.deleteByLabel("mum's birthday") } returns 0
+
+        val result = handleIntent("remove_important_date", mapOf("label" to "mum's birthday"))
+
+        assertEquals(
+            SkillResult.DirectReply("I couldn't find an important date named mum's birthday."),
+            result,
+        )
     }
 
     @Test
@@ -2164,6 +2217,28 @@ class NativeIntentHandlerTest {
                 result,
             )
             coVerify { listItemDao.deleteItem(42L) }
+        }
+
+        @Test
+        fun `add_reminder removes newly created list when scheduling fails`() {
+            val insertedItemSlot = slot<ListItemEntity>()
+            coEvery { listNameDao.getByName("to-do list") } returnsMany listOf(null, fakeList)
+            coEvery { listItemDao.insert(capture(insertedItemSlot)) } just Runs
+            coEvery { listItemDao.getByList(1L) } answers {
+                if (insertedItemSlot.isCaptured) listOf(insertedItemSlot.captured.copy(id = 42L)) else emptyList()
+            }
+            every { listNotificationScheduler.schedule(any(), any(), any(), any(), any()) } throws RuntimeException("boom")
+
+            val result = handleIntent(
+                "add_reminder",
+                mapOf("item" to "call the blinds people", "day" to "monday", "time" to "9:00"),
+            )
+
+            assertEquals(
+                SkillResult.Failure("add_reminder", "Could not schedule the alarm. The reminder was not saved."),
+                result,
+            )
+            coVerify { listNameDao.deleteById(1L) }
         }
 
         @Test

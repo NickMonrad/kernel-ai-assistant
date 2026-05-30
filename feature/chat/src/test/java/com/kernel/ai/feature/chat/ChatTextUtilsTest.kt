@@ -925,6 +925,16 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `returns true for can you remember this`() {
+            assertTrue(isAnaphoricSaveRequest("can you remember this"))
+        }
+
+        @Test
+        fun `returns true for please save it`() {
+            assertTrue(isAnaphoricSaveRequest("please save it"))
+        }
+
+        @Test
         fun `returns false for remember my birthday`() {
             assertFalse(isAnaphoricSaveRequest("remember my birthday"))
         }
@@ -942,6 +952,11 @@ class ChatTextUtilsTest {
         @Test
         fun `returns true for remember that bare`() {
             assertTrue(isAnaphoricSaveRequest("remember that"))
+        }
+
+        @Test
+        fun `returns true for keep that in memory`() {
+            assertTrue(isAnaphoricSaveRequest("keep that in memory"))
         }
 
         @Test
@@ -970,6 +985,16 @@ class ChatTextUtilsTest {
                     "My birthday is March 15th",
                 ),
             )
+        }
+
+        @Test
+        fun `returns false for important date phrased as I have`() {
+            assertFalse(looksLikePersonalFact("I have a birthday on March 15th"))
+        }
+
+        @Test
+        fun `returns false for family important date fact`() {
+            assertFalse(looksLikePersonalFact("My wife's birthday is March 15th"))
         }
 
         @Test

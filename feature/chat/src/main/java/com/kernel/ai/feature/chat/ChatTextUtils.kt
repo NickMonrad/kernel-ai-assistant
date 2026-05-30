@@ -576,10 +576,31 @@ internal fun looksLikeRawToolCall(response: String): Boolean {
 internal fun isAnaphoricSaveRequest(text: String): Boolean {
     val lower = text.lowercase().trim()
     return Regex(
-        """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:save|store|keep|remember)\s+(?:that|this|it)\s*[.!?]*$|
+        """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:save|store|keep|remember)\s+(?:that|this|it)(?:\s+in\s+memory)?\s*[.!?]*$|
            ^(?:yes[,.]?\s+)?(?:please\s+)?remember\s+that\s*[.!?]*$""",
         setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
     ).containsMatchIn(lower)
+}
+private val IMPORTANT_DATE_FACT_RE = Regex(
+    """^(?:my|our)\b.*\b(?:birthday|anniversary|wedding anniversary)\b|
+       ^i\s+have\s+(?:a\s+)?(?:birthday|anniversary)\b|
+       ^[\p{L}'’.-]+(?:'s)?\s+(?:birthday|anniversary)\b""",
+    setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
+)
+
+private val IMPORTANT_DATE_VALUE_RE = Regex(
+    """\b(?:
+           \d{4}-\d{2}-\d{2}|
+           \d{1,2}(?:st|nd|rd|th)?(?:\s+of)?\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)|
+           (?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?
+       )\b""",
+    setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
+)
+
+internal fun looksLikeImportantDateFact(text: String): Boolean {
+    if (text.isBlank()) return false
+    val lower = text.lowercase().trim()
+    return IMPORTANT_DATE_FACT_RE.containsMatchIn(lower) && IMPORTANT_DATE_VALUE_RE.containsMatchIn(lower)
 }
 
 /**
@@ -595,6 +616,7 @@ internal fun looksLikePersonalFact(text: String): Boolean {
     if (text.isBlank() || text.length > 160) return false
     val lower = text.lowercase().trim()
     if (lower.endsWith("?")) return false
+    if (looksLikeImportantDateFact(lower)) return false
     return Regex(
         """^i\s+(?:am|'m|have|love|hate|like|dislike|prefer|can'?t|cannot|am not)\b|
            ^i\s+(?:do\s+not|don'?t)\s+(?:like|love|hate|prefer|eat)\b|
