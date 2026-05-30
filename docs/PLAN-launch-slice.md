@@ -209,3 +209,17 @@ milestone except the 5 deliberately-unscheduled `launch:deferred` items.
 **Note / follow-up:** the repo still mixes two priority schemes (`priority:p0/p1/p2` and
 `priority:low/medium/high`) — see §5. Standardising on `low/medium/high` remains a recommended
 follow-up pass.
+
+---
+
+## 8. Priority label standardisation (applied to GitHub)
+
+The repo mixed two priority schemes. Consolidated onto **`low/medium/high`**:
+
+- Remapped across all states: **`priority:p1` → `priority:high`** (13 issues, "this sprint"),
+  **`priority:p2` → `priority:medium`** (64 issues, "next sprint"). `priority:p0` had 0 issues.
+- Deleted the three obsolete labels (`priority:p0`, `priority:p1`, `priority:p2`).
+- Backfilled priority on 9 previously-unprioritised open issues: #713/#885/#886 → high
+  (launch blockers), #884/#935/#939/#975 → medium, #784/#977 → low.
+
+Every open issue now carries exactly one priority on the single `low/medium/high` scheme.
