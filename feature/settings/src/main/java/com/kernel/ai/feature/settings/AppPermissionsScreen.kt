@@ -87,7 +87,7 @@ fun AppPermissionsScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text(
-                text = "These are the permissions Jandal uses. Tap any revoked permission to grant it.",
+                text = "These are the permissions Jandal uses. Tap any revoked permission to open the right system settings page.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -112,7 +112,7 @@ fun AppPermissionsScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Tip: If you see revoked permissions, tap the row to open App info and toggle them on.",
+                text = "Tip: Revoked runtime permissions open App info. Revoked special-access items open their dedicated system settings page.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -131,9 +131,10 @@ private fun PermissionRow(
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
-                if (!item.isGranted) onFix()
-            },
+            .clickable(
+                enabled = !item.isGranted,
+                onClick = onFix,
+            ),
         headlineContent = {
             Text(
                 text = item.label,

@@ -125,7 +125,7 @@ class AppPermissionsViewModel @Inject constructor(
         )
 
         // Special-access permissions — granted via system settings, not runtime request.
-        val specialPermissions = listOfNotNull(
+        val specialPermissions = listOf(
             AppPermissionItem(
                 label = "Do Not Disturb",
                 description = "Toggle DND mode on/off",
@@ -142,7 +142,7 @@ class AppPermissionsViewModel @Inject constructor(
                 isGranted = Settings.System.canWrite(context),
                 isSpecial = true,
             ),
-        ).filter { !it.isGranted }
+        )
 
         return knownPermissions.map { perm ->
             perm.copy(
