@@ -213,7 +213,7 @@ fun VoiceScreen(
         onCancelParakeetCtcDownload = viewModel::cancelParakeetCtcDownload,
         onDeleteParakeetCtc = viewModel::deleteParakeetCtc,
         onUpdateParakeetCtc = viewModel::updateParakeetCtc,
-        onAcceptParakeetLicence = {},
+        onAcceptParakeetLicence = viewModel::acceptParakeetLicence,
         onRetryParakeetCtc = viewModel::updateParakeetCtc,
         onParakeetModelSizeSelected = viewModel::setParakeetModelSize,
     )

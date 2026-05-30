@@ -506,6 +506,10 @@ class VoiceViewModel @Inject constructor(
             voiceInputPreferences.setParakeetModelSize(size)
         }
     }
+    /** Starts the HuggingFace OAuth flow so the user can accept the Parakeet licence. */
+    fun acceptParakeetLicence() {
+        authRepository.startAuthFlow()
+    }
 
     fun setSpokenResponsesEnabled(enabled: Boolean) {
         _uiState.update { it.copy(spokenResponsesEnabled = enabled) }
