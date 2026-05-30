@@ -3,9 +3,11 @@ package com.kernel.ai.core.voice.di
 import com.kernel.ai.core.voice.FallbackVoiceOutputController
 import com.kernel.ai.core.voice.SelectableVoiceInputController
 import com.kernel.ai.core.voice.StartListeningCuePlayer
+import com.kernel.ai.core.voice.OnnxWakeWordDetector
 import com.kernel.ai.core.voice.ToneStartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.WakeWordDetector
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -44,4 +46,20 @@ abstract class VoiceModule {
     abstract fun bindVoiceOutputController(
         impl: FallbackVoiceOutputController,
     ): VoiceOutputController
+
+    /**
+     * Binds [OnnxWakeWordDetector] as the [WakeWordDetector].
+     *
+     * [OnnxWakeWordDetector.isAvailable] returns false and [WakeWordDetector.start] is a
+     * no-op when any model file is absent. The feature activates automatically when all three
+     * model files are present in assets/models/wakeword/ (#984, #985):
+     *   - melspectrogram.onnx  (download from openWakeWord releases)
+     *   - embedding_model.onnx (download from openWakeWord releases)
+     *   - hey_jandal.onnx      (output of #984 training pipeline)
+     */
+    @Binds
+    @Singleton
+    abstract fun bindWakeWordDetector(
+        impl: OnnxWakeWordDetector,
+    ): WakeWordDetector
 }

@@ -30,7 +30,11 @@ local.properties
 Thumbs.db
 
 # Models (downloaded at runtime, too large for git)
+# Exception: wake word ONNX models are small (2.6MB total) and must ship with the APK
 models/
+!app/src/main/assets/models/
+!app/src/main/assets/models/wakeword/
+!app/src/main/assets/models/wakeword/*.onnx
 
 # Secrets
 *.jks

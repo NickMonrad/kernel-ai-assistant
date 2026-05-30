@@ -19,6 +19,10 @@ import com.kernel.ai.core.memory.worker.MemoryEmbeddingWorker
 import com.kernel.ai.core.memory.worker.WORK_NAME_ARCHIVE_CLEANUP
 import com.kernel.ai.core.memory.worker.WORK_NAME_BACKFILL
 import dagger.hilt.android.HiltAndroidApp
+import com.kernel.ai.assistant.WakeWordService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -36,6 +40,7 @@ class KernelAIApplication : Application(), Configuration.Provider {
     @Inject lateinit var inferenceEngine: InferenceEngine
     @Inject lateinit var clockTimerNotificationCoordinator: ClockTimerNotificationCoordinator
     @Inject lateinit var clockStopwatchNotificationCoordinator: ClockStopwatchNotificationCoordinator
+    @Inject lateinit var wakeWordPreferences: com.kernel.ai.core.voice.WakeWordPreferences
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
@@ -44,6 +49,10 @@ class KernelAIApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // Preload ORT so libsherpa-onnx-jni.so (built against ORT as an external shared lib)
+        // can resolve OrtGetApiBase at dlopen time. Must happen before any Sherpa TTS or
+        // wake word ONNX session init, otherwise OfflineTts.<clinit> fails with UnsatisfiedLinkError.
+        try { System.loadLibrary("onnxruntime") } catch (_: UnsatisfiedLinkError) { }
         clockTimerNotificationCoordinator.start()
         clockStopwatchNotificationCoordinator.start()
         WorkManager.getInstance(this).enqueueUniqueWork(
@@ -62,6 +71,18 @@ class KernelAIApplication : Application(), Configuration.Provider {
                 )
                 .build(),
         )
+        // Observe heyJandalEnabled and start/stop WakeWordService accordingly.
+        // This runs on a background thread via GlobalScope-equivalent — using a process-lifetime
+        // coroutine scope is intentional here (Application lifecycle = process lifetime).
+        GlobalScope.launch(Dispatchers.Default) {
+            wakeWordPreferences.heyJandalEnabled.collect { enabled ->
+                if (enabled) {
+                    WakeWordService.start(this@KernelAIApplication)
+                } else {
+                    WakeWordService.stop(this@KernelAIApplication)
+                }
+            }
+        }
     }
 
     /**

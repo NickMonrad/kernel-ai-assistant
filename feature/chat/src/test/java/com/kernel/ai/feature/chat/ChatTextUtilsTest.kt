@@ -720,21 +720,169 @@ class ChatTextUtilsTest {
         }
 
         @Test
-        fun `truncates to max sentences`() {
-            val text = "First sentence. Second sentence. Third sentence. Fourth sentence."
-            assertEquals("First sentence. Second sentence.", truncateForSpeech(text, 2))
+        fun `negative maxSentences returns full text unchanged`() {
+            val text = "First sentence. Second sentence."
+            assertEquals(text, truncateForSpeech(text, -1))
         }
 
         @Test
-        fun `truncates at sentence boundary not mid word`() {
+        fun `takes only the first two sentences from three`() {
             val text = "First sentence. Second sentence. Third sentence."
-            assertEquals("First sentence.", truncateForSpeech(text, 1))
+            val result = truncateForSpeech(text, 2)
+            assertTrue(result.contains("First sentence"))
+            assertTrue(result.contains("Second sentence"))
+            assertFalse(result.contains("Third sentence"))
         }
 
         @Test
-        fun `preserves full text when fewer sentences than max`() {
+        fun `returns full text when sentence count equals maxSentences`() {
+            val text = "First. Second. Third."
+            assertEquals(text, truncateForSpeech(text, 3))
+        }
+
+        @Test
+        fun `returns full text when sentence count is less than maxSentences`() {
             val text = "Only one sentence."
             assertEquals(text, truncateForSpeech(text, 5))
+        }
+
+        @Test
+        fun `preserves trailing period punctuation`() {
+            val text = "Hello world. Goodbye world."
+            val result = truncateForSpeech(text, 1)
+            assertTrue(result.trimEnd().endsWith("."))
+        }
+
+        @Test
+        fun `handles exclamation marks as sentence boundaries`() {
+            val text = "Hello! World? Great."
+            val result = truncateForSpeech(text, 2)
+            assertTrue(result.contains("Hello!"))
+            assertTrue(result.contains("World?"))
+            assertFalse(result.contains("Great"))
+        }
+
+        @Test
+        fun `text with no sentence boundaries returns full text`() {
+            val text = "No punctuation here"
+            assertEquals(text, truncateForSpeech(text, 2))
+        }
+
+        @Test
+        fun `does not split on abbreviation dot — Dr followed by full sentence`() {
+            val text = "Dr. Smith explained the plan. That's all."
+            val result = truncateForSpeech(text, 1)
+            assertEquals("Dr. Smith explained the plan.", result.trimEnd())
+        }
+
+        @Test
+        fun `does not split on sentence-leading e-g abbreviation`() {
+            val text = "E.g. cats and dogs are common pets. That covers the basics."
+            val result = truncateForSpeech(text, 1)
+            assertTrue(result.contains("cats and dogs"))
+            assertFalse(result.contains("basics"))
+        }
+
+        @Test
+        fun `single-word sentences like Sure are real sentence boundaries — not abbreviations`() {
+            val text = "Sure. Here is the answer. More details."
+            val result = truncateForSpeech(text, 1)
+            assertEquals("Sure.", result.trimEnd())
+        }
+
+        @Test
+        fun `known abbreviation Dr is still merged correctly`() {
+            val text = "Dr. Smith explained the plan. More here."
+            val result = truncateForSpeech(text, 1)
+            assertEquals("Dr. Smith explained the plan.", result.trimEnd())
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // NORMALISE PRONOUNS FOR TTS
+    // ═════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("normalisePronounsForTts")
+    inner class NormalisePronounsForTtsTests {
+
+        @Test
+        fun `my is replaced with your`() {
+            assertEquals("Sending a message to your wife", normalisePronounsForTts("Sending a message to my wife"))
+        }
+
+        @Test
+        fun `My is replaced with Your preserving case`() {
+            assertEquals("Your wife", normalisePronounsForTts("My wife"))
+        }
+
+        @Test
+        fun `MY is replaced with YOUR preserving caps`() {
+            assertEquals("YOUR WIFE", normalisePronounsForTts("MY WIFE"))
+        }
+
+        @Test
+        fun `mine is replaced with yours`() {
+            assertEquals("That is yours", normalisePronounsForTts("That is mine"))
+        }
+
+        @Test
+        fun `myself is replaced with yourself`() {
+            assertEquals("Did you hurt yourself", normalisePronounsForTts("Did I hurt myself"))
+        }
+
+        @Test
+        fun `bare I is replaced with you`() {
+            assertEquals("What would you like to say", normalisePronounsForTts("What would I like to say"))
+        }
+
+        @Test
+        fun `I'm is replaced with you're`() {
+            assertEquals("you're going to love this", normalisePronounsForTts("I'm going to love this"))
+        }
+
+        @Test
+        fun `I've is replaced with you've`() {
+            assertEquals("you've done well", normalisePronounsForTts("I've done well"))
+        }
+
+        @Test
+        fun `I'll is replaced with you'll`() {
+            assertEquals("you'll get a confirmation", normalisePronounsForTts("I'll get a confirmation"))
+        }
+
+        @Test
+        fun `I'd is replaced with you'd`() {
+            assertEquals("you'd prefer that", normalisePronounsForTts("I'd prefer that"))
+        }
+
+        @Test
+        fun `me as object is not replaced (rule removed — Jandal self-reference must be preserved)`() {
+            assertEquals(
+                "What would you like to say to me",
+                normalisePronounsForTts("What would you like to say to me"),
+            )
+        }
+
+        @Test
+        fun `word boundaries prevent partial word replacement`() {
+            assertEquals("Emailing Myra", normalisePronounsForTts("Emailing Myra"))
+            assertEquals("sending email", normalisePronounsForTts("sending email"))
+            assertEquals("a minefield of options", normalisePronounsForTts("a minefield of options"))
+        }
+
+        @Test
+        fun `multiple pronouns in one string are all replaced`() {
+            assertEquals(
+                "What would you like to say to your mum",
+                normalisePronounsForTts("What would I like to say to my mum"),
+            )
+        }
+
+        @Test
+        fun `text with no pronouns is unchanged`() {
+            val text = "Sending a message to Sarah"
+            assertEquals(text, normalisePronounsForTts(text))
         }
     }
 

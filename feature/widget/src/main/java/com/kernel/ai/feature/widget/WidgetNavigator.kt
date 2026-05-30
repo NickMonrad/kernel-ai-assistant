@@ -29,7 +29,7 @@ class DefaultWidgetNavigator @Inject constructor() : WidgetNavigator {
             component = ComponentName(context.packageName, "com.kernel.ai.MainActivity")
             putExtra("quick_action_input", input)
             putExtra("quick_action_is_voice", isVoice)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         })
     }
 }

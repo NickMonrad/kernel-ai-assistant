@@ -121,7 +121,6 @@ private val PRONOUN_LITERAL_RULES: List<Pair<Regex, String>> = listOf(
     Regex("""\bI'll\b""") to "you'll",
     Regex("""\bI'd\b""") to "you'd",
     Regex("""\bI\b""") to "you",
-    Regex("""\bme\b""") to "you",
 )
 
 // Case-preserving rules: "My" → "Your", "MY" → "YOUR", "my" → "your".

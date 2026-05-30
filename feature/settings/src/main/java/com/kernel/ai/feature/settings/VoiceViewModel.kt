@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.settings
 
 import androidx.lifecycle.ViewModel
+import android.content.Context
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.SherpaKokoroVoice
@@ -8,15 +9,26 @@ import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
-import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.voice.WakeWordDetector
+import com.kernel.ai.core.voice.WAKE_WORD_DEFAULT_THRESHOLD
+import com.kernel.ai.core.voice.WakeWordPreferences
+import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.inference.download.localFile
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class SherpaVoiceRowUiState(
@@ -56,6 +68,24 @@ data class VoiceUiState(
     val selectedKokoroVoice: SherpaKokoroVoice = SherpaKokoroVoice.KokoroMultiLangInt8,
     val kokoroActiveSpeakerId: Int = 0,
     val isSelectedKokoroVoiceDownloaded: Boolean = false,
+    // ── Hey Jandal / Default Assistant ───────────────────────────────────────
+    /** True when Jandal is the system's Default Digital Assistant (RoleManager.ROLE_ASSISTANT). */
+    val isDefaultAssistant: Boolean = false,
+    /** True when "Listen for Hey Jandal" is enabled in preferences. */
+    val heyJandalEnabled: Boolean = false,
+    /** True when the hey_jandal_int8.tflite model file is present on device. */
+    val isWakeWordModelAvailable: Boolean = false,
+    /** Wake word confidence threshold in [0, 1].  Reflects [WakeWordPreferences.confidenceThreshold]. */
+    val wakeWordThreshold: Float = WAKE_WORD_DEFAULT_THRESHOLD,
+    // ── Sherpa-ONNX STT model download state ─────────────────────────────────
+    /** True when all four STT model files are present in external storage. */
+    val isSherpaOnnxSttDownloaded: Boolean = false,
+    /** True when at least one STT model file is actively downloading. */
+    val isSherpaOnnxSttDownloading: Boolean = false,
+    /** Combined download progress across all STT model files (0–1). */
+    val sherpaOnnxSttProgress: Float = 0f,
+    /** Non-null when a download attempt failed. */
+    val sherpaOnnxSttError: String? = null,
 )
 
 @HiltViewModel
@@ -64,6 +94,10 @@ class VoiceViewModel @Inject constructor(
     private val voiceInputPreferences: VoiceInputPreferences,
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val sherpaVoicePackDownloadManager: SherpaVoicePackDownloadManager,
+    private val wakeWordPreferences: WakeWordPreferences,
+    private val wakeWordDetector: WakeWordDetector,
+    private val modelDownloadManager: ModelDownloadManager,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(VoiceUiState())
@@ -188,12 +222,94 @@ class VoiceViewModel @Inject constructor(
                 _uiState.update { it.copy(autoStartAlertVoiceCommandsEnabled = enabled) }
             }
         }
+        viewModelScope.launch {
+            wakeWordPreferences.heyJandalEnabled.collect { enabled ->
+                _uiState.update { it.copy(heyJandalEnabled = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            wakeWordPreferences.confidenceThreshold.collect { threshold ->
+                _uiState.update { it.copy(wakeWordThreshold = threshold) }
+            }
+        }
+        _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
+        viewModelScope.launch {
+            modelDownloadManager.downloadStates.collect { states ->
+                val sttModels = listOf(
+                    KernelModel.SHERPA_STT_ENCODER,
+                    KernelModel.SHERPA_STT_DECODER,
+                    KernelModel.SHERPA_STT_JOINER,
+                    KernelModel.SHERPA_STT_TOKENS,
+                )
+                val allDownloaded = sttModels.all { states[it] is DownloadState.Downloaded }
+                val anyDownloading = sttModels.any { states[it] is DownloadState.Downloading }
+                // Weighted completion: Downloaded=full weight, Downloading=partial, else=0.
+                // Weights derived from approxSizeBytes so they stay in sync with KernelModel.
+                val totalBytes = sttModels.sumOf { it.approxSizeBytes }.toFloat()
+                val weightedProgress = sttModels.map { model ->
+                    val weight = model.approxSizeBytes.toFloat()
+                    when (val s = states[model]) {
+                        is DownloadState.Downloaded -> weight
+                        is DownloadState.Downloading -> s.progress * weight
+                        else -> 0f
+                    }
+                }.sum() / totalBytes
+                val error = sttModels
+                    .mapNotNull { (states[it] as? DownloadState.Error)?.message }
+                    .firstOrNull()
+                _uiState.update {
+                    it.copy(
+                        isSherpaOnnxSttDownloaded = allDownloaded,
+                        isSherpaOnnxSttDownloading = anyDownloading && !allDownloaded,
+                        sherpaOnnxSttProgress = weightedProgress,
+                        sherpaOnnxSttError = error,
+                    )
+                }
+            }
+        }
     }
 
     fun setVoiceInputEngine(engine: VoiceInputEngine) {
         _uiState.update { it.copy(selectedInputEngine = engine) }
         viewModelScope.launch {
             voiceInputPreferences.setSelectedEngine(engine)
+        }
+    }
+
+    private val sttModels = listOf(
+        KernelModel.SHERPA_STT_ENCODER,
+        KernelModel.SHERPA_STT_DECODER,
+        KernelModel.SHERPA_STT_JOINER,
+        KernelModel.SHERPA_STT_TOKENS,
+    )
+
+    fun downloadSherpaOnnxStt() {
+        sttModels.forEach { modelDownloadManager.startDownload(it) }
+    }
+
+    fun cancelSherpaOnnxSttDownload() {
+        // Only cancel parts that are actively downloading — skipping already-Downloaded entries
+        // prevents ModelDownloadManager from incorrectly resetting their state to NotDownloaded.
+        val currentStates = modelDownloadManager.downloadStates.value
+        sttModels
+            .filter { currentStates[it] is DownloadState.Downloading }
+            .forEach { modelDownloadManager.cancelDownload(it) }
+    }
+
+    fun deleteSherpaOnnxStt() {
+        viewModelScope.launch(Dispatchers.IO) {
+            sttModels.forEach { model ->
+                val file = model.localFile(context)
+                file.delete()
+                val tmp = java.io.File(file.absolutePath + ".tmp")
+                if (tmp.exists()) tmp.delete()
+                modelDownloadManager.refreshState(model)
+            }
+            if (_uiState.value.selectedInputEngine == VoiceInputEngine.SherpaOnnx) {
+                withContext(Dispatchers.Main) {
+                    setVoiceInputEngine(VoiceInputEngine.Vosk)
+                }
+            }
         }
     }
 
@@ -311,5 +427,30 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             voiceOutputPreferences.setKokoroActiveSpeakerId(sid)
         }
+    }
+    // ── Hey Jandal ────────────────────────────────────────────────────────────
+
+    fun setHeyJandalEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(heyJandalEnabled = enabled) }
+        viewModelScope.launch {
+            // Persisting the preference is sufficient — KernelAIApplication observes
+            // WakeWordPreferences.heyJandalEnabled and starts/stops WakeWordService.
+            wakeWordPreferences.setHeyJandalEnabled(enabled)
+        }
+    }
+
+    fun setWakeWordThreshold(threshold: Float) {
+        _uiState.update { it.copy(wakeWordThreshold = threshold) }
+        viewModelScope.launch {
+            wakeWordPreferences.setConfidenceThreshold(threshold)
+        }
+    }
+
+    /**
+     * Called from VoiceScreen on every resume to keep the assistant-role badge in sync.
+     * [android.app.role.RoleManager.isRoleHeld] is synchronous — no coroutine needed.
+     */
+    fun refreshAssistantStatus(isRoleHeld: Boolean) {
+        _uiState.update { it.copy(isDefaultAssistant = isRoleHeld) }
     }
 }
