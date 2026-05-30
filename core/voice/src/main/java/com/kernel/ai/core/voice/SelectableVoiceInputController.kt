@@ -19,6 +19,7 @@ class SelectableVoiceInputController @Inject constructor(
     private val whisperVoiceInputController: WhisperVoiceInputController,
     private val parakeetVoiceInputController: ParakeetVoiceInputController,
 ) : VoiceInputController {
+    private val activeController = MutableStateFlow<VoiceInputController>(voskOfflineVoiceInputController)
 
     override val events: Flow<VoiceInputEvent> = merge(
         voskOfflineVoiceInputController.events.map { event -> voskOfflineVoiceInputController to event },
