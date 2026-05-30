@@ -27,11 +27,12 @@ import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
 import javax.inject.Inject
@@ -153,8 +154,14 @@ class WakeWordService : Service() {
                 // is true, so re-arm is always done explicitly at the end of this function.
                 var transcript: String? = null
                 for (attempt in 1..2) {
+                    val terminalEventDeferred = async(start = CoroutineStart.UNDISPATCHED) {
+                        voiceInputController.events.first { it is VoiceInputEvent.Transcript
+                              || it is VoiceInputEvent.Error
+                              || it is VoiceInputEvent.ListeningStopped }
+                    }
                     val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
                     if (startResult !is VoiceInputStartResult.Started) {
+                        terminalEventDeferred.cancel()
                         Log.w(TAG, "WakeWordService: STT unavailable after detection — $startResult")
                         val message = (startResult as? VoiceInputStartResult.Unavailable)?.message
                         if (!message.isNullOrBlank()) showWakeWordError(message)
@@ -165,10 +172,7 @@ class WakeWordService : Service() {
                     if (attempt == 1) cuePlayer.playCue(forceAudible = true)
 
                     val terminalEvent = try {
-                        voiceInputController.events
-                            .first { it is VoiceInputEvent.Transcript
-                                  || it is VoiceInputEvent.Error
-                                  || it is VoiceInputEvent.ListeningStopped }
+                        terminalEventDeferred.await()
                     } catch (e: Exception) {
                         Log.w(TAG, "WakeWordService: transcript collection failed (attempt $attempt)", e)
                         break
@@ -178,6 +182,10 @@ class WakeWordService : Service() {
                     if (!text.isNullOrBlank()) {
                         transcript = text
                         break
+                    }
+                    val errorMessage = (terminalEvent as? VoiceInputEvent.Error)?.message
+                    if (!errorMessage.isNullOrBlank() && attempt == 2) {
+                        showWakeWordError(errorMessage)
                     }
                     Log.w(TAG, "WakeWordService: no transcript on attempt $attempt ($terminalEvent)" +
                         if (attempt < 2) " — retrying" else "")

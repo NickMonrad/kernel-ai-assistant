@@ -265,7 +265,7 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `resolveAndroidNativeAvailabilityMessage keeps platform warning on non-Honor`() {
+    fun `resolveAndroidNativeAvailabilityMessage returns platform warning`() {
         val availability = AndroidNativeRecognitionAvailability(
             isRecognitionAvailable = true,
             isOnDeviceRecognitionAvailable = false,
@@ -276,23 +276,7 @@ class VoiceViewModelTest {
 
         assertEquals(
             "On-device Android speech recognition is unavailable for the current setup. Install the required language pack or keep using Vosk for guaranteed local voice input.",
-            resolveAndroidNativeAvailabilityMessage(availability, manufacturer = "google"),
-        )
-    }
-
-    @Test
-    fun `resolveAndroidNativeAvailabilityMessage shows Honor fallback warning on Honor`() {
-        val availability = AndroidNativeRecognitionAvailability(
-            isRecognitionAvailable = true,
-            isOnDeviceRecognitionAvailable = true,
-            languageTag = "en-AU",
-            languageDisplayName = "English (Australia)",
-            localeStatus = AndroidNativeRecognitionLocaleStatus.Ready,
-        )
-
-        assertEquals(
-            "Android native speech recognition is failing on this device. Switch to Sherpa-ONNX or Vosk in Settings → Voice.",
-            resolveAndroidNativeAvailabilityMessage(availability, manufacturer = "HONOR"),
+            resolveAndroidNativeAvailabilityMessage(availability),
         )
     }
 

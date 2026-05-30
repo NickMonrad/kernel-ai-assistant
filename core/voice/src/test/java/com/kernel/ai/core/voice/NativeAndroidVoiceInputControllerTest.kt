@@ -123,18 +123,6 @@ class NativeAndroidVoiceInputControllerTest {
         )
     }
 
-    @Test
-    fun `honorAndroidNativeBlockingReason is null for non-Honor devices`() {
-        assertEquals(null, honorAndroidNativeBlockingReason("google"))
-    }
-
-    @Test
-    fun `honorAndroidNativeBlockingReason instructs Honor users to switch engines`() {
-        assertEquals(
-            "Android native speech recognition is failing on this device. Switch to Sherpa-ONNX or Vosk in Settings → Voice.",
-            honorAndroidNativeBlockingReason("HONOR"),
-        )
-    }
 
     @Test
     fun `shouldForceRecognizerLanguage only forces verified locale`() {

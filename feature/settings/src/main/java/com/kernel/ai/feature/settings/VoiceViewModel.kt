@@ -1,6 +1,5 @@
 package com.kernel.ai.feature.settings
 
-import android.os.Build
 import androidx.lifecycle.ViewModel
 import android.content.Context
 import androidx.lifecycle.viewModelScope
@@ -91,13 +90,7 @@ data class VoiceUiState(
 )
 internal fun resolveAndroidNativeAvailabilityMessage(
     availability: AndroidNativeRecognitionAvailability,
-    manufacturer: String?,
-): String? =
-    if (manufacturer?.equals("honor", ignoreCase = true) == true) {
-        "Android native speech recognition is failing on this device. Switch to Sherpa-ONNX or Vosk in Settings → Voice."
-    } else {
-        availability.warningMessage
-    }
+): String? = availability.warningMessage
 
 
 @HiltViewModel
@@ -118,10 +111,7 @@ class VoiceViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val availability = androidNativeRecognitionSupport.getAvailability()
-            val nativeWarning = resolveAndroidNativeAvailabilityMessage(
-                availability = availability,
-                manufacturer = Build.MANUFACTURER,
-            )
+            val nativeWarning = resolveAndroidNativeAvailabilityMessage(availability)
             _uiState.update {
                 it.copy(
                     androidNativeAvailabilityMessage = nativeWarning,
