@@ -7,6 +7,7 @@
 >
 > This document describes **how things are built**, not what is planned. For feature status see
 > [`ROADMAP.md`](./ROADMAP.md). For technical architecture see [`SPECIFICATION.md`](./SPECIFICATION.md).
+> For model availability and acquisition patterns, see [`model-availability-ux-patterns.md`](./model-availability-ux-patterns.md).
 
 ---
 
@@ -296,3 +297,22 @@ Before raising a PR for any new feature that adds a list/collection screen, veri
 - [ ] Search (if applicable): LIKE with NULL guard and escaped wildcards
 - [ ] Confirmation dialogs for all destructive actions
 - [ ] Touch targets ≥ 48dp
+
+---
+
+## 14. Model Availability (Cross-Reference)
+
+Model discovery, acquisition, selection, and lifecycle management follow a separate, dedicated
+pattern document: **[`model-availability-ux-patterns.md`](./model-availability-ux-patterns.md)**.
+
+The model availability patterns govern:
+
+- All model cards, model lists, and model selection screens
+- Download, validation, and repair flows
+- Provider sign-in, license acceptance, and gated-access workflows
+- Voice Settings model display (Voice Settings delegates download/auth/licensing to Model Management)
+- The four top-level states: **Ready**, **Preparing**, **Action Required**, **Unavailable**
+
+When building any screen that surfaces models — whether in Settings, Voice Preferences, or a
+dedicated Model Management screen — read [`model-availability-ux-patterns.md`](./model-availability-ux-patterns.md)
+first. Do not invent parallel model states or action labels.
