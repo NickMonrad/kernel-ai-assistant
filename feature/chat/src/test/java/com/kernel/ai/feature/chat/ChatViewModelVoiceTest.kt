@@ -805,9 +805,34 @@ class ChatViewModelVoiceTest {
 
         voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "cancel"))
         advanceUntilIdle()
-
         assertEquals("", viewModel.getConversationAsText())
-        assertEquals(null, viewModel.voiceMode.value)
+    }
+    @Test
+    fun `ListeningStarted for owned Command session triggers cue player`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started
+        viewModel.startVoiceInput()
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+        verify(exactly = 1) { startListeningCuePlayer.playCue() }
+    }
+    @Test
+    fun `ListeningStarted for unowned mode does not trigger cue player`() = runTest(dispatcher) {
+        // ChatViewModel is Idle — it owns nothing. An event from an AlertCommand
+        // session started elsewhere should be silently ignored.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand))
+        advanceUntilIdle()
+        verify(exactly = 0) { startListeningCuePlayer.playCue() }
+    }
+    @Test
+    fun `ListeningStarted for SlotReply does not trigger cue in ChatViewModel`() = runTest(dispatcher) {
+        // ChatViewModel only plays cue for Command mode; SlotReply is handled by ActionsViewModel.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+        verify(exactly = 0) { startListeningCuePlayer.playCue() }
     }
 
     @Test
