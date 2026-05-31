@@ -1,11 +1,59 @@
 package com.kernel.ai.feature.chat
 
+import com.kernel.ai.feature.chat.model.ChatMessage
+import com.kernel.ai.feature.chat.model.ToolCallInfo
+
 /**
  * Converts LaTeX expressions to Unicode and strips Markdown syntax,
  * producing clean plain text suitable for clipboard output.
  */
 internal fun stripMarkdownForClipboard(text: String): String =
     stripMarkdown(convertLatexToUnicode(text))
+
+/**
+ * Formats a conversation for the clipboard ("Copy conversation"). User/assistant message content
+ * is markdown-stripped for readability. When [includeThinking] / [includeToolCalls] are enabled
+ * (#1024), the assistant's thinking blocks and tool-call request/result payloads are appended
+ * verbatim (NOT markdown-stripped — debugging needs the raw text/JSON). With both flags off the
+ * output is identical to the plain transcript.
+ */
+internal fun formatConversationForClipboard(
+    messages: List<ChatMessage>,
+    includeThinking: Boolean,
+    includeToolCalls: Boolean,
+): String = messages.joinToString("\n") { msg ->
+    when (msg.role) {
+        ChatMessage.Role.USER -> "You: ${stripMarkdownForClipboard(msg.content)}"
+        ChatMessage.Role.ASSISTANT -> {
+            val blocks = mutableListOf<String>()
+            if (includeThinking && !msg.thinkingText.isNullOrBlank()) {
+                blocks += "[Thinking]\n${msg.thinkingText.trim()}\n[End Thinking]"
+            }
+            if (includeToolCalls && msg.toolCall != null) {
+                blocks += formatToolCallForClipboard(msg.toolCall)
+            }
+            if (blocks.isEmpty()) {
+                "Jandal: ${stripMarkdownForClipboard(msg.content)}"
+            } else {
+                buildString {
+                    append("Jandal:")
+                    blocks.forEach { append('\n').append(it) }
+                    if (msg.content.isNotBlank()) {
+                        append('\n').append(stripMarkdownForClipboard(msg.content))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatToolCallForClipboard(toolCall: ToolCallInfo): String = buildString {
+    val status = if (toolCall.isSuccess) "success" else "failed"
+    append("[Tool Call: ${toolCall.skillName} — $status]")
+    if (toolCall.requestJson.isNotBlank()) append("\nRequest: ${toolCall.requestJson.trim()}")
+    if (toolCall.resultText.isNotBlank()) append("\nResult: ${toolCall.resultText.trim()}")
+    append("\n[End Tool Call]")
+}
 
 /**
  * Returns [text] truncated to at most [maxSentences] sentences (split at `.`, `!`, `?`).
@@ -420,6 +468,19 @@ internal fun prefersImmediateConversationContext(text: String): Boolean {
         RegexOption.IGNORE_CASE,
     ).containsMatchIn(lower)
 }
+
+private val CULTURAL_CONTEXT_CUE_REGEX = Regex(
+    """\b(?:new\s+zealand|aotearoa|kiwi|kiwis|m[āa]ori|te\s+reo|n\.?z\.?)\b""",
+    RegexOption.IGNORE_CASE,
+)
+
+/**
+ * Returns true when [text] references New Zealand / Māori culture (e.g. "what's it called in
+ * New Zealand?", "the Māori name", "in NZ"). Used to decide whether an otherwise
+ * immediate-context follow-up should still pull the NZ cultural corpus (#kumara recall).
+ */
+internal fun hasCulturalContextCue(text: String): Boolean =
+    CULTURAL_CONTEXT_CUE_REGEX.containsMatchIn(text)
 
 private val BARE_WIKIPEDIA_ANAPHORA_REGEX = Regex(
     """^(?:it|this|that|these|those|him|her|them|there)\b(?:\s+(?:please|thanks))?$""",

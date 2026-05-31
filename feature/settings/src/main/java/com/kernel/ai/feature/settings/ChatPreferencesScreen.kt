@@ -43,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -127,6 +128,8 @@ fun ChatPreferencesScreen(
     val wallpaperType by viewModel.wallpaperType.collectAsStateWithLifecycle()
     val wallpaperColor by viewModel.wallpaperColor.collectAsStateWithLifecycle()
     val wallpaperImageUri by viewModel.wallpaperImageUri.collectAsStateWithLifecycle()
+    val copyToolCalls by viewModel.copyToolCalls.collectAsStateWithLifecycle()
+    val copyThinking by viewModel.copyThinking.collectAsStateWithLifecycle()
 
     var showRetentionPicker by remember { mutableStateOf(false) }
     var showFontSizePicker by remember { mutableStateOf(false) }
@@ -313,6 +316,37 @@ fun ChatPreferencesScreen(
                 }
                 }
             }
+
+            HorizontalDivider()
+
+            // ─────── Conversation Copy (#1024) ───────
+            SectionHeader("Conversation Copy")
+            ListItem(
+                modifier = Modifier.fillMaxWidth().clickable {
+                    viewModel.setCopyToolCalls(!copyToolCalls)
+                },
+                headlineContent = { Text("Copy tool call content") },
+                supportingContent = { Text("Include tool call requests and results when copying the conversation") },
+                trailingContent = {
+                    Switch(
+                        checked = copyToolCalls,
+                        onCheckedChange = { viewModel.setCopyToolCalls(it) },
+                    )
+                },
+            )
+            ListItem(
+                modifier = Modifier.fillMaxWidth().clickable {
+                    viewModel.setCopyThinking(!copyThinking)
+                },
+                headlineContent = { Text("Copy thinking block content") },
+                supportingContent = { Text("Include the assistant's thinking blocks when copying the conversation (only present when thinking is enabled)") },
+                trailingContent = {
+                    Switch(
+                        checked = copyThinking,
+                        onCheckedChange = { viewModel.setCopyThinking(it) },
+                    )
+                },
+            )
 
             Spacer(Modifier.height(32.dp))
         }

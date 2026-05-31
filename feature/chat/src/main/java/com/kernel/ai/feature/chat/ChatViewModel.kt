@@ -1780,16 +1780,34 @@ class ChatViewModel @Inject constructor(
             val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
             val effectiveRagContext: String
             val effectiveRagTokenCost: Int
-            if (isToolQuery || preferImmediateContext) {
-                effectiveRagContext = ""
-                effectiveRagTokenCost = 0
-            } else {
-                effectiveRagContext = ragRepository.getRelevantContext(
-                    query = text,
-                    conversationId = convId,
-                    maxTokens = ContextWindowManager.episodicBudget(activeContextWindowSize),
-                )
-                effectiveRagTokenCost = contextWindowManager.estimateTokens(effectiveRagContext)
+            when {
+                isToolQuery -> {
+                    effectiveRagContext = ""
+                    effectiveRagTokenCost = 0
+                }
+                preferImmediateContext -> {
+                    // Short pronoun follow-ups normally skip RAG to stay anchored to the live
+                    // conversation. But a cultural/geographic follow-up ("what are they called in
+                    // New Zealand?") needs the NZ corpus, which the bare-pronoun query can't surface
+                    // on its own. Resolve the anaphor from the previous user turn and pull ONLY the
+                    // small cultural-context block so the prompt stays lean (#kumara recall).
+                    if (hasCulturalContextCue(text) && !previousUser.isNullOrBlank()) {
+                        val resolvedQuery = "${previousUser.take(120)} $text"
+                        effectiveRagContext = ragRepository.getCulturalContext(query = resolvedQuery)
+                        effectiveRagTokenCost = contextWindowManager.estimateTokens(effectiveRagContext)
+                    } else {
+                        effectiveRagContext = ""
+                        effectiveRagTokenCost = 0
+                    }
+                }
+                else -> {
+                    effectiveRagContext = ragRepository.getRelevantContext(
+                        query = text,
+                        conversationId = convId,
+                        maxTokens = ContextWindowManager.episodicBudget(activeContextWindowSize),
+                    )
+                    effectiveRagTokenCost = contextWindowManager.estimateTokens(effectiveRagContext)
+                }
             }
 
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
@@ -2248,6 +2266,27 @@ class ChatViewModel @Inject constructor(
             "$prefix: ${msg.content}"
         }
     }
+
+    /** Conversation copy toggles (#1024). */
+    val copyToolCalls: StateFlow<Boolean> = chatPreferences.copyToolCalls
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val copyThinking: StateFlow<Boolean> = chatPreferences.copyThinking
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /**
+     * Builds the clipboard transcript for "Copy conversation", optionally embedding thinking blocks
+     * and tool-call payloads (#1024). The returned text is already clipboard-ready — callers must NOT
+     * additionally run [stripMarkdownForClipboard] over it, since that would mangle the raw
+     * thinking/tool content.
+     */
+    fun getConversationForClipboard(
+        includeThinking: Boolean,
+        includeToolCalls: Boolean,
+    ): String = formatConversationForClipboard(
+        messages = _messages.value,
+        includeThinking = includeThinking,
+        includeToolCalls = includeToolCalls,
+    )
 
     fun startNewConversation() {
         stopVoicePlayback()

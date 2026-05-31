@@ -1073,4 +1073,117 @@ class ChatTextUtilsTest {
         }
     }
 
+    // ═════════════════════════════════════════════════════════════════════════
+    // CULTURAL CONTEXT CUE (#kumara recall)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("hasCulturalContextCue")
+    inner class CulturalContextCueTests {
+
+        @ParameterizedTest
+        @ValueSource(strings = [
+            "What are they called in New Zealand",
+            "what's the name in NZ?",
+            "Is there a Māori word for it",
+            "what do the maori call it",
+            "the te reo name",
+            "what's it called in Aotearoa",
+            "do kiwis have a word for that",
+        ])
+        fun `returns true for NZ cultural cues`(text: String) {
+            assertTrue(hasCulturalContextCue(text), "Expected cue in: $text")
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = [
+            "What are they called",
+            "what's the name for it",
+            "tell me about sweet potato",
+            "how do you cook it",
+        ])
+        fun `returns false without NZ cultural cue`(text: String) {
+            assertFalse(hasCulturalContextCue(text), "Did not expect cue in: $text")
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // CLIPBOARD CONVERSATION FORMATTING (#1024)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("formatConversationForClipboard")
+    inner class ClipboardFormattingTests {
+
+        private fun user(text: String) = com.kernel.ai.feature.chat.model.ChatMessage(
+            id = "u", role = com.kernel.ai.feature.chat.model.ChatMessage.Role.USER, content = text,
+        )
+
+        private fun assistant(
+            text: String,
+            thinking: String? = null,
+            tool: com.kernel.ai.feature.chat.model.ToolCallInfo? = null,
+        ) = com.kernel.ai.feature.chat.model.ChatMessage(
+            id = "a",
+            role = com.kernel.ai.feature.chat.model.ChatMessage.Role.ASSISTANT,
+            content = text,
+            thinkingText = thinking,
+            toolCall = tool,
+        )
+
+        @Test
+        fun `both flags off reproduces plain transcript`() {
+            val messages = listOf(
+                user("**hello**"),
+                assistant("hi there", thinking = "secret", tool = null),
+            )
+            val result = formatConversationForClipboard(messages, includeThinking = false, includeToolCalls = false)
+            assertEquals("You: hello\nJandal: hi there", result)
+        }
+
+        @Test
+        fun `includes thinking block when enabled`() {
+            val messages = listOf(assistant("answer", thinking = "my reasoning"))
+            val result = formatConversationForClipboard(messages, includeThinking = true, includeToolCalls = false)
+            assertEquals("Jandal:\n[Thinking]\nmy reasoning\n[End Thinking]\nanswer", result)
+        }
+
+        @Test
+        fun `includes tool call when enabled`() {
+            val tool = com.kernel.ai.feature.chat.model.ToolCallInfo(
+                skillName = "search_memory",
+                requestJson = "{\"query\":\"x\"}",
+                resultText = "found it",
+                isSuccess = true,
+            )
+            val messages = listOf(assistant("here you go", tool = tool))
+            val result = formatConversationForClipboard(messages, includeThinking = false, includeToolCalls = true)
+            assertEquals(
+                "Jandal:\n[Tool Call: search_memory — success]\n" +
+                    "Request: {\"query\":\"x\"}\nResult: found it\n[End Tool Call]\nhere you go",
+                result,
+            )
+        }
+
+        @Test
+        fun `thinking not included when flag off`() {
+            val messages = listOf(assistant("answer", thinking = "hidden"))
+            val result = formatConversationForClipboard(messages, includeThinking = false, includeToolCalls = false)
+            assertEquals("Jandal: answer", result)
+        }
+
+        @Test
+        fun `failed tool call marked failed`() {
+            val tool = com.kernel.ai.feature.chat.model.ToolCallInfo(
+                skillName = "reminder",
+                requestJson = "{}",
+                resultText = "error",
+                isSuccess = false,
+            )
+            val messages = listOf(assistant("oops", tool = tool))
+            val result = formatConversationForClipboard(messages, includeThinking = false, includeToolCalls = true)
+            assertTrue(result.contains("[Tool Call: reminder — failed]"), result)
+        }
+    }
+
 }
