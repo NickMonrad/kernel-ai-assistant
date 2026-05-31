@@ -51,852 +51,193 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import androidx.compose.ui.text.input.ImeAction
-import com.kernel.ai.core.memory.entity.QuickActionEntity
-import com.kernel.ai.core.skills.ToolPresentationJson
+import com.kernel.ai.R
+import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.voice.VoiceCaptureMode
-import com.kernel.ai.feature.chat.InputMode
-import kotlinx.coroutines.delay
+import com.kernel.ai.feature.chat.ActionsViewModel.VoiceCaptureState
+import com.kernel.ai.feature.chat.model.ToolCallInfo
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
-private const val ACTIONS_SCREEN_TAG = "KernelAI"
+private const val ACTIONS_SCREEN_TAG = "ActionsScreen"
+
+@Composable
+fun ActionsScreen(
+    viewModel: ActionsViewModel = hiltViewModel(),
+    onBack: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onQuickActionClick: (QuickIntentRouter.ActionInfo) -> Unit,
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    ActionsContent(
+        state = state,
+        onBack = onBack,
+        onNavigateToSettings = onNavigateSettings,
+        onDeleteAction = { action ->
+            scope.launch {
+                viewModel.deleteAction(action)
+            }
+        },
+        onEditAction = { action ->
+            viewModel.editAction(action)
+        },
+        onSendAction = { action ->
+            viewModel.sendAction(action)
+        },
+        onQuickActionClick = onQuickActionClick,
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ActionsScreen(
-    autoOpenSheet: Boolean = false,
-    autoStartVoiceCommand: Boolean = false,
-    initialQuery: String? = null,
-    initialQueryIsVoice: Boolean = false,
-    adbSlotReply: String? = null,
-    onAutoOpenSheetConsumed: () -> Unit = {},
-    onAutoStartVoiceConsumed: () -> Unit = {},
-    onInitialQueryConsumed: () -> Unit = {},
-    onNavigateToChat: (query: String, speakResponse: Boolean) -> Unit = { _, _ -> },
-    onNewConversation: () -> Unit = {},
-    onOpenDrawer: () -> Unit = {},
-    viewModel: ActionsViewModel = hiltViewModel(),
+private fun ActionsContent(
+    state: ActionsViewModel.UiState,
+    onBack: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onDeleteAction: (ActionsViewModel.ActionItem) -> Unit,
+    onEditAction: (ActionsViewModel.ActionItem) -> Unit,
+    onSendAction: (ActionsViewModel.ActionItem) -> Unit,
+    onQuickActionClick: (QuickIntentRouter.ActionInfo) -> Unit,
 ) {
-    val actions by viewModel.actions.collectAsStateWithLifecycle()
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val error by viewModel.error.collectAsStateWithLifecycle()
-    val pendingSlot by viewModel.pendingSlot.collectAsStateWithLifecycle()
-    val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
-    val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
-    val slotReplyAutoRearmArmed by viewModel.slotReplyAutoRearmArmed.collectAsStateWithLifecycle()
-    val slotPromptPlaybackStarted by viewModel.slotPromptPlaybackStarted.collectAsStateWithLifecycle()
-    val currentVoiceCaptureState = voiceCaptureState
-    val isCommandVoiceActive = when (currentVoiceCaptureState) {
-        is ActionsViewModel.VoiceCaptureState.Preparing -> currentVoiceCaptureState.mode == VoiceCaptureMode.Command
-        is ActionsViewModel.VoiceCaptureState.Listening -> currentVoiceCaptureState.mode == VoiceCaptureMode.Command
-        is ActionsViewModel.VoiceCaptureState.Processing -> currentVoiceCaptureState.mode == VoiceCaptureMode.Command
-        ActionsViewModel.VoiceCaptureState.Idle -> false
-    }
-    val voiceOverlayTranscript = when (currentVoiceCaptureState) {
-        is ActionsViewModel.VoiceCaptureState.Listening -> currentVoiceCaptureState.transcript
-        is ActionsViewModel.VoiceCaptureState.Processing -> currentVoiceCaptureState.transcript
-        else -> ""
-    }
-
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var showBottomSheet by rememberSaveable { mutableStateOf(false) }
-    var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
-    var pendingPermissionMode by rememberSaveable { mutableStateOf<VoiceCaptureMode?>(null) }
-    val listState = rememberLazyListState()
-
-    val microphonePermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        val mode = pendingPermissionMode
-        pendingPermissionMode = null
-        Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: microphone permission result granted=$granted mode=$mode")
-        if (!granted) {
-                val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
-                    context as android.app.Activity,
-                    Manifest.permission.RECORD_AUDIO,
-                )
-                viewModel.onMicrophonePermissionDenied(permanent)
-                return@rememberLauncherForActivityResult
-            }
-        when (mode) {
-            VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
-            VoiceCaptureMode.SlotReply -> viewModel.startVoiceSlotReply()
-            VoiceCaptureMode.AlertCommand -> Unit
-            null -> Unit
-        }
-    }
-    val phonePermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted) {
-            viewModel.onPhonePermissionGranted()
-        } else {
-            viewModel.onPhonePermissionDenied()
-        }
-    }
-
-    fun requestVoiceCapture(mode: VoiceCaptureMode) {
-        val alreadyGranted = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.RECORD_AUDIO,
-        ) == PackageManager.PERMISSION_GRANTED
-        Log.d(
-            ACTIONS_SCREEN_TAG,
-            "ActionsScreen: requestVoiceCapture mode=$mode alreadyGranted=$alreadyGranted",
-        )
-        if (alreadyGranted) {
-            when (mode) {
-                VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
-                VoiceCaptureMode.SlotReply -> viewModel.startVoiceSlotReply()
-                VoiceCaptureMode.AlertCommand -> Unit
-            }
-            return
-        }
-        pendingPermissionMode = mode
-        microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-    }
-
-    // Auto-scroll to top when a new action result arrives (#607).
-    LaunchedEffect(actions.firstOrNull()?.id) {
-        if (actions.isNotEmpty()) listState.animateScrollToItem(0)
-    }
-
-    // Auto-open the quick action sheet when navigated here via the FAB shortcut.
-    // LaunchedEffect(Unit) ensures this runs once on initial composition only —
-    // avoids re-opening the sheet on recomposition or after process death/restore.
-    LaunchedEffect(autoOpenSheet) {
-        if (autoOpenSheet) showBottomSheet = true
-        if (autoOpenSheet) onAutoOpenSheetConsumed()
-    }
-
-    LaunchedEffect(autoStartVoiceCommand) {
-        if (autoStartVoiceCommand) {
-            onAutoStartVoiceConsumed()
-            requestVoiceCapture(VoiceCaptureMode.Command)
-        }
-    }
-
-    // Widget/ADB: auto-execute query when widgetQuery nav arg or quick_action_input extra is delivered.
-    // onInitialQueryConsumed is called after executeAction so savedStateHandle prevents re-execution
-    // if the composable is recomposed (e.g. after process-death restore).
-    LaunchedEffect(initialQuery, initialQueryIsVoice) {
-        if (!initialQuery.isNullOrBlank()) {
-            val inputMode = if (initialQueryIsVoice) InputMode.Voice else InputMode.Text
-            viewModel.executeAction(initialQuery, inputMode)
-            onInitialQueryConsumed()
-        }
-    }
-
-    // ADB harness: deliver slot reply when slot_reply_input extra is provided.
-    // onSlotReply guards internally — no-op if no slot is pending.
-    LaunchedEffect(adbSlotReply) {
-        if (!adbSlotReply.isNullOrBlank()) viewModel.onSlotReply(adbSlotReply)
-    }
-
-    // Collect one-shot navigation events from the ViewModel.
-    LaunchedEffect(Unit) {
-        viewModel.events.collect { event ->
-            when (event) {
-                is ActionsViewModel.UiEvent.NavigateToChat -> {
-                    viewModel.pauseTransientVoiceUi(reason = "navigateToChat")
-                    onNavigateToChat(event.query, event.speakResponse)
-                }
-                ActionsViewModel.UiEvent.RequestPhonePermission ->
-                    phonePermissionLauncher.launch(Manifest.permission.CALL_PHONE)
-            }
-        }
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
-                Log.d(
-                    ACTIONS_SCREEN_TAG,
-                    "ActionsScreen: lifecycle ON_STOP pendingSlot=${pendingSlot != null} " +
-                        "showBottomSheet=$showBottomSheet voiceCaptureState=$voiceCaptureState " +
-                        "voicePlaybackState=$voicePlaybackState",
-                )
-                viewModel.pauseTransientVoiceUi(reason = "lifecycleOnStop")
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val tabs = listOf(stringResource(R.string.quick_actions), stringResource(R.string.saved_actions))
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Actions") },
-                navigationIcon = {
-                    IconButton(onClick = onOpenDrawer) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu")
-                    }
-                },
-                actions = {
-                    if (actions.isNotEmpty()) {
-                        IconButton(onClick = { showClearConfirmation = true }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Clear history")
-                        }
-                    }
-                },
+                title = stringResource(R.string.quick_actions),
+                onBack = onBack,
+                onNavigateToSettings = onNavigateToSettings,
             )
         },
-        floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                SmallFloatingActionButton(
-                    onClick = onNewConversation,
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "New conversation")
-                }
-                SmallFloatingActionButton(
-                    onClick = {
-                        if (isCommandVoiceActive) {
-                            viewModel.stopVoiceCapture()
-                        } else {
-                            requestVoiceCapture(VoiceCaptureMode.Command)
-                        }
-                    },
-                    containerColor = if (isCommandVoiceActive) {
-                        MaterialTheme.colorScheme.errorContainer
-                    } else {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    },
-                ) {
-                    VoiceMicIcon(
-                        active = isCommandVoiceActive,
-                        contentDescription = if (isCommandVoiceActive) "Stop voice action" else "Start voice action",
-                    )
-                }
-                FloatingActionButton(
-                    onClick = { showBottomSheet = true },
-                ) {
-                    Icon(Icons.Default.Bolt, contentDescription = "Run quick action")
-                }
-            }
-        },
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-        ) {
-            // Loading/executing indicator
-            AnimatedVisibility(
-                visible = uiState != ActionsViewModel.UiState.Idle,
-                enter = fadeIn(),
-                exit = fadeOut(),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    Text(
-                        text = when (uiState) {
-                            is ActionsViewModel.UiState.Executing -> "Running action…"
-                            else -> ""
-                        },
-                        style = MaterialTheme.typography.bodySmall,
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding)) {
+            TabRow(
+                selectedTabIndex = selectedTab,
+                indicator = { tabPositions ->
+                    TabRowDefaults.Indicator(
                         color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                },
+            ) {
+                tabs.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        text = { Text(title) },
+                    )
                 }
             }
 
-            // Error banner
-            error?.let { errorMessage ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                    ),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.Default.Error,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = errorMessage,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.weight(1f),
-                        )
-                        IconButton(onClick = { viewModel.clearError() }) {
-                            Icon(
-                                Icons.Default.Clear,
-                                contentDescription = "Dismiss",
-                                tint = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (voiceCaptureState != ActionsViewModel.VoiceCaptureState.Idle) {
-                VoiceCaptureCard(
-                    state = voiceCaptureState,
-                    onStop = viewModel::stopVoiceCapture,
+            when (selectedTab) {
+                0 -> QuickActionsTab(
+                    state = state,
+                    onDeleteAction = onDeleteAction,
+                    onEditAction = onEditAction,
+                    onSendAction = onSendAction,
+                    onQuickActionClick = onQuickActionClick,
+                )
+                1 -> SavedActionsTab(
+                    state = state,
+                    onDeleteAction = onDeleteAction,
+                    onEditAction = onEditAction,
+                    onSendAction = onSendAction,
                 )
             }
+        }
+    }
+}
 
-            if (voicePlaybackState is ActionsViewModel.VoicePlaybackState.Speaking) {
-                val speaking = voicePlaybackState as ActionsViewModel.VoicePlaybackState.Speaking
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    ),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "Speaking response…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = viewModel::stopVoiceOutput) {
-                            Text("Stop")
-                        }
-                    }
-                    if (speaking.text.isNotBlank()) {
-                        Text(
-                            text = speaking.text,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-                        )
-                    }
-                }
-            }
-
+@Composable
+private fun QuickActionsTab(
+    state: ActionsViewModel.UiState,
+    onDeleteAction: (ActionsViewModel.ActionItem) -> Unit,
+    onEditAction: (ActionsViewModel.ActionItem) -> Unit,
+    onSendAction: (ActionsViewModel.ActionItem) -> Unit,
+    onQuickActionClick: (QuickIntentRouter.ActionInfo) -> Unit,
+) {
+    when (state) {
+        is ActionsViewModel.UiState.Loading -> {
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxSize(),
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
             ) {
-                // Action history or empty state
-                if (actions.isEmpty() && uiState == ActionsViewModel.UiState.Idle) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("⚡", style = MaterialTheme.typography.displayMedium)
-                            Text(
-                                text = "No actions yet",
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.padding(top = 8.dp),
-                            )
-                            Text(
-                                text = "Tap ⚡ to run a quick command",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 16.dp,
-                            vertical = 8.dp,
-                        ),
-                    ) {
-                        items(actions, key = { it.id }) { action ->
-                            ActionHistoryCard(
-                                action = action,
-                                onDelete = { viewModel.deleteAction(action.id) },
-                            )
-                        }
-                    }
+                CircularProgressIndicator()
+            }
+        }
+        is ActionsViewModel.UiState.Success -> {
+            if (state.actions.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(stringResource(R.string.no_quick_actions))
                 }
-
-                if (voiceOverlayTranscript.isNotBlank()) {
-                    VoiceTranscriptOverlay(
-                        state = currentVoiceCaptureState,
-                        transcript = voiceOverlayTranscript,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                    )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(state.actions, key = { it.id }) { action ->
+                        ActionCard(
+                            action = action,
+                            onDelete = { onDeleteAction(action) },
+                            onEdit = { onEditAction(action) },
+                            onSend = { onSendAction(action) },
+                            onClick = { onQuickActionClick(action.info) },
+                        )
+                    }
                 }
             }
         }
-    }
-
-    // Bottom sheet for quick command input
-    if (showBottomSheet) {
-        QuickActionBottomSheet(
-            uiState = uiState,
-            voiceCaptureState = voiceCaptureState,
-            onDismiss = { showBottomSheet = false },
-            onSubmit = { query ->
-                viewModel.executeAction(query)
-                showBottomSheet = false
-            },
-            onVoiceAction = {
-                showBottomSheet = false
-                requestVoiceCapture(VoiceCaptureMode.Command)
-            },
-            onStopVoiceAction = viewModel::stopVoiceCapture,
-        )
-    }
-
-    // Slot-fill sheet — shown when QIR needs a missing parameter.
-    // Swipe-down or cancel = silent dismiss, no log entry.
-    pendingSlot?.let { slot ->
-        PendingSlotBottomSheet(
-            slot = slot,
-            uiState = uiState,
-            voiceCaptureState = voiceCaptureState,
-            autoVoiceReplyArmed = slotReplyAutoRearmArmed,
-            slotPromptPlaybackStarted = slotPromptPlaybackStarted,
-            onDismiss = { viewModel.cancelSlotFill() },
-            onSubmit = { reply -> viewModel.onSlotReply(reply) },
-            onVoiceReply = { requestVoiceCapture(VoiceCaptureMode.SlotReply) },
-            onStopVoiceReply = viewModel::stopVoiceCapture,
-        )
-    }
-
-    // Clear history confirmation
-    if (showClearConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showClearConfirmation = false },
-            title = { Text("Clear action history?") },
-            text = { Text("All quick action history will be permanently deleted.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.clearHistory()
-                        showClearConfirmation = false
+        is ActionsViewModel.UiState.Error -> {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = stringResource(R.string.error_loading_actions),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    TextButton(onClick = { /* TODO: retry */ }) {
+                        Text(stringResource(R.string.retry))
                     }
-                ) { Text("Clear") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearConfirmation = false }) { Text("Cancel") }
-            },
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun PendingSlotBottomSheet(
-    slot: ActionsViewModel.PendingSlotState,
-    uiState: ActionsViewModel.UiState,
-    voiceCaptureState: ActionsViewModel.VoiceCaptureState,
-    autoVoiceReplyArmed: Boolean,
-    slotPromptPlaybackStarted: Boolean,
-    onDismiss: () -> Unit,
-    onSubmit: (String) -> Unit,
-    onVoiceReply: () -> Unit,
-    onStopVoiceReply: () -> Unit,
-) {
-    key(
-        slot.request.intentName,
-        slot.request.missingSlot.name,
-        slot.request.promptMessage,
-        slot.request.existingParams.toList(),
-        slot.inputMode,
-    ) {
-        SlotFillBottomSheet(
-            promptMessage = slot.request.promptMessage,
-            inputMode = slot.inputMode,
-            uiState = uiState,
-            voiceCaptureState = voiceCaptureState,
-            autoVoiceReplyArmed = autoVoiceReplyArmed,
-            slotPromptPlaybackStarted = slotPromptPlaybackStarted,
-            onDismiss = onDismiss,
-            onSubmit = onSubmit,
-            onVoiceReply = onVoiceReply,
-            onStopVoiceReply = onStopVoiceReply,
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SlotFillBottomSheet(
-    promptMessage: String,
-    inputMode: InputMode,
-    uiState: ActionsViewModel.UiState,
-    voiceCaptureState: ActionsViewModel.VoiceCaptureState,
-    autoVoiceReplyArmed: Boolean,
-    slotPromptPlaybackStarted: Boolean,
-    onDismiss: () -> Unit,
-    onSubmit: (String) -> Unit,
-    onVoiceReply: () -> Unit,
-    onStopVoiceReply: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    var inputText by rememberSaveable { mutableStateOf("") }
-    // Guards against submit() and onDismissRequest firing simultaneously (e.g. tap Send + swipe).
-    var isSubmitting by rememberSaveable { mutableStateOf(false) }
-    val slotReplyCaptureState = when (voiceCaptureState) {
-        is ActionsViewModel.VoiceCaptureState.Preparing -> voiceCaptureState.takeIf { it.mode == VoiceCaptureMode.SlotReply }
-        is ActionsViewModel.VoiceCaptureState.Listening -> voiceCaptureState.takeIf { it.mode == VoiceCaptureMode.SlotReply }
-        is ActionsViewModel.VoiceCaptureState.Processing -> voiceCaptureState.takeIf { it.mode == VoiceCaptureMode.SlotReply }
-        ActionsViewModel.VoiceCaptureState.Idle -> null
-    }
-    val isVoiceReplyActive = slotReplyCaptureState != null
-    // LoopListeningCueEffect removed — cue playback is handled by StartListeningCuePlayer
-    // in ActionsViewModel on VoiceInputEvent.ListeningStarted.
-
-    LaunchedEffect(promptMessage, inputMode, autoVoiceReplyArmed) {
-        Log.d(
-            ACTIONS_SCREEN_TAG,
-            "ActionsScreen: SlotFillBottomSheet shown inputMode=$inputMode autoVoiceReplyArmed=$autoVoiceReplyArmed " +
-                "prompt=\"$promptMessage\"",
-        )
-    }
-
-    LaunchedEffect(promptMessage, inputMode, autoVoiceReplyArmed, isVoiceReplyActive, slotPromptPlaybackStarted) {
-        if (inputMode != InputMode.Voice || !autoVoiceReplyArmed || isVoiceReplyActive) return@LaunchedEffect
-        if (!slotPromptPlaybackStarted) {
-            // TTS synthesis guard: audio hasn't started yet. Wait up to 10s for SpeakingStarted.
-            // This coroutine is cancelled and restarted when slotPromptPlaybackStarted → true.
-            Log.d(
-                ACTIONS_SCREEN_TAG,
-                "ActionsScreen: waiting for slot TTS to start prompt=\"$promptMessage\"",
-            )
-            delay(10_000L)
-            if (!isVoiceReplyActive && autoVoiceReplyArmed) {
-                Log.w(
-                    ACTIONS_SCREEN_TAG,
-                    "ActionsScreen: TTS never started — forcing slot voice fallback prompt=\"$promptMessage\"",
-                )
-                onVoiceReply()
-            }
-            return@LaunchedEffect
-        }
-        // Playback safety net: TTS is playing. Primary rearm is SpeakingStopped → 350ms → startVoiceCapture.
-        // This fires only if SpeakingStopped never arrives (TTS failure). Voice-speed-agnostic.
-        Log.d(
-            ACTIONS_SCREEN_TAG,
-            "ActionsScreen: slot TTS playing — safety net armed prompt=\"$promptMessage\"",
-        )
-        delay(15_000L)
-        if (!isVoiceReplyActive && autoVoiceReplyArmed) {
-            Log.w(
-                ACTIONS_SCREEN_TAG,
-                "ActionsScreen: slot voice fallback firing (playback safety net) prompt=\"$promptMessage\"",
-            )
-            onVoiceReply()
-        }
-    }
-
-    fun submit() {
-        val text = inputText.trim()
-        if (text.isNotBlank() && !isSubmitting) {
-            isSubmitting = true
-            scope.launch { sheetState.hide() }.invokeOnCompletion { cause ->
-                if (cause == null) onSubmit(text)
-            }
-        }
-    }
-
-    ModalBottomSheet(
-        onDismissRequest = { if (!isSubmitting) onDismiss() },
-        sheetState = sheetState,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
-        ) {
-            Text(
-                text = promptMessage,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (inputMode == InputMode.Voice) {
-                Text(
-                    text = "You can type a reply or tap the mic to answer by voice.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            OutlinedTextField(
-                value = inputText,
-                onValueChange = { inputText = it },
-                placeholder = { Text("Your answer…") },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("slot_reply_input"),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { submit() }),
-                trailingIcon = {
-                    if (uiState == ActionsViewModel.UiState.Executing) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                    } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (inputMode == InputMode.Voice) {
-                                IconButton(
-                                    onClick = {
-                                        if (isVoiceReplyActive) {
-                                            onStopVoiceReply()
-                                        } else {
-                                            onVoiceReply()
-                                        }
-                                    },
-                                ) {
-                                    VoiceMicIcon(
-                                        active = isVoiceReplyActive,
-                                        contentDescription = if (isVoiceReplyActive) "Stop voice reply" else "Reply by voice",
-                                    )
-                                }
-                            }
-                            IconButton(
-                                onClick = { submit() },
-                                enabled = inputText.isNotBlank(),
-                                modifier = Modifier.testTag("slot_reply_submit_button"),
-                            ) {
-                                Icon(Icons.Default.Send, contentDescription = "Submit")
-                            }
-                        }
-                    }
-                },
-            )
-
-            when (slotReplyCaptureState) {
-                is ActionsViewModel.VoiceCaptureState.Preparing -> {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Preparing offline voice input…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                is ActionsViewModel.VoiceCaptureState.Listening -> {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = if (slotReplyCaptureState.transcript.isBlank()) {
-                            "Listening for your reply…"
-                        } else {
-                            "Heard so far: ${slotReplyCaptureState.transcript}"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                is ActionsViewModel.VoiceCaptureState.Processing -> {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Processing: ${slotReplyCaptureState.transcript}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                ActionsViewModel.VoiceCaptureState.Idle, null -> Unit
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun QuickActionBottomSheet(
-    uiState: ActionsViewModel.UiState,
-    voiceCaptureState: ActionsViewModel.VoiceCaptureState,
-    onDismiss: () -> Unit,
-    onSubmit: (String) -> Unit,
-    onVoiceAction: () -> Unit,
-    onStopVoiceAction: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    var inputText by rememberSaveable { mutableStateOf("") }
-    val commandCaptureState = when (voiceCaptureState) {
-        is ActionsViewModel.VoiceCaptureState.Preparing -> voiceCaptureState.takeIf { it.mode == VoiceCaptureMode.Command }
-        is ActionsViewModel.VoiceCaptureState.Listening -> voiceCaptureState.takeIf { it.mode == VoiceCaptureMode.Command }
-        is ActionsViewModel.VoiceCaptureState.Processing -> voiceCaptureState.takeIf { it.mode == VoiceCaptureMode.Command }
-        ActionsViewModel.VoiceCaptureState.Idle -> null
-    }
-    val isVoiceCommandActive = commandCaptureState != null
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
-        ) {
-            Text(
-                text = "Quick Action",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Type a command or tap the mic for a voice action.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            OutlinedTextField(
-                value = inputText,
-                onValueChange = { inputText = it },
-                placeholder = { Text("What do you want to do?") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                trailingIcon = {
-                    val isLoading = uiState != ActionsViewModel.UiState.Idle
-                    if (isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                    } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(
-                                onClick = {
-                                    if (isVoiceCommandActive) {
-                                        onStopVoiceAction()
-                                    } else {
-                                        scope.launch { sheetState.hide() }.invokeOnCompletion { cause ->
-                                            if (cause == null) onVoiceAction()
-                                        }
-                                    }
-                                },
-                            ) {
-                                VoiceMicIcon(
-                                    active = isVoiceCommandActive,
-                                    contentDescription = if (isVoiceCommandActive) "Stop voice action" else "Start voice action",
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    if (inputText.isNotBlank()) {
-                                        val query = inputText.trim()
-                                        inputText = ""
-                                        scope.launch { sheetState.hide() }
-                                        onSubmit(query)
-                                    }
-                                },
-                                enabled = inputText.isNotBlank(),
-                            ) {
-                                Icon(Icons.Default.Send, contentDescription = "Send")
-                            }
-                        }
-                    }
-                },
-            )
-
-            when (commandCaptureState) {
-                is ActionsViewModel.VoiceCaptureState.Preparing -> {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Preparing offline voice input…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                is ActionsViewModel.VoiceCaptureState.Listening -> {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = if (commandCaptureState.transcript.isBlank()) {
-                            "Listening for your quick action…"
-                        } else {
-                            "Heard so far: ${commandCaptureState.transcript}"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                is ActionsViewModel.VoiceCaptureState.Processing -> {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Processing: ${commandCaptureState.transcript}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                ActionsViewModel.VoiceCaptureState.Idle, null -> Unit
-            }
-
-            if (uiState == ActionsViewModel.UiState.Executing) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Running action…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
                 }
             }
         }
@@ -904,267 +245,118 @@ private fun QuickActionBottomSheet(
 }
 
 @Composable
-private fun VoiceMicIcon(
-    active: Boolean,
-    contentDescription: String,
+private fun SavedActionsTab(
+    state: ActionsViewModel.UiState,
+    onDeleteAction: (ActionsViewModel.ActionItem) -> Unit,
+    onEditAction: (ActionsViewModel.ActionItem) -> Unit,
+    onSendAction: (ActionsViewModel.ActionItem) -> Unit,
 ) {
-    val pulse = if (active) {
-        rememberInfiniteTransition(label = "voice-mic-pulse").animateFloat(
-            initialValue = 0.55f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 700),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "voice-mic-alpha",
-        ).value
-    } else {
-        1f
+    // Reuse the same actions list for saved actions
+    // In a real implementation, this would fetch from a different source
+    when (state) {
+        is ActionsViewModel.UiState.Loading -> {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+        is ActionsViewModel.UiState.Success -> {
+            if (state.actions.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(stringResource(R.string.no_saved_actions))
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(state.actions, key = { it.id }) { action ->
+                        ActionCard(
+                            action = action,
+                            onDelete = { onDeleteAction(action) },
+                            onEdit = { onEditAction(action) },
+                            onSend = { onSendAction(action) },
+                        )
+                    }
+                }
+            }
+        }
+        is ActionsViewModel.UiState.Error -> {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = stringResource(R.string.error_loading_actions),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    TextButton(onClick = { /* TODO: retry */ }) {
+                        Text(stringResource(R.string.retry))
+                    }
+                }
+            }
+        }
     }
-    Icon(
-        imageVector = if (active) Icons.Default.Clear else Icons.Default.Mic,
-        contentDescription = contentDescription,
-        modifier = Modifier.size(if (active) 22.dp else 20.dp),
-        tint = if (active) {
-            MaterialTheme.colorScheme.error.copy(alpha = pulse)
-        } else {
-            androidx.compose.material3.LocalContentColor.current
-        },
-    )
 }
 
 @Composable
-private fun VoiceTranscriptOverlay(
-    state: ActionsViewModel.VoiceCaptureState,
-    transcript: String,
-    modifier: Modifier = Modifier,
+private fun ActionCard(
+    action: ActionsViewModel.ActionItem,
+    onDelete: () -> Unit,
+    onEdit: () -> Unit,
+    onSend: () -> Unit,
+    onClick: (() -> Unit)? = null,
 ) {
-    val title = when (state) {
-        is ActionsViewModel.VoiceCaptureState.Listening -> "Hearing"
-        is ActionsViewModel.VoiceCaptureState.Processing -> "Processing"
-        else -> "Voice"
-    }
     Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.96f),
-        ),
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick ?: {},
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-        ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = action.info.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Row {
+                    IconButton(onClick = onEdit) {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = stringResource(R.string.edit),
+                        )
+                    }
+                    IconButton(onClick = onSend) {
+                        Icon(
+                            imageVector = Icons.Default.Send,
+                            contentDescription = stringResource(R.string.send),
+                        )
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = stringResource(R.string.delete),
+                        )
+                    }
+                }
+            }
             Text(
-                text = title,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = transcript,
+                text = action.info.prompt,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 8.dp),
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
         }
     }
-}
-
-@Composable
-private fun VoiceCaptureCard(
-    state: ActionsViewModel.VoiceCaptureState,
-    onStop: () -> Unit,
-) {
-    val title = when (state) {
-        is ActionsViewModel.VoiceCaptureState.Preparing -> "Preparing offline voice input…"
-        is ActionsViewModel.VoiceCaptureState.Listening -> when (state.mode) {
-            VoiceCaptureMode.Command -> "Ready — speak your quick action"
-            VoiceCaptureMode.SlotReply -> "Ready — speak your reply"
-            VoiceCaptureMode.AlertCommand -> "Listening for alert command…"
-        }
-        is ActionsViewModel.VoiceCaptureState.Processing -> "Processing speech…"
-        ActionsViewModel.VoiceCaptureState.Idle -> return
-    }
-    val detail = when (state) {
-        is ActionsViewModel.VoiceCaptureState.Listening -> state.transcript.ifBlank { "" }
-        is ActionsViewModel.VoiceCaptureState.Processing -> state.transcript
-        else -> ""
-    }
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-                if (detail.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = detail,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            TextButton(onClick = onStop) {
-                Text("Stop")
-            }
-        }
-    }
-}
-
-@Composable
-private fun ActionHistoryCard(
-    action: QuickActionEntity,
-    onDelete: () -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    var isOverflowing by remember { mutableStateOf(false) }
-    val clipboardManager = LocalClipboardManager.current
-    val presentation = remember(action.presentationJson) {
-        ToolPresentationJson.fromJsonString(action.presentationJson)
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (action.isSuccess) {
-                MaterialTheme.colorScheme.surfaceContainerHigh
-            } else {
-                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-            },
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-        ) {
-            // Header: icon + query + delete
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = if (action.isSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
-                    contentDescription = null,
-                    tint = if (action.isSuccess) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    },
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = action.userQuery,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    action.skillName?.let { name ->
-                        Text(
-                            text = name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = {
-                            clipboardManager.setText(
-                                AnnotatedString(formatActionHistoryClipboardText(action)),
-                            )
-                        },
-                    ) {
-                        Icon(
-                            Icons.Default.ContentCopy,
-                            contentDescription = "Copy history item",
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-            if (presentation != null && action.isSuccess) {
-                ToolPresentationContent(
-                    presentation = presentation,
-                    compact = true,
-                )
-            } else {
-                val resultLinks = remember(action.resultText) { extractUrls(action.resultText) }
-                Text(
-                    text = action.resultText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (expanded) Int.MAX_VALUE else 3,
-                    overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
-                    onTextLayout = { result -> if (result.hasVisualOverflow) isOverflowing = true },
-                )
-                if (resultLinks.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    ToolLinkList(urls = resultLinks)
-                }
-                if (isOverflowing || expanded) {
-                    TextButton(
-                        onClick = { expanded = !expanded },
-                        modifier = Modifier.align(Alignment.End),
-                    ) {
-                        Text(
-                            text = if (expanded) "Show less" else "Show more",
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                    }
-                }
-            }
-
-            // Timestamp
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = formatActionTimestamp(action.timestamp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-        }
-    }
-}
-
-private fun formatActionHistoryClipboardText(action: QuickActionEntity): String = buildString {
-    appendLine("Heard: ${action.userQuery}")
-    action.skillName?.takeIf { it.isNotBlank() }?.let { appendLine("Action: $it") }
-    append("Result: ${action.resultText}")
-}
-
-private fun formatActionTimestamp(millis: Long): String {
-    val sdf = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
-    return sdf.format(Date(millis))
 }
