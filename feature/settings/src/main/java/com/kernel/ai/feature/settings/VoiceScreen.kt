@@ -2,6 +2,7 @@ package com.kernel.ai.feature.settings
 
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -78,6 +79,7 @@ import android.app.role.RoleManager
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Assistant
 import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.runtime.DisposableEffect
@@ -233,6 +235,7 @@ private fun VoiceScreenContent(
     onHuggingFaceSignIn: () -> Unit,
     onHuggingFaceSignOut: () -> Unit,
 ) {
+    val context = LocalContext.current
     Scaffold(
         topBar = {
             TopAppBar(
@@ -344,6 +347,25 @@ private fun VoiceScreenContent(
             }
             HorizontalDivider()
             Text(
+                text = "HuggingFace Account",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            HuggingFaceAccountRow(
+                isAuthenticated = uiState.hfAuthenticated,
+                username = null,
+                onSignIn = onHuggingFaceSignIn,
+                onSignOut = onHuggingFaceSignOut,
+                onViewLicence = {
+                    openInAppBrowser(
+                        context,
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
+                    )
+                },
+            )
+            HorizontalDivider()
+            Text(
                 text = "Quick Actions",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
@@ -432,7 +454,6 @@ private fun VoiceScreenContent(
                             issue = state.issue,
                             modelLabel = engine.displayName,
                             modelSubtitle = subtitle,
-                            isAuthenticated = uiState.hfAuthenticated,
                             onDownload = { onDownloadSherpaStt(engine) },
                             onCancel = { onCancelSherpaSttDownload(engine) },
                             onDelete = { onDeleteSherpaStt(engine) },
@@ -441,7 +462,6 @@ private fun VoiceScreenContent(
                         )
                     }
                 }
-                HorizontalDivider()
             }
 
             Text(
@@ -1399,7 +1419,6 @@ private fun SherpaOnnxSttDownloadCard(
     issue: SherpaSttDownloadIssue?,
     modelLabel: String,
     modelSubtitle: String,
-    isAuthenticated: Boolean,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
@@ -1470,10 +1489,6 @@ private fun SherpaOnnxSttDownloadCard(
                         TextButton(onClick = { onViewLicence(issue.licenceUrl) }) { Text("Accept licence") }
                         TextButton(onClick = onDownload) { Text("Retry") }
                     }
-                    modelLabel == VoiceInputEngine.SherpaSenseVoice.displayName && !isAuthenticated -> TextButton(
-                        onClick = onDownload,
-                        enabled = false,
-                    ) { Text("Sign in required") }
                     else -> TextButton(onClick = onDownload) { Text("Download") }
                 }
             }
@@ -1486,13 +1501,6 @@ private fun SherpaOnnxSttDownloadCard(
                     text = "${(progress * 100).toInt()}%",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (issue != null && issue.licenceRequired.not()) {
-                Text(
-                    text = "Download failed: ${issue.message}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
                 )
             }
         }
@@ -1613,6 +1621,72 @@ private fun formatBytes(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
+@Composable
+private fun HuggingFaceAccountRow(
+    isAuthenticated: Boolean,
+    username: String?,
+    onSignIn: () -> Unit,
+    onSignOut: () -> Unit,
+    onViewLicence: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    if (isAuthenticated) {
+        ListItem(
+            modifier = modifier.fillMaxWidth(),
+            headlineContent = {
+                Text(
+                    text = if (username != null) "@$username" else "Signed in",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            supportingContent = {
+                Column {
+                    Text("Gated models unlocked")
+                    TextButton(onClick = onViewLicence, contentPadding = PaddingValues(0.dp)) {
+                        Text("View licence →", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            leadingContent = {
+                Icon(
+                    imageVector = Icons.Default.AccountCircle,
+                    contentDescription = null,
+                    tint = Color(0xFFFF9D00),
+                )
+            },
+            trailingContent = {
+                TextButton(onClick = onSignOut) {
+                    Text("Sign out", color = MaterialTheme.colorScheme.error)
+                }
+            },
+        )
+    } else {
+        ListItem(
+            modifier = modifier.fillMaxWidth(),
+            headlineContent = { Text("Not signed in") },
+            supportingContent = {
+                Column {
+                    Text("Required to download gated Hugging Face models. Accept licence before downloading.")
+                    TextButton(onClick = onViewLicence, contentPadding = PaddingValues(0.dp)) {
+                        Text("View licence →", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            leadingContent = {
+                Icon(
+                    imageVector = Icons.Default.AccountCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            trailingContent = {
+                Button(onClick = onSignIn) {
+                    Text("Sign in")
+                }
+            },
+        )
+    }
+}
 @Preview(showBackground = true)
 @Composable
 private fun VoiceScreenPreview() {

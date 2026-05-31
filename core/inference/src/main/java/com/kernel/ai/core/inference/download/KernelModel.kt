@@ -159,18 +159,18 @@ enum class KernelModel(
     // ── Sherpa-ONNX SenseVoice int8 (Offline) ────────────────────────────────
     //
     // From csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17
-    // (HuggingFace, ONNX conversion of SenseVoice, gated in-app). Single model int8 + tokens.
+    // (HuggingFace, ONNX conversion of SenseVoice). Public repo with model.int8.onnx + tokens.txt.
     // Downloaded on demand when the user selects "Sherpa-ONNX SenseVoice"
-    // in Settings → Voice. Requires Hugging Face authentication plus any upstream terms.
+    // in Settings → Voice. Licence details are shown via the repo page.
 
     SHERPA_SENSEVOICE_MODEL(
         displayName = "Sherpa SenseVoice Model",
         fileName = "sherpa-sensevoice-model.int8.onnx",
-        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2022-11-09/resolve/main/model.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx",
         approxSizeBytes = 100_000_000L, // ~100 MB
         isRequired = false,
         preferredForTier = null,
-        isGated = true,
+        isGated = false,
         licenceUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
         showInModelManagement = false,
     ),
@@ -178,11 +178,11 @@ enum class KernelModel(
     SHERPA_SENSEVOICE_TOKENS(
         displayName = "Sherpa SenseVoice Tokens",
         fileName = "sherpa-sensevoice-tokens.txt",
-        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2022-11-09/resolve/main/tokens.txt",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt",
         approxSizeBytes = 100_000L, // ~100 KB
         isRequired = false,
         preferredForTier = null,
-        isGated = true,
+        isGated = false,
         licenceUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
         showInModelManagement = false,
     ),
