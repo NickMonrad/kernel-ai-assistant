@@ -607,17 +607,8 @@ private fun SlotFillBottomSheet(
         ActionsViewModel.VoiceCaptureState.Idle -> null
     }
     val isVoiceReplyActive = slotReplyCaptureState != null
-    val loopListeningCueState = when (slotReplyCaptureState) {
-        is ActionsViewModel.VoiceCaptureState.Preparing -> LoopListeningCueState.Preparing
-        is ActionsViewModel.VoiceCaptureState.Listening -> LoopListeningCueState.Listening
-        is ActionsViewModel.VoiceCaptureState.Processing -> LoopListeningCueState.Processing
-        ActionsViewModel.VoiceCaptureState.Idle, null -> LoopListeningCueState.Idle
-    }
-
-    LoopListeningCueEffect(
-        loopActive = inputMode == InputMode.Voice,
-        captureState = loopListeningCueState,
-    )
+    // LoopListeningCueEffect removed — cue playback is handled by StartListeningCuePlayer
+    // in ActionsViewModel on VoiceInputEvent.ListeningStarted.
 
     LaunchedEffect(promptMessage, inputMode, autoVoiceReplyArmed) {
         Log.d(

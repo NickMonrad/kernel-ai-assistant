@@ -134,6 +134,7 @@ class ChatViewModel @Inject constructor(
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
     private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
+    private val startListeningCuePlayer: StartListeningCuePlayer,
     private val chatPreferences: ChatPreferences,
 ) : ViewModel() {
     private enum class SubmitMode { Text, Voice }
@@ -477,6 +478,7 @@ class ChatViewModel @Inject constructor(
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        startListeningCuePlayer.playCue()
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
                             ?.transcript
                             .orEmpty()
