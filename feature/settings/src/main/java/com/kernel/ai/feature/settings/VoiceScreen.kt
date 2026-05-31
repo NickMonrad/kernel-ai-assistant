@@ -188,9 +188,9 @@ fun VoiceScreen(
         onCancelKokoroVoiceDownload = viewModel::cancelKokoroVoiceDownload,
         onDeleteKokoroVoice = viewModel::deleteKokoroVoice,
         onKokoroActiveSpeakerIdChanged = viewModel::setKokoroActiveSpeakerId,
-        onDownloadSherpaOnnxStt = viewModel::downloadSherpaOnnxStt,
-        onCancelSherpaOnnxSttDownload = viewModel::cancelSherpaOnnxSttDownload,
-        onDeleteSherpaOnnxStt = viewModel::deleteSherpaOnnxStt,
+        onDownloadSherpaStt = viewModel::downloadSherpaStt,
+        onCancelSherpaSttDownload = viewModel::cancelSherpaSttDownload,
+        onDeleteSherpaStt = viewModel::deleteSherpaStt,
     )
 }
 
@@ -221,9 +221,9 @@ private fun VoiceScreenContent(
     onCancelKokoroVoiceDownload: (SherpaKokoroVoice) -> Unit,
     onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit,
     onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
-    onDownloadSherpaOnnxStt: () -> Unit,
-    onCancelSherpaOnnxSttDownload: () -> Unit,
-    onDeleteSherpaOnnxStt: () -> Unit,
+    onDownloadSherpaStt: (VoiceInputEngine) -> Unit,
+    onCancelSherpaSttDownload: (VoiceInputEngine) -> Unit,
+    onDeleteSherpaStt: (VoiceInputEngine) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -353,8 +353,9 @@ private fun VoiceScreenContent(
                     VoiceInputEngine.AndroidNative -> uiState.androidNativeLanguageSummary
                     else -> null
                 }
-                val sherpaOnnxReady = engine != VoiceInputEngine.SherpaOnnx ||
-                    uiState.isSherpaOnnxSttDownloaded
+                val sttState = uiState.sherpaSttStates[engine]
+                val isReady = !engine.isSherpaFamily ||
+                    (sttState != null && sttState.isDownloaded)
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
@@ -369,7 +370,7 @@ private fun VoiceScreenContent(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
-                            if (engine == VoiceInputEngine.SherpaOnnx && !uiState.isSherpaOnnxSttDownloaded) {
+                            if (engine.isSherpaFamily && sttState != null && !sttState.isDownloaded) {
                                 Text(
                                     text = "Download required before use",
                                     style = MaterialTheme.typography.bodySmall,
@@ -388,8 +389,8 @@ private fun VoiceScreenContent(
                     trailingContent = {
                         RadioButton(
                             selected = uiState.selectedInputEngine == engine,
-                            onClick = { if (sherpaOnnxReady) onVoiceInputEngineSelected(engine) },
-                            enabled = sherpaOnnxReady,
+                            onClick = { if (isReady) onVoiceInputEngineSelected(engine) },
+                            enabled = isReady,
                         )
                     },
                 )
@@ -405,22 +406,32 @@ private fun VoiceScreenContent(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
-                // Sherpa-ONNX STT: always show download card until the model is downloaded
-                // so the user can download without first selecting the engine. Once downloaded,
-                // only show the card when the engine is actively selected.
-                if (engine == VoiceInputEngine.SherpaOnnx &&
-                    (!uiState.isSherpaOnnxSttDownloaded || uiState.selectedInputEngine == engine)
-                ) {
-                    SherpaOnnxSttDownloadCard(
-                        isDownloaded = uiState.isSherpaOnnxSttDownloaded,
-                        isDownloading = uiState.isSherpaOnnxSttDownloading,
-                        progress = uiState.sherpaOnnxSttProgress,
-                        error = uiState.sherpaOnnxSttError,
-                        onDownload = onDownloadSherpaOnnxStt,
-                        onCancel = onCancelSherpaOnnxSttDownload,
-                        onDelete = onDeleteSherpaOnnxStt,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
+                // Sherpa-family STT: always show download card until the model is downloaded;
+                // once downloaded, only show the card when the engine is actively selected.
+                if (engine.isSherpaFamily) {
+                    val state = sttState
+                    if (state != null && (!state.isDownloaded || uiState.selectedInputEngine == engine)) {
+                        // Resolve subtitle from engine type.
+                        val subtitle = when (engine) {
+                            VoiceInputEngine.SherpaZipformer -> "Zipformer int8 · English · Fully offline (~72 MB)"
+                            VoiceInputEngine.SherpaSenseVoice -> "SenseVoice int8 · English · Offline, final only (~100 MB)"
+                            VoiceInputEngine.SherpaWhisper -> "Whisper tiny.en int8 · English · Offline, final only (~117 MB)"
+                            VoiceInputEngine.SherpaParaformer -> "Paraformer int8 · English · Streaming (~226 MB)"
+                            else -> ""
+                        }
+                        SherpaOnnxSttDownloadCard(
+                            isDownloaded = state.isDownloaded,
+                            isDownloading = state.isDownloading,
+                            progress = state.progress,
+                            error = state.error,
+                            modelLabel = engine.displayName,
+                            modelSubtitle = subtitle,
+                            onDownload = { onDownloadSherpaStt(engine) },
+                            onCancel = { onCancelSherpaSttDownload(engine) },
+                            onDelete = { onDeleteSherpaStt(engine) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
                 }
                 HorizontalDivider()
             }
@@ -1368,9 +1379,9 @@ private fun VoiceInfoCard(
 
 
 /**
- * Inline card shown under the Sherpa-ONNX STT engine row when the engine is selected.
- * Mirrors the pattern of [SherpaVoiceRow] / [KokoroVoiceRow] but for the 4 STT model files,
- * which are grouped as a single logical unit (~72 MB total).
+ * Inline card shown under a Sherpa-ONNX STT engine row when the engine is selected.
+ * Mirrors the pattern of [SherpaVoiceRow] / [KokoroVoiceRow] but groups the required
+ * model files as a single logical unit.
  */
 @Composable
 private fun SherpaOnnxSttDownloadCard(
@@ -1378,6 +1389,8 @@ private fun SherpaOnnxSttDownloadCard(
     isDownloading: Boolean,
     progress: Float,
     error: String?,
+    modelLabel: String,
+    modelSubtitle: String,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
@@ -1405,7 +1418,7 @@ private fun SherpaOnnxSttDownloadCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (isDownloaded) "STT model ready" else "STT model required (~72 MB)",
+                        text = if (isDownloaded) "STT model ready" else "STT model required",
                         style = MaterialTheme.typography.labelMedium,
                         color = if (isDownloaded)
                             MaterialTheme.colorScheme.onPrimaryContainer
@@ -1414,7 +1427,7 @@ private fun SherpaOnnxSttDownloadCard(
                     )
                     if (!isDownloaded && !isDownloading) {
                         Text(
-                            text = "Zipformer int8 · English · Fully offline",
+                            text = modelSubtitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1621,9 +1634,9 @@ private fun VoiceScreenPreview() {
             onCancelKokoroVoiceDownload = {},
             onDeleteKokoroVoice = {},
             onKokoroActiveSpeakerIdChanged = {},
-            onDownloadSherpaOnnxStt = {},
-            onCancelSherpaOnnxSttDownload = {},
-            onDeleteSherpaOnnxStt = {},
+            onDownloadSherpaStt = {},
+            onCancelSherpaSttDownload = {},
+            onDeleteSherpaStt = {},
         )
     }
 }

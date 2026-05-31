@@ -8,6 +8,7 @@ import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
+import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputEngine
@@ -31,6 +32,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+
+data class SherpaSttDownloadState(
+    val isDownloaded: Boolean = false,
+    val isDownloading: Boolean = false,
+    val progress: Float = 0f,
+    val error: String? = null,
+)
 
 data class SherpaVoiceRowUiState(
     val voice: SherpaPiperVoice,
@@ -78,15 +86,9 @@ data class VoiceUiState(
     val isWakeWordModelAvailable: Boolean = false,
     /** Wake word confidence threshold in [0, 1].  Reflects [WakeWordPreferences.confidenceThreshold]. */
     val wakeWordThreshold: Float = WAKE_WORD_DEFAULT_THRESHOLD,
-    // ── Sherpa-ONNX STT model download state ─────────────────────────────────
-    /** True when all four STT model files are present in external storage. */
-    val isSherpaOnnxSttDownloaded: Boolean = false,
-    /** True when at least one STT model file is actively downloading. */
-    val isSherpaOnnxSttDownloading: Boolean = false,
-    /** Combined download progress across all STT model files (0–1). */
-    val sherpaOnnxSttProgress: Float = 0f,
-    /** Non-null when a download attempt failed. */
-    val sherpaOnnxSttError: String? = null,
+    // ── Sherpa-ONNX STT model download states (per family) ──────────────────
+    /** Per-family download state for each Sherpa STT engine. */
+    val sherpaSttStates: Map<VoiceInputEngine, SherpaSttDownloadState> = emptyMap(),
 )
 internal fun resolveAndroidNativeAvailabilityMessage(
     availability: AndroidNativeRecognitionAvailability,
@@ -231,6 +233,10 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             wakeWordPreferences.heyJandalEnabled.collect { enabled ->
                 _uiState.update { it.copy(heyJandalEnabled = enabled) }
+                if (enabled) {
+                    // Ensure Zipformer is downloaded for wake-word verification.
+                    downloadSherpaStt(VoiceInputEngine.SherpaZipformer)
+                }
             }
         }
         viewModelScope.launch {
@@ -241,38 +247,46 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
         viewModelScope.launch {
             modelDownloadManager.downloadStates.collect { states ->
-                val sttModels = listOf(
-                    KernelModel.SHERPA_STT_ENCODER,
-                    KernelModel.SHERPA_STT_DECODER,
-                    KernelModel.SHERPA_STT_JOINER,
-                    KernelModel.SHERPA_STT_TOKENS,
-                )
-                val allDownloaded = sttModels.all { states[it] is DownloadState.Downloaded }
-                val anyDownloading = sttModels.any { states[it] is DownloadState.Downloading }
-                // Weighted completion: Downloaded=full weight, Downloading=partial, else=0.
-                // Weights derived from approxSizeBytes so they stay in sync with KernelModel.
-                val totalBytes = sttModels.sumOf { it.approxSizeBytes }.toFloat()
-                val weightedProgress = sttModels.map { model ->
-                    val weight = model.approxSizeBytes.toFloat()
-                    when (val s = states[model]) {
-                        is DownloadState.Downloaded -> weight
-                        is DownloadState.Downloading -> s.progress * weight
-                        else -> 0f
-                    }
-                }.sum() / totalBytes
-                val error = sttModels
-                    .mapNotNull { (states[it] as? DownloadState.Error)?.message }
-                    .firstOrNull()
-                _uiState.update {
-                    it.copy(
-                        isSherpaOnnxSttDownloaded = allDownloaded,
-                        isSherpaOnnxSttDownloading = anyDownloading && !allDownloaded,
-                        sherpaOnnxSttProgress = weightedProgress,
-                        sherpaOnnxSttError = error,
-                    )
+                val perFamilyStates = SherpaSttModelSpec.ALL.mapValues { (engine, spec) ->
+                    computeDownloadState(spec, states)
                 }
+                _uiState.update { it.copy(sherpaSttStates = perFamilyStates) }
             }
         }
+    }
+
+    /**
+     * Computes a [SherpaSttDownloadState] from the download states of the required models.
+     */
+    private fun computeDownloadState(
+        spec: SherpaSttModelSpec,
+        states: Map<KernelModel, DownloadState>,
+    ): SherpaSttDownloadState {
+        val requiredModels = spec.requiredFileNames.mapNotNull { fileName ->
+            KernelModel.entries.firstOrNull { it.fileName == fileName }
+        }
+        val allDownloaded = requiredModels.all { states[it] is DownloadState.Downloaded }
+        val anyDownloading = requiredModels.any { states[it] is DownloadState.Downloading }
+        val totalBytes = requiredModels.sumOf { it.approxSizeBytes }.toFloat()
+        val weightedProgress = if (totalBytes > 0f) {
+            requiredModels.map { model ->
+                val weight = model.approxSizeBytes.toFloat()
+                when (val s = states[model]) {
+                    is DownloadState.Downloaded -> weight
+                    is DownloadState.Downloading -> s.progress * weight
+                    else -> 0f
+                }
+            }.sum() / totalBytes
+        } else 0f
+        val error = requiredModels
+            .mapNotNull { (states[it] as? DownloadState.Error)?.message }
+            .firstOrNull()
+        return SherpaSttDownloadState(
+            isDownloaded = allDownloaded,
+            isDownloading = anyDownloading && !allDownloaded,
+            progress = weightedProgress,
+            error = error,
+        )
     }
 
     fun setVoiceInputEngine(engine: VoiceInputEngine) {
@@ -282,36 +296,35 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
-    private val sttModels = listOf(
-        KernelModel.SHERPA_STT_ENCODER,
-        KernelModel.SHERPA_STT_DECODER,
-        KernelModel.SHERPA_STT_JOINER,
-        KernelModel.SHERPA_STT_TOKENS,
-    )
+    private fun modelsForSpec(spec: SherpaSttModelSpec): List<KernelModel> =
+        spec.requiredFileNames.mapNotNull { fileName ->
+            KernelModel.entries.firstOrNull { it.fileName == fileName }
+        }
 
-    fun downloadSherpaOnnxStt() {
-        sttModels.forEach { modelDownloadManager.startDownload(it) }
+    fun downloadSherpaStt(engine: VoiceInputEngine) {
+        val spec = SherpaSttModelSpec.forEngine(engine) ?: return
+        modelsForSpec(spec).forEach { modelDownloadManager.startDownload(it) }
     }
 
-    fun cancelSherpaOnnxSttDownload() {
-        // Only cancel parts that are actively downloading — skipping already-Downloaded entries
-        // prevents ModelDownloadManager from incorrectly resetting their state to NotDownloaded.
+    fun cancelSherpaSttDownload(engine: VoiceInputEngine) {
+        val spec = SherpaSttModelSpec.forEngine(engine) ?: return
         val currentStates = modelDownloadManager.downloadStates.value
-        sttModels
+        modelsForSpec(spec)
             .filter { currentStates[it] is DownloadState.Downloading }
             .forEach { modelDownloadManager.cancelDownload(it) }
     }
 
-    fun deleteSherpaOnnxStt() {
+    fun deleteSherpaStt(engine: VoiceInputEngine) {
         viewModelScope.launch(Dispatchers.IO) {
-            sttModels.forEach { model ->
+            val spec = SherpaSttModelSpec.forEngine(engine) ?: return@launch
+            modelsForSpec(spec).forEach { model ->
                 val file = model.localFile(context)
                 file.delete()
                 val tmp = java.io.File(file.absolutePath + ".tmp")
                 if (tmp.exists()) tmp.delete()
                 modelDownloadManager.refreshState(model)
             }
-            if (_uiState.value.selectedInputEngine == VoiceInputEngine.SherpaOnnx) {
+            if (_uiState.value.selectedInputEngine == engine) {
                 withContext(Dispatchers.Main) {
                     setVoiceInputEngine(VoiceInputEngine.Vosk)
                 }
@@ -427,7 +440,6 @@ class VoiceViewModel @Inject constructor(
     fun deleteKokoroVoice(voice: SherpaKokoroVoice) {
         sherpaVoicePackDownloadManager.deleteKokoroVoice(voice)
     }
-
     fun setKokoroActiveSpeakerId(sid: Int) {
         _uiState.update { it.copy(kokoroActiveSpeakerId = sid) }
         viewModelScope.launch {
@@ -439,9 +451,10 @@ class VoiceViewModel @Inject constructor(
     fun setHeyJandalEnabled(enabled: Boolean) {
         _uiState.update { it.copy(heyJandalEnabled = enabled) }
         viewModelScope.launch {
-            // Persisting the preference is sufficient — KernelAIApplication observes
-            // WakeWordPreferences.heyJandalEnabled and starts/stops WakeWordService.
             wakeWordPreferences.setHeyJandalEnabled(enabled)
+            if (enabled) {
+                downloadSherpaStt(VoiceInputEngine.SherpaZipformer)
+            }
         }
     }
 
@@ -454,7 +467,6 @@ class VoiceViewModel @Inject constructor(
 
     /**
      * Called from VoiceScreen on every resume to keep the assistant-role badge in sync.
-     * [android.app.role.RoleManager.isRoleHeld] is synchronous — no coroutine needed.
      */
     fun refreshAssistantStatus(isRoleHeld: Boolean) {
         _uiState.update { it.copy(isDefaultAssistant = isRoleHeld) }

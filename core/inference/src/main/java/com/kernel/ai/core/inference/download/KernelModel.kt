@@ -189,6 +189,115 @@ enum class KernelModel(
         preferredForTier = null,
         isGated = false,
         showInModelManagement = false,
+    ),
+
+    // ── Sherpa-ONNX SenseVoice int8 (Offline) ────────────────────────────────
+    //
+    // From csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2022-11-09
+    // (HuggingFace, Apache 2.0, public / ungated).  Single model int8 + tokens.
+    // Downloaded on demand when the user selects "Sherpa-ONNX SenseVoice"
+    // in Settings → Voice.
+
+    SHERPA_SENSEVOICE_MODEL(
+        displayName = "Sherpa SenseVoice Model",
+        fileName = "sherpa-sensevoice-model.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2022-11-09/resolve/main/model.int8.onnx",
+        approxSizeBytes = 100_000_000L, // ~100 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    SHERPA_SENSEVOICE_TOKENS(
+        displayName = "Sherpa SenseVoice Tokens",
+        fileName = "sherpa-sensevoice-tokens.txt",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2022-11-09/resolve/main/tokens.txt",
+        approxSizeBytes = 100_000L, // ~100 KB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    // ── Sherpa-ONNX Whisper tiny.en int8 (Offline) ───────────────────────────
+    //
+    // From csukuangfj/sherpa-onnx-whisper-tiny.en
+    // (HuggingFace, Apache 2.0, public / ungated).  Encoder + decoder + tokens.
+    // Downloaded on demand when the user selects "Sherpa-ONNX Whisper tiny.en"
+    // in Settings → Voice.
+
+    SHERPA_WHISPER_TINY_EN_ENCODER(
+        displayName = "Sherpa Whisper tiny.en Encoder",
+        fileName = "sherpa-whisper-tiny.en-encoder.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/main/tiny.en-encoder.int8.onnx",
+        approxSizeBytes = 74_000_000L, // ~74 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    SHERPA_WHISPER_TINY_EN_DECODER(
+        displayName = "Sherpa Whisper tiny.en Decoder",
+        fileName = "sherpa-whisper-tiny.en-decoder.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/main/tiny.en-decoder.int8.onnx",
+        approxSizeBytes = 43_000_000L, // ~43 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    SHERPA_WHISPER_TINY_EN_TOKENS(
+        displayName = "Sherpa Whisper tiny.en Tokens",
+        fileName = "sherpa-whisper-tiny.en-tokens.txt",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/main/tiny.en-tokens.txt",
+        approxSizeBytes = 150_000L, // ~150 KB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    // ── Sherpa-ONNX Paraformer int8 (Streaming) ──────────────────────────────
+    //
+    // From csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en
+    // (HuggingFace, Apache 2.0, public / ungated).  Encoder + decoder + tokens.
+    // Downloaded on demand when the user selects "Sherpa-ONNX Paraformer"
+    // in Settings → Voice.
+
+    SHERPA_PARAFORMER_ENCODER(
+        displayName = "Sherpa Paraformer Encoder",
+        fileName = "sherpa-paraformer-encoder.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en/resolve/main/encoder.int8.onnx",
+        approxSizeBytes = 120_000_000L, // ~120 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    SHERPA_PARAFORMER_DECODER(
+        displayName = "Sherpa Paraformer Decoder",
+        fileName = "sherpa-paraformer-decoder.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en/resolve/main/decoder.int8.onnx",
+        approxSizeBytes = 100_000_000L, // ~100 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    SHERPA_PARAFORMER_TOKENS(
+        displayName = "Sherpa Paraformer Tokens",
+        fileName = "sherpa-paraformer-tokens.txt",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en/resolve/main/tokens.txt",
+        approxSizeBytes = 100_000L, // ~100 KB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
     );
     /**
      * Stable, single-sourced identifier for this model, used as the Room primary key in

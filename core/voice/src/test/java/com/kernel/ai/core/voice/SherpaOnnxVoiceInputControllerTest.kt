@@ -2,6 +2,7 @@ package com.kernel.ai.core.voice
 
 import android.content.Context
 import android.media.AudioManager
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.kernel.ai.core.voice.SherpaOnnxVoiceInputController.Companion.containsWakePhrase
 import io.mockk.every
 import io.mockk.mockk
@@ -21,11 +22,17 @@ class SherpaOnnxVoiceInputControllerTest {
     private val tempModelsDir: File = Files.createTempDirectory("stt-test-models").toFile()
 
     private val audioManager: AudioManager = mockk(relaxed = true)
+    private val voiceInputPreferences: VoiceInputPreferences = mockk()
     private val context: Context = mockk {
         every { getExternalFilesDir("models") } returns tempModelsDir
         every { getSystemService(Context.AUDIO_SERVICE) } returns audioManager
     }
-    private val controller = SherpaOnnxVoiceInputController(context)
+    private val selectedEngine = MutableStateFlow(VoiceInputEngine.SherpaZipformer)
+    private val controller = SherpaOnnxVoiceInputController(context, voiceInputPreferences)
+
+    init {
+        every { voiceInputPreferences.selectedEngine } returns selectedEngine
+    }
 
     @AfterEach
     fun cleanup() {
