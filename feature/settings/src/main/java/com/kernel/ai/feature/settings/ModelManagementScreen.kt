@@ -41,10 +41,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.core.net.toUri
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -64,7 +66,7 @@ fun ModelManagementScreen(
     viewModel: ModelManagementViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
     val listState = rememberLazyListState()
 
     // Scroll to "Conversation model" section when requested (e.g. from Settings "Preferred model" item).
@@ -117,7 +119,7 @@ fun ModelManagementScreen(
                     username = uiState.hfUsername,
                     onSignIn = { viewModel.startAuth() },
                     onSignOut = { viewModel.signOut() },
-                    onViewLicence = { uriHandler.openUri(EMBEDDING_GEMMA_LICENCE_URL) },
+                    onViewLicence = { openInAppBrowser(context, EMBEDDING_GEMMA_LICENCE_URL) },
                 )
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(8.dp))
@@ -143,7 +145,7 @@ fun ModelManagementScreen(
                     onCancel = { viewModel.cancelDownload(rowState.model) },
                     onUpdate = { viewModel.updateModel(rowState.model) },
                     onDelete = { viewModel.deleteModel(rowState.model) },
-                    onViewLicence = { url -> uriHandler.openUri(url) },
+                    onViewLicence = { url -> openInAppBrowser(context, url) },
                     onRetry = { viewModel.downloadModel(rowState.model) },
                 )
                 HorizontalDivider()
@@ -552,5 +554,18 @@ private fun formatBytes(bytes: Long): String {
         bytes >= 1_000_000L -> "${"%.0f".format(bytes / 1_000_000.0)} MB"
         bytes >= 1_000L -> "${"%.0f".format(bytes / 1_000.0)} KB"
         else -> "$bytes B"
+    }
+}
+
+internal fun openInAppBrowser(context: android.content.Context, url: String) {
+    val uri = url.toUri()
+    val customTabsIntent = CustomTabsIntent.Builder().build()
+    runCatching {
+        customTabsIntent.launchUrl(context, uri)
+    }.getOrElse {
+        val fallbackIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(fallbackIntent)
     }
 }

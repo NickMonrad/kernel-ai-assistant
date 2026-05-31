@@ -69,6 +69,7 @@ dependencies {
     implementation(libs.coil.compose)
 
     implementation(libs.datastore.preferences)
+    implementation(libs.browser)
 
     // Drag-and-drop reorder for LazyColumn (#897)
     implementation("sh.calvin.reorderable:reorderable:2.4.3")

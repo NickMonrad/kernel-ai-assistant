@@ -355,6 +355,10 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
+    fun startAuth() = authRepository.startAuthFlow()
+
+    fun signOutHuggingFace() = authRepository.signOut()
+
     fun setSpokenResponsesEnabled(enabled: Boolean) {
         _uiState.update { it.copy(spokenResponsesEnabled = enabled) }
         viewModelScope.launch {

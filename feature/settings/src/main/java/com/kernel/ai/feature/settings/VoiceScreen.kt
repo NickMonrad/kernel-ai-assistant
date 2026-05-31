@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
+import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -80,7 +82,6 @@ import androidx.compose.material.icons.filled.Assistant
 import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -92,7 +93,6 @@ fun VoiceScreen(
     viewModel: VoiceViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val roleManager = context.getSystemService(RoleManager::class.java)
 
@@ -193,7 +193,7 @@ fun VoiceScreen(
         onDownloadSherpaStt = viewModel::downloadSherpaStt,
         onCancelSherpaSttDownload = viewModel::cancelSherpaSttDownload,
         onDeleteSherpaStt = viewModel::deleteSherpaStt,
-        onViewSherpaSttLicence = { url -> uriHandler.openUri(url) },
+        onViewSherpaSttLicence = { url -> openInAppBrowser(context, url) },
     )
 }
 
@@ -339,7 +339,6 @@ private fun VoiceScreenContent(
                 }
             }
             HorizontalDivider()
-
             Text(
                 text = "Quick Actions",
                 style = MaterialTheme.typography.labelMedium,
@@ -1468,10 +1467,10 @@ private fun SherpaOnnxSttDownloadCard(
                         TextButton(onClick = { onViewLicence(issue.licenceUrl) }) { Text("Accept licence") }
                         TextButton(onClick = onDownload) { Text("Retry") }
                     }
-                    modelLabel == VoiceInputEngine.SherpaSenseVoice.displayName && !isAuthenticated -> TextButton(
+                    modelLabel == VoiceInputEngine.SherpaSenseVoice.displayName && !isAuthenticated -> Button(
                         onClick = onDownload,
                         enabled = false,
-                    ) { Text("Download") }
+                    ) { Text("Sign in required") }
                     else -> TextButton(onClick = onDownload) { Text("Download") }
                 }
             }
@@ -1667,3 +1666,5 @@ private fun VoiceScreenPreview() {
         )
     }
 }
+
+
