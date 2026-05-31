@@ -3,6 +3,7 @@ package com.kernel.ai.core.memory.prefs
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -134,6 +135,30 @@ class ChatPreferences @Inject constructor(
         context.chatPrefsDataStore.edit { prefs ->
             if (uri != null) prefs[wallpaperImageUriKey] = uri
             else prefs.remove(wallpaperImageUriKey)
+        }
+    }
+
+    // ---- Conversation copy (#1024) ----
+    private val copyToolCallsKey = booleanPreferencesKey("copy_tool_calls")
+    private val copyThinkingKey = booleanPreferencesKey("copy_thinking")
+
+    /** When true, the "Copy conversation" action includes tool-call request/result blocks. Default: false. */
+    val copyToolCalls: Flow<Boolean> = context.chatPrefsDataStore.data
+        .map { prefs -> prefs[copyToolCallsKey] ?: false }
+
+    suspend fun setCopyToolCalls(enabled: Boolean) {
+        context.chatPrefsDataStore.edit { prefs ->
+            prefs[copyToolCallsKey] = enabled
+        }
+    }
+
+    /** When true, the "Copy conversation" action includes assistant thinking blocks. Default: false. */
+    val copyThinking: Flow<Boolean> = context.chatPrefsDataStore.data
+        .map { prefs -> prefs[copyThinkingKey] ?: false }
+
+    suspend fun setCopyThinking(enabled: Boolean) {
+        context.chatPrefsDataStore.edit { prefs ->
+            prefs[copyThinkingKey] = enabled
         }
     }
 }

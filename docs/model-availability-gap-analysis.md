@@ -2,7 +2,7 @@
 
 > **Generated:** 2026-05-30
 > **Scope:** All model-facing screens in `kernel-ai-assistant` reviewed against `docs/model-availability-ux-patterns.md`
-> **Status:** In-progress — initial audit complete, issue creation pending
+> **Status:** Complete — audit, writeup, and issue creation done
 
 ---
 
@@ -77,7 +77,7 @@ The current implementation has a solid foundation for model management but diver
 | Aspect | Current | Guideline | Gap |
 |--------|---------|-----------|-----|
 | Model cards | Two cards (E-2B, E-4B) with settings | Model card pattern | **Partial** — cards show model name and settings but no state badge, no publisher, no capability |
-| State display | None — assumes models are loaded and available | All cards should show current state | **Gap** — no state shown; if a model is unavailable the card just doesn't render |
+| State display | Always loads defaults from repository; no explicit unavailable handling | All cards should show current state | **Gap** — no state shown; defaults are loaded even if model is unavailable
 | Save/Cancel pattern | Screen-level buttons at bottom | N/A | **Aligned** — standard pattern |
 | "Saving…" state | Shown in save button | N/A | **Minor** — loading state on button |
 
@@ -98,7 +98,7 @@ The current implementation has a solid foundation for model management but diver
 | Error state | "Download failed" + Retry button | "Action Required" with single action | **Gap** — Retry is appropriate but label doesn't use guideline state |
 | Gated model (NotDownloaded) | "Sign in to HuggingFace to download" + "Sign in" button | "Action Required" with Sign In | **Aligned** — this is correct |
 | Queued models | Shows "Queued" text | "Preparing" | **Gap** — "Queued" is not a guideline state; should be "Preparing" |
-| No "Preparing" with background indicator | Downloading shows progress bar + Cancel | Background work should show "Preparing" without Cancel | **Gap** — user can cancel required model downloads; should be "Preparing" without cancel |
+| No "Preparing" with background indicator | Downloading shows progress bar only (no Cancel) | Background work should show "Preparing" without Cancel | **Gap** — no "Preparing" state; progress bar shown but without guideline state label
 | "please stay connected to Wi-Fi" | Shown during download | Progressive disclosure | **Minor** — technical detail, acceptable |
 
 **Verdict:** Moderate gaps. The onboarding correctly auto-downloads models and handles gated access, but state labels are raw enum names rather than the guideline states. The "Queued" state is not mapped to "Preparing".
@@ -126,7 +126,7 @@ The current implementation has a solid foundation for model management but diver
 | Aspect | Current | Guideline | Gap |
 |--------|---------|-----------|-----|
 | Required flag | `isRequired = true` | Automatically acquired | **Partial** — shown in Model Management with "Download" button |
-| Auto-download | Not explicitly triggered at app start | Required models should auto-download | **Gap** — no explicit auto-queue for E-2B at startup |
+| Auto-download | Tier-preferred optional models auto-queued by ModelDownloadManager | Required models should auto-download; optional tier-preferred models auto-queue | **Aligned** — tier-preferred optionals are auto-queued via ModelDownloadManager
 | State display | "Downloaded" / "Downloading" / "Error" / "Not downloaded" | Ready / Preparing / Action Required / Unavailable | **Gap** — labels don't match |
 | Cannot be deleted | Not explicitly enforced | Required models should not be deletable | **Aligned** — delete only shown for `!isRequired` |
 | Preferred model option | Yes — selectable in Model Management | Single active model | **Aligned** |
@@ -171,7 +171,7 @@ The current implementation has a solid foundation for model management but diver
 
 | Aspect | Current | Guideline | Gap |
 |--------|---------|-----------|-----|
-| Display in Model Management | Hidden (`showInModelManagement = false`) | Delegated to Voice screen | **Aligned** — but Voice screen has full download management |
+| Display in Model Management | Hidden (`showInModelManagement = false`) | Delegated to Model Management | **Gap** — hidden from Model Management but Voice screen has full download management (contradicts guideline)
 | Download in Voice screen | `SherpaOnnxSttDownloadCard` | Delegated to Model Management | **Critical** — Voice screen should not manage downloads |
 | State labels | `isSherpaOnnxSttDownloaded`, `isSherpaOnnxSttDownloading`, `sherpaOnnxSttError` | Ready / Preparing / Action Required / Unavailable | **Gap** — labels |
 

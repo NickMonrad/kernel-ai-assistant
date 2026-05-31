@@ -47,6 +47,12 @@ class RagRepository @Inject constructor(
         private const val LONG_TERM_MEMORY_TOP_K = 6
         private const val FULL_KIWI_MEMORY_TOP_K = 6
         private const val HALF_KIWI_MEMORY_TOP_K = 2
+
+        /** Max NZ-corpus entries surfaced by [getCulturalContext]. Kept small so cultural
+         *  follow-ups add at most a line or two to the prompt (#kumara recall). */
+        private const val CULTURAL_CONTEXT_TOP_K = 2
+        /** Per-entry definition cap (chars) for [getCulturalContext]. */
+        private const val CULTURAL_CONTEXT_DEFINITION_CHARS = 300
         private const val FULL_MAX_LONG_TERM_MEMORY_LINES = 6
         private const val HALF_MAX_LONG_TERM_MEMORY_LINES = 5
         private const val BORING_MAX_LONG_TERM_MEMORY_LINES = 4
@@ -294,6 +300,69 @@ class RagRepository @Inject constructor(
     }
 
     /**
+     * Retrieve ONLY New Zealand cultural-corpus (kiwi) memories relevant to [query], formatted
+     * as a compact context block. Used for short anaphoric follow-ups that carry a cultural cue
+     * (e.g. "what are they called in New Zealand?") where full RAG is suppressed to keep the model
+     * anchored to the live conversation, but the NZ corpus still needs to surface (#kumara recall).
+     *
+     * Core, episodic and message-history tiers are deliberately excluded so the prompt grows by at
+     * most [CULTURAL_CONTEXT_TOP_K] short lines. Returns "" when the persona is in BORING mode
+     * (NZ corpus disabled by design), when the embedder is unavailable, or when nothing relevant
+     * is found.
+     */
+    suspend fun getCulturalContext(
+        query: String,
+        maxEntries: Int = CULTURAL_CONTEXT_TOP_K,
+        maxTokens: Int = 220,
+    ): String = withContext(Dispatchers.IO) {
+        if (jandalPersona.currentPersonaMode == PersonaMode.BORING) return@withContext ""
+        val queryVector = embeddingEngine.embed(query)
+        if (queryVector.isEmpty()) return@withContext ""
+
+        val kiwiResults = runCatching {
+            memoryRepository.searchMemories(
+                queryVector,
+                coreTopK = 0,
+                episodicTopK = 0,
+                identityTopK = 0,
+                kiwiTopK = maxEntries,
+            ).filter { it.source == "kiwi" }
+                .sortedByDescending { it.score }
+                .take(maxEntries)
+        }.getOrElse {
+            Log.w(TAG, "Cultural context retrieval failed: ${it.message}")
+            emptyList()
+        }
+        if (kiwiResults.isEmpty()) return@withContext ""
+
+        val charsPerToken = 3
+        val framingHeader = "The following New Zealand cultural context may be relevant. " +
+            "Use it where it helps; do not repeat it verbatim.\n\n"
+        var budget = maxTokens - (framingHeader.length + charsPerToken - 1) / charsPerToken
+        val lines = mutableListOf<String>()
+        for (result in kiwiResults) {
+            val line = if (result.term.isNotEmpty() && result.definition.isNotEmpty()) {
+                "[NZ Context: ${result.term}] ${result.definition}".take(CULTURAL_CONTEXT_DEFINITION_CHARS + 32)
+            } else {
+                result.content.take(CULTURAL_CONTEXT_DEFINITION_CHARS)
+            }
+            val cost = (line.length + 1 + charsPerToken - 1) / charsPerToken
+            if (budget - cost < 0) break
+            Log.d(TAG, "Cultural context injected: [${result.term}] dist=~${String.format("%.3f", 1f - result.score)}")
+            lines.add(line)
+            budget -= cost
+        }
+        if (lines.isEmpty()) return@withContext ""
+
+        buildString {
+            append(framingHeader)
+            append("[NZ Cultural Context]\n")
+            lines.forEach { appendLine(it) }
+            append("[End of NZ cultural context]")
+        }
+    }
+
+    /**
      * Search [message_embeddings] for messages semantically similar to [query].
      *
      * @param query Natural-language search query to embed and compare against stored messages.
@@ -357,6 +426,37 @@ class RagRepository @Inject constructor(
      * @return Combined list of matching memories; empty if the embedding engine is not ready
      *   or no results pass the relevance threshold.
      */
+    /**
+     * Snapshot of the user's explicitly-saved core memories, most-recently-accessed first.
+     *
+     * Used for generic self-referential recall (e.g. "what do you remember about me") where a
+     * topical similarity search has no content words to match against. Filtered to user facts
+     * (category=="user", source=="user") so agent-identity / NZ-truth / persona-seed rows are not
+     * surfaced. Returns up to [limit] entries.
+     */
+    suspend fun getAllUserCoreMemories(limit: Int = 20): List<MemorySearchResult> = withContext(Dispatchers.IO) {
+        runCatching {
+            memoryRepository.getAllCoreMemories()
+                .asSequence()
+                .filter { it.category == "user" && it.source == "user" }
+                .sortedByDescending { it.lastAccessedAt }
+                .take(limit.coerceAtLeast(1))
+                .map { entity ->
+                    MemorySearchResult(
+                        id = entity.id,
+                        content = entity.content,
+                        source = "core",
+                        score = 1f,
+                        lastAccessedAt = entity.lastAccessedAt,
+                    )
+                }
+                .toList()
+        }.getOrElse {
+            Log.w(TAG, "getAllUserCoreMemories failed: ${it.message}")
+            emptyList()
+        }
+    }
+
     suspend fun searchCoreAndEpisodic(
         query: String,
         topK: Int = DEFAULT_TOP_K,

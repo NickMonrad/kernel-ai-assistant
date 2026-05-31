@@ -72,4 +72,20 @@ class ChatPreferencesViewModel @Inject constructor(
     fun setWallpaperImageUri(uri: String?) {
         viewModelScope.launch { chatPreferences.setWallpaperImageUri(uri) }
     }
+
+    // ---- Conversation copy (#1024) ----
+
+    val copyToolCalls: StateFlow<Boolean> = chatPreferences.copyToolCalls
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun setCopyToolCalls(enabled: Boolean) {
+        viewModelScope.launch { chatPreferences.setCopyToolCalls(enabled) }
+    }
+
+    val copyThinking: StateFlow<Boolean> = chatPreferences.copyThinking
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun setCopyThinking(enabled: Boolean) {
+        viewModelScope.launch { chatPreferences.setCopyThinking(enabled) }
+    }
 }

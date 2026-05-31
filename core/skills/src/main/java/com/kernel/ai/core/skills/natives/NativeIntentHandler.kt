@@ -33,6 +33,7 @@ import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.entity.NoteEntity
+import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
@@ -111,6 +112,7 @@ interface ClockAlertController {
  *   create_list             — Create a named list (params: list_name)
  *   get_list_items          — Retrieve unchecked items from a list (params: list_name?)
  *   remove_from_list        — Remove an item from a list (params: item, list_name?)
+ *   add_reminder            — Creates a reminder notification (params: item, day, time)
  *   smart_home_on/off       — Stub pending HA/Google Home (#311/#312) (params: device)
  *   cancel_alarm            — App-owned alarm cancellation (params: label?)
  *   get_weather             — Opens Google search for weather (params: location?)
@@ -144,6 +146,7 @@ class NativeIntentHandler @Inject constructor(
     private val userProfileRepository: UserProfileRepository,
     private val noteDao: NoteDao,
     private val noteSmartTitleUseCase: NoteSmartTitleUseCase,
+    private val listNotificationScheduler: ListNotificationScheduler,
 ) {
 
     suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -205,6 +208,7 @@ class NativeIntentHandler @Inject constructor(
                 "create_list" -> createList(params)
                 "get_list_items" -> getListItems(params)
                 "remove_from_list" -> removeFromList(params)
+                "add_reminder" -> addReminder(params)
                 "smart_home_on" -> handleSmartHome(params["device"] ?: "device", true)
                 "smart_home_off" -> handleSmartHome(params["device"] ?: "device", false)
                 "get_weather" -> getWeather(params)
@@ -282,7 +286,7 @@ class NativeIntentHandler @Inject constructor(
             "pause_media", "stop_media", "next_track", "previous_track",
             "podcast_skip_forward", "podcast_skip_back", "podcast_speed",
             "open_app", "navigate_to", "find_nearby",
-            "add_to_list", "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list",
+            "add_to_list", "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list", "add_reminder",
             "smart_home_on", "smart_home_off",
             "get_weather", "get_date_diff", "get_system_info", "calculate_arithmetic", "convert_units", "convert_cooking_measure", "convert_currency",
             "save_important_date", "list_important_dates", "remove_important_date",
@@ -1925,13 +1929,110 @@ class NativeIntentHandler @Inject constructor(
                 else -> SkillResult.Failure("cancel_alarm", "No app alarm named $label found")
             }
         }
-
         val nextAlarm = runBlocking { clockRepository.cancelNextAlarm() }
             ?: return SkillResult.Failure("cancel_alarm", "No app alarms to cancel")
         return SkillResult.Success(
             "Cancelled next app alarm${nextAlarm.label?.let { value -> ": $value" } ?: ""}.",
         )
     }
+    private fun addReminder(params: Map<String, String>): SkillResult {
+        val item = params["item"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("add_reminder", "No task specified for reminder")
+        val rawListName = (params["list_name"] ?: "to-do list").lowercase().trim()
+        val listName = normalizeListName(rawListName)
+        val dayRaw = params["day"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("add_reminder", "No day specified for reminder")
+        val timeRaw = params["time"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult.Failure("add_reminder", "No time specified for reminder")
+        val targetDate = resolveDate(dayRaw)
+            ?: return SkillResult.Failure("add_reminder", "Could not parse day: $dayRaw")
+        val targetTime = resolveTime(timeRaw)
+            ?: return SkillResult.Failure("add_reminder", "Could not parse time: $timeRaw")
+        val triggerAt = targetDate.atTime(targetTime).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val now = System.currentTimeMillis()
+        if (triggerAt <= now) {
+            return SkillResult.Failure(
+                "add_reminder",
+                "That time is in the past. Please specify a future date and time.",
+            )
+        }
+
+        val result = runBlocking {
+            val existingList = listNameDao.getByName(listName)
+            val createdList = existingList == null
+            if (createdList) {
+                listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
+            }
+            val list = listNameDao.getByName(listName) ?: return@runBlocking null
+            val listId = list.id
+            val existingItemIds = listItemDao.getByList(listId).mapTo(mutableSetOf()) { it.id }
+            listItemDao.insert(
+                ListItemEntity(
+                    listId = listId,
+                    text = item,
+                    createdAt = now,
+                    updatedAt = now,
+                    dueAt = triggerAt,
+                    notificationTime = triggerAt,
+                ),
+            )
+            val allItems = listItemDao.getByList(listId)
+            val insertedItem = allItems.lastOrNull {
+                it.id !in existingItemIds &&
+                    it.text == item &&
+                    it.dueAt == triggerAt &&
+                    it.notificationTime == triggerAt
+            }
+            ReminderInsertResult(
+                insertedItem = insertedItem,
+                listId = listId,
+                listName = listName,
+                allItems = allItems,
+                createdList = createdList,
+            )
+        } ?: return SkillResult.Failure("add_reminder", "Could not create reminder list")
+
+        val (insertedItem, listId, persistedListName, allItems, createdList) = result
+        var scheduleOk = false
+        try {
+            if (insertedItem != null) {
+                listNotificationScheduler.schedule(
+                    itemId = insertedItem.id,
+                    itemText = item,
+                    listId = listId,
+                    listName = persistedListName,
+                    triggerAtMs = triggerAt,
+                )
+                scheduleOk = true
+            }
+        } catch (_: Exception) {
+            runBlocking {
+                insertedItem?.let { listItemDao.deleteItem(it.id) }
+                if (createdList) listNameDao.deleteById(listId)
+            }
+        }
+        if (!scheduleOk) {
+            return SkillResult.Failure(
+                "add_reminder",
+                "Could not schedule the alarm. The reminder was not saved.",
+            )
+        }
+
+        val dayDisplay = dayRaw.replaceFirstChar { it.uppercase() }
+        val timeDisplay = targetTime.format(DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH))
+        return SkillResult.DirectReply(
+            "Reminder set: \"$item\" on $dayDisplay at $timeDisplay.",
+            presentation = buildListPreview(persistedListName, allItems),
+        )
+    }
+
+    private data class ReminderInsertResult(
+        val insertedItem: ListItemEntity?,
+        val listId: Long,
+        val listName: String,
+        val allItems: List<ListItemEntity>,
+        val createdList: Boolean,
+    )
 
     // ── Get Weather ───────────────────────────────────────────────────────────
 
@@ -2029,9 +2130,17 @@ class NativeIntentHandler @Inject constructor(
     private fun removeImportantDate(params: Map<String, String>): SkillResult {
         val label = params["label"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("remove_important_date", "No label specified")
-        val deleted = runBlocking { importantDateRepository.deleteByLabel(label) }
-        return if (deleted > 0) {
-            SkillResult.DirectReply("Removed important date ${label.trim()}.")
+        val userName = runBlocking { userProfileRepository.getName() }?.trim()?.takeIf { it.isNotBlank() }
+        val candidateLabels = linkedSetOf(resolveStoredImportantDateLabel(label, userName), label)
+        val removedLabel = runBlocking {
+            candidateLabels.firstNotNullOfOrNull { candidate ->
+                val existing = importantDateRepository.findByLabel(candidate) ?: return@firstNotNullOfOrNull null
+                val deleted = importantDateRepository.deleteByLabel(candidate)
+                existing.label.takeIf { deleted > 0 }
+            }
+        }
+        return if (removedLabel != null) {
+            SkillResult.DirectReply("Removed important date $removedLabel.")
         } else {
             SkillResult.DirectReply("I couldn't find an important date named ${label.trim()}.")
         }
@@ -2805,9 +2914,9 @@ class NativeIntentHandler @Inject constructor(
                 }
             }
             .let { normalized ->
-                Regex("""^(\d{1,2})\s*(AM|PM)$""").replace(normalized) { m ->
+                Regex("""^(\d{1,2})\s*(AM|PM)$""", RegexOption.IGNORE_CASE).replace(normalized) { m ->
                     val h = m.groupValues[1].toIntOrNull() ?: 0
-                    if (h in 1..12) "${m.groupValues[1]}:00${m.groupValues[2]}" else m.value
+                    if (h in 1..12) "${m.groupValues[1]}:00${m.groupValues[2].uppercase()}" else m.value
                 }
             }
             .trim()

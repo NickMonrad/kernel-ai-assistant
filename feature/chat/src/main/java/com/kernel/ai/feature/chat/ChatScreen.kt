@@ -258,6 +258,8 @@ fun ChatScreen(
             val isSeeding by viewModel.isSeeding.collectAsState()
             val speakingMessageId by viewModel.speakingMessageId.collectAsStateWithLifecycle()
             val isArchived by viewModel.isArchived.collectAsStateWithLifecycle()
+            val copyToolCalls by viewModel.copyToolCalls.collectAsStateWithLifecycle()
+            val copyThinking by viewModel.copyThinking.collectAsStateWithLifecycle()
 
             // Track which voice action is pending while we await the permission result.
             var pendingVoiceAction by rememberSaveable { mutableStateOf<String?>(null) }
@@ -337,7 +339,10 @@ fun ChatScreen(
                 onCopyAll = {
                     scope.launch {
                         val text = withContext(Dispatchers.Default) {
-                            stripMarkdownForClipboard(viewModel.getConversationAsText())
+                            viewModel.getConversationForClipboard(
+                                includeThinking = copyThinking,
+                                includeToolCalls = copyToolCalls,
+                            )
                         }
                         clipboardManager.setText(AnnotatedString(text))
                         snackbarHostState.showSnackbar("Conversation copied")

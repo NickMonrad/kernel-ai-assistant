@@ -24,12 +24,15 @@ internal fun normaliseSaveContent(raw: String, userName: String?): String {
         .replace(Regex("""\bI do\b""", RegexOption.IGNORE_CASE)) { "$name does" }
         // -ch/-sh/-x/-o endings need "-es" (not "-s")
         .replace(Regex("""\bI watch\b""", RegexOption.IGNORE_CASE)) { "$name watches" }
+        .replace(Regex("""\bI wash\b""", RegexOption.IGNORE_CASE)) { "$name washes" }
+        .replace(Regex("""\bI brush\b""", RegexOption.IGNORE_CASE)) { "$name brushes" }
         // "-y" after consonant → "-ies"
         .replace(Regex("""\bI try\b""", RegexOption.IGNORE_CASE)) { "$name tries" }
+        .replace(Regex("""\bI study\b""", RegexOption.IGNORE_CASE)) { "$name studies" }
         // Common regular verbs — append "s" for third-person singular.
         .replace(
             Regex(
-                """\bI (prefer|like|want|love|hate|enjoy|use|eat|drink|play|listen|read|own|know|think|believe|feel|speak|drive|live|work|run|support|follow|need|find|see|hear|make|take|keep|put|get|give|bring|buy|sell|build|create|write|design|test|code|manage|lead|help|start|stop|send|show|check|set|turn|open|close|hold|leave|move|stay|say|ask|tell|call|visit)\b""",
+                """\bI (prefer|like|want|love|hate|enjoy|use|eat|drink|play|listen|read|own|know|think|believe|feel|speak|drive|live|work|run|support|follow|need|find|see|hear|make|take|keep|put|get|give|bring|buy|sell|build|create|write|design|test|code|manage|lead|help|start|stop|send|show|check|set|turn|open|close|hold|leave|move|stay|say|ask|tell|call|visit|walk|cook|clean|feed|train|exercise|jog|swim|cycle|ride|shop|garden|paint|draw|sing|dance|travel|wake|sleep|hike|practice|practise|meditate|stretch)\b""",
                 RegexOption.IGNORE_CASE,
             ),
         ) { match -> "$name ${match.groupValues[1].lowercase()}s" }

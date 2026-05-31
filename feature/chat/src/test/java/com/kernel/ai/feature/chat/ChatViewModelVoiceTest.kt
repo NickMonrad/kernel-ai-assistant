@@ -349,6 +349,289 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `anaphoric important date bypass uses direct reply path and speaks confirmation`() = runTest(dispatcher) {
+        val saveImportantDateSkill = object : Skill {
+            override val name = "save_important_date"
+            override val description = "Save important date"
+            override val schema = SkillSchema(required = listOf("label", "date"))
+
+            override suspend fun execute(call: com.kernel.ai.core.skills.SkillCall): SkillResult =
+                SkillResult.DirectReply(
+                    "I'll remember your birthday is 15 March.",
+                    spokenSummary = "I'll remember your birthday is 15 March.",
+                )
+        }
+        coEvery { conversationRepository.getMessagesOnce("conv-existing") } returns listOf(
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-1",
+                conversationId = "conv-existing",
+                role = "user",
+                content = "My birthday is March 15th",
+                thinkingText = null,
+                timestamp = 1L,
+            ),
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-2",
+                conversationId = "conv-existing",
+                role = "assistant",
+                content = "Noted.",
+                thinkingText = null,
+                timestamp = 2L,
+            ),
+        )
+        every { quickIntentRouter.route("remember that") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "remember that")
+        every { quickIntentRouter.route("My birthday is March 15th") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "save_important_date",
+                    params = mapOf("label" to "birthday", "date" to "March 15th"),
+                ),
+            )
+        every { skillRegistry.get("save_important_date") } returns saveImportantDateSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "remember that"))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.getConversationAsText().contains("Jandal: I'll remember your birthday is 15 March."))
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "I'll remember your birthday is 15 March." })
+        }
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
+    fun `polite anaphoric important date bypass uses direct reply path`() = runTest(dispatcher) {
+        val saveImportantDateSkill = object : Skill {
+            override val name = "save_important_date"
+            override val description = "Save important date"
+            override val schema = SkillSchema(required = listOf("label", "date"))
+
+            override suspend fun execute(call: com.kernel.ai.core.skills.SkillCall): SkillResult =
+                SkillResult.DirectReply(
+                    "I'll remember your birthday is 15 March.",
+                    spokenSummary = "I'll remember your birthday is 15 March.",
+                )
+        }
+        coEvery { conversationRepository.getMessagesOnce("conv-existing") } returns listOf(
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-1",
+                conversationId = "conv-existing",
+                role = "user",
+                content = "My birthday is March 15th",
+                thinkingText = null,
+                timestamp = 1L,
+            ),
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-2",
+                conversationId = "conv-existing",
+                role = "assistant",
+                content = "Noted.",
+                thinkingText = null,
+                timestamp = 2L,
+            ),
+        )
+        every { quickIntentRouter.route("can you remember that") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "can you remember that")
+        every { quickIntentRouter.route("My birthday is March 15th") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "save_important_date",
+                    params = mapOf("label" to "birthday", "date" to "March 15th"),
+                ),
+            )
+        every { skillRegistry.get("save_important_date") } returns saveImportantDateSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "can you remember that"))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.getConversationAsText().contains("Jandal: I'll remember your birthday is 15 March."))
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "I'll remember your birthday is 15 March." })
+        }
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
+    fun `anaphoric important date bypass works even when model is unavailable`() = runTest(dispatcher) {
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Run intent"
+            override val schema = SkillSchema(required = listOf("intent_name"))
+
+            override suspend fun execute(call: com.kernel.ai.core.skills.SkillCall): SkillResult {
+                assertEquals("save_important_date", call.arguments["intent_name"])
+                assertEquals("birthday", call.arguments["label"])
+                assertEquals("March 15th", call.arguments["date"])
+                return SkillResult.DirectReply(
+                    "I'll remember your birthday is 15 March.",
+                    spokenSummary = "I'll remember your birthday is 15 March.",
+                )
+            }
+        }
+        every { inferenceEngine.isReady } returns MutableStateFlow(false)
+        every { downloadManager.areRequiredModelsDownloaded() } returns false
+        coEvery { conversationRepository.getMessagesOnce("conv-existing") } returns listOf(
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-1",
+                conversationId = "conv-existing",
+                role = "user",
+                content = "My birthday is March 15th",
+                thinkingText = null,
+                timestamp = 1L,
+            ),
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-2",
+                conversationId = "conv-existing",
+                role = "assistant",
+                content = "Noted.",
+                thinkingText = null,
+                timestamp = 2L,
+            ),
+        )
+        every { quickIntentRouter.route("remember that") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "remember that")
+        every { quickIntentRouter.route("My birthday is March 15th") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "save_important_date",
+                    params = mapOf("label" to "birthday", "date" to "March 15th"),
+                ),
+            )
+        every { skillRegistry.get("save_important_date") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "remember that"))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.getConversationAsText().contains("Jandal: I'll remember your birthday is 15 March."))
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "I'll remember your birthday is 15 March." })
+        }
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
+    fun `anaphoric save memory surfaces tool failure when model is unavailable`() = runTest(dispatcher) {
+        val saveMemorySkill = object : Skill {
+            override val name = "save_memory"
+            override val description = "Save memory"
+            override val schema = SkillSchema(required = listOf("content"))
+
+            override suspend fun execute(call: com.kernel.ai.core.skills.SkillCall): SkillResult =
+                SkillResult.Failure("save_memory", "Could not save memory right now.")
+        }
+        every { inferenceEngine.isReady } returns MutableStateFlow(false)
+        every { downloadManager.areRequiredModelsDownloaded() } returns false
+        coEvery { conversationRepository.getMessagesOnce("conv-existing") } returns listOf(
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-1",
+                conversationId = "conv-existing",
+                role = "user",
+                content = "I have a dog named Xena",
+                thinkingText = null,
+                timestamp = 1L,
+            ),
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "msg-2",
+                conversationId = "conv-existing",
+                role = "assistant",
+                content = "Noted.",
+                thinkingText = null,
+                timestamp = 2L,
+            ),
+        )
+        every { quickIntentRouter.route("remember that") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "remember that")
+        every { quickIntentRouter.route("I have a dog named Xena") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "I have a dog named Xena")
+        every { skillRegistry.get("save_memory") } returns saveMemorySkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "remember that"))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.getConversationAsText().contains("Jandal: Could not save memory right now."))
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "Could not save memory right now." })
+        }
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
+    fun `pending confirmation failure surfaces tool error when model is unavailable`() = runTest(dispatcher) {
+        every { inferenceEngine.isReady } returns MutableStateFlow(false)
+        every { downloadManager.areRequiredModelsDownloaded() } returns false
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Run intent"
+            override val schema = SkillSchema(required = listOf("intent_name"))
+
+            override suspend fun execute(call: com.kernel.ai.core.skills.SkillCall): SkillResult =
+                SkillResult.Failure("run_intent", "Could not complete the confirmed action.")
+        }
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        val field = ChatViewModel::class.java.getDeclaredField("pendingConfirmationIntent")
+        field.isAccessible = true
+        field.set(
+            viewModel,
+            QuickIntentRouter.MatchedIntent(
+                intentName = "toggle_flashlight_on",
+                params = emptyMap(),
+            ),
+        )
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "yes"))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.getConversationAsText().contains("Jandal: Could not complete the confirmed action."))
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "Could not complete the confirmed action." })
+        }
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
+    fun `streaming voice unavailable resets capture state`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Hello there") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Hello there")
+        coEvery { voiceStreamingSession.append(any(), any()) } returns VoiceOutputResult.Unavailable("Voice streaming unavailable.")
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello there"))
+        advanceUntilIdle()
+
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        assertEquals(null, viewModel.voiceMode.value)
+        assertEquals(ChatViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
+
+    @Test
     fun `one-shot voice stays idle after spoken reply playback stops`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Hello one shot") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Hello one shot")
