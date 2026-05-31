@@ -16,7 +16,6 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WAKE_WORD_DEFAULT_THRESHOLD
-import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
@@ -96,8 +95,6 @@ data class VoiceUiState(
     // ── Sherpa-ONNX STT model download states (per family) ──────────────────
     /** Per-family download state for each Sherpa STT engine. */
     val sherpaSttStates: Map<VoiceInputEngine, SherpaSttDownloadState> = emptyMap(),
-    /** True when the user is authenticated with Hugging Face for gated voice models. */
-    val hfAuthenticated: Boolean = false,
 )
 internal fun resolveAndroidNativeAvailabilityMessage(
     availability: AndroidNativeRecognitionAvailability,
@@ -113,7 +110,6 @@ class VoiceViewModel @Inject constructor(
     private val wakeWordPreferences: WakeWordPreferences,
     private val wakeWordDetector: WakeWordDetector,
     private val modelDownloadManager: ModelDownloadManager,
-    private val authRepository: HuggingFaceAuthRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -256,11 +252,6 @@ class VoiceViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
         viewModelScope.launch {
-            authRepository.isAuthenticated.collect { authenticated ->
-                _uiState.update { it.copy(hfAuthenticated = authenticated) }
-            }
-        }
-        viewModelScope.launch {
             modelDownloadManager.downloadStates.collect { states ->
                 val perFamilyStates = SherpaSttModelSpec.ALL.mapValues { (engine, spec) ->
                     computeDownloadState(spec, states)
@@ -355,9 +346,6 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
-    fun startAuth() = authRepository.startAuthFlow()
-
-    fun signOutHuggingFace() = authRepository.signOut()
 
     fun setSpokenResponsesEnabled(enabled: Boolean) {
         _uiState.update { it.copy(spokenResponsesEnabled = enabled) }

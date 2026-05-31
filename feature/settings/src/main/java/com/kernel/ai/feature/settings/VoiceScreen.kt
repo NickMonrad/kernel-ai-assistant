@@ -2,7 +2,6 @@ package com.kernel.ai.feature.settings
 
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,7 +22,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
-import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -79,7 +77,6 @@ import android.app.role.RoleManager
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Assistant
 import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.runtime.DisposableEffect
@@ -196,8 +193,6 @@ fun VoiceScreen(
         onCancelSherpaSttDownload = viewModel::cancelSherpaSttDownload,
         onDeleteSherpaStt = viewModel::deleteSherpaStt,
         onViewSherpaSttLicence = { url -> openInAppBrowser(context, url) },
-        onHuggingFaceSignIn = viewModel::startAuth,
-        onHuggingFaceSignOut = viewModel::signOutHuggingFace,
     )
 }
 
@@ -232,8 +227,6 @@ private fun VoiceScreenContent(
     onCancelSherpaSttDownload: (VoiceInputEngine) -> Unit,
     onDeleteSherpaStt: (VoiceInputEngine) -> Unit,
     onViewSherpaSttLicence: (String) -> Unit,
-    onHuggingFaceSignIn: () -> Unit,
-    onHuggingFaceSignOut: () -> Unit,
 ) {
     val context = LocalContext.current
     Scaffold(
@@ -345,25 +338,6 @@ private fun VoiceScreenContent(
                     )
                 }
             }
-            HorizontalDivider()
-            Text(
-                text = "HuggingFace Account",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            HuggingFaceAccountRow(
-                isAuthenticated = uiState.hfAuthenticated,
-                username = null,
-                onSignIn = onHuggingFaceSignIn,
-                onSignOut = onHuggingFaceSignOut,
-                onViewLicence = {
-                    openInAppBrowser(
-                        context,
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
-                    )
-                },
-            )
             HorizontalDivider()
             Text(
                 text = "Quick Actions",
@@ -1621,72 +1595,6 @@ private fun formatBytes(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
-@Composable
-private fun HuggingFaceAccountRow(
-    isAuthenticated: Boolean,
-    username: String?,
-    onSignIn: () -> Unit,
-    onSignOut: () -> Unit,
-    onViewLicence: () -> Unit = {},
-    modifier: Modifier = Modifier,
-) {
-    if (isAuthenticated) {
-        ListItem(
-            modifier = modifier.fillMaxWidth(),
-            headlineContent = {
-                Text(
-                    text = if (username != null) "@$username" else "Signed in",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            },
-            supportingContent = {
-                Column {
-                    Text("Gated models unlocked")
-                    TextButton(onClick = onViewLicence, contentPadding = PaddingValues(0.dp)) {
-                        Text("View licence →", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            },
-            leadingContent = {
-                Icon(
-                    imageVector = Icons.Default.AccountCircle,
-                    contentDescription = null,
-                    tint = Color(0xFFFF9D00),
-                )
-            },
-            trailingContent = {
-                TextButton(onClick = onSignOut) {
-                    Text("Sign out", color = MaterialTheme.colorScheme.error)
-                }
-            },
-        )
-    } else {
-        ListItem(
-            modifier = modifier.fillMaxWidth(),
-            headlineContent = { Text("Not signed in") },
-            supportingContent = {
-                Column {
-                    Text("Required to download gated Hugging Face models. Accept licence before downloading.")
-                    TextButton(onClick = onViewLicence, contentPadding = PaddingValues(0.dp)) {
-                        Text("View licence →", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            },
-            leadingContent = {
-                Icon(
-                    imageVector = Icons.Default.AccountCircle,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            },
-            trailingContent = {
-                Button(onClick = onSignIn) {
-                    Text("Sign in")
-                }
-            },
-        )
-    }
-}
 @Preview(showBackground = true)
 @Composable
 private fun VoiceScreenPreview() {
@@ -1740,8 +1648,6 @@ private fun VoiceScreenPreview() {
             onCancelSherpaSttDownload = {},
             onDeleteSherpaStt = {},
             onViewSherpaSttLicence = {},
-            onHuggingFaceSignIn = {},
-            onHuggingFaceSignOut = {},
         )
     }
 }
