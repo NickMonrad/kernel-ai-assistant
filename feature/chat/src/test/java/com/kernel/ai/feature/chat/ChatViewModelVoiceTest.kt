@@ -41,6 +41,7 @@ import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.skills.mealplan.MealPlannerReply
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestionComposeMode
+import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
@@ -110,6 +111,7 @@ class ChatViewModelVoiceTest {
     private val jandalPersona: JandalPersona = mockk(relaxed = true)
     private val nzTruthSeedingService: NzTruthSeedingService = mockk(relaxed = true)
     private val verboseLoggingPreferenceUseCase: VerboseLoggingPreferenceUseCase = mockk(relaxed = true)
+    private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val chatPreferences: com.kernel.ai.core.memory.prefs.ChatPreferences = mockk(relaxed = true)
 
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
@@ -740,6 +742,7 @@ class ChatViewModelVoiceTest {
     jandalPersona = jandalPersona,
     nzTruthSeedingService = nzTruthSeedingService,
     verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+    startListeningCuePlayer = startListeningCuePlayer,
     mealPlanSessionRepository = mealPlanSessionRepository,
     mealPlannerCoordinator = mealPlannerCoordinator,
 )
