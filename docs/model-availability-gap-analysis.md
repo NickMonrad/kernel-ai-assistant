@@ -228,18 +228,17 @@ The current implementation has a solid foundation for model management but diver
 
 Based on the gaps above, the following issues should be created (see Issue Creation section for details):
 
-| Issue | Severity | Scope |
 |-------|----------|-------|
-| #1026 | Critical | Introduce canonical 4-state badge system |
-| #1027 | Critical | Remove "Download" button for required models |
-| #1028 | Critical | Delegate voice pack downloads to Model Management |
-| #1029 | High | Add "Preparing" state for auto-queue/background work |
-| #1030 | High | Map all state labels to guideline states |
-| #1031 | High | Add approval pending workflow for gated models |
-| #1032 | Medium | Integrate HF auth into model card workflow |
-| #1033 | Medium | Add model availability overview to Settings |
-| #1034 | Medium | Show state on Model Settings screen |
-| #1035 | Low | Hide deprecated models from Model Management |
-| #1036 | Low | Consolidate Error state to single action |
-| #1037 | Low | Standardize wake word unavailable state |
-| #1038 | Low | Group SentencePiece with EmbeddingGemma |
+| #1029 | Critical | Introduce canonical 4-state badge system |
+| #1030 | Critical | Remove "Download" button for required models |
+| #1031 | Critical | Delegate voice pack downloads to Model Management |
+| #1032 | High | Add "Preparing" state for auto-queue/background work |
+| #1033 | High | Map all state labels to guideline states |
+| #1034 | High | Add approval pending workflow for gated models |
+| #1035 | Medium | Integrate HF auth into model card workflow |
+| #1036 | Medium | Add model availability overview to Settings |
+| #1037 | Medium | Show state on Model Settings screen |
+| #1038 | Low | Hide deprecated models from Model Management |
+| #1039 | Low | Consolidate Error state to single action |
+| #1040 | Low | Standardize wake word unavailable state |
+| #1041 | Low | Group SentencePiece with EmbeddingGemma |
