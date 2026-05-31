@@ -174,6 +174,34 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice slot prompt flips pronouns on user values but keeps assistant framing`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("remind me to call my mum on Monday") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "add_reminder",
+                    params = mapOf("item" to "call my mum", "day" to "Monday"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "time",
+                    promptTemplate = "What time on {day} should I remind you to {item}?",
+                ),
+            )
+
+        viewModel.executeAction("remind me to call my mum on Monday", InputMode.Voice)
+        advanceUntilIdle()
+
+        // Assistant framing ("should I remind you") stays first-person; only the echoed user value
+        // ("call my mum") is flipped to second-person ("call your mum"). (#1012 RCA — TTS pronoun bug.)
+        coVerify {
+            voiceOutputController.speak(
+                match<VoiceSpeakRequest> {
+                    it.text == "What time on Monday should I remind you to call your mum?"
+                }
+            )
+        }
+    }
+
+    @Test
     fun `voice mode normalizes add bread list mishear before routing`() = runTest(dispatcher) {
         val router = QuickIntentRouter()
         val voiceViewModel = ActionsViewModel(
@@ -200,7 +228,7 @@ class ActionsViewModelVoiceTest {
         coVerify {
             voiceOutputController.speak(
                 match<VoiceSpeakRequest> {
-                    it.text == "Which list should you add it to?"
+                    it.text == "Which list should I add it to?"
                 }
             )
         }
@@ -1406,14 +1434,14 @@ it.resultText == "Phone permission is required for auto-dial. Check Settings →
         coVerify(atLeast = 1) {
             voiceOutputController.speak(
                 match<VoiceSpeakRequest> {
-                    it.text.startsWith("Sorry, you didn't catch that.")
+                    it.text.startsWith("Sorry, I didn't catch that.")
                 },
             )
         }
 
         // Simulate TTS finishing for retry 1 → mic restarts automatically.
         voiceOutputEvents.emit(
-            VoiceOutputEvent.SpeakingStarted("Sorry, you didn't catch that. What would you like to say to Bob?"),
+            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Bob?"),
         )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
@@ -1432,14 +1460,14 @@ it.resultText == "Phone permission is required for auto-dial. Check Settings →
         coVerify(atLeast = 2) {
             voiceOutputController.speak(
                 match<VoiceSpeakRequest> {
-                    it.text.startsWith("Sorry, you didn't catch that.")
+                    it.text.startsWith("Sorry, I didn't catch that.")
                 },
             )
         }
 
         // Simulate TTS finishing for retry 2 → mic restarts.
         voiceOutputEvents.emit(
-            VoiceOutputEvent.SpeakingStarted("Sorry, you didn't catch that. What would you like to say to Bob?"),
+            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Bob?"),
         )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
@@ -1461,7 +1489,7 @@ it.resultText == "Phone permission is required for auto-dial. Check Settings →
         coVerify(exactly = 2) {
             voiceOutputController.speak(
                 match<VoiceSpeakRequest> {
-                    it.text.startsWith("Sorry, you didn't catch that.")
+                    it.text.startsWith("Sorry, I didn't catch that.")
                 },
             )
         }
@@ -1662,7 +1690,7 @@ it.resultText == "Phone permission is required for auto-dial. Check Settings →
 
         // Simulate TTS completing → auto-rearm restarts mic.
         voiceOutputEvents.emit(
-            VoiceOutputEvent.SpeakingStarted("Sorry, you didn't catch that. What would you like to say to Dave?"),
+            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Dave?"),
         )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
@@ -1677,7 +1705,7 @@ it.resultText == "Phone permission is required for auto-dial. Check Settings →
 
         // Simulate TTS completing → auto-rearm restarts mic.
         voiceOutputEvents.emit(
-            VoiceOutputEvent.SpeakingStarted("Sorry, you didn't catch that. What would you like to say to Dave?"),
+            VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. What would you like to say to Dave?"),
         )
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
@@ -1695,7 +1723,7 @@ it.resultText == "Phone permission is required for auto-dial. Check Settings →
         // Only 2 reprompt speaks during the two auto-retries above.
         coVerify(exactly = 2) {
             voiceOutputController.speak(
-                match<VoiceSpeakRequest> { it.text.startsWith("Sorry, you didn't catch that.") },
+                match<VoiceSpeakRequest> { it.text.startsWith("Sorry, I didn't catch that.") },
             )
         }
 
@@ -1712,7 +1740,7 @@ it.resultText == "Phone permission is required for auto-dial. Check Settings →
         // A 3rd reprompt speak confirms the retry path fired (not the exhaustion path).
         coVerify(atLeast = 3) {
             voiceOutputController.speak(
-                match<VoiceSpeakRequest> { it.text.startsWith("Sorry, you didn't catch that.") },
+                match<VoiceSpeakRequest> { it.text.startsWith("Sorry, I didn't catch that.") },
             )
         }
         assertNotNull(viewModel.pendingSlot.value)

@@ -40,6 +40,8 @@ interface MemoryRepository {
     suspend fun clearEpisodicMemories()
     /** Observe all core memories (for UI). */
     fun observeCoreMemories(): Flow<List<CoreMemoryEntity>>
+    /** Snapshot of all core memories ordered by most-recently-accessed first. */
+    suspend fun getAllCoreMemories(): List<CoreMemoryEntity>
     /** Observe episodic memory count (for UI). */
     fun observeEpisodicCount(): Flow<Int>
     /** Record that core memories with the given [ids] were accessed (increments accessCount). */

@@ -344,8 +344,6 @@ class ChatTextUtilsTest {
 
             assertEquals("Keeorah everyone.", chunk)
         }
-
-
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -772,8 +770,6 @@ class ChatTextUtilsTest {
 
         @Test
         fun `does not split on abbreviation dot — Dr followed by full sentence`() {
-            // "Dr." alone is a single-token dot fragment → merged forward into the next fragment,
-            // so the first real sentence becomes "Dr. Smith explained the plan."
             val text = "Dr. Smith explained the plan. That's all."
             val result = truncateForSpeech(text, 1)
             assertEquals("Dr. Smith explained the plan.", result.trimEnd())
@@ -781,17 +777,14 @@ class ChatTextUtilsTest {
 
         @Test
         fun `does not split on sentence-leading e-g abbreviation`() {
-            // "E." and "g." are both single-token dot fragments that get merged forward
-            // into the following fragment, keeping the first sentence intact.
             val text = "E.g. cats and dogs are common pets. That covers the basics."
             val result = truncateForSpeech(text, 1)
-            assertTrue(result.contains("cats and dogs"), "Should include the full first sentence")
-            assertFalse(result.contains("basics"), "Should not include the second sentence")
+            assertTrue(result.contains("cats and dogs"))
+            assertFalse(result.contains("basics"))
         }
 
         @Test
         fun `single-word sentences like Sure are real sentence boundaries — not abbreviations`() {
-            // "Sure." must NOT be merged into the next fragment; it is a complete sentence.
             val text = "Sure. Here is the answer. More details."
             val result = truncateForSpeech(text, 1)
             assertEquals("Sure.", result.trimEnd())
@@ -799,8 +792,6 @@ class ChatTextUtilsTest {
 
         @Test
         fun `known abbreviation Dr is still merged correctly`() {
-            // "Dr." is a known abbreviation so it merges with the following fragment,
-            // making "Dr. Smith explained the plan." the first full sentence.
             val text = "Dr. Smith explained the plan. More here."
             val result = truncateForSpeech(text, 1)
             assertEquals("Dr. Smith explained the plan.", result.trimEnd())
@@ -875,11 +866,8 @@ class ChatTextUtilsTest {
 
         @Test
         fun `word boundaries prevent partial word replacement`() {
-            // "my" inside "Myra" must not be touched
             assertEquals("Emailing Myra", normalisePronounsForTts("Emailing Myra"))
-            // "me" inside "email" must not be touched
             assertEquals("sending email", normalisePronounsForTts("sending email"))
-            // "mine" inside "minefield" must not be touched
             assertEquals("a minefield of options", normalisePronounsForTts("a minefield of options"))
         }
 
@@ -897,4 +885,305 @@ class ChatTextUtilsTest {
             assertEquals(text, normalisePronounsForTts(text))
         }
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ANAPHORIC SAVE SAFEGUARDS
+    // ═════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("isAnaphoricSaveRequest")
+    inner class IsAnaphoricSaveRequestTests {
+
+        @Test
+        fun `returns true for remember that`() {
+            assertTrue(isAnaphoricSaveRequest("remember that"))
+        }
+
+        @Test
+        fun `returns true for save that`() {
+            assertTrue(isAnaphoricSaveRequest("save that"))
+        }
+
+        @Test
+        fun `returns true for remember it`() {
+            assertTrue(isAnaphoricSaveRequest("remember it"))
+        }
+
+        @Test
+        fun `returns true for save it`() {
+            assertTrue(isAnaphoricSaveRequest("save it"))
+        }
+
+        @Test
+        fun `returns true for remember this`() {
+            assertTrue(isAnaphoricSaveRequest("remember this"))
+        }
+
+        @Test
+        fun `returns true for save this`() {
+            assertTrue(isAnaphoricSaveRequest("save this"))
+        }
+
+        @Test
+        fun `returns true for can you remember this`() {
+            assertTrue(isAnaphoricSaveRequest("can you remember this"))
+        }
+
+        @Test
+        fun `returns true for please save it`() {
+            assertTrue(isAnaphoricSaveRequest("please save it"))
+        }
+
+        @Test
+        fun `returns false for remember my birthday`() {
+            assertFalse(isAnaphoricSaveRequest("remember my birthday"))
+        }
+
+        @Test
+        fun `returns false for save my notes`() {
+            assertFalse(isAnaphoricSaveRequest("save my notes"))
+        }
+
+        @Test
+        fun `returns false for remember to call mum`() {
+            assertFalse(isAnaphoricSaveRequest("remember to call mum"))
+        }
+
+        @Test
+        fun `returns true for remember that bare`() {
+            assertTrue(isAnaphoricSaveRequest("remember that"))
+        }
+
+        @Test
+        fun `returns true for keep that in memory`() {
+            assertTrue(isAnaphoricSaveRequest("keep that in memory"))
+        }
+
+        @Test
+        fun `returns false for remember that I prefer dark mode`() {
+            assertFalse(isAnaphoricSaveRequest("remember that I prefer dark mode"))
+        }
+    }
+
+    @Nested
+    @DisplayName("looksLikePersonalFact")
+    inner class LooksLikePersonalFactTests {
+
+        @Test
+        fun `returns true for personal preference statement`() {
+            assertTrue(
+                looksLikePersonalFact(
+                    "I prefer dark mode for reading",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns false for birthday because important dates handle it`() {
+            assertFalse(
+                looksLikePersonalFact(
+                    "My birthday is March 15th",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns false for important date phrased as I have`() {
+            assertFalse(looksLikePersonalFact("I have a birthday on March 15th"))
+        }
+
+        @Test
+        fun `returns false for family important date fact`() {
+            assertFalse(looksLikePersonalFact("My wife's birthday is March 15th"))
+        }
+
+        @Test
+        fun `returns true for personal preference about food`() {
+            assertTrue(
+                looksLikePersonalFact(
+                    "I don't eat gluten",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns false for factual encyclopedic content`() {
+            assertFalse(
+                looksLikePersonalFact(
+                    "The capital of France is Paris",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns false for weather content`() {
+            assertFalse(
+                looksLikePersonalFact(
+                    "It is sunny today",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns true for I dont like something`() {
+            assertTrue(looksLikePersonalFact("I don't like aubergines"))
+        }
+        @Test
+        fun `returns true for I do not like something`() {
+            assertTrue(looksLikePersonalFact("I do not like aubergines"))
+        }
+
+        @Test
+        fun `returns true for I prefer something`() {
+            assertTrue(looksLikePersonalFact("I prefer dark mode"))
+        }
+
+        @Test
+        fun `returns false for generic greeting`() {
+            assertFalse(
+                looksLikePersonalFact(
+                    "Hello, how are you?",
+                ),
+            )
+        }
+
+        @Test
+        fun `returns false for I need something`() {
+            assertFalse(looksLikePersonalFact("I need a recipe for dinner"))
+        }
+
+        @Test
+        fun `returns false for I want something`() {
+            assertFalse(looksLikePersonalFact("I want to buy a new phone"))
+        }
+
+        @Test
+        fun `returns false for My shopping list has eggs`() {
+            assertFalse(looksLikePersonalFact("My shopping list has eggs"))
+        }
+
+        @Test
+        fun `returns true for I have a dog`() {
+            assertTrue(looksLikePersonalFact("I have a dog"))
+        }
+
+        @Test
+        fun `returns true for My name is John`() {
+            assertTrue(looksLikePersonalFact("My name is John"))
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // CULTURAL CONTEXT CUE (#kumara recall)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("hasCulturalContextCue")
+    inner class CulturalContextCueTests {
+
+        @ParameterizedTest
+        @ValueSource(strings = [
+            "What are they called in New Zealand",
+            "what's the name in NZ?",
+            "Is there a Māori word for it",
+            "what do the maori call it",
+            "the te reo name",
+            "what's it called in Aotearoa",
+            "do kiwis have a word for that",
+        ])
+        fun `returns true for NZ cultural cues`(text: String) {
+            assertTrue(hasCulturalContextCue(text), "Expected cue in: $text")
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = [
+            "What are they called",
+            "what's the name for it",
+            "tell me about sweet potato",
+            "how do you cook it",
+        ])
+        fun `returns false without NZ cultural cue`(text: String) {
+            assertFalse(hasCulturalContextCue(text), "Did not expect cue in: $text")
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // CLIPBOARD CONVERSATION FORMATTING (#1024)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("formatConversationForClipboard")
+    inner class ClipboardFormattingTests {
+
+        private fun user(text: String) = com.kernel.ai.feature.chat.model.ChatMessage(
+            id = "u", role = com.kernel.ai.feature.chat.model.ChatMessage.Role.USER, content = text,
+        )
+
+        private fun assistant(
+            text: String,
+            thinking: String? = null,
+            tool: com.kernel.ai.feature.chat.model.ToolCallInfo? = null,
+        ) = com.kernel.ai.feature.chat.model.ChatMessage(
+            id = "a",
+            role = com.kernel.ai.feature.chat.model.ChatMessage.Role.ASSISTANT,
+            content = text,
+            thinkingText = thinking,
+            toolCall = tool,
+        )
+
+        @Test
+        fun `both flags off reproduces plain transcript`() {
+            val messages = listOf(
+                user("**hello**"),
+                assistant("hi there", thinking = "secret", tool = null),
+            )
+            val result = formatConversationForClipboard(messages, includeThinking = false, includeToolCalls = false)
+            assertEquals("You: hello\nJandal: hi there", result)
+        }
+
+        @Test
+        fun `includes thinking block when enabled`() {
+            val messages = listOf(assistant("answer", thinking = "my reasoning"))
+            val result = formatConversationForClipboard(messages, includeThinking = true, includeToolCalls = false)
+            assertEquals("Jandal:\n[Thinking]\nmy reasoning\n[End Thinking]\nanswer", result)
+        }
+
+        @Test
+        fun `includes tool call when enabled`() {
+            val tool = com.kernel.ai.feature.chat.model.ToolCallInfo(
+                skillName = "search_memory",
+                requestJson = "{\"query\":\"x\"}",
+                resultText = "found it",
+                isSuccess = true,
+            )
+            val messages = listOf(assistant("here you go", tool = tool))
+            val result = formatConversationForClipboard(messages, includeThinking = false, includeToolCalls = true)
+            assertEquals(
+                "Jandal:\n[Tool Call: search_memory — success]\n" +
+                    "Request: {\"query\":\"x\"}\nResult: found it\n[End Tool Call]\nhere you go",
+                result,
+            )
+        }
+
+        @Test
+        fun `thinking not included when flag off`() {
+            val messages = listOf(assistant("answer", thinking = "hidden"))
+            val result = formatConversationForClipboard(messages, includeThinking = false, includeToolCalls = false)
+            assertEquals("Jandal: answer", result)
+        }
+
+        @Test
+        fun `failed tool call marked failed`() {
+            val tool = com.kernel.ai.feature.chat.model.ToolCallInfo(
+                skillName = "reminder",
+                requestJson = "{}",
+                resultText = "error",
+                isSuccess = false,
+            )
+            val messages = listOf(assistant("oops", tool = tool))
+            val result = formatConversationForClipboard(messages, includeThinking = false, includeToolCalls = true)
+            assertTrue(result.contains("[Tool Call: reminder — failed]"), result)
+        }
+    }
+
 }
