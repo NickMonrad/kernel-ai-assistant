@@ -1,7 +1,7 @@
 # Model Availability UX Patterns
 
 > **Purpose:** This is the canonical reference for user experience patterns around model discovery,
-> acquisition, access, selection, and lifecycle management within Kernel AI.
+> acquisition, access, selection, and lifecycle management within Jandal AI.
 > Before implementing any screen or flow related to models, read this document first.
 >
 > This document describes **how things should work**, not what is currently implemented.
@@ -17,7 +17,7 @@
 
 **Users Want an Assistant, Not a Model Manager.**
 
-Kernel AI should automatically perform any action that can be completed without user intervention.
+Jandal AI should automatically perform any action that can be completed without user intervention.
 Users should only be interrupted when human action is genuinely required.
 
 ### Automatic (no user action needed)
@@ -42,7 +42,7 @@ Users should only be interrupted when human action is genuinely required.
 
 ### Frictionless First Run
 
-A new user should be able to install Kernel AI and begin interacting with the assistant without
+A new user should be able to install Jandal AI and begin interacting with the assistant without
 manually downloading required models. Required models should automatically begin acquisition during
 onboarding.
 
@@ -71,7 +71,7 @@ The same labels should be used throughout the application. Top-level model state
 | State | Meaning |
 |---|---|
 | **Ready** | Model is fully available |
-| **Preparing** | Kernel AI is performing background work |
+| **Preparing** | Jandal AI is performing background work |
 | **Action Required** | User must complete an action |
 | **Unavailable** | Model cannot currently be used |
 
@@ -95,11 +95,11 @@ Detailed lifecycle states appear only when additional information is needed.
 
 ## Model Sources
 
-Kernel AI supports multiple model providers.
+Jandal AI supports multiple model providers.
 
 Examples: Hugging Face, Google AI Edge, Ollama Registry, Local Import, Custom URL.
 
-Provider-specific requirements should integrate into the common Kernel AI access workflow. The user
+Provider-specific requirements should integrate into the common Jandal AI access workflow. The user
 experience should remain consistent regardless of provider.
 
 ---
@@ -154,7 +154,7 @@ Examples:
 
 ### Preparing
 
-**Description:** Kernel AI is performing background work to make the model available.
+**Description:** Jandal AI is performing background work to make the model available.
 
 **Examples:** Downloading, updating, validating, repairing. The user should not need to take action.
 
@@ -168,7 +168,7 @@ Downloading 62%
 
 ### Action Required
 
-**Description:** Kernel AI cannot proceed until the user completes a required action.
+**Description:** Jandal AI cannot proceed until the user completes a required action.
 
 **Examples:** Sign in to provider, accept license, request access, resolve storage issue.
 
@@ -195,7 +195,7 @@ A clear explanation should always be provided.
 
 ## Access Workflow
 
-Kernel AI should automatically progress through all stages that do not require user interaction.
+Jandal AI should automatically progress through all stages that do not require user interaction.
 
 ### Automatic Workflow
 
@@ -212,7 +212,7 @@ Sign In Required → License Acceptance Required → Access Approval Required
     → Ready to Download → Downloading → Validating → Ready
 ```
 
-Kernel AI should automatically continue once the user completes the required action.
+Jandal AI should automatically continue once the user completes the required action.
 
 ---
 
@@ -252,7 +252,7 @@ The license name should always be visible.
 
 **Primary Action:** Check Status
 
-Kernel AI should periodically recheck approval status automatically.
+Jandal AI should periodically recheck approval status automatically.
 
 ### Access Denied
 
@@ -325,7 +325,7 @@ If a selected model becomes unavailable:
 - Display unavailable status
 - Prompt the user to restore or replace the model
 
-Kernel AI should never silently switch models.
+Jandal AI should never silently switch models.
 
 ---
 
@@ -374,7 +374,7 @@ A user should always be able to answer:
 1. Can I use this model right now?
 2. If not, what is blocking me?
 3. What do I need to do next?
-4. Is Kernel AI already working on it?
+4. Is Jandal AI already working on it?
 5. Is this model required or optional?
 6. Is this model selected?
 7. Which provider supplies this model?

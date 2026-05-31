@@ -1,4 +1,4 @@
-# Kernel AI Assistant — Agent Context
+# Jandal AI Assistant — Agent Context
 
 Android-native, local-first AI assistant. All inference on-device via LiteRT. Kotlin host; Wasm guest-only.
 
