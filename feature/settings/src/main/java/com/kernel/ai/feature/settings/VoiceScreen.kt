@@ -428,13 +428,13 @@ private fun VoiceScreenContent(
                             isDownloaded = state.isDownloaded,
                             isDownloading = state.isDownloading,
                             progress = state.progress,
-                            error = state.error,
+                            issue = state.issue,
                             modelLabel = engine.displayName,
                             modelSubtitle = subtitle,
+                            isAuthenticated = uiState.hfAuthenticated,
                             onDownload = { onDownloadSherpaStt(engine) },
                             onCancel = { onCancelSherpaSttDownload(engine) },
                             onDelete = { onDeleteSherpaStt(engine) },
-                            licenceUrl = state.licenceUrl,
                             onViewLicence = onViewSherpaSttLicence,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )
@@ -1395,13 +1395,13 @@ private fun SherpaOnnxSttDownloadCard(
     isDownloaded: Boolean,
     isDownloading: Boolean,
     progress: Float,
-    error: String?,
+    issue: SherpaSttDownloadIssue?,
     modelLabel: String,
     modelSubtitle: String,
+    isAuthenticated: Boolean,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
-    licenceUrl: String?,
     onViewLicence: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1441,6 +1441,13 @@ private fun SherpaOnnxSttDownloadCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    if (issue != null) {
+                        Text(
+                            text = issue.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
                 when {
                     isDownloaded -> Row(
@@ -1455,7 +1462,17 @@ private fun SherpaOnnxSttDownloadCard(
                         TextButton(onClick = onDelete) { Text("Delete") }
                     }
                     isDownloading -> TextButton(onClick = onCancel) { Text("Cancel") }
-                    error != null && licenceUrl != null -> TextButton(onClick = { onViewLicence(licenceUrl) }) { Text("Accept licence") }
+                    issue?.licenceRequired == true && issue.licenceUrl != null -> Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = { onViewLicence(issue.licenceUrl) }) { Text("Accept licence") }
+                        TextButton(onClick = onDownload) { Text("Retry") }
+                    }
+                    modelLabel == VoiceInputEngine.SherpaSenseVoice.displayName && !isAuthenticated -> TextButton(
+                        onClick = onDownload,
+                        enabled = false,
+                    ) { Text("Download") }
                     else -> TextButton(onClick = onDownload) { Text("Download") }
                 }
             }
@@ -1470,9 +1487,9 @@ private fun SherpaOnnxSttDownloadCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (error != null) {
+            if (issue != null && issue.licenceRequired.not()) {
                 Text(
-                    text = "Download failed: $error",
+                    text = "Download failed: ${issue.message}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )

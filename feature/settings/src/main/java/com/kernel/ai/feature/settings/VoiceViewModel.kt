@@ -16,6 +16,7 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WAKE_WORD_DEFAULT_THRESHOLD
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
@@ -33,12 +34,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
+data class SherpaSttDownloadIssue(
+    val message: String,
+    val licenceRequired: Boolean,
+    val licenceUrl: String?,
+)
+
 data class SherpaSttDownloadState(
     val isDownloaded: Boolean = false,
     val isDownloading: Boolean = false,
     val progress: Float = 0f,
-    val error: String? = null,
-    val licenceUrl: String? = null,
+    val issue: SherpaSttDownloadIssue? = null,
 )
 
 data class SherpaVoiceRowUiState(
@@ -90,6 +96,8 @@ data class VoiceUiState(
     // ── Sherpa-ONNX STT model download states (per family) ──────────────────
     /** Per-family download state for each Sherpa STT engine. */
     val sherpaSttStates: Map<VoiceInputEngine, SherpaSttDownloadState> = emptyMap(),
+    /** True when the user is authenticated with Hugging Face for gated voice models. */
+    val hfAuthenticated: Boolean = false,
 )
 internal fun resolveAndroidNativeAvailabilityMessage(
     availability: AndroidNativeRecognitionAvailability,
@@ -105,6 +113,7 @@ class VoiceViewModel @Inject constructor(
     private val wakeWordPreferences: WakeWordPreferences,
     private val wakeWordDetector: WakeWordDetector,
     private val modelDownloadManager: ModelDownloadManager,
+    private val authRepository: HuggingFaceAuthRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -247,6 +256,11 @@ class VoiceViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
         viewModelScope.launch {
+            authRepository.isAuthenticated.collect { authenticated ->
+                _uiState.update { it.copy(hfAuthenticated = authenticated) }
+            }
+        }
+        viewModelScope.launch {
             modelDownloadManager.downloadStates.collect { states ->
                 val perFamilyStates = SherpaSttModelSpec.ALL.mapValues { (engine, spec) ->
                     computeDownloadState(spec, states)
@@ -279,21 +293,22 @@ class VoiceViewModel @Inject constructor(
                 }
             }.sum() / totalBytes
         } else 0f
-        val error = requiredModels
-            .mapNotNull { (states[it] as? DownloadState.Error)?.message }
-            .firstOrNull()
-        val licenceUrl = requiredModels
+        val issue = requiredModels
             .mapNotNull { model ->
                 val errorState = states[model] as? DownloadState.Error ?: return@mapNotNull null
-                if (errorState.licenceRequired) model.licenceUrl else null
+                SherpaSttDownloadIssue(
+                    message = errorState.message,
+                    licenceRequired = errorState.licenceRequired,
+                    licenceUrl = if (errorState.licenceRequired) model.licenceUrl else null,
+                )
             }
+            .sortedByDescending { it.licenceRequired }
             .firstOrNull()
         return SherpaSttDownloadState(
             isDownloaded = allDownloaded,
             isDownloading = anyDownloading && !allDownloaded,
             progress = weightedProgress,
-            error = error,
-            licenceUrl = licenceUrl,
+            issue = issue,
         )
     }
 

@@ -2,6 +2,7 @@ package com.kernel.ai.feature.settings
 
 import android.content.Context
 import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.WakeWordDetector
@@ -46,10 +47,12 @@ class VoiceViewModelTest {
     private val sherpaVoicePackDownloadManager: SherpaVoicePackDownloadManager = mockk()
     private val wakeWordPreferences: WakeWordPreferences = mockk(relaxed = true)
     private val wakeWordDetector: WakeWordDetector = mockk()
+    private val authRepository: HuggingFaceAuthRepository = mockk()
     private val modelDownloadManager: ModelDownloadManager = mockk()
     private val context: Context = mockk(relaxed = true)
     private val heyJandalEnabled = MutableStateFlow(false)
     private val wakeWordThreshold = MutableStateFlow(0.80f)
+    private val hfAuthenticated = MutableStateFlow(true)
     private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Vosk)
     private val autoStartAlertVoiceCommandsEnabled = MutableStateFlow(true)
     private val spokenResponsesEnabled = MutableStateFlow(true)
@@ -118,6 +121,7 @@ class VoiceViewModelTest {
         every { wakeWordPreferences.heyJandalEnabled } returns heyJandalEnabled
         every { wakeWordPreferences.confidenceThreshold } returns wakeWordThreshold
         every { wakeWordDetector.isAvailable } returns false
+        every { authRepository.isAuthenticated } returns hfAuthenticated
         every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
         every { sherpaVoicePackDownloadManager.kokoroDownloadStates } returns kokoroDownloadStates
         every { modelDownloadManager.downloadStates } returns MutableStateFlow(
@@ -139,6 +143,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            authRepository,
             context,
         )
     }
@@ -196,6 +201,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            authRepository,
             context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -225,6 +231,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            authRepository,
             context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -254,6 +261,7 @@ class VoiceViewModelTest {
             wakeWordPreferences,
             wakeWordDetector,
             modelDownloadManager,
+            authRepository,
             context,
         )
         testDispatcher.scheduler.advanceUntilIdle()
