@@ -239,10 +239,15 @@ class ActionsViewModel @Inject constructor(
                                     val retryPrompt = "Sorry, I didn't catch that. $prompt"
                                     // Re-arm so the existing SpeakingStopped handler restarts the mic.
                                     setSlotReplyAutoRearmArmed(true, "slotReplyVoiceRetry")
-                                    // Must match the text speakForVoice() will pass to TTS.
-                                    expectedSlotPromptSpeech = normalisePronounsForTts(toSpokenSummary(retryPrompt))
+                                    // Flip pronouns on user slot values only — keep the "Sorry, I didn't
+                                    // catch that." lead-in and template framing literal (see #1012 RCA).
+                                    val spokenRetry = buildSpokenSlotPrompt(
+                                        pending.request,
+                                        prefix = "Sorry, I didn't catch that. ",
+                                    )
+                                    expectedSlotPromptSpeech = spokenRetry
                                     _slotPromptPlaybackStarted.value = false
-                                    speakForVoice(InputMode.Voice, retryPrompt)
+                                    speakForVoice(InputMode.Voice, retryPrompt, spokenOverride = spokenRetry)
                                 } else {
                                     // Budget exhausted or no slot active — keep slot visible, let user type.
                                     Log.d(
@@ -670,9 +675,10 @@ _error.value = "Phone permission is required for auto-dial. Check Settings → A
             inputMode == InputMode.Voice && spokenResponsesEnabled,
             "primePendingSlot",
         )
+        val spokenSlotPrompt = _pendingSlot.value?.request?.let { buildSpokenSlotPrompt(it) }.orEmpty()
         expectedSlotPromptSpeech = if (inputMode == InputMode.Voice && spokenResponsesEnabled) {
-            // Must match the exact text speakForVoice() will pass to TTS (toSpokenSummary + pronoun normalisation).
-            normalisePronounsForTts(toSpokenSummary(_pendingSlot.value?.request?.promptMessage.orEmpty()))
+            // Flip pronouns on user slot values only — keep template framing literal (see #1012 RCA).
+            spokenSlotPrompt
         } else {
             null
         }
@@ -689,6 +695,7 @@ _error.value = "Phone permission is required for auto-dial. Check Settings → A
             inputMode,
             _pendingSlot.value?.request?.promptMessage.orEmpty(),
             delayMs = if (delayVoicePrompt) VOICE_REPLY_TTS_DELAY_MS else 0L,
+            spokenOverride = spokenSlotPrompt,
         )
     }
 
@@ -933,6 +940,21 @@ _error.value = "Phone permission is required for auto-dial. Check Settings → A
      */
     private fun isVoiceEscapePhrase(text: String): Boolean =
         text.trim().lowercase() in VOICE_ESCAPE_PHRASES
+
+    /**
+     * Builds the spoken form of a slot-fill prompt. The pronoun flip (first→second person) is
+     * applied ONLY to the interpolated user-supplied slot values (e.g. item="call my mum" →
+     * "call your mum"), never to the assistant-authored template framing. Applying the blanket
+     * [normalisePronounsForTts] to the whole prompt corrupted the framing's own pronouns
+     * (e.g. "should I remind you" → "should you remind you"). An optional [prefix] (such as the
+     * "Sorry, I didn't catch that." retry lead-in) is kept literal for the same reason.
+     */
+    private fun buildSpokenSlotPrompt(request: PendingSlotRequest, prefix: String = ""): String {
+        val interpolated = request.existingParams.entries.fold(request.missingSlot.promptTemplate) { acc, (key, value) ->
+            acc.replace("{$key}", normalisePronounsForTts(value))
+        }
+        return toSpokenSummary((prefix + interpolated).trim())
+    }
 
     private fun toSpokenSummary(text: String): String {
         val normalized = text.lineSequence()

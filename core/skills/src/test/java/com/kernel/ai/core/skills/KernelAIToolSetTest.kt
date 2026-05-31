@@ -6,6 +6,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -69,5 +70,63 @@ class KernelAIToolSetTest {
         assertTrue(toolSet.wasToolCalled())
         assertTrue(toolSet.lastToolWasDirectReply())
         assertEquals("get_weather", toolSet.lastToolName())
+    }
+
+    @Test
+    fun `loadSkill description mentions intent names`() {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "load_skill"
+        every { skill.description } returns "Loads full instructions for a complex gateway skill (meal_planner, run_js, run_intent, create_calendar_event). Call only when the required parameters or intent names for that skill are unclear."
+        every { registry.get("load_skill") } returns skill
+
+        toolSet.loadSkill("meal_planner")
+
+        assertTrue(toolSet.wasToolCalled())
+        assertEquals("load_skill", toolSet.lastToolName())
+    }
+
+    @Test
+    fun `runIntent escapes blank parameters`() = runTest {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "run_intent"
+        coEvery { skill.execute(any()) } returns SkillResult.DirectReply("ok")
+        every { registry.get("run_intent") } returns skill
+
+        toolSet.runIntent("set_alarm", "")
+
+        assertEquals("{\"intent_name\":\"set_alarm\",\"parameters\":{}}", toolSet.lastToolRequest())
+    }
+
+    @Test
+    fun `runIntent escapes non-blank parameters`() = runTest {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "run_intent"
+        coEvery { skill.execute(any()) } returns SkillResult.DirectReply("ok")
+        every { registry.get("run_intent") } returns skill
+
+        toolSet.runIntent("set_alarm", "{\"hour\":\"7\",\"minute\":\"0\"}")
+
+        assertEquals("{\"intent_name\":\"set_alarm\",\"parameters\":{\"hour\":\"7\",\"minute\":\"0\"}}", toolSet.lastToolRequest())
+    }
+
+    @Test
+    fun `runIntent fails closed on invalid JSON parameters`() = runTest {
+        val result = toolSet.runIntent("set_alarm", "not json")
+        assertEquals("error", result["status"])
+        assertTrue(result["error"]?.contains("Invalid parameters") == true)
+    }
+
+    @Test
+    fun `runJs fails closed on invalid JSON parameters`() = runTest {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "run_js"
+        coEvery { skill.execute(any()) } returns SkillResult.DirectReply("ok")
+        every { registry.get("run_js") } returns skill
+
+        val result = toolSet.runJs("not json")
+
+        assertEquals("ok", result["result"])
+        // Should still call the skill but with empty args
+        assertTrue(toolSet.wasToolCalled())
     }
 }

@@ -1,11 +1,59 @@
 package com.kernel.ai.feature.chat
 
+import com.kernel.ai.feature.chat.model.ChatMessage
+import com.kernel.ai.feature.chat.model.ToolCallInfo
+
 /**
  * Converts LaTeX expressions to Unicode and strips Markdown syntax,
  * producing clean plain text suitable for clipboard output.
  */
 internal fun stripMarkdownForClipboard(text: String): String =
     stripMarkdown(convertLatexToUnicode(text))
+
+/**
+ * Formats a conversation for the clipboard ("Copy conversation"). User/assistant message content
+ * is markdown-stripped for readability. When [includeThinking] / [includeToolCalls] are enabled
+ * (#1024), the assistant's thinking blocks and tool-call request/result payloads are appended
+ * verbatim (NOT markdown-stripped — debugging needs the raw text/JSON). With both flags off the
+ * output is identical to the plain transcript.
+ */
+internal fun formatConversationForClipboard(
+    messages: List<ChatMessage>,
+    includeThinking: Boolean,
+    includeToolCalls: Boolean,
+): String = messages.joinToString("\n") { msg ->
+    when (msg.role) {
+        ChatMessage.Role.USER -> "You: ${stripMarkdownForClipboard(msg.content)}"
+        ChatMessage.Role.ASSISTANT -> {
+            val blocks = mutableListOf<String>()
+            if (includeThinking && !msg.thinkingText.isNullOrBlank()) {
+                blocks += "[Thinking]\n${msg.thinkingText.trim()}\n[End Thinking]"
+            }
+            if (includeToolCalls && msg.toolCall != null) {
+                blocks += formatToolCallForClipboard(msg.toolCall)
+            }
+            if (blocks.isEmpty()) {
+                "Jandal: ${stripMarkdownForClipboard(msg.content)}"
+            } else {
+                buildString {
+                    append("Jandal:")
+                    blocks.forEach { append('\n').append(it) }
+                    if (msg.content.isNotBlank()) {
+                        append('\n').append(stripMarkdownForClipboard(msg.content))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatToolCallForClipboard(toolCall: ToolCallInfo): String = buildString {
+    val status = if (toolCall.isSuccess) "success" else "failed"
+    append("[Tool Call: ${toolCall.skillName} — $status]")
+    if (toolCall.requestJson.isNotBlank()) append("\nRequest: ${toolCall.requestJson.trim()}")
+    if (toolCall.resultText.isNotBlank()) append("\nResult: ${toolCall.resultText.trim()}")
+    append("\n[End Tool Call]")
+}
 
 /**
  * Returns [text] truncated to at most [maxSentences] sentences (split at `.`, `!`, `?`).
@@ -421,6 +469,19 @@ internal fun prefersImmediateConversationContext(text: String): Boolean {
     ).containsMatchIn(lower)
 }
 
+private val CULTURAL_CONTEXT_CUE_REGEX = Regex(
+    """\b(?:new\s+zealand|aotearoa|kiwi|kiwis|m[āa]ori|te\s+reo|n\.?z\.?)\b""",
+    RegexOption.IGNORE_CASE,
+)
+
+/**
+ * Returns true when [text] references New Zealand / Māori culture (e.g. "what's it called in
+ * New Zealand?", "the Māori name", "in NZ"). Used to decide whether an otherwise
+ * immediate-context follow-up should still pull the NZ cultural corpus (#kumara recall).
+ */
+internal fun hasCulturalContextCue(text: String): Boolean =
+    CULTURAL_CONTEXT_CUE_REGEX.containsMatchIn(text)
+
 private val BARE_WIKIPEDIA_ANAPHORA_REGEX = Regex(
     """^(?:it|this|that|these|those|him|her|them|there)\b(?:\s+(?:please|thanks))?$""",
     RegexOption.IGNORE_CASE,
@@ -549,9 +610,79 @@ internal fun looksLikeRawToolCall(response: String): Boolean {
         return true
     }
 
+    // Detect leaked skill instruction payloads (run_intent, load_skill output printed as text)
+    if (
+        "available intents:" in lower ||
+        "parameters (pass as json" in lower ||
+        ("run_intent:" in lower && "perform a native android" in lower) ||
+        ("instructions:" in lower && "intent_name" in lower)
+    ) return true
+
     return Regex(
         """\bcall:(?:load[_ ]?skill|run[_ ]?intent|run[_ ]?js|get[_ ]?weather|save[_ ]?memory|search[_ ]?memory|get[_ ]?system[_ ]?info)\b|
            \{\s*"name"\s*:\s*"(?:load_skill|run_intent|run_js|get_weather|save_memory|search_memory|get_system_info)"""",
         setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
     ).containsMatchIn(response)
+}
+
+/**
+ * Returns true when [text] is an explicit anaphoric save-memory request such as
+ * "remember that", "can you remember this", "save that", "keep that in memory" with
+ * no factual content following the pronoun — i.e. the referent must be resolved from
+ * the previous user turn.
+ *
+ * Used by ChatViewModel to short-circuit the LLM for the "I don't like aubergines" →
+ * "Can you remember that" pattern (#958).
+ */
+internal fun isAnaphoricSaveRequest(text: String): Boolean {
+    val lower = text.lowercase().trim()
+    return Regex(
+        """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:save|store|keep|remember)\s+(?:that|this|it)(?:\s+in\s+memory)?\s*[.!?]*$|
+           ^(?:yes[,.]?\s+)?(?:please\s+)?remember\s+that\s*[.!?]*$""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
+    ).containsMatchIn(lower)
+}
+private val IMPORTANT_DATE_FACT_RE = Regex(
+    """^(?:my|our)\b.*\b(?:birthday|anniversary|wedding anniversary)\b|
+       ^i\s+have\s+(?:a\s+)?(?:birthday|anniversary)\b|
+       ^[\p{L}'’.-]+(?:'s)?\s+(?:birthday|anniversary)\b""",
+    setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
+)
+
+private val IMPORTANT_DATE_VALUE_RE = Regex(
+    """\b(?:
+           \d{4}-\d{2}-\d{2}|
+           \d{1,2}(?:st|nd|rd|th)?(?:\s+of)?\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)|
+           (?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?
+       )\b""",
+    setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
+)
+
+internal fun looksLikeImportantDateFact(text: String): Boolean {
+    if (text.isBlank()) return false
+    val lower = text.lowercase().trim()
+    return IMPORTANT_DATE_FACT_RE.containsMatchIn(lower) && IMPORTANT_DATE_VALUE_RE.containsMatchIn(lower)
+}
+
+/**
+ * Returns true when [text] looks like a short concrete personal fact that a user would
+ * reasonably want stored in memory — e.g. "I don't like aubergines", "My dog is called Biscuit".
+ *
+ * Filters out:
+ * - Long generated content (recipes, lists)
+ * - Questions
+ * - Messages starting with assistant attribution
+ */
+internal fun looksLikePersonalFact(text: String): Boolean {
+    if (text.isBlank() || text.length > 160) return false
+    val lower = text.lowercase().trim()
+    if (lower.endsWith("?")) return false
+    if (looksLikeImportantDateFact(lower)) return false
+    return Regex(
+        """^i\s+(?:am|'m|have|love|hate|like|dislike|prefer|can'?t|cannot|am not)\b|
+           ^i\s+(?:do\s+not|don'?t)\s+(?:like|love|hate|prefer|eat)\b|
+           ^my\s+(?:name|dog|cat|partner|child|spouse|sibling|mother|father|brother|sister|son|daughter|husband|wife|girlfriend|boyfriend)\b|
+           ^i\s+\w+\s+(?:allergic|intolerant|vegetarian|vegan|gluten|lactose)\b""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.COMMENTS),
+    ).containsMatchIn(lower)
 }

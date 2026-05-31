@@ -1,5 +1,7 @@
 package com.kernel.ai.core.skills
 
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -196,6 +198,20 @@ class QuickIntentRouter(
                 promptTemplate = "What would you like me to remember?",
             ),
         ),
+        "add_reminder" to mapOf(
+            "item" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "item",
+                promptTemplate = "What would you like me to remind you about?",
+            ),
+            "day" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "day",
+                promptTemplate = "Which day should I set the reminder for?",
+            ),
+            "time" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "time",
+                promptTemplate = "What time on {day} should I remind you to {item}?",
+            ),
+        ),
         "create_note" to mapOf(
             "content" to com.kernel.ai.core.skills.slot.SlotSpec(
                 name = "content",
@@ -309,6 +325,102 @@ class QuickIntentRouter(
     private fun normalizeCookingPhrase(raw: String): String = raw.trim()
         .trim(',', '.', '?', '!')
         .replace(Regex("""\s+"""), " ")
+
+    // Written-out fractional cooking quantities ("quarter of a cup", "half a cup",
+    // "three quarters of a cup") never reach the numeric cooking-conversion patterns because
+    // [cookingConversionValuePattern] only accepts digits. We rewrite them to a decimal value
+    // ("0.25 cup") before regex matching so the existing convert_cooking_measure patterns fire
+    // deterministically instead of falling through to the LLM (which has misrouted these to
+    // query_wikipedia). Scoped via a unit lookahead so unrelated phrasings such as
+    // "half an hour" are left untouched.
+    private val cookingFractionUnitLookaheadPattern =
+        "(?:$cookingIngredientVolumeUnitPattern|$cookingIngredientMassUnitPattern)"
+
+    private val writtenFractionNumeratorWords = mapOf(
+        "a" to 1, "an" to 1, "one" to 1, "two" to 2, "three" to 3,
+        "four" to 4, "five" to 5, "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9,
+    )
+
+    private val writtenFractionDenominatorWords = mapOf(
+        "half" to 2, "halves" to 2,
+        "quarter" to 4, "quarters" to 4,
+        "third" to 3, "thirds" to 3,
+        "fourth" to 4, "fourths" to 4,
+        "fifth" to 5, "fifths" to 5,
+        "sixth" to 6, "sixths" to 6,
+        "eighth" to 8, "eighths" to 8,
+    )
+
+    private val cookingFractionRegex = Regex(
+        """\b(?:(one|two|three|four|five|six|seven|eight|nine|an?)[\s-]+)?""" +
+            """(halves|half|quarters|quarter|thirds|third|fourths|fourth|fifths|fifth|sixths|sixth|eighths|eighth)""" +
+            """\s+(?:of\s+)?(?:an?\s+)?(?=$cookingFractionUnitLookaheadPattern\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun normalizeWrittenCookingFractions(input: String): String =
+        cookingFractionRegex.replace(input) { match ->
+            val numeratorWord = match.groupValues[1].lowercase()
+            val denominatorWord = match.groupValues[2].lowercase()
+            val numerator = if (numeratorWord.isEmpty()) 1 else writtenFractionNumeratorWords[numeratorWord]
+            val denominator = writtenFractionDenominatorWords[denominatorWord]
+            if (numerator == null || denominator == null) {
+                match.value
+            } else {
+                val decimal = BigDecimal(numerator)
+                    .divide(BigDecimal(denominator), 6, RoundingMode.HALF_UP)
+                    .stripTrailingZeros()
+                "${decimal.toPlainString()} "
+            }
+        }
+
+    // Numeric slash fractions ("2/3 of a cup", "1/2 cup") and mixed numbers ("1 1/2 cups") arrive
+    // when STT transcribes spoken fractions as glyphs (e.g. "two thirds" → "2/3"). The digit-only
+    // [cookingConversionValuePattern] and the written-fraction normaliser above both reject these,
+    // so they fall through to the LLM. We rewrite them to a decimal value before regex matching,
+    // consuming the whole "<fraction> of a " bridge so the result is "0.666667 cup" (a value the
+    // cooking-conversion patterns accept). Scoped by the same cooking-unit lookahead so unrelated
+    // phrases ("2/3 of the class") are left untouched. Mixed numbers are normalised first so the
+    // leading whole number is not mistaken for a standalone simple fraction.
+    private val cookingMixedFractionRegex = Regex(
+        """\b(\d+)\s+(\d+)\s*/\s*(\d+)\s+(?:of\s+)?(?:an?\s+)?(?=$cookingFractionUnitLookaheadPattern\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val cookingSimpleFractionRegex = Regex(
+        """(?<!\d)(\d+)\s*/\s*(\d+)\s+(?:of\s+)?(?:an?\s+)?(?=$cookingFractionUnitLookaheadPattern\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun fractionToDecimalString(numerator: Int, denominator: Int, whole: Int = 0): String? {
+        if (denominator == 0) return null
+        val decimal = BigDecimal(whole)
+            .add(BigDecimal(numerator).divide(BigDecimal(denominator), 6, RoundingMode.HALF_UP))
+            .stripTrailingZeros()
+        return decimal.toPlainString()
+    }
+
+    private fun normalizeNumericCookingFractions(input: String): String {
+        val mixedNormalized = cookingMixedFractionRegex.replace(input) { match ->
+            val whole = match.groupValues[1].toIntOrNull()
+            val numerator = match.groupValues[2].toIntOrNull()
+            val denominator = match.groupValues[3].toIntOrNull()
+            if (whole == null || numerator == null || denominator == null) {
+                match.value
+            } else {
+                fractionToDecimalString(numerator, denominator, whole)?.let { "$it " } ?: match.value
+            }
+        }
+        return cookingSimpleFractionRegex.replace(mixedNormalized) { match ->
+            val numerator = match.groupValues[1].toIntOrNull()
+            val denominator = match.groupValues[2].toIntOrNull()
+            if (numerator == null || denominator == null) {
+                match.value
+            } else {
+                fractionToDecimalString(numerator, denominator)?.let { "$it " } ?: match.value
+            }
+        }
+    }
 
     private val currencyConversionValuePattern = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?"
     private val currencyConversionNounPattern = "(?:dollars?|euros?|pounds?|yen|yuan|francs?|rupees?|pesos?|rand(?:s)?|won|dirhams?|riyals?|ringgit|krona|krone|lira|shekels?|baht|forint|zloty|koruna|leu|lei|real|reais|taka)"
@@ -455,7 +567,56 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
         ),
-        // "remind me tomorrow at 9" / "remind me on friday at 7am" → set_alarm
+        // ── Reminder (task + date → list item with notification) ──
+        // "remind me to <task> on <day> at <time>" or "remind me about <task> on <day> at <time>" — complete
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val item = match.groupValues[1].trim()
+                val day = normalizeDayName(match.groupValues[2].trim().lowercase())
+                val timeParsed = parseAlarmTime(match.groupValues[3].trim())
+                buildMap {
+                    put("item", item)
+                    put("day", day)
+                    putAll(timeParsed)
+                }
+            },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        // "remind me to/about <task> on <day>" — needs time slot-fill
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+on\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to match.groupValues[1].trim(),
+                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
+                )
+            },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        // "remind me to <task> <day>" (day without 'on') — needs time slot-fill
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+to\s+(.+?)\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to match.groupValues[1].trim(),
+                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
+                )
+            },
+            requiredSlots = slotContract("add_reminder"),
+        ),
         IntentPattern(
             intentName = "set_alarm",
             regex = Regex(
@@ -4029,6 +4190,14 @@ class QuickIntentRouter(
             },
         )
 
+        // Written-out fractional cooking quantities are rewritten to decimals (regex-only, like
+        // the alias normalisation above) so they reach the deterministic cooking-conversion path.
+        // Numeric slash fractions ("2/3 of a cup", "1 1/2 cups") are handled too, since STT often
+        // transcribes spoken fractions as glyphs.
+        val fractionNormalized = normalizeNumericCookingFractions(
+            normalizeWrittenCookingFractions(aliasNormalized),
+        )
+
         // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.
         //   Pass 1: specific patterns (isFallback = false) — tried in declaration order.
         //   Pass 2: fallback/catch-all patterns (isFallback = true) — only if Pass 1 misses.
@@ -4037,8 +4206,8 @@ class QuickIntentRouter(
         val specificPatterns = patterns.filter { !it.isFallback }
         val fallbackPatterns = patterns.filter { it.isFallback }
 
-        tryMatchPatterns(aliasNormalized, specificPatterns)?.let { return it }
-        tryMatchPatterns(aliasNormalized, fallbackPatterns)?.let { return it }
+        tryMatchPatterns(fractionNormalized, specificPatterns)?.let { return it }
+        tryMatchPatterns(fractionNormalized, fallbackPatterns)?.let { return it }
 
 
         // Stage 2: BERT-tiny classifier (if available)

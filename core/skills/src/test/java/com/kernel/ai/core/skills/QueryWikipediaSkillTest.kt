@@ -109,4 +109,15 @@ class QueryWikipediaSkillTest {
         assertFalse(instructions.contains("forecast_days (1–7)"))
         assertFalse(instructions.contains("ALWAYS call this tool for weather"))
     }
+
+    @Test
+    fun `instructions and description steer away from conversions and arithmetic`() {
+        val instructions = skill.fullInstructions.lowercase()
+        val description = skill.description.lowercase()
+
+        assertTrue(instructions.contains("do not use wikipedia for"))
+        assertTrue(instructions.contains("conversion"))
+        assertTrue(description.contains("conversion"))
+        assertTrue(description.contains("not for"))
+    }
 }
