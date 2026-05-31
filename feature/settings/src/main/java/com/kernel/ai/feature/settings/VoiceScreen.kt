@@ -80,6 +80,8 @@ import androidx.compose.material.icons.filled.Assistant
 import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -91,6 +93,7 @@ fun VoiceScreen(
     viewModel: VoiceViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val roleManager = context.getSystemService(RoleManager::class.java)
 
@@ -191,6 +194,7 @@ fun VoiceScreen(
         onDownloadSherpaStt = viewModel::downloadSherpaStt,
         onCancelSherpaSttDownload = viewModel::cancelSherpaSttDownload,
         onDeleteSherpaStt = viewModel::deleteSherpaStt,
+        onViewSherpaSttLicence = { url -> uriHandler.openUri(url) },
     )
 }
 
@@ -224,6 +228,7 @@ private fun VoiceScreenContent(
     onDownloadSherpaStt: (VoiceInputEngine) -> Unit,
     onCancelSherpaSttDownload: (VoiceInputEngine) -> Unit,
     onDeleteSherpaStt: (VoiceInputEngine) -> Unit,
+    onViewSherpaSttLicence: (String) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -429,6 +434,8 @@ private fun VoiceScreenContent(
                             onDownload = { onDownloadSherpaStt(engine) },
                             onCancel = { onCancelSherpaSttDownload(engine) },
                             onDelete = { onDeleteSherpaStt(engine) },
+                            licenceUrl = state.licenceUrl,
+                            onViewLicence = onViewSherpaSttLicence,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )
                     }
@@ -1394,6 +1401,8 @@ private fun SherpaOnnxSttDownloadCard(
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
+    licenceUrl: String?,
+    onViewLicence: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -1446,6 +1455,7 @@ private fun SherpaOnnxSttDownloadCard(
                         TextButton(onClick = onDelete) { Text("Delete") }
                     }
                     isDownloading -> TextButton(onClick = onCancel) { Text("Cancel") }
+                    error != null && licenceUrl != null -> TextButton(onClick = { onViewLicence(licenceUrl) }) { Text("Accept licence") }
                     else -> TextButton(onClick = onDownload) { Text("Download") }
                 }
             }
@@ -1637,6 +1647,7 @@ private fun VoiceScreenPreview() {
             onDownloadSherpaStt = {},
             onCancelSherpaSttDownload = {},
             onDeleteSherpaStt = {},
+            onViewSherpaSttLicence = {},
         )
     }
 }

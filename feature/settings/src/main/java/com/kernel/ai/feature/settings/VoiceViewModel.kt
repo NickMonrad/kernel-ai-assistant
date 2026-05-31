@@ -38,6 +38,7 @@ data class SherpaSttDownloadState(
     val isDownloading: Boolean = false,
     val progress: Float = 0f,
     val error: String? = null,
+    val licenceUrl: String? = null,
 )
 
 data class SherpaVoiceRowUiState(
@@ -281,11 +282,18 @@ class VoiceViewModel @Inject constructor(
         val error = requiredModels
             .mapNotNull { (states[it] as? DownloadState.Error)?.message }
             .firstOrNull()
+        val licenceUrl = requiredModels
+            .mapNotNull { model ->
+                val errorState = states[model] as? DownloadState.Error ?: return@mapNotNull null
+                if (errorState.licenceRequired) model.licenceUrl else null
+            }
+            .firstOrNull()
         return SherpaSttDownloadState(
             isDownloaded = allDownloaded,
             isDownloading = anyDownloading && !allDownloaded,
             progress = weightedProgress,
             error = error,
+            licenceUrl = licenceUrl,
         )
     }
 
