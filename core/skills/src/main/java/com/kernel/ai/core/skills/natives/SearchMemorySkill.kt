@@ -2,6 +2,7 @@ package com.kernel.ai.core.skills.natives
 
 import android.util.Log
 import com.kernel.ai.core.memory.rag.RagRepository
+import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillParameter
@@ -35,6 +36,7 @@ private const val TAG = "KernelAI"
 @Singleton
 class SearchMemorySkill @Inject constructor(
     private val ragRepository: RagRepository,
+    private val userProfileRepository: UserProfileRepository,
 ) : Skill {
 
     override val name = "search_memory"
@@ -92,6 +94,32 @@ After calling searchMemory, incorporate its result into your reply naturally.
 
         return withContext(Dispatchers.Default) {
             try {
+                // Generic self-referential queries ("about me", "myself", "about Nick") carry no
+                // topical content words, so a similarity search returns nothing and the model ends
+                // up surfacing an empty result even when core memories exist. Short-circuit to a
+                // snapshot of the user's saved facts instead. (#1012 RCA — memory test 1.)
+                val userName = runCatching { userProfileRepository.getName() }.getOrNull()
+                if (isGenericSelfQuery(query, userName)) {
+                    val coreMemories = runCatching {
+                        ragRepository.getAllUserCoreMemories()
+                    }.getOrElse { e ->
+                        Log.w(TAG, "getAllUserCoreMemories failed: ${e.message}", e)
+                        emptyList()
+                    }
+                    if (coreMemories.isNotEmpty()) {
+                        val fmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+                        val sb = StringBuilder("Here's what I remember about you:\n\n")
+                        coreMemories.forEachIndexed { i, result ->
+                            val dateStr = if (result.lastAccessedAt > 0L) fmt.format(Date(result.lastAccessedAt)) else "date unknown"
+                            sb.appendLine("${i + 1}. [Core Memory — $dateStr]")
+                            sb.appendLine("   ${result.content.take(300)}")
+                        }
+                        Log.d(TAG, "SearchMemorySkill: generic self-query '$query' → ${coreMemories.size} core memories")
+                        return@withContext SkillResult.DirectReply(sb.toString().trimEnd())
+                    }
+                    // No saved core memories — fall through to the normal search path.
+                }
+
                 val messageResults = runCatching {
                     ragRepository.searchMessages(query, conversationId, topK)
                 }.getOrElse { e ->
@@ -152,4 +180,35 @@ After calling searchMemory, incorporate its result into your reply naturally.
             }
         }
     }
+}
+
+/**
+ * True when [query] is a generic self-referential request with no topical content words — e.g.
+ * "about me", "myself", "everything about Nick" — for which a similarity search has nothing to
+ * match against. Such queries should return the user's saved facts wholesale rather than an empty
+ * result. Returns false as soon as any non-self token appears (e.g. "about my trip to Japan"),
+ * preserving normal topical search for legitimate queries.
+ */
+internal fun isGenericSelfQuery(query: String, userName: String?): Boolean {
+    val normalized = query.lowercase().trim()
+    if (normalized.isEmpty()) return false
+    val selfTokens = buildSet {
+        addAll(
+            listOf(
+                "me", "myself", "i", "my", "mine",
+                "about", "everything", "anything", "all", "know", "remember", "you", "your",
+                "do", "does", "did", "what", "whats", "what's", "is", "tell", "recall",
+            ),
+        )
+        userName?.lowercase()?.split(Regex("\\s+"))?.filterTo(this) { it.isNotBlank() }
+    }
+    val tokens = normalized.split(Regex("[^a-z0-9']+")).filter { it.isNotBlank() }
+    if (tokens.isEmpty()) return false
+    // Must contain at least one explicit self pronoun / the user's name, not just filler words.
+    val hasSelfReference = tokens.any { token ->
+        token in setOf("me", "myself", "my", "mine") ||
+            (userName != null && token.removeSuffix("'s") == userName.lowercase().substringBefore(' '))
+    }
+    if (!hasSelfReference) return false
+    return tokens.all { it in selfTokens || it.removeSuffix("'s") in selfTokens }
 }

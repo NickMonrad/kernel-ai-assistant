@@ -106,8 +106,10 @@ class QueryWikipediaSkill @Inject constructor(
 
     override val name = "query_wikipedia"
     override val description =
-        "Look up a topic on Wikipedia and return grounded factual context. Use for explicit " +
-            "Wikipedia searches or encyclopedia-style fact lookups."
+        "Look up a named person, place, organisation, event, or other encyclopedia topic on " +
+            "Wikipedia and return grounded factual context. Use ONLY for explicit Wikipedia " +
+            "searches or fact lookups about a specific named entity. NOT for unit, measurement, " +
+            "or cooking conversions, arithmetic, weather, date/time, definitions, or how-to questions."
 
     override val schema = SkillSchema(
         parameters = mapOf(
@@ -132,6 +134,7 @@ class QueryWikipediaSkill @Inject constructor(
         appendLine("- For factual questions phrased as a sentence, search for the core topic/entity when possible.")
         appendLine("  Example: \"When was Constantinople founded?\" → query=\"Constantinople\"")
         appendLine("- After the tool returns, answer from the Wikipedia result. If the result is clearly off-topic, say so instead of pretending it answered the question.")
+        appendLine("- Do NOT use Wikipedia for unit/measurement/cooking conversions (e.g. cups to grams), arithmetic, weather, date/time, definitions, or how-to questions. Answer those directly without calling this tool.")
         appendLine()
         appendLine("Tool format:")
         appendLine("- Call queryWikipedia with the resolved topic or entity as the query argument.")

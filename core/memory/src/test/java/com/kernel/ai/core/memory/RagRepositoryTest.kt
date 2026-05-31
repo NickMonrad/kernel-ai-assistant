@@ -330,4 +330,44 @@ class RagRepositoryTest {
             memoryRepository.searchMemories(any(), coreTopK = 6, episodicTopK = 3, kiwiTopK = 0)
         }
     }
+
+    // ─────────────────────────────── getCulturalContext (#kumara) ──────────────────────────────
+
+    @Test
+    fun `getCulturalContext returns kiwi-only block for cultural query`() = runTest {
+        coEvery { embeddingEngine.embed(any()) } returns floatArrayOf(0.1f, 0.2f, 0.3f)
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
+            MemorySearchResult(
+                id = "nz_140", content = "Kumara. Sweet potato.", source = "kiwi", score = 0.8f,
+                term = "Kumara", definition = "The New Zealand name for sweet potato.",
+            ),
+            MemorySearchResult(id = "core-1", content = "should be filtered out", source = "core", score = 0.95f),
+        )
+
+        val result = ragRepository.getCulturalContext("Sweet potato what are they called in New Zealand")
+
+        assertTrue(result.contains("[NZ Context: Kumara]"), result)
+        assertTrue(result.contains("sweet potato"), result)
+        assertFalse(result.contains("should be filtered out"), "core memories must not leak in")
+    }
+
+    @Test
+    fun `getCulturalContext returns empty in BORING persona`() = runTest {
+        every { jandalPersona.currentPersonaMode } returns PersonaMode.BORING
+
+        val result = ragRepository.getCulturalContext("what are they called in New Zealand")
+
+        assertEquals("", result)
+        coVerify(exactly = 0) { memoryRepository.searchMemories(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `getCulturalContext returns empty when no kiwi results`() = runTest {
+        coEvery { embeddingEngine.embed(any()) } returns floatArrayOf(0.1f, 0.2f, 0.3f)
+        coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns emptyList()
+
+        val result = ragRepository.getCulturalContext("what are they called in New Zealand")
+
+        assertEquals("", result)
+    }
 }

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.params.provider.ValueSource
 import java.util.stream.Stream
 
 /**
@@ -938,6 +939,82 @@ class QuickIntentRouterTest {
             assertEquals(expectedFromUnit, intent.params["from_unit"])
             assertEquals(expectedIngredient, intent.params["ingredient"])
             assertEquals(expectedToUnit, intent.params["to_unit"])
+        }
+
+        @Test
+        fun `routes the issue 1018 phrase deterministically instead of falling through`() {
+            val result = regexOnlyRouter.route("How much is quarter of a cup of butter in grams")
+            assertRegexMatch(result, "convert_cooking_measure", "issue #1018 phrase")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("0.25", intent.params["amount"])
+            assertEquals("cup", intent.params["from_unit"])
+            assertEquals("butter", intent.params["ingredient"])
+            assertEquals("grams", intent.params["to_unit"])
+        }
+
+        @Test
+        fun `routes numeric slash-fraction cooking phrase deterministically`() {
+            val result = regexOnlyRouter.route("Convert 2/3 of a cup of flour to grams")
+            assertRegexMatch(result, "convert_cooking_measure", "numeric slash fraction")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("0.666667", intent.params["amount"])
+            assertEquals("cup", intent.params["from_unit"])
+            assertEquals("flour", intent.params["ingredient"])
+            assertEquals("grams", intent.params["to_unit"])
+        }
+
+        @Test
+        fun `routes half slash-fraction without of-a bridge`() {
+            val result = regexOnlyRouter.route("Convert 1/2 cup of butter to grams")
+            assertRegexMatch(result, "convert_cooking_measure", "1/2 cup")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("0.5", intent.params["amount"])
+            assertEquals("cup", intent.params["from_unit"])
+            assertEquals("butter", intent.params["ingredient"])
+            assertEquals("grams", intent.params["to_unit"])
+        }
+
+        @Test
+        fun `routes mixed-number slash fraction cooking phrase`() {
+            val result = regexOnlyRouter.route("Convert 1 1/2 cups of flour to grams")
+            assertRegexMatch(result, "convert_cooking_measure", "mixed number 1 1/2")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("1.5", intent.params["amount"])
+            assertEquals("cups", intent.params["from_unit"])
+            assertEquals("flour", intent.params["ingredient"])
+            assertEquals("grams", intent.params["to_unit"])
+        }
+
+        @ParameterizedTest(name = "Non-cooking numeric fraction left untouched: \"{0}\"")
+        @ValueSource(
+            strings = [
+                "what is 2/3 of the class",
+                "I got 2/3 of the questions right",
+                "1/0 of a cup of flour to grams",
+            ],
+        )
+        fun `does not misroute non-cooking numeric fractions to cooking conversion`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            val routedIntent = (result as? QuickIntentRouter.RouteResult.RegexMatch)?.intent?.intentName
+            assertNotEquals("convert_cooking_measure", routedIntent)
+        }
+
+        @ParameterizedTest(name = "Non-cooking fraction left untouched: \"{0}\"")
+        @ValueSource(
+            strings = [
+                "remind me to call mum in half an hour",
+                "what is a quarter of 80",
+                "set a quarter hour timer",
+            ],
+        )
+        fun `does not misroute non-cooking fraction phrases to cooking conversion`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            val routedIntent = (result as? QuickIntentRouter.RouteResult.RegexMatch)?.intent?.intentName
+            assertNotEquals("convert_cooking_measure", routedIntent)
         }
     }
 
@@ -3411,6 +3488,14 @@ class QuickIntentRouterTest {
             Arguments.of("convert 1 Australian tablespoon honey to grams", "1", "Australian tablespoon", "honey", "grams"),
             Arguments.of("how many kilograms are in 500 g of butter", "500", "g", "butter", "kilograms"),
             Arguments.of("how many grams are in 1 kg of butter", "1", "kg", "butter", "grams"),
+            // Written-out fractional quantities (issue #1018) — normalised to decimals before routing.
+            Arguments.of("How much is quarter of a cup of butter in grams", "0.25", "cup", "butter", "grams"),
+            Arguments.of("how much is a quarter of a cup of butter in grams", "0.25", "cup", "butter", "grams"),
+            Arguments.of("how much is half a cup of butter in grams", "0.5", "cup", "butter", "grams"),
+            Arguments.of("convert three quarters of a cup of plain flour to grams", "0.75", "cup", "plain flour", "grams"),
+            Arguments.of("how many grams is a quarter of a cup of sugar", "0.25", "cup", "sugar", "grams"),
+            Arguments.of("convert two thirds of a cup of milk to grams", "0.666667", "cup", "milk", "grams"),
+            Arguments.of("convert an eighth of a cup of butter to grams", "0.125", "cup", "butter", "grams"),
         )
 
         @JvmStatic
@@ -3589,6 +3674,87 @@ class QuickIntentRouterTest {
             Arguments.of("save this recipe to memory"),
             Arguments.of("remember that this is important"),
         )
+    }
+    @Nested
+    @DisplayName("add_reminder")
+    inner class AddReminderTests {
+        @Test
+        fun `remind me to buy milk tomorrow at 9am routes to add_reminder`() {
+            val result = hybridRouter.route("remind me to buy milk tomorrow at 9am")
+            assertRegexMatch(result, "add_reminder", "remind me to buy milk tomorrow at 9am")
+        }
+        @Test
+        fun `remind me about call mom on friday at 5pm routes to add_reminder`() {
+            val result = hybridRouter.route("remind me about call mom on friday at 5pm")
+            assertRegexMatch(result, "add_reminder", "remind me about call mom on friday at 5pm")
+        }
+        @Test
+        fun `please remind me to water plants tomorrow at 12pm routes to add_reminder`() {
+            val result = regexOnlyRouter.route("please remind me to water plants tomorrow at 12pm")
+            assertRegexMatch(result, "add_reminder", "please remind me to water plants tomorrow at 12pm")
+        }
+        @Test
+        fun `remind me to call dentist tomorrow routes to add_reminder with missing time slot`() {
+            val result = hybridRouter.route("remind me to call dentist tomorrow")
+            assertInstanceOf(
+                QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+                result,
+                "Expected NeedsSlot for '$result'",
+            )
+            assertEquals(
+                "add_reminder",
+                (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName,
+            )
+        }
+        @Test
+        fun `remind me to take out trash monday routes to add_reminder with missing time slot`() {
+            val result = hybridRouter.route("remind me to take out trash monday")
+            assertInstanceOf(
+                QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+                result,
+                "Expected NeedsSlot for '$result'",
+            )
+            assertEquals(
+                "add_reminder",
+                (result as QuickIntentRouter.RouteResult.NeedsSlot).intent.intentName,
+            )
+        }
+        @Test
+        fun `remind me at 9am routes to set_alarm not add_reminder`() {
+            val result = hybridRouter.route("remind me at 9am")
+            assertRegexMatch(result, "set_alarm", "remind me at 9am")
+        }
+        @Test
+        fun `remind me tomorrow at 7 routes to set_alarm not add_reminder`() {
+            val result = hybridRouter.route("remind me tomorrow at 7")
+            assertRegexMatch(result, "set_alarm", "remind me tomorrow at 7")
+        }
+        @Test
+        fun `abbreviated weekday fri normalizes to full name`() {
+            val result = hybridRouter.route("remind me to call mum fri at 5pm")
+            assertRegexMatch(result, "add_reminder", "remind me to call mum fri at 5pm")
+            val match = result as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("friday", match.intent.params["day"])
+        }
+
+        @Test
+        fun `abbreviated weekday sat normalizes to full name`() {
+            val result = hybridRouter.route("remind me to water plants sat at 10am")
+            assertRegexMatch(result, "add_reminder", "remind me to water plants sat at 10am")
+            val match = result as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("saturday", match.intent.params["day"])
+        }
+
+        @Test
+        fun `slot fill with abbreviated day mon normalizes`() {
+            val result = hybridRouter.route("remind me to call dentist mon")
+            assertInstanceOf(
+                QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+                result,
+            )
+            val needsSlot = result as QuickIntentRouter.RouteResult.NeedsSlot
+            assertEquals("monday", needsSlot.intent.params["day"])
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
