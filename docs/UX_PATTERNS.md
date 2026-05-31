@@ -310,9 +310,12 @@ The model availability patterns govern:
 - All model cards, model lists, and model selection screens
 - Download, validation, and repair flows
 - Provider sign-in, license acceptance, and gated-access workflows
-- Voice Settings model display (Voice Settings delegates download/auth/licensing to Model Management)
+- Voice Preferences model display (delegates download/auth/licensing to Model Management)
+- Assistant Settings model configuration
+- Agent Configuration model selection
 - The four top-level states: **Ready**, **Preparing**, **Action Required**, **Unavailable**
 
-When building any screen that surfaces models — whether in Settings, Voice Preferences, or a
-dedicated Model Management screen — read [`model-availability-ux-patterns.md`](./model-availability-ux-patterns.md)
-first. Do not invent parallel model states or action labels.
+When building any screen that surfaces models — whether in Settings, Voice Preferences, Assistant Settings,
+Agent Configuration, or a dedicated Model Management screen — read
+[`model-availability-ux-patterns.md`](./model-availability-ux-patterns.md) first.
+Do not invent parallel model states or action labels.

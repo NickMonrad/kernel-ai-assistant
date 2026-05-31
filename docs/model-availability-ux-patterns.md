@@ -7,6 +7,9 @@
 > This document describes **how things should work**, not what is currently implemented.
 > For feature status see [`ROADMAP.md`](./ROADMAP.md). For technical architecture see
 > [`SPECIFICATION.md`](./SPECIFICATION.md).
+>
+> **Applies to:** Model Management, Voice Settings, Assistant Settings, Agent Configuration,
+> and all future model-enabled features.
 
 ---
 
@@ -71,6 +74,20 @@ The same labels should be used throughout the application. Top-level model state
 | **Preparing** | Kernel AI is performing background work |
 | **Action Required** | User must complete an action |
 | **Unavailable** | Model cannot currently be used |
+
+Detailed lifecycle states map to top-level states as follows:
+
+| Detailed state | Top-level state |
+|---|---|
+| Downloading, updating, validating, repairing | **Preparing** |
+| Approval Pending (awaiting review) | **Preparing** |
+| Authentication Required | **Action Required** |
+| License Acceptance Required | **Action Required** |
+| Access Approval Required | **Action Required** |
+| Access Denied | **Unavailable** |
+| Provider unavailable / model removed / unsupported device | **Unavailable** |
+
+This mapping ensures every screen uses the same top-level badge regardless of the underlying cause.
 
 Detailed lifecycle states appear only when additional information is needed.
 
@@ -272,11 +289,13 @@ Examples: Quantisation, Context Length, Runtime, Last Validation Date, Technical
 
 ### Primary Action
 
-One action only.
+One action only — displayed on the card itself.
 
 Examples: Sign In, Review License, Request Access, Select Model, Retry.
 
 The primary action should always represent the next required step.
+
+Secondary actions (Accept License, Open Provider Page, Request Again) are available *after* the primary action opens the relevant flow — not as a second button on the card. For example: the card shows "Review License"; inside the license review screen, the user can "Accept License".
 
 ---
 
@@ -312,9 +331,9 @@ Kernel AI should never silently switch models.
 
 ## Screen Responsibilities
 
-### Voice Settings
+### Voice Preferences
 
-Voice Settings is not a download manager.
+Voice Preferences is not a download manager.
 
 **Should:**
 

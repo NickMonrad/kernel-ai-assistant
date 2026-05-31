@@ -204,7 +204,7 @@ Load these only when relevant:
 - `.docs/agents/decision-heuristics.md` — when multiple valid approaches exist
 - `.docs/agents/failure-handling.md` — blockers, escalation, progress reporting
 - `.docs/agents/repo-map.md` — key file index by area
-- `docs/UX_PATTERNS.md` — canonical UI/UX patterns for lists, navigation, settings, Compose (read before any new screen)
+- `docs/UX_PATTERNS.md` — canonical UI/UX patterns for lists, navigation, settings, Compose (read before any new screen); for model-facing screens also read [`docs/model-availability-ux-patterns.md`](../docs/model-availability-ux-patterns.md)
 
 ## Phase status
 
