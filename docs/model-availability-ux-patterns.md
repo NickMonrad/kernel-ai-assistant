@@ -86,6 +86,10 @@ Detailed lifecycle states map to top-level states as follows:
 | Access Approval Required | **Action Required** |
 | Access Denied | **Unavailable** |
 | Provider unavailable / model removed / unsupported device | **Unavailable** |
+| Insufficient storage | **Action Required** |
+| Tier-preferred optional model (auto-queued by hardware tier) | **Preparing** |
+| Not installed (optional, not yet queued) | **Ready** |
+| Ready to Download (optional, available for install) | **Ready** |
 
 This mapping ensures every screen uses the same top-level badge regardless of the underlying cause.
 
@@ -200,7 +204,7 @@ Jandal AI should automatically progress through all stages that do not require u
 ### Automatic Workflow
 
 ```
-Ready to Download → Downloading → Validating → Ready
+Ready → Downloading → Validating → Ready
 ```
 
 Users should not be required to manually trigger these steps.
@@ -209,10 +213,30 @@ Users should not be required to manually trigger these steps.
 
 ```
 Sign In Required → License Acceptance Required → Access Approval Required
-    → Ready to Download → Downloading → Validating → Ready
+    → Ready → Downloading → Validating → Ready
 ```
 
 Jandal AI should automatically continue once the user completes the required action.
+
+### Optional Model Workflow
+
+Optional models follow the same lifecycle, but the initial trigger differs:
+
+```
+Ready (Not installed) → Ready to Download → Downloading → Validating → Ready
+```
+
+For optional models, "Ready to Download" is a visual affordance (e.g. a "Download" button on the card) rather than a separate state badge. The badge remains **Ready**.
+
+Tier-preferred optional models (e.g. E-4B on flagship devices) are auto-queued by the system and follow the automatic workflow above — they show **Preparing** without user action.
+
+### Storage-Blocked Workflow
+
+```
+Preparing → Insufficient Storage (Action Required) → Retry → Downloading → Validating → Ready
+```
+
+When storage runs out during download or validation, the state transitions to **Action Required** with a "Free up space" action.
 
 ---
 
@@ -273,6 +297,8 @@ All models should use a consistent card design.
 - Publisher
 - Capability
 - Current State
+- Requirement Level (Required / Optional) — shown as a chip or label
+- Selection State (Selected / Not selected) — shown as a radio indicator or label
 
 ### Secondary Information
 
@@ -280,6 +306,9 @@ All models should use a consistent card design.
 - Size
 - Version
 - Storage Usage
+
+Requirement Level and Selection State may also appear here if the card design prioritises them
+over the primary section — but they must always be visible on the card.
 
 ### Advanced Information
 
