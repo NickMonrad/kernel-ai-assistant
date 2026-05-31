@@ -380,7 +380,7 @@ private fun HuggingFaceRow(
             headlineContent = { Text("Not signed in") },
             supportingContent = {
                 Column {
-                    Text("Required to download EmbeddingGemma (gated). Accept licence before downloading.")
+                    Text("Required to download gated Hugging Face models. Accept licence before downloading.")
                     TextButton(onClick = onViewLicence, contentPadding = PaddingValues(0.dp)) {
                         Text("View licence →", style = MaterialTheme.typography.bodySmall)
                     }

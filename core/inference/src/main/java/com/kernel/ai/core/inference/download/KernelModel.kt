@@ -158,8 +158,8 @@ enum class KernelModel(
 
     // ── Sherpa-ONNX SenseVoice int8 (Offline) ────────────────────────────────
     //
-    // From FunAudioLLM/SenseVoiceSmall
-    // (HuggingFace, model-license, gated in-app). Single model int8 + tokens.
+    // From csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17
+    // (HuggingFace, ONNX conversion of SenseVoice, gated in-app). Single model int8 + tokens.
     // Downloaded on demand when the user selects "Sherpa-ONNX SenseVoice"
     // in Settings → Voice. Requires Hugging Face authentication plus any upstream terms.
 
@@ -171,7 +171,7 @@ enum class KernelModel(
         isRequired = false,
         preferredForTier = null,
         isGated = true,
-        licenceUrl = "https://huggingface.co/FunAudioLLM/SenseVoiceSmall",
+        licenceUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
         showInModelManagement = false,
     ),
 
@@ -183,7 +183,7 @@ enum class KernelModel(
         isRequired = false,
         preferredForTier = null,
         isGated = true,
-        licenceUrl = "https://huggingface.co/FunAudioLLM/SenseVoiceSmall",
+        licenceUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
         showInModelManagement = false,
     ),
 

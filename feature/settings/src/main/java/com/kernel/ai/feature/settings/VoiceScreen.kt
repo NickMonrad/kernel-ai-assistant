@@ -194,6 +194,8 @@ fun VoiceScreen(
         onCancelSherpaSttDownload = viewModel::cancelSherpaSttDownload,
         onDeleteSherpaStt = viewModel::deleteSherpaStt,
         onViewSherpaSttLicence = { url -> openInAppBrowser(context, url) },
+        onHuggingFaceSignIn = viewModel::startAuth,
+        onHuggingFaceSignOut = viewModel::signOutHuggingFace,
     )
 }
 
@@ -228,6 +230,8 @@ private fun VoiceScreenContent(
     onCancelSherpaSttDownload: (VoiceInputEngine) -> Unit,
     onDeleteSherpaStt: (VoiceInputEngine) -> Unit,
     onViewSherpaSttLicence: (String) -> Unit,
+    onHuggingFaceSignIn: () -> Unit,
+    onHuggingFaceSignOut: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -345,7 +349,6 @@ private fun VoiceScreenContent(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
-
             VoiceInputEngine.entries.forEach { engine ->
                 val warning = when (engine) {
                     VoiceInputEngine.AndroidNative ->
@@ -1467,7 +1470,7 @@ private fun SherpaOnnxSttDownloadCard(
                         TextButton(onClick = { onViewLicence(issue.licenceUrl) }) { Text("Accept licence") }
                         TextButton(onClick = onDownload) { Text("Retry") }
                     }
-                    modelLabel == VoiceInputEngine.SherpaSenseVoice.displayName && !isAuthenticated -> Button(
+                    modelLabel == VoiceInputEngine.SherpaSenseVoice.displayName && !isAuthenticated -> TextButton(
                         onClick = onDownload,
                         enabled = false,
                     ) { Text("Sign in required") }
@@ -1663,6 +1666,8 @@ private fun VoiceScreenPreview() {
             onCancelSherpaSttDownload = {},
             onDeleteSherpaStt = {},
             onViewSherpaSttLicence = {},
+            onHuggingFaceSignIn = {},
+            onHuggingFaceSignOut = {},
         )
     }
 }
