@@ -58,7 +58,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         private const val CHUNK_SAMPLES = (0.1 * SAMPLE_RATE).toInt() // 100 ms per chunk
         private const val LISTEN_TIMEOUT_MS = 15_000L
         private const val OFFLINE_SPEECH_RMS_THRESHOLD = 0.02f
-        private const val OFFLINE_TRAILING_SILENCE_FRAMES = 8 // 800 ms at 100 ms chunks
+        private const val OFFLINE_TRAILING_SILENCE_FRAMES = 25 // 2.5 s — tolerate natural speech pauses
         private const val PKG = "com.k2fsa.sherpa.onnx"
         /**
          * Returns true when [this] transcript contains a recognisable form of "Hey Jandal".
