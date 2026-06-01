@@ -439,17 +439,8 @@ private fun ChatContent(
     val scope = rememberCoroutineScope()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
     var showAttachmentPicker by remember { mutableStateOf(false) }
-    val loopListeningCueState = when (voiceCaptureState) {
-        ChatViewModel.VoiceCaptureState.Idle -> LoopListeningCueState.Idle
-        is ChatViewModel.VoiceCaptureState.Preparing -> LoopListeningCueState.Preparing
-        is ChatViewModel.VoiceCaptureState.Listening -> LoopListeningCueState.Listening
-        is ChatViewModel.VoiceCaptureState.Processing -> LoopListeningCueState.Processing
-    }
-
-    LoopListeningCueEffect(
-        loopActive = voiceMode == ChatViewModel.VoiceMode.BackAndForth,
-        captureState = loopListeningCueState,
-    )
+    // LoopListeningCueEffect removed — cue playback is handled by StartListeningCuePlayer
+    // in ChatViewModel on VoiceInputEvent.ListeningStarted.
 
     // Auto-scroll when a new message is appended, but only if the user is already
     // near the bottom (within 2 items). If they've scrolled up to read history,

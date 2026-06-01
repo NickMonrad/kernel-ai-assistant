@@ -361,6 +361,7 @@ class OnnxWakeWordDetector @Inject constructor(
                 val rms = calculateRms(chunk)
 
 
+
                 // Feed the current frame into the PCM ring buffer.
                 if (verifyWindow != null) {
                     val spaceToEnd = VERIFY_RING_SAMPLES - pcmRingHead
@@ -401,7 +402,7 @@ class OnnxWakeWordDetector @Inject constructor(
                 // the mel output by ~88 units, putting embeddings completely out of the
                 // distribution the classifier was trained on (verified empirically).
                 for (i in 0 until FRAME_SAMPLES) {
-                    framePcm[i] = chunk[i].toFloat()
+                    framePcm[i] = frameForInference[i].toFloat()
                 }
                 // Input:  [1, 1280] float32 PCM
                 // Output: [1, 1, 5, 32] mel spectrogram patch (5 rows × 32 bins per chunk)
