@@ -7,11 +7,14 @@ import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.prefs.ModelPreferences
+import com.kernel.ai.core.model.availability.AvailabilitySummary
+import com.kernel.ai.core.model.availability.computeAvailabilitySummary
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +29,7 @@ import javax.inject.Inject
 data class ModelRowState(
     val model: KernelModel,
     val downloadState: DownloadState,
+    val downloadSource: DownloadSource = DownloadSource.USER_INITIATED,
 )
 
 data class ModelManagementUiState(
@@ -36,6 +40,7 @@ data class ModelManagementUiState(
     val hfUsername: String? = null,
     val preferredModel: KernelModel? = null,
     val personaMode: PersonaMode = PersonaMode.HALF,
+    val availabilitySummary: AvailabilitySummary = AvailabilitySummary(total = 0),
 )
 
 @HiltViewModel
@@ -49,24 +54,48 @@ class ModelManagementViewModel @Inject constructor(
 
     val uiState = combine(
         modelDownloadManager.downloadStates,
+        modelDownloadManager.downloadSources,
         authRepository.isAuthenticated,
         authRepository.username,
         modelPreferences.preferredConversationModel,
         jandalPersona.personaMode,
-    ) { downloadStates, hfAuthenticated, hfUsername, preferredModel, personaMode ->
+    ) { array ->
+        @Suppress("UNCHECKED_CAST")
+        val downloadStates = array[0] as Map<KernelModel, DownloadState>
+        @Suppress("UNCHECKED_CAST")
+        val downloadSources = array[1] as Map<KernelModel, DownloadSource>
+        val hfAuthenticated = array[2] as Boolean
+        @Suppress("UNCHECKED_CAST")
+        val hfUsername = array[3] as String?
+        @Suppress("UNCHECKED_CAST")
+        val preferredModel = array[4] as KernelModel?
+        val personaMode = array[5] as PersonaMode
+
+        val filteredModels = KernelModel.entries.filter {
+            it.showInModelManagement && !it.isDeprecated
+        }
+        val models = filteredModels.map { model ->
+            ModelRowState(
+                model = model,
+                downloadState = downloadStates[model] ?: DownloadState.NotDownloaded,
+                downloadSource = downloadSources[model] ?: DownloadSource.USER_INITIATED,
+            )
+        }
+        val summary = computeAvailabilitySummary(
+            models = filteredModels,
+            downloadStates = downloadStates,
+            hfAuth = hfAuthenticated,
+            downloadSources = downloadSources,
+        )
         ModelManagementUiState(
-            models = KernelModel.entries.filter { it.showInModelManagement }.map { model ->
-                ModelRowState(
-                    model = model,
-                    downloadState = downloadStates[model] ?: DownloadState.NotDownloaded,
-                )
-            },
+            models = models,
             totalStorageUsedBytes = calculateStorageUsed(),
             freeSpaceBytes = calculateFreeSpace(),
             hfAuthenticated = hfAuthenticated,
             hfUsername = hfUsername,
             preferredModel = preferredModel,
             personaMode = personaMode,
+            availabilitySummary = summary,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -90,7 +119,6 @@ class ModelManagementViewModel @Inject constructor(
         if (model.isRequired || model.isBundled) return
         viewModelScope.launch(Dispatchers.IO) {
             model.localFile(context).delete()
-            // Also delete any stale .tmp resume file
             val tmpFile = java.io.File(model.localFile(context).absolutePath + ".tmp")
             if (tmpFile.exists()) tmpFile.delete()
             withContext(Dispatchers.Main) {
