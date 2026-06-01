@@ -161,6 +161,27 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
+    @Tool(description = "Convert an amount between currencies using latest ECB-backed exchange rates. Use for any currency conversion like 'how much is 100 AUD in INR' or 'convert 50 USD to NZD'. NOT for unit conversion (use runIntent with convert_units for that).")
+    fun convertCurrency(
+        @ToolParam(description = "The amount to convert, as a number (e.g. '100', '50.75')") amount: String,
+        @ToolParam(description = "Source currency code or full name (e.g. 'AUD', 'USD', 'Australian dollars')") fromCurrency: String,
+        @ToolParam(description = "Target currency code or full name (e.g. 'INR', 'NZD', 'Indian rupees')") toCurrency: String,
+    ): Map<String, String> {
+        toolCalledInThisTurn = true
+        setLastToolCall("convert_currency", """{"amount":"$amount","from_currency":"$fromCurrency","to_currency":"$toCurrency"}""")
+        Log.d(TAG, "ToolSet: convertCurrency(amount=$amount, from=$fromCurrency, to=$toCurrency)")
+
+        val args = mapOf(
+            "amount" to amount,
+            "from_currency" to fromCurrency,
+            "to_currency" to toCurrency,
+        )
+
+        val result = executeSkill("convert_currency", args)
+        lastToolResult = result["result"] ?: result["error"]
+        return result
+    }
+
     @Tool(description = "Get current weather or a multi-day forecast (pass forecastDays=1-7 for forecast). ONLY for weather queries. NOT for date, time, or general knowledge.")
     fun getWeather(
         @ToolParam(description = "Optional location/city name. Leave blank for device GPS location.") location: String,
