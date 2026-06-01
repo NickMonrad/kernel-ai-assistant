@@ -41,7 +41,7 @@ const val WAKE_WORD_VERIFY_WINDOW_S = 3
 const val WAKE_WORD_DEFAULT_SILENCE_RMS_THRESHOLD = 600f
 
 /** Continue full-rate inference this long after the last voiced frame before gating back down. */
-const val WAKE_WORD_DEFAULT_SILENCE_HANGOVER_SECONDS = 2.5f
+const val WAKE_WORD_DEFAULT_SILENCE_HANGOVER_SECONDS = 5.0f
 
 /** Minimum buffered audio required before replaying into the detector after silence. */
 const val WAKE_WORD_DEFAULT_SILENCE_REARM_SECONDS = 2.5f
@@ -50,7 +50,7 @@ const val WAKE_WORD_DEFAULT_SILENCE_REARM_SECONDS = 2.5f
 const val WAKE_WORD_MAX_REPLAY_SECONDS = 3.0f
 
 /** Maximum sustained-silence interval between full inferences while gated down. */
-const val WAKE_WORD_MAX_SILENCE_SKIP_SECONDS = 0.96f
+const val WAKE_WORD_MAX_SILENCE_SKIP_SECONDS = 3.0f
 
 /** Frame size used by the detector loop (80 ms). Shared here for silence-gating defaults. */
 const val WAKE_WORD_FRAME_SAMPLES = 1_280

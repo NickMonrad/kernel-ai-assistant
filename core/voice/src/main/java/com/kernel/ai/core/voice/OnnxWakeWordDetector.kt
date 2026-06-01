@@ -337,6 +337,9 @@ class OnnxWakeWordDetector @Inject constructor(
         var replayHead = 0
         var replayFilled = 0
         var silenceFrames = 0
+        var voicedFrameStreak = 0
+        var adaptiveRmsBaseline = 0.0
+        var gatedFramesSkipped = 0L
         var fullInferenceDebt = replayFrames
         var maxObservedReplay = 0
 
@@ -361,14 +364,6 @@ class OnnxWakeWordDetector @Inject constructor(
                 if (totalRead < FRAME_SAMPLES) continue
                 chunkCount++
                 val rms = calculateRms(chunk)
-                if (chunkCount % 100 == 0) {
-                    // Log mic activity every ~8s to confirm AudioRecord is delivering data.
-                    Log.d(
-                        TAG,
-                        "WakeWordDetector: alive chunk=$chunkCount rms=${"%.1f".format(rms)} " +
-                            "melFilled=$melRowsFilled embAcc=$embFramesAccumulated gated=${fullInferenceDebt == 0}",
-                    )
-                }
 
 
                 // Feed the current frame into the PCM ring buffer.
@@ -391,10 +386,37 @@ class OnnxWakeWordDetector @Inject constructor(
                 replayHead = (replayHead + 1) % replayFrames
                 if (replayFilled < replayFrames) replayFilled++
 
-                val voiced = rms >= silenceRmsThreshold
+                // ── Adaptive noise gating ──────────────────────────────────────────
+                // Track the minimum observed RMS as an adaptive silence baseline.
+                // This allows the threshold to work correctly across different
+                // environments (quiet bedroom vs office background hum).
+                if (adaptiveRmsBaseline <= 0.0 || rms < adaptiveRmsBaseline * 1.05) {
+                    adaptiveRmsBaseline = rms
+                }
+                // Every ~80 seconds, allow a tiny upward drift so the baseline can
+                // adjust to gradually louder environments over time.
+                if (chunkCount % 1000 == 0 && rms >= adaptiveRmsBaseline) {
+                    adaptiveRmsBaseline *= 1.001
+                }
+
+                // ── Debounced voice detection ──────────────────────────────────────
+                // Require 3+ consecutive frames with RMS ≥ threshold (240ms) before
+                // treating audio as speech.  A single 80ms transient (door, tap, car
+                // passing) no longer resets the silence timer.
+                val isFrameVoiced = rms >= silenceRmsThreshold
+                voicedFrameStreak = if (isFrameVoiced) voicedFrameStreak + 1 else 0
+                val voiced = voicedFrameStreak >= 3
+
                 if (voiced) {
+                    // When voice resumes after deep silence (gating was active), the
+                    // replay ring is full of stale silence frames.  Replaying them just
+                    // delays live audio processing — skip the replay and let the mel/
+                    // embedding rings fill naturally with fresh audio (~1.3s at 12.5/s).
+                    // Brief voice transients (RMS briefly dips then returns quickly) still
+                    // use replay to preserve ring buffer continuity.
+                    val wasGated = silenceFrames > silenceHangoverFrames
                     silenceFrames = 0
-                    if (fullInferenceDebt == 0) {
+                    if (fullInferenceDebt == 0 && !wasGated) {
                         fullInferenceDebt = replayFilled.coerceAtLeast(1)
                         if (fullInferenceDebt > maxObservedReplay) maxObservedReplay = fullInferenceDebt
                     }
@@ -404,7 +426,22 @@ class OnnxWakeWordDetector @Inject constructor(
 
                 if (!voiced && silenceFrames > silenceHangoverFrames && fullInferenceDebt <= 0) {
                     fullInferenceDebt = if (chunkCount % maxSilenceSkipFrames.toLong() == 0L) 1 else 0
-                    if (fullInferenceDebt == 0) continue
+                    if (fullInferenceDebt == 0) {
+                        gatedFramesSkipped++
+                        continue
+                    }
+                }
+                // Log mic activity every ~8s to confirm AudioRecord is delivering data.
+                // Gated frames are skipped at the `continue` above and never reach here.
+                if (chunkCount % 100 == 0) {
+                    Log.d(
+                        TAG,
+                        "WakeWordDetector: alive chunk=$chunkCount rms=${"%.1f".format(rms)} " +
+                            "base=${"%.1f".format(adaptiveRmsBaseline)} " +
+                            "thresh=$silenceRmsThreshold voiced=$voiced " +
+                            "debt=$fullInferenceDebt melFilled=$melRowsFilled " +
+                            "embAcc=$embFramesAccumulated ongoingSkips=$gatedFramesSkipped",
+                    )
                 }
 
                 val frameForInference = if (fullInferenceDebt > 0) {
@@ -558,7 +595,9 @@ class OnnxWakeWordDetector @Inject constructor(
             classSession.close()
             sessionOptions.close()
             running.set(false)
-            Log.d(TAG, "WakeWordDetector: detection loop exited maxReplayFrames=$maxObservedReplay")
+            Log.d(TAG, "WakeWordDetector: detection loop exited — " +
+                "inferences=$inferenceCount gatedSkips=$gatedFramesSkipped " +
+                "maxReplayFrames=$maxObservedReplay finalBaseline=${"%.1f".format(adaptiveRmsBaseline)}")
         }
     }
 
