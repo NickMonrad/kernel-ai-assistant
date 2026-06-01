@@ -794,6 +794,18 @@ class LiteRtInferenceEngine @Inject constructor(
                     val tokensPerSec = if (generationMs > 0 && outputTokenCount > 0) {
                         outputTokenCount * 1000.0 / generationMs
                     } else 0.0
+                    if (fallbackInThought) {
+                        // Model started a thought block with <|think|> but never closed it
+                        // with <|/think|>. Flush the buffered text as response so the user
+                        // doesn't get a blank response.
+                        val stuck = fallbackThinkingBuffer.toString()
+                        if (stuck.isNotBlank()) {
+                            Log.w(TAG, "thought_fallback: stuck in thought (no <|/think|>) — flushing ${stuck.length} chars as response")
+                            outputTokenCount++
+                            emittedResponseText.append(stuck)
+                            trySend(GenerationResult.Token(stuck))
+                        }
+                    }
                     if (thinkingCharCount > 0) {
                         Log.d("KernelAI", "Thinking tokens: $thinkingCharCount chars")
                     }
