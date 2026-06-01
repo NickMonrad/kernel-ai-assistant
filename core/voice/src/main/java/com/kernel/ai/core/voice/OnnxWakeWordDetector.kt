@@ -314,6 +314,8 @@ class OnnxWakeWordDetector @Inject constructor(
                 Log.e(TAG, "WakeWordDetector: one or more ONNX sessions failed to load")
                 return
             }
+            Log.i(TAG, "WakeWordDetector: models loaded (embedding: NNAPI CPU_DISABLED, mel+classifier: CPU)")
+
 
             // Resolve ONNX node names once at startup.
             val melsInputName   = melsSession.inputNames.first()
