@@ -64,6 +64,7 @@ import com.kernel.ai.core.voice.KokoroSpeakerGroup
 import com.kernel.ai.core.voice.SemaineSpeakerMetadata
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.core.voice.VctkSpeakerMetadata
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
@@ -413,21 +414,18 @@ private fun VoiceScreenContent(
                 if (engine.isSherpaFamily) {
                     val state = sttState
                     if (state != null && (!state.isDownloaded || uiState.selectedInputEngine == engine)) {
-                        // Resolve subtitle from engine type.
-                        val subtitle = when (engine) {
-                            VoiceInputEngine.SherpaZipformer -> "Zipformer int8 · English · Fully offline (~72 MB)"
-                            VoiceInputEngine.SherpaSenseVoice -> "SenseVoice int8 · English · Offline, final only (~100 MB)"
-                            VoiceInputEngine.SherpaWhisper -> "Whisper tiny.en int8 · English · Offline, final only (~117 MB)"
-                            VoiceInputEngine.SherpaParaformer -> "Paraformer int8 · English · Streaming (~226 MB)"
-                            else -> ""
-                        }
                         SherpaOnnxSttDownloadCard(
                             isDownloaded = state.isDownloaded,
                             isDownloading = state.isDownloading,
                             progress = state.progress,
                             issue = state.issue,
-                            modelLabel = engine.displayName,
-                            modelSubtitle = subtitle,
+                            modelSubtitle = when (engine) {
+                                VoiceInputEngine.SherpaZipformer -> SherpaSttModelSpec.ZIPFORMER.subtitle
+                                VoiceInputEngine.SherpaSenseVoice -> SherpaSttModelSpec.SENSE_VOICE.subtitle
+                                VoiceInputEngine.SherpaWhisper -> SherpaSttModelSpec.WHISPER.subtitle
+                                VoiceInputEngine.SherpaParaformer -> SherpaSttModelSpec.PARAFORMER.subtitle
+                                else -> ""
+                            },
                             onDownload = { onDownloadSherpaStt(engine) },
                             onCancel = { onCancelSherpaSttDownload(engine) },
                             onDelete = { onDeleteSherpaStt(engine) },
@@ -1391,7 +1389,6 @@ private fun SherpaOnnxSttDownloadCard(
     isDownloading: Boolean,
     progress: Float,
     issue: SherpaSttDownloadIssue?,
-    modelLabel: String,
     modelSubtitle: String,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
