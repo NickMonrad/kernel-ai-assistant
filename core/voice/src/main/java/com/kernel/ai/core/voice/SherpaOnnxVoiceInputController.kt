@@ -57,9 +57,9 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         private const val SAMPLE_RATE = 16000
         private const val CHUNK_SAMPLES = (0.1 * SAMPLE_RATE).toInt() // 100 ms per chunk
         private const val LISTEN_TIMEOUT_MS = 15_000L
-
+        private const val OFFLINE_SPEECH_RMS_THRESHOLD = 0.02f
+        private const val OFFLINE_TRAILING_SILENCE_FRAMES = 8 // 800 ms at 100 ms chunks
         private const val PKG = "com.k2fsa.sherpa.onnx"
-
         /**
          * Returns true when [this] transcript contains a recognisable form of "Hey Jandal".
          *
@@ -328,7 +328,8 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         val pcmBuf = ShortArray(CHUNK_SAMPLES)
         val allFloats = mutableListOf<FloatArray>()
         val started = System.currentTimeMillis()
-        var timedOut = false
+        var speechDetected = false
+        var trailingSilenceFrames = 0
 
         try {
             ar.startRecording()
@@ -336,14 +337,19 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 val n = ar.read(pcmBuf, 0, pcmBuf.size)
                 if (n <= 0) continue
 
-                // Convert and buffer instead of feeding incrementally.
                 val floatChunk = FloatArray(n) { pcmBuf[it] / 32768f }
                 allFloats.add(floatChunk)
 
-                if (System.currentTimeMillis() - started > LISTEN_TIMEOUT_MS) {
-                    timedOut = true
-                    break
+                val rms = chunkRms(floatChunk)
+                if (rms >= OFFLINE_SPEECH_RMS_THRESHOLD) {
+                    speechDetected = true
+                    trailingSilenceFrames = 0
+                } else if (speechDetected) {
+                    trailingSilenceFrames++
+                    if (trailingSilenceFrames >= OFFLINE_TRAILING_SILENCE_FRAMES) break
                 }
+
+                if (System.currentTimeMillis() - started > LISTEN_TIMEOUT_MS) break
             }
 
             // Concatenate all recorded chunks and decode once.
@@ -357,7 +363,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 }
 
                 streamMethods.acceptWaveform!!.invoke(stream, fullPcm, SAMPLE_RATE)
-                streamMethods.inputFinished!!.invoke(stream)
+                streamMethods.inputFinished?.invoke(stream)
                 offlineMethods.decode!!.invoke(rec, stream)
 
                 val text = resultTextOffline(rec, stream)
@@ -387,6 +393,13 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         return (getText.invoke(result) as String).trim().lowercase(java.util.Locale.ROOT)
     }
 
+    private fun chunkRms(chunk: FloatArray): Float {
+        if (chunk.isEmpty()) return 0f
+        var sum = 0.0
+        for (v in chunk) sum += (v * v).toDouble()
+        return kotlin.math.sqrt(sum / chunk.size).toFloat()
+    }
+
     suspend fun transcribeBlocking(pcm: ShortArray): String {
         if (pcm.isEmpty()) return ""
         val spec = SherpaSttModelSpec.WAKE_VERIFICATION_DEFAULT
@@ -397,6 +410,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             methods.acceptWaveform.invoke(stream, floats, SAMPLE_RATE)
             methods.inputFinished.invoke(stream)
             var iters = 0
+
             while (methods.isReady.invoke(rec, stream) as Boolean) {
                 methods.decode.invoke(rec, stream)
                 if (++iters > 500) break
@@ -824,9 +838,11 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             setProperty(it, "maxActivePaths", 1)
         }
 
-        val ctor = clsRecognizer.getConstructor(clsRecCfg)
+        val ctor = clsRecognizer.getConstructor(
+            android.content.res.AssetManager::class.java, clsRecCfg
+        )
         @Suppress("UNCHECKED_CAST")
-        val instance = ctor.newInstance(recConfig)
+        val instance = ctor.newInstance(null, recConfig)
 
         // Cache reflected methods for offline recognizer.
         // OfflineRecognizer.createStream() takes no argument.
@@ -836,7 +852,9 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         streamMethods.acceptWaveform = clsStream.getDeclaredMethod(
             "acceptWaveform", FloatArray::class.java, Int::class.javaPrimitiveType
         )
-        streamMethods.inputFinished = clsStream.getDeclaredMethod("inputFinished")
+        streamMethods.inputFinished = runCatching {
+            clsStream.getDeclaredMethod("inputFinished")
+        }.getOrNull()
         streamMethods.streamRelease = clsStream.getDeclaredMethod("release")
 
         cacheGetText(instance)
@@ -864,7 +882,15 @@ class SherpaOnnxVoiceInputController @Inject constructor(
      */
     private fun cacheGetText(recognizerInstance: Any) {
         try {
-            val stream = streamMethods.createStream!!.invoke(recognizerInstance)!!
+            val stream = try {
+                when {
+                    onlineMethods.getResult != null -> streamMethods.createStream!!.invoke(recognizerInstance, "")!!
+                    offlineMethods.getResult != null -> streamMethods.createStream!!.invoke(recognizerInstance)!!
+                    else -> return
+                }
+            } catch (_: Exception) {
+                return
+            }
             try {
                 val getResultMethod = when {
                     onlineMethods.getResult != null -> onlineMethods.getResult
