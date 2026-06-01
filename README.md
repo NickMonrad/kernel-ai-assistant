@@ -1,8 +1,6 @@
 # Jandal AI
 
-
-*Currently available on [Google Play](https://play.google.com/store/apps/details?id=com.kernel.ai) and GitHub releases.*
-
+*Play Store release — coming soon. Pre-release builds available on GitHub Releases.*
 ## How It Works
 
 The app operates on a **Brain–Memory–Action** triad using a three-tier Resident Agent Architecture:
