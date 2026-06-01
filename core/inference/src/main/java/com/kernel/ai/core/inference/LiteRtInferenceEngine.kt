@@ -678,6 +678,8 @@ class LiteRtInferenceEngine @Inject constructor(
         val thinkingEnabledForGeneration = currentConfig?.thinkingEnabled == true
         val thinkingStateMachine = if (thinkingEnabledForGeneration) ThinkingStreamStateMachine() else null
         var thinkingStateMachineActive = false
+        var fallbackThinkingBuffer = StringBuilder()
+        var fallbackInThought = false
 
         val thinkingContext: Map<String, Any> =
             if (thinkingEnabledForGeneration) mapOf("enable_thinking" to true) else emptyMap()
@@ -726,10 +728,48 @@ class LiteRtInferenceEngine @Inject constructor(
 
                     if (raw.contains("<|channel>") && !raw.contains("<channel|>")) {
                         // Partial channel header — skip, content will arrive via channels["thought"].
-                        // Log so any false-positive drops are observable in logcat.
                         Log.d(TAG, "Skipping partial channel header in toString() [len=${raw.length}] — expecting thought delta")
                         return
                     }
+
+                    // Fallback thought parser: when the native LiteRT engine fails to populate
+                    // channels["thought"], the raw text still contains <|think|> / <|/think|>
+                    // markers. Detect them here and split manually.
+                    val thinkOpen = "<|think|>"
+                    val thinkClose = "<|/think|>"
+                    if (thinkingEnabledForGeneration && (fallbackInThought || raw.contains(thinkOpen))) {
+                        if (!fallbackInThought) {
+                            fallbackInThought = true
+                            fallbackThinkingBuffer.append(raw.substringAfter(thinkOpen))
+                        } else {
+                            fallbackThinkingBuffer.append(raw)
+                        }
+                        val buffered = fallbackThinkingBuffer.toString()
+                        val closeIdx = buffered.indexOf(thinkClose)
+                        if (closeIdx >= 0) {
+                            fallbackInThought = false
+                            val thought = buffered.substring(0, closeIdx)
+                            val responseText = raw.substringAfter(thinkClose)
+                            if (thought.isNotBlank()) {
+                                thinkingCharCount += thought.length
+                                Log.w(TAG, "thought_fallback: recovered ${thought.length} chars from raw text " +
+                                    "(LiteRT failed to populate channels)")
+                                trySend(GenerationResult.Thinking(thought.trim()))
+                            }
+                            if (responseText.isNotBlank()) {
+                                if (firstTokenMs < 0) {
+                                    firstTokenMs = System.currentTimeMillis() - start
+                                    Log.i(TAG, "TTFT (Time to First Token): ${firstTokenMs}ms [backend=${_activeBackend.value}]")
+                                }
+                                outputTokenCount++
+                                emittedResponseText.append(responseText)
+                                trySend(GenerationResult.Token(responseText))
+                            }
+                            fallbackThinkingBuffer.clear()
+                        }
+                        return
+                    }
+
                     val stripped = CHANNEL_WRAPPER_RE.replace(raw, "")
                     val text = if (stripped.length != raw.length) stripped.trim() else stripped
                     if (text.isNotEmpty() && !text.startsWith("<ctrl")) {
