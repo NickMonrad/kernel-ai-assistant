@@ -333,12 +333,10 @@ class OnnxWakeWordDetector @Inject constructor(
         val pcmRing     = if (verifyWindow != null) ShortArray(VERIFY_RING_SAMPLES) else ShortArray(0)
         var pcmRingHead = 0
         var pcmFilled   = 0
-        val replayChunkRing = Array(replayFrames) { ShortArray(FRAME_SAMPLES) }
-        var replayHead = 0
-        var replayFilled = 0
         var silenceFrames = 0
-        var fullInferenceDebt = replayFrames
-        var maxObservedReplay = 0
+        var voicedFrameStreak = 0
+        var minRms = 0.0
+        var gatedFramesSkipped = 0L
 
         try {
             audioRecord.startRecording()
@@ -361,14 +359,7 @@ class OnnxWakeWordDetector @Inject constructor(
                 if (totalRead < FRAME_SAMPLES) continue
                 chunkCount++
                 val rms = calculateRms(chunk)
-                if (chunkCount % 100 == 0) {
-                    // Log mic activity every ~8s to confirm AudioRecord is delivering data.
-                    Log.d(
-                        TAG,
-                        "WakeWordDetector: alive chunk=$chunkCount rms=${"%.1f".format(rms)} " +
-                            "melFilled=$melRowsFilled embAcc=$embFramesAccumulated gated=${fullInferenceDebt == 0}",
-                    )
-                }
+
 
 
                 // Feed the current frame into the PCM ring buffer.
@@ -385,45 +376,34 @@ class OnnxWakeWordDetector @Inject constructor(
                     if (pcmFilled < VERIFY_RING_SAMPLES) pcmFilled += FRAME_SAMPLES
                 }
 
-                // Keep a rolling PCM history so speech onset can replay enough context to rebuild
-                // the mel/embedding/classifier state before live inference resumes.
-                chunk.copyInto(replayChunkRing[replayHead], 0, 0, FRAME_SAMPLES)
-                replayHead = (replayHead + 1) % replayFrames
-                if (replayFilled < replayFrames) replayFilled++
+                // ── Silence baseline ───────────────────────────────────────────────
+                // Track the minimum observed RMS for diagnostic logging.
+                if (minRms <= 0.0 || rms < minRms) minRms = rms
 
-                val voiced = rms >= silenceRmsThreshold
+                // ── Debounced voice detection ──────────────────────────────────────
+                // Require 3+ consecutive frames with RMS ≥ threshold (240ms) before
+                // treating audio as speech.  A single 80ms transient (door, tap, car
+                // passing) no longer resets the silence timer.
+                val isFrameVoiced = rms >= silenceRmsThreshold
+                voicedFrameStreak = if (isFrameVoiced) voicedFrameStreak + 1 else 0
+                val voiced = voicedFrameStreak >= 3
+
                 if (voiced) {
                     silenceFrames = 0
-                    if (fullInferenceDebt == 0) {
-                        fullInferenceDebt = replayFilled.coerceAtLeast(1)
-                        if (fullInferenceDebt > maxObservedReplay) maxObservedReplay = fullInferenceDebt
-                    }
                 } else {
                     silenceFrames++
                 }
-
-                if (!voiced && silenceFrames > silenceHangoverFrames && fullInferenceDebt <= 0) {
-                    fullInferenceDebt = if (chunkCount % maxSilenceSkipFrames.toLong() == 0L) 1 else 0
-                    if (fullInferenceDebt == 0) continue
-                }
-
-                val frameForInference = if (fullInferenceDebt > 0) {
-                    val replayIndex = ((replayHead - fullInferenceDebt) + replayFrames) % replayFrames
-                    fullInferenceDebt--
-                    replayChunkRing[replayIndex]
-                } else {
-                    chunk
-                }
-
+                // ── Stage 1: mel spectrogram (runs on every frame) ──────────────────
+                // Keeps the mel ring fresh during gated silence so that when speech
+                // resumes, only the 16-frame embedding ring needs to refill (~1.3s).
+                //
                 // openWakeWord's mel model expects raw 16-bit PCM values cast to float32
                 // (range ±32768), NOT normalised to [-1, 1]. Using the wrong scale shifts
                 // the mel output by ~88 units, putting embeddings completely out of the
                 // distribution the classifier was trained on (verified empirically).
                 for (i in 0 until FRAME_SAMPLES) {
-                    framePcm[i] = frameForInference[i].toFloat()
+                    framePcm[i] = chunk[i].toFloat()
                 }
-
-                // ── Stage 1: melspectrogram ───────────────────────────────────────────
                 // Input:  [1, 1280] float32 PCM
                 // Output: [1, 1, 5, 32] mel spectrogram patch (5 rows × 32 bins per chunk)
                 val melRows: FloatArray = OnnxTensor.createTensor(
@@ -433,13 +413,6 @@ class OnnxWakeWordDetector @Inject constructor(
                 ).use { melIn ->
                     melsSession.run(mapOf(melsInputName to melIn)).use { melOut ->
                         val t = melOut[melsOutputName].get() as OnnxTensor
-                        // t.value is Array<Array<Array<FloatArray>>> with shape [1,1,5,32].
-                        // Flatten the [5,32] patch and apply the openWakeWord mel transform:
-                        //   value / 10.0 + 2.0
-                        // This normalisation is applied by the reference Android implementation
-                        // (Re-MENTIA/openwakeword-android-kt MelSpectrogram.applyMelSpecTransform)
-                        // and matches the preprocessing used during training. Without it the
-                        // classifier sees out-of-distribution inputs and outputs ~0.001 for all audio.
                         val rows = (((t.value as Array<*>)[0] as Array<*>)[0] as Array<*>)
                         val flat = FloatArray(MEL_ROWS_PER_CHUNK * MEL_BINS)
                         for (r in 0 until MEL_ROWS_PER_CHUNK) {
@@ -455,17 +428,33 @@ class OnnxWakeWordDetector @Inject constructor(
 
                 // Slide mel ring: drop oldest MEL_ROWS_PER_CHUNK rows, append new rows.
                 if (melRowsFilled >= MEL_RING_SIZE) {
-                    // Ring full — shift left by MEL_ROWS_PER_CHUNK, append at the tail.
                     melRing.copyInto(melRing, 0, MEL_ROWS_PER_CHUNK * MEL_BINS, MEL_RING_SIZE * MEL_BINS)
                     melRows.copyInto(melRing, (MEL_RING_SIZE - MEL_ROWS_PER_CHUNK) * MEL_BINS)
                 } else {
-                    // Ring not yet full — append as many rows as fit (MEL_RING_SIZE may not be
-                    // a multiple of MEL_ROWS_PER_CHUNK, so clamp to avoid OOB on the last chunk).
                     val rowsToInsert = minOf(MEL_ROWS_PER_CHUNK, MEL_RING_SIZE - melRowsFilled)
                     melRows.copyInto(melRing, melRowsFilled * MEL_BINS, 0, rowsToInsert * MEL_BINS)
                     melRowsFilled += rowsToInsert
                 }
-                if (melRowsFilled < MEL_RING_SIZE) continue // need more audio before first embedding
+                if (melRowsFilled < MEL_RING_SIZE) continue
+
+                // ── Gating: skip embedding + classifier when silent ─────────────────
+                if (!voiced && silenceFrames > silenceHangoverFrames &&
+                    chunkCount % maxSilenceSkipFrames.toLong() != 0L) {
+                    gatedFramesSkipped++
+                    continue  // wake word not expected — skip expensive Stage 2/3
+                }
+
+                // Log mic activity every ~8s (only when Stage 2/3 runs).
+                if (chunkCount % 100 == 0) {
+                    Log.d(
+                        TAG,
+                        "WakeWordDetector: alive chunk=$chunkCount rms=${"%.1f".format(rms)} " +
+                            "base=${"%.1f".format(minRms)} " +
+                            "thresh=$silenceRmsThreshold voiced=$voiced " +
+                            "melFilled=$melRowsFilled embAcc=$embFramesAccumulated " +
+                            "ongoingSkips=$gatedFramesSkipped",
+                    )
+                }
 
                 // ── Stage 2: embedding backbone ───────────────────────────────────────
                 // Input:  [1, 76, 32, 1] — melRing reshaped; the model expects a channel dim of 1.
@@ -558,7 +547,9 @@ class OnnxWakeWordDetector @Inject constructor(
             classSession.close()
             sessionOptions.close()
             running.set(false)
-            Log.d(TAG, "WakeWordDetector: detection loop exited maxReplayFrames=$maxObservedReplay")
+            Log.d(TAG, "WakeWordDetector: detection loop exited — " +
+                "inferences=$inferenceCount gatedSkips=$gatedFramesSkipped " +
+                "finalMinRms=${"%.1f".format(minRms)}")
         }
     }
 
