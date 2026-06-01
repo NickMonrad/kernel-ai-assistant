@@ -1,6 +1,6 @@
 # Jandal AI
 
-*Play Store release — coming soon. Pre-release builds available on GitHub Releases.*
+*Play Store release — coming soon. Pre-release builds on [GitHub Releases](https://github.com/NickMonrad/kernel-ai-assistant/releases).*
 ## How It Works
 
 The app operates on a **Brain–Memory–Action** triad using a three-tier Resident Agent Architecture:
