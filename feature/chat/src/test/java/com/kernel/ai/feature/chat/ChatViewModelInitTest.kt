@@ -42,6 +42,7 @@ import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.StartListeningCuePlayer
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -94,6 +95,7 @@ class ChatViewModelInitTest {
     private val jandalPersona: JandalPersona = mockk(relaxed = true)
     private val nzTruthSeedingService: NzTruthSeedingService = mockk(relaxed = true)
     private val verboseLoggingPreferenceUseCase: VerboseLoggingPreferenceUseCase = mockk(relaxed = true)
+    private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val chatPreferences: com.kernel.ai.core.memory.prefs.ChatPreferences = mockk(relaxed = true)
 
     @BeforeEach
@@ -175,6 +177,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -209,6 +212,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -243,6 +247,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -284,6 +289,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -330,6 +336,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -407,6 +414,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -458,6 +466,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -526,6 +535,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -582,6 +592,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -640,6 +651,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -688,6 +700,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -752,6 +765,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -807,6 +821,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
@@ -858,6 +873,7 @@ class ChatViewModelInitTest {
         jandalPersona = jandalPersona,
         nzTruthSeedingService = nzTruthSeedingService,
         verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+        startListeningCuePlayer = startListeningCuePlayer,
         mealPlanSessionRepository = mealPlanSessionRepository,
         mealPlannerCoordinator = mealPlannerCoordinator,
         )
