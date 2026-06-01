@@ -304,6 +304,7 @@ class OnnxWakeWordDetector @Inject constructor(
             embedSession?.close()
             classSession?.close()
             audioRecord.release()
+            activeAudioRecord = null
             running.set(false)
             return
         }
