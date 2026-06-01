@@ -1,247 +1,174 @@
 # Jandal AI Assistant — Agent Context
 
-Android-native, local-first AI assistant. All inference on-device via LiteRT. Kotlin host; Wasm guest-only.
+Android-native, local-first AI assistant. All inference on-device via LiteRT. Kotlin host; Wasm guest-only. **Repo:** `NickMonrad/kernel-ai-assistant` | **Min SDK:** 35 (Android 15)
 
-**Repo:** `NickMonrad/kernel-ai-assistant` | **Test device:** Samsung Galaxy S23 Ultra (Snapdragon 8 Gen 2, 12GB RAM, Android 16 / One UI 8.0) | **Min SDK:** 35 (Android 15)
-
-## Architecture — Three-Tier Brain
+## Architecture
 
 ```
-User input
-    │
-    ▼
-┌─────────────────────────────┐
-│  Tier 2: QuickIntentRouter  │  Pure Kotlin regex + MiniLM classifier, ~0MB, <5ms
-│  20+ intents: alarms/timers,│  Phases 1A/1B/2 merged (MiniLM classifier active).
-│  media, torch, DND, nav…   │
-└────────┬────────────────────┘
-         │ no match
-         ▼
-┌─────────────────────────────┐
-│  Tier 3: Gemma-4 E-4B/E-2B │  Resident on GPU, TTFT ~2.3s
-│  Native JSON tool calling   │  Complex NLU + tool calling via SkillExecutor
-│  + RAG memory context       │  Confirmed working: weather, save_memory, get_system_info
-└─────────────────────────────┘
+User input → Tier 2: QuickIntentRouter (regex + MiniLM, <5ms, 20+ intents)
+           ↘ no match → Tier 3: Gemma-4 E-4B/E-2B (GPU resident, TTFT ~2.3s)
 ```
 
 **FunctionGemma-270M is deprecated.** Do not load at startup or wire new features to it.
 
-### `save_memory` routing (fix #937, commit `480fafcd`) — do not add patterns without checking
-
-| Input | Tier | Reason |
-|-------|------|--------|
-| `save/store/keep [to/in memory [that] \| that] <content>` | **Tier 2** | Direct intercept |
-| `save/store/keep this/it …` | **Tier 3** | Anaphoric — needs LLM context |
-| `remember [that] <content>` — not starting with this/that/it | **Tier 2** | Direct intercept; first-person normalised by `normaliseSaveContent()` |
-| `remember that this/that/it …` | **Tier 3** | True anaphoric — needs LLM context |
-
-`normaliseSaveContent()` handles full first-person conjugation: `I'm`/`I am` → `Name is`, `I have` → `Name has`, `I prefer/like/…` → conjugated third-person, bare `I` → `Name` (catch-all), `my` → `Name's`. Applied on both Tier 2 and Tier 3 code paths.
-
-### Model inventory
+## Model inventory
 
 | Model | Role | Loading |
 |-------|------|---------|
-| Gemma-4 E-4B (Performance) / E-2B (Compat) | Resident reasoning + tool calling (~3.4GB) | Eager — E4B first, full GPU headroom |
-| EmbeddingGemma-300M | Semantic embeddings, 768-dim RAG | Lazy on first RAG-triggering query |
-| all-MiniLM-L6-v2 int8 | Zero-shot intent classifier (~15MB) | Lazy, graceful null fallback |
-| FunctionGemma-270M | ~~Intent router~~ **Deprecated** | Not loaded; class retained pending #358 |
+| Gemma-4 E-4B / E-2B | Reasoning + tool calling (~3.4GB) | Eager — E4B first |
+| EmbeddingGemma-300M | 768-dim semantic RAG embeddings | Lazy on first RAG query |
+| all-MiniLM-L6-v2 int8 | Zero-shot intent classifier (~15MB) | Lazy, null fallback |
+| FunctionGemma-270M | ~~Intent router~~ **Deprecated** | Not loaded |
 
-- Quantized weights (INT4/INT8) via LiteRT. Backend fallback: NPU → GPU (OpenCL/Adreno 740) → CPU.
-- `safeTokenCount()`: nudge powers-of-2 down ~2.4% (4096→4000, 8192→8000) — Adreno reshape buffer bug.
-- Both E-4B and E-2B support thinking mode.
+Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking mode. `safeTokenCount()` nudges powers-of-2 down ~2.4% — Adreno reshape buffer bug.
 
-### Thinking mode — two requirements, both needed
+## Memory
 
-1. `Channel("thought", "<|think|>", "<|/think|>")` registered in `ConversationConfig.channels`
-2. `extraContext = mapOf("enable_thinking" to true)` in `sendMessageAsync`
-
-Either alone produces zero chain-of-thought. Strip channel wrapper from stream: `message.toString()` includes `<|channel>thought\n...\n<channel|>` — strip via `CHANNEL_WRAPPER_RE` in `LiteRtInferenceEngine.generate()`.
-
-**Background `generateOnce()` calls (title gen, episodic distillation, profile extraction) must explicitly pass `thinkingEnabled = false`.**
-
-### Memory
-
-- **Short-term:** LiteRT KV Cache — 4,000 tokens (Performance) / 2,000 (Compat). At 80% capacity → recursive summarisation injected back into prompt, not truncation.
-- **Long-term:** sqlite-vec (NDK arm64-v8a) + Room. Every query → `vec_distance_cosine()`, top 3–5 fragments prepended to system prompt. EmbeddingGemma 768-dim (256-dim on 8GB via Matryoshka).
-
-### Skills
-
-- **Native (Kotlin/JVM):** flashlight, DND, Bluetooth, alarm/timer, email (`ACTION_SEND`), SMS (`SEND_SMS`), notes (Room), media (MediaSession via NotificationListenerService)
-- **Wasm (Chicory, pure JVM v1.0+):** sandboxed — no direct OS access. JSON via shared linear memory. 5s wall-clock timeout, 16MB memory cap, 1MB output limit. HTTP via domain-scoped bridge functions with URL allowlist — never a generic `fetch()`.
-
-Contract-first: define `SkillSchema` JSON schema before logic. Version bump in manifest on every change. Schema injected via `SkillRegistry.buildFunctionDeclarationsJson()`.
+- **Short-term:** LiteRT KV cache. At 80% capacity → recursive summarisation into prompt, not truncation.
+- **Long-term:** sqlite-vec + Room. `vec_distance_cosine()`, top 3-5 fragments prepended to system prompt. EmbeddingGemma 768-dim (256-dim on 8GB via Matryoshka).
 
 ## Module structure
 
 | Module | Purpose |
 |--------|---------|
 | `:app` | Entry point, Hilt DI, navigation, splash |
-| `:core:inference` | LiteRT-LM engine wrapper, model manager, hardware tier detection |
+| `:core:inference` | LiteRT-LM engine, model manager, HW tier detection |
 | `:core:voice` | STT, TTS, voice mode, push-to-talk |
 | `:core:memory` | sqlite-vec JNI, EmbeddingGemma, RAG pipeline |
-| `:core:wasm` | Chicory Wasm host, bridge functions, resource limiting |
+| `:core:wasm` | Chicory Wasm host, bridge functions, resource limits |
 | `:core:ui` | Shared Compose components, Material 3 theme |
-| `:core:skills` | SkillInterface, SkillRegistry, JSON schema generation |
+| `:core:skills` | SkillInterface, SkillRegistry, JSON schema gen |
 | `:feature:chat` | Chat screen, conversation list, ChatViewModel |
-| `:feature:settings` | Memory management, skill store, model info, persona config |
-| `:feature:onboarding` | ~~First-launch model download~~ (directory only, not a Gradle module) |
-| `:feature:widget` | Glance homescreen widget, VoiceCommandActivity, WidgetTextInputActivity |
+| `:feature:settings` | Memory management, skill store, model info, persona |
+| `:feature:widget` | Glance widget, VoiceCommandActivity, WidgetTextInputActivity |
 | `:feature:convert` | Text conversion utilities |
 
 ## Key conventions
 
-- **Kotlin is the host.** Wasm is guest-only; never receives direct OS access.
-- **No cloud inference.** All inference through LiteRT — no network calls to external endpoints.
-- **`gemma4InitMutex`** guards all E4B init paths — both `initEngineWhenReady()` and `initGemma4()` must hold this lock.
-- **`tryExecuteToolCall()`** in `ChatViewModel`: unknown skill or malformed JSON → plain text fallback, never crash.
-- **All inference on dedicated LLM dispatcher** — never `Dispatchers.Main`.
-- **Explicit Intents only** for SMS/email — never implicit intents.
-- **Wasm sandboxing is non-negotiable.** All capabilities via explicit Kotlin host bridge functions only.
-- **`LeakCanary`** from day one — catch model weight leaks after conversation close.
-- **Verify quantization** via LiteRT Metadata Extractor before assuming OOM is a memory issue.
-- **Context window managed, not truncated.** Recursive summarisation at 80% KV capacity.
-- **E4B loads eagerly first on GPU** (~20s first boot, ~2s with kernel cache).
-
-## UI/UX
-
-Jetpack Compose + Material 3 Dynamic Color, dark/AMOLED default. Conversations list as home. `KernelDatabase` v48. `ConversationEntity` carries `archivedAt`, `pinned`, `sortOrder`; `observeActive` orders by `pinned DESC, sort_order ASC, updated_at DESC`. Archived conversations are read-only. `ArchiveCleanupWorker` runs daily (default 7-day retention, `ChatPreferences` DataStore).
-
-**Before implementing any new screen or list feature, read `docs/UX_PATTERNS.md`.** It defines the canonical patterns for list management (archive/pin/sort/swipe/multi-select), navigation, settings integration, empty states, confirmation dialogs, and Compose conventions. Parallel patterns are prohibited.
-
-Voice: push-to-talk + streaming, auto-stop on silence. Per-message TTS (`VolumeUp`) on every assistant bubble. Verbal stop commands ("stop", "cancel", "be quiet", "shut up", "silence") cancel TTS mid-stream. `truncateForSpeech()` uses `KNOWN_ABBREV` + `INITIALS_REGEX`. Sherpa TTS pitch slider (0.5–2.0×), `autoSpeakEnabled` toggle.
-
-Widget: `androidx.glance` in `:feature:widget`. Text pill → `WidgetTextInputActivity`; mic → `VoiceCommandActivity`. Both fire explicit intent to `MainActivity` (`quick_action_input` + `quick_action_is_voice`). `savedStateHandle` boolean `widgetQueryConsumed` prevents re-execution on recompose.
+- No cloud inference — all inference through LiteRT, no network endpoints
+- `gemma4InitMutex` guards all E4B init paths
+- `tryExecuteToolCall()`: unknown skill or malformed JSON → plain text fallback, never crash
+- Inference on dedicated LLM dispatcher — never `Dispatchers.Main`
+- Explicit Intents only for SMS/email — never implicit
+- Wasm sandboxing is non-negotiable — capabilities via Kotlin host bridge functions only
+- Context window managed, not truncated — recursive summarisation at 80% KV capacity
+- E4B loads eagerly first on GPU (~20s first boot, ~2s with kernel cache)
 
 ## Agent working model
 
 | Agent | Role |
 |-------|------|
-| **coordinator** | Orchestrates; decomposes tasks; routes to specialists; synthesises results |
-| **android-developer** | Kotlin/Compose/Gradle, native skills, UI, app plumbing |
-| **llm-engineer** | LiteRT integration, model cascade, RAG pipeline, prompt engineering |
-| **test-writer** | JUnit 5 + MockK unit tests, Compose UI tests — **works from interfaces only, never sees implementation** |
-| **spec-writer** | README, specification.md, `.omp/AGENTS.md`, skill schemas |
-| **code-reviewer** | Security, memory safety, LiteRT anti-patterns, correctness — **mandatory before every PR merge** |
-| **wasm-skill-author** | Rust → Wasm skills, Chicory bridge, Skill Store (Phase 4+) |
+| **coordinator** | Orchestrates; decomposes; routes; synthesises |
+| **android-developer** | Kotlin/Compose/Gradle, native skills, UI, plumbing |
+| **llm-engineer** | LiteRT integration, model cascade, RAG, prompt engineering |
+| **test-writer** | JUnit 5 + MockK unit tests, Compose UI tests — interfaces only |
+| **spec-writer** | README, specification.md, AGENTS.md, skill schemas |
+| **code-reviewer** | Security, memory safety, LiteRT anti-patterns — mandatory before PR merge |
+| **wasm-skill-author** | Rust → Wasm skills, Chicory bridge, Skill Store |
 
-### Workflow
+**Workflow:** Analyse → dispatch (android-developer / llm-engineer) → parallel test-writer + spec-writer → PR with `Closes #N` → parallel code-reviewer + CI → push fixes → owner tests via ADB → owner merges.
 
-1. Analyse issue, explore codebase, form plan
-2. Dispatch: `android-developer` or `llm-engineer` (implementation)
-3. Parallel: `test-writer` (interfaces only) + `spec-writer` (docs if needed)
-4. Raise PR with `Closes #N`
-5. Parallel: `code-reviewer` reviews PR + CI runs
-6. Push any fixes; `code-reviewer` re-reviews fix commits (scoped — not a full re-review)
-7. Tell owner to manually test on S23 Ultra via ADB once CI passes; owner merges
+## Branch isolation
 
-## Branching & PR standards
+**Do not modify the main checkout directly.** Every session that touches code must use a dedicated worktree:
 
-- Default branch: `main`. Feature branches: `feature/<short-name>`. Always branch from `main`, never chain branches.
-- PR body must include `Closes #N`. Never auto-merge — owner reviews and merges.
-- After creating a PR, merge `main` into the branch if it's behind. Check CI status and report pass/fail.
-
-## Commit format
-
-```
-type(#issue): short description
+```bash
+git worktree add ~/.omp/wt/<task-name> <branch>
 ```
 
-Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
+Before starting: `git branch --show-current` to verify you're on the expected branch. Check `git worktree list` before creating a new one — avoid duplicating an existing branch checkout.
+
+Rationale: 50+ worktrees across sessions/agents exist in this repo. Direct checkout modifications cause conflicts with concurrent agent work.
 
 ## Build commands
 
 ```bash
-./gradlew assembleDebug
-./gradlew installDebug
-./gradlew test
-./gradlew testDebugUnitTest
-./gradlew connectedDebugAndroidTest   # requires connected device
-./gradlew lint
-./gradlew :core:inference:test        # single module
+./gradlew assembleDebug / installDebug / test / testDebugUnitTest / :core:inference:test / lint
 adb logcat -s KernelAI
+connectedDebugAndroidTest   # requires device
 ```
 
-## rtk (Rust Token Killer) — MUST use for output-heavy commands
+## rtk — MUST use for output-heavy commands
 
-`rtk` filters tool output before it enters context. Every build, test, lint, log, or diff command producing >5 lines MUST use `rtk` — raw output wastes 3-10× the tokens.
+`rtk` filters tool output before it enters context. Every build, test, lint, log, or diff command producing >5 lines MUST use `rtk`.
 
 | Instead of | Use | Saves |
 |------------|-----|-------|
 | `./gradlew test` | `rtk test ./gradlew test` | ~70% (failures only) |
 | `./gradlew :core:inference:test` | `rtk test ./gradlew :core:inference:test` | ~70% |
-| `./gradlew lint` | `rtk lint ./gradlew lint` | ~60% (grouped by rule) |
-| `./gradlew assembleDebug` | `rtk cargo ./gradlew assembleDebug` | ~50% |
-| `./gradlew installDebug` | `rtk cargo ./gradlew installDebug` | ~50% |
+| `./gradlew lint` | `rtk lint ./gradlew lint` | ~60% (grouped) |
+| `./gradlew assembleDebug / installDebug` | `rtk cargo ./gradlew ...` | ~50% |
 | `adb logcat -s KernelAI` | `rtk log adb logcat -s KernelAI` | ~70% (dedup) |
-| `git status` / `git diff` | `rtk git status` / `rtk git diff` | ~50% |
+| `git status / diff` | `rtk git status / rtk git diff` | ~50% |
 | `npx vitest run <path>` | `rtk test npx vitest run <path>` | ~70% |
 | `grep -r <pattern>` | `rtk grep <pattern>` | ~50% |
 | Only errors needed | `rtk err <cmd>` | ~90% |
-| Quick summary needed | `rtk summary <cmd>` | ~80% |
+| Quick summary | `rtk summary <cmd>` | ~80% |
 | Any diff output | `rtk diff <cmd>` | ~60% |
 | Raw JSON output | `rtk json <cmd>` | Schema/compact |
 
-**Standalone:** `rtk gain` shows token savings. `rtk env` shows filtered env vars.
+**Standalone:** `rtk gain` shows token savings. `rtk env` shows filtered env vars. **Hard rule:** If output is >5 lines, use `rtk`.
 
-**Hard rule:** If the command writes to stdout and you will read the output back, pipe it through `rtk`. Exception: output is ≤5 lines of pure signal.
+## context-mode — Think in Code (when available)
+
+`ctx_execute(language, code)` runs code in a sandbox — only stdout enters context. Use it for analysis (count, filter, parse, transform) instead of reading raw data into context. A one-liner replaces 10+ `read`/`bash` calls.
+
+| Instead of | Use | Saves |
+|------------|-----|-------|
+| 10x `read` to count patterns | `ctx_execute("shell", "grep -c ...")` | ~5K tokens |
+| `bash node -e "..."` for analysis | `ctx_execute("javascript", "...")` | Stdout only |
+| `read(<url>)` for content | `ctx_fetch_and_index(url)` → `ctx_search()` | 50-90% |
+
+**Rule:** For data analysis, write code. Don't read data into context — program the analysis.
+
+## Branching & PR standards
+
+Default: `main`. Feature branches: `feature/<short-name>`. Branch from `main` only. PR body: `Closes #N`. Never auto-merge. After creating a PR, merge `main` into the branch if behind and check CI status.
+
+**Commit:** `type(#issue): short description` — types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`.
 
 ## Testing strategy
 
-- Unit tests: JUnit 5 + MockK (`src/test/`)
-- Compose UI tests: `androidx.compose.ui:ui-test-junit4` (`src/androidTest/`)
-- **Never load real models in tests** — mock at `InferenceEngine` interface
+- Unit: JUnit 5 + MockK (`src/test/`). Compose UI: `ui-test-junit4` (`src/androidTest/`)
+- Never load real models in tests — mock at `InferenceEngine` interface
 - CI: lint + unit tests + debug build only (no GPU/NPU, no real models)
-- Compose UI tests run on CI via Android Emulator (API 35 system image)
 
 ## Working style
 
 - Search before reading; read surgically and minimally
-- Note current branch at session start (`git branch --show-current`); stay on it
-- Use `lsp` for all code intelligence — definitions, references, hover, rename, diagnostics — not grep
-- Reuse already-discovered context; prefer targeted validation
-- Prefer small, reviewable diffs; match surrounding code style
-- Avoid unrelated refactors alongside functional changes
+- Use `lsp` for all code intelligence — not grep
+- Reuse existing context; prefer targeted validation
+- Prefer small, reviewable diffs; match surrounding style
 
 ## Hard constraints
 
-- No external LLM APIs — all inference through LiteRT
-- No cloud inference endpoints anywhere in the codebase
-- No implicit Intents for SMS/email
-- No `Dispatchers.Main` for inference
-- No FunctionGemma at startup or wired to new features
-- No generic `fetch()` in Wasm skills
-- No concurrent E4B init (hold `gemma4InitMutex`)
-- No context truncation — recursive summarisation only
-- No migrating core Kotlin architecture to another language
-- No broad formatting-only diffs; no rewrites for style preferences
+No external LLM APIs | No cloud inference endpoints | No implicit Intents for SMS/email | No `Dispatchers.Main` for inference | No FunctionGemma at startup | No generic `fetch()` in Wasm skills | No concurrent E4B init (hold `gemma4InitMutex`) | No context truncation | No broad formatting-only diffs
 
-## GitHub issue hygiene
+## Memory
 
-Normalise at creation: type, go-state, priority, size, milestone/phase, roadmap label, domain labels. Parent/epic for multi-track work; decompose into child issues. Use `go:needs-research` when architecture is open.
+Write to memory (`memory://root/skills/<name>/SKILL.md`) after discovering:
+- Non-obvious file locations or module boundaries
+- Build/debug quirks (tool flags, adb incantations, test setup)
+- Architectural invariants that caused a bug (e.g. "gemma4InitMutex required")
+- Tool invocation patterns that save tokens (rtk, context-mode)
+
+Consult memory via `memory://root` before starting work in an unfamiliar module.
+Existing entries: model_loading_order, test_patterns, branch_isolation, rtk_token_saver, adreno_buffer_workaround, github_api_pagination, meal_planner_state, documentation_sync.
 
 ## On-demand reference docs
 
 Load these only when relevant:
 
+- `docs/agents/save-memory-routing.md` — memory routing table, normaliseSaveContent()
+- `docs/agents/thinking-mode.md` — channel registration, CHANNEL_WRAPPER_RE, generateOnce()
+- `docs/agents/skill-reference.md` — native and Wasm skill listings, Chicory bridge contract
+- `docs/agents/issue-hygiene.md` — issue normalisation checklist
 - `.docs/agents/debugging.md` — ADB commands, log filtering, common issues
 - `.docs/agents/validation.md` — per-scope validation table, CI constraints
 - `.docs/agents/decision-heuristics.md` — when multiple valid approaches exist
 - `.docs/agents/failure-handling.md` — blockers, escalation, progress reporting
 - `.docs/agents/repo-map.md` — key file index by area
-- `docs/UX_PATTERNS.md` — canonical UI/UX patterns for lists, navigation, settings, Compose (read before any new screen); for model-facing screens also read [`docs/model-availability-ux-patterns.md`](../docs/model-availability-ux-patterns.md)
+- `docs/UX_PATTERNS.md` — canonical UI/UX patterns (read before any new screen)
+- `docs/model-availability-ux-patterns.md` — model-facing screen patterns
 
-## Phase status
-
-1. ✅ LiteRT-LM integration with GPU/NPU acceleration (Gemma-4)
-2. ✅ sqlite-vec + EmbeddingGemma RAG
-3. 🔄 Resident Agent Architecture
-   - ✅ Phase 1A: QuickIntentRouter + 20 regex intents (#354)
-   - ✅ Phase 1B: NativeIntentHandler + 23 handlers, 130+ tests (#357)
-   - ✅ Homescreen Glance widget (#617, #847)
-   - ✅ Phase 2: MiniLM zero-shot classifier (#362)
-   - ⬜ Phase 3: FunctionGemma cleanup (#358)
-   - ⬜ Phase 4: Chat hybrid mode — Tier 2 intercept in conversations (#360)
-   - ⬜ Phase 5: Actions tab re-enable + dual FABs (#361)
-   - ⬜ Model download UX overhaul (#363)
-4. ⬜ Chicory Wasm Runtime + GitHub-based Skill Store
-5. ⬜ 8GB device optimization (dynamic weight loading/unloading)
+**Phase status:** see `docs/ROADMAP.md` for the full tracker.
