@@ -3,6 +3,7 @@ package com.kernel.ai.core.skills
 import com.google.ai.edge.litertlm.ToolProvider
 import com.google.ai.edge.litertlm.tool
 import com.kernel.ai.core.skills.natives.GetSystemInfoSkill
+import com.kernel.ai.core.skills.natives.ConvertCurrencySkill
 import com.kernel.ai.core.skills.natives.GetWeatherSkill
 import com.kernel.ai.core.skills.natives.GetWeatherUnifiedSkill
 import com.kernel.ai.core.skills.natives.SaveMemorySkill
@@ -58,6 +59,10 @@ abstract class SkillsModule {
     @Binds
     @IntoSet
     abstract fun bindMealPlannerSkill(skill: MealPlannerSkill): Skill
+
+    @Binds
+    @IntoSet
+    abstract fun bindConvertCurrencySkill(skill: ConvertCurrencySkill): Skill
 
     /** Bind MiniLMIntentClassifier as the IntentClassifier for QuickIntentRouter. */
     @Binds
