@@ -161,6 +161,30 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
 adb logcat -s KernelAI
 ```
 
+## rtk (Rust Token Killer) — MUST use for output-heavy commands
+
+`rtk` filters tool output before it enters context. Every build, test, lint, log, or diff command producing >5 lines MUST use `rtk` — raw output wastes 3-10× the tokens.
+
+| Instead of | Use | Saves |
+|------------|-----|-------|
+| `./gradlew test` | `rtk test ./gradlew test` | ~70% (failures only) |
+| `./gradlew :core:inference:test` | `rtk test ./gradlew :core:inference:test` | ~70% |
+| `./gradlew lint` | `rtk lint ./gradlew lint` | ~60% (grouped by rule) |
+| `./gradlew assembleDebug` | `rtk cargo ./gradlew assembleDebug` | ~50% |
+| `./gradlew installDebug` | `rtk cargo ./gradlew installDebug` | ~50% |
+| `adb logcat -s KernelAI` | `rtk log adb logcat -s KernelAI` | ~70% (dedup) |
+| `git status` / `git diff` | `rtk git status` / `rtk git diff` | ~50% |
+| `npx vitest run <path>` | `rtk test npx vitest run <path>` | ~70% |
+| `grep -r <pattern>` | `rtk grep <pattern>` | ~50% |
+| Only errors needed | `rtk err <cmd>` | ~90% |
+| Quick summary needed | `rtk summary <cmd>` | ~80% |
+| Any diff output | `rtk diff <cmd>` | ~60% |
+| Raw JSON output | `rtk json <cmd>` | Schema/compact |
+
+**Standalone:** `rtk gain` shows token savings. `rtk env` shows filtered env vars.
+
+**Hard rule:** If the command writes to stdout and you will read the output back, pipe it through `rtk`. Exception: output is ≤5 lines of pure signal.
+
 ## Testing strategy
 
 - Unit tests: JUnit 5 + MockK (`src/test/`)
