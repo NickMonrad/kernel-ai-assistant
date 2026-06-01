@@ -33,6 +33,7 @@ android {
 
 dependencies {
     implementation(project(":core:ui"))
+    implementation(project(":core:inference"))
 
     // Compose
     implementation(platform(libs.compose.bom))
