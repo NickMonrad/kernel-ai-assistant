@@ -50,53 +50,35 @@ enum class KernelModel(
         displayName = "Gemma 4 E-2B",
         fileName = "gemma-4-E2B-it.litertlm",
         downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
-        approxSizeBytes = 2_583_085_056L, // 2.4 GB
+        approxSizeBytes = 2_583_085_056L,
         isRequired = true,
-        /** Suitable for all hardware tiers. */
         preferredForTier = null,
-        // Ungated since Apr 2026 — no auth token required.
         isGated = false,
         licenceUrl = null,
     ),
 
-    /**
-     * Higher-quality model auto-selected on FLAGSHIP devices (≥10 GB RAM).
-     * Not required — the app falls back to [GEMMA_4_E2B] if not downloaded.
-     */
     GEMMA_4_E4B(
         displayName = "Gemma 4 E-4B",
         fileName = "gemma-4-E4B-it.litertlm",
         downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm",
-        approxSizeBytes = 3_654_467_584L, // 3.4 GB
+        approxSizeBytes = 3_654_467_584L,
         isRequired = false,
         preferredForTier = HardwareTier.FLAGSHIP,
-        // Ungated since Apr 2026 — no auth token required.
         isGated = false,
         licenceUrl = null,
     ),
 
-    /**
-     * EmbeddingGemma-300M — high-quality 1024-dim embeddings for RAG memory.
-     * Generic build (CPU/GPU, all devices). Gated on HuggingFace — downloaded automatically
-     * during onboarding once the user has authenticated.
-     * seq512 variant: balanced context window vs. inference speed.
-     */
     EMBEDDING_GEMMA_300M(
         displayName = "EmbeddingGemma 300M",
         fileName = "embeddinggemma-300M_seq512_mixed-precision.tflite",
         downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq512_mixed-precision.tflite",
         approxSizeBytes = 171_000_000L,
-        // Required — powers the RAG memory pipeline on all non-flagship devices.
         isRequired = true,
         preferredForTier = null,
         isGated = true,
         licenceUrl = "https://huggingface.co/litert-community/embeddinggemma-300m",
     ),
 
-    /**
-     * SM8550 optimised variant — currently disabled due to LiteRT "Unsupported file format" error
-     * on device. Keep isRequired=false and preferredForTier=null until upstream fix is available.
-     */
     EMBEDDING_GEMMA_300M_SM8550(
         displayName = "EmbeddingGemma 300M (SM8550)",
         fileName = "embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite",
@@ -108,50 +90,33 @@ enum class KernelModel(
         licenceUrl = "https://huggingface.co/litert-community/embeddinggemma-300m",
     ),
 
-    /**
-     * SentencePiece tokeniser vocabulary required by all EmbeddingGemma variants.
-     * Downloaded automatically during onboarding alongside the embedding model.
-     */
     EMBEDDING_GEMMA_SP_MODEL(
         displayName = "EmbeddingGemma SentencePiece model",
         fileName = "sentencepiece.model",
         downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/sentencepiece.model",
         approxSizeBytes = 4_500_000L,
-        // Required — every EmbeddingGemma variant needs this tokeniser to run.
         isRequired = true,
         preferredForTier = null,
         isGated = true,
         licenceUrl = "https://huggingface.co/litert-community/embeddinggemma-300m",
     ),
 
-    /**
-     * all-MiniLM-L6-v2 (int8 TFLite) — fast semantic intent classifier bundled as an app asset.
-     * Powers the Tier 2 classifier in QuickIntentRouter. Not downloadable — always available.
-     * Shown in Model Management as "Built-in" for user awareness.
-     */
     MINI_LM(
         displayName = "MiniLM-L6 Intent Classifier",
         fileName = "minilm-l6-v2-int8.tflite",
         downloadUrl = "",
-        approxSizeBytes = 23_000_000L, // ~23 MB bundled asset
+        approxSizeBytes = 23_000_000L,
         isRequired = false,
         preferredForTier = null,
         isGated = false,
         isBundled = true,
     ),
 
-    // ── Sherpa-ONNX Streaming STT (Zipformer int8, English) ──────────────────────────
-    //
-    // Four individual files from csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21
-    // (HuggingFace, Apache 2.0, public / ungated).  Downloaded on demand when the user
-    // selects "Sherpa-ONNX (Local)" in Settings → Voice.  Local file names are prefixed
-    // with "sherpa-stt-" to avoid any future collision with generic names like tokens.txt.
-
     SHERPA_STT_ENCODER(
         displayName = "Sherpa STT Encoder",
         fileName = "sherpa-stt-encoder.int8.onnx",
         downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21/resolve/main/encoder-epoch-99-avg-1.int8.onnx",
-        approxSizeBytes = 67_000_000L, // ~67 MB
+        approxSizeBytes = 67_000_000L,
         isRequired = false,
         preferredForTier = null,
         isGated = false,
@@ -162,7 +127,7 @@ enum class KernelModel(
         displayName = "Sherpa STT Decoder",
         fileName = "sherpa-stt-decoder.int8.onnx",
         downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21/resolve/main/decoder-epoch-99-avg-1.int8.onnx",
-        approxSizeBytes = 3_000_000L, // ~3 MB
+        approxSizeBytes = 3_000_000L,
         isRequired = false,
         preferredForTier = null,
         isGated = false,
@@ -173,7 +138,7 @@ enum class KernelModel(
         displayName = "Sherpa STT Joiner",
         fileName = "sherpa-stt-joiner.int8.onnx",
         downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21/resolve/main/joiner-epoch-99-avg-1.int8.onnx",
-        approxSizeBytes = 2_000_000L, // ~2 MB
+        approxSizeBytes = 2_000_000L,
         isRequired = false,
         preferredForTier = null,
         isGated = false,
@@ -185,6 +150,117 @@ enum class KernelModel(
         fileName = "sherpa-stt-tokens.txt",
         downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21/resolve/main/tokens.txt",
         approxSizeBytes = 75_000L, // ~75 KB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    // ── Sherpa-ONNX SenseVoice int8 (Offline) ────────────────────────────────
+    //
+    // From csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17
+    // (HuggingFace, ONNX conversion of SenseVoice). Public repo with model.int8.onnx + tokens.txt.
+    // Downloaded on demand when the user selects "Sherpa-ONNX SenseVoice"
+    // in Settings → Voice. Licence details are shown via the repo page.
+
+    SHERPA_SENSEVOICE_MODEL(
+        displayName = "Sherpa SenseVoice Model",
+        fileName = "sherpa-sensevoice-model.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx",
+        approxSizeBytes = 100_000_000L, // ~100 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
+        showInModelManagement = false,
+    ),
+
+    SHERPA_SENSEVOICE_TOKENS(
+        displayName = "Sherpa SenseVoice Tokens",
+        fileName = "sherpa-sensevoice-tokens.txt",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt",
+        approxSizeBytes = 100_000L, // ~100 KB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
+        showInModelManagement = false,
+    ),
+
+    // ── Sherpa-ONNX Whisper tiny.en int8 (Offline) ───────────────────────────
+    //
+    // From csukuangfj/sherpa-onnx-whisper-tiny.en
+    // (HuggingFace, Apache 2.0, public / ungated).  Encoder + decoder + tokens.
+    // Downloaded on demand when the user selects "Sherpa-ONNX Whisper tiny.en"
+    // in Settings → Voice.
+
+    SHERPA_WHISPER_TINY_EN_ENCODER(
+        displayName = "Sherpa Whisper tiny.en Encoder",
+        fileName = "sherpa-whisper-tiny.en-encoder.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/main/tiny.en-encoder.int8.onnx",
+        approxSizeBytes = 74_000_000L, // ~74 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    SHERPA_WHISPER_TINY_EN_DECODER(
+        displayName = "Sherpa Whisper tiny.en Decoder",
+        fileName = "sherpa-whisper-tiny.en-decoder.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/main/tiny.en-decoder.int8.onnx",
+        approxSizeBytes = 43_000_000L, // ~43 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    SHERPA_WHISPER_TINY_EN_TOKENS(
+        displayName = "Sherpa Whisper tiny.en Tokens",
+        fileName = "sherpa-whisper-tiny.en-tokens.txt",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/main/tiny.en-tokens.txt",
+        approxSizeBytes = 150_000L, // ~150 KB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    // ── Sherpa-ONNX Paraformer int8 (Streaming) ──────────────────────────────
+    //
+    // From csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en
+    // (HuggingFace, Apache 2.0, public / ungated).  Encoder + decoder + tokens.
+    // Downloaded on demand when the user selects "Sherpa-ONNX Paraformer"
+    // in Settings → Voice.
+
+    SHERPA_PARAFORMER_ENCODER(
+        displayName = "Sherpa Paraformer Encoder",
+        fileName = "sherpa-paraformer-encoder.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en/resolve/main/encoder.int8.onnx",
+        approxSizeBytes = 120_000_000L, // ~120 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    SHERPA_PARAFORMER_DECODER(
+        displayName = "Sherpa Paraformer Decoder",
+        fileName = "sherpa-paraformer-decoder.int8.onnx",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en/resolve/main/decoder.int8.onnx",
+        approxSizeBytes = 100_000_000L, // ~100 MB
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        showInModelManagement = false,
+    ),
+
+    SHERPA_PARAFORMER_TOKENS(
+        displayName = "Sherpa Paraformer Tokens",
+        fileName = "sherpa-paraformer-tokens.txt",
+        downloadUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en/resolve/main/tokens.txt",
+        approxSizeBytes = 100_000L, // ~100 KB
         isRequired = false,
         preferredForTier = null,
         isGated = false,

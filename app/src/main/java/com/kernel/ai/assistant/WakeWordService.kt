@@ -246,7 +246,9 @@ class WakeWordService : Service() {
             onDetected = { handleDetection() },
             verifyWindow = { pcm ->
                 try {
-                    sherpaOnnxVoiceInputController.transcribeBlocking(pcm).containsWakePhrase()
+                    kotlinx.coroutines.runBlocking {
+                        sherpaOnnxVoiceInputController.transcribeBlocking(pcm).containsWakePhrase()
+                    }
                 } catch (e: Exception) {
                     Log.w(TAG, "WakeWordService: wake word verification failed", e)
                     false
