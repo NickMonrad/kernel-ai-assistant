@@ -281,70 +281,66 @@ class OnnxWakeWordDetector @Inject constructor(
         activeAudioRecord = audioRecord
 
 
-        val env = OrtEnvironment.getEnvironment()
-        val cpuOptions = OrtSession.SessionOptions().apply {
-            setIntraOpNumThreads(1)
-        }
-        val embedOptions = OrtSession.SessionOptions().apply {
-            setIntraOpNumThreads(1)
-            runCatching { addNnapi(EnumSet.of(NNAPIFlags.CPU_DISABLED)) }
-                .onFailure { Log.w(TAG, "WakeWordDetector: NNAPI EP unavailable, using CPU", it) }
-        }
-
-        val melsSession  = runCatching { env.createSession(bytes.melspectrogram, cpuOptions) }
-            .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load melspectrogram.onnx", e); null }
-        val embedSession = runCatching { env.createSession(bytes.embedding, embedOptions) }
-            .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load embedding_model.onnx", e); null }
-        val classSession = runCatching { env.createSession(bytes.classifier, cpuOptions) }
-            .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load hey_jandal.onnx", e); null }
-        if (melsSession == null || embedSession == null || classSession == null) {
-            cpuOptions.close()
-            embedOptions.close()
-            melsSession?.close()
-            embedSession?.close()
-            classSession?.close()
-            audioRecord.release()
-            activeAudioRecord = null
-            running.set(false)
-            return
-        }
-        // Resolve ONNX node names once at startup (avoids hard-coding strings).
-        val melsInputName   = melsSession.inputNames.first()
-        val melsOutputName  = melsSession.outputNames.first()
-        val embedInputName  = embedSession.inputNames.first()
-        val embedOutputName = embedSession.outputNames.first()
-        val classInputName  = classSession.inputNames.first()
-        val classOutputName = classSession.outputNames.first()
-
-        // Pre-allocate all hot-loop buffers — zero heap churn during detection.
-        //
-        // melRing: sliding window of MEL_RING_SIZE rows × MEL_BINS columns, stored flat row-major.
-        // Each 80ms chunk appends MEL_ROWS_PER_CHUNK new rows; the ring slides by that many rows
-        // each step.  Once full, we build the [1, 76, 32, 1] embedding model input from it.
-        val melRing = FloatArray(MEL_RING_SIZE * MEL_BINS)   // [76 × 32]
-        var melRowsFilled = 0
-        var chunkCount = 0
-
-        val embeddingRing = Array(EMBEDDING_FRAMES) { FloatArray(EMBEDDING_DIM) }
-        var embRingHead = 0
-        var embFramesAccumulated = 0
+        // ── Closeable ORT resources (nullable vars so finally covers all paths) ──
+        var cpuOptions: OrtSession.SessionOptions? = null
+        var embedOptions: OrtSession.SessionOptions? = null
+        var melsSession: OrtSession? = null
+        var embedSession: OrtSession? = null
+        var classSession: OrtSession? = null
+        // Diagnostics counters for final log
         var inferenceCount = 0L
-        val chunk    = ShortArray(FRAME_SAMPLES)
-        val framePcm = FloatArray(FRAME_SAMPLES)
-        // windowFlat: [16 × 96] flattened, re-filled in place each classifier call.
-        val windowFlat = FloatArray(EMBEDDING_FRAMES * EMBEDDING_DIM)
-        // embedInput4D: [1, 76, 32, 1] — reshaped mel ring for the embedding model.
-        val embedInput4D = FloatArray(MEL_RING_SIZE * MEL_BINS)
-
-        // PCM ring buffer for STT verification (pre-allocated; only used when verifyWindow != null).
-        val pcmRing     = if (verifyWindow != null) ShortArray(VERIFY_RING_SAMPLES) else ShortArray(0)
-        var pcmRingHead = 0
-        var pcmFilled   = 0
-        var silenceFrames = 0
-        var voicedFrameStreak = 0
-        var minRms = 0.0
         var gatedFramesSkipped = 0L
+        var minRms = 0.0
+
         try {
+            val env = OrtEnvironment.getEnvironment()
+            cpuOptions = OrtSession.SessionOptions().apply {
+                setIntraOpNumThreads(1)
+            }
+            embedOptions = OrtSession.SessionOptions().apply {
+                setIntraOpNumThreads(1)
+                runCatching { addNnapi(EnumSet.of(NNAPIFlags.CPU_DISABLED)) }
+                    .onFailure { Log.w(TAG, "WakeWordDetector: NNAPI EP unavailable, using CPU", it) }
+            }
+
+            melsSession = runCatching { env.createSession(bytes.melspectrogram, cpuOptions!!) }
+                .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load melspectrogram.onnx", e); null }
+            embedSession = runCatching { env.createSession(bytes.embedding, embedOptions!!) }
+                .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load embedding_model.onnx", e); null }
+            classSession = runCatching { env.createSession(bytes.classifier, cpuOptions!!) }
+                .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load hey_jandal.onnx", e); null }
+
+            if (melsSession == null || embedSession == null || classSession == null) {
+                Log.e(TAG, "WakeWordDetector: one or more ONNX sessions failed to load")
+                return
+            }
+
+            // Resolve ONNX node names once at startup.
+            val melsInputName   = melsSession.inputNames.first()
+            val melsOutputName  = melsSession.outputNames.first()
+            val embedInputName  = embedSession.inputNames.first()
+            val embedOutputName = embedSession.outputNames.first()
+            val classInputName  = classSession.inputNames.first()
+            val classOutputName = classSession.outputNames.first()
+
+            // Pre-allocate all hot-loop buffers — zero heap churn during detection.
+            val melRing = FloatArray(MEL_RING_SIZE * MEL_BINS)
+            var melRowsFilled = 0
+            var chunkCount = 0
+
+            val embeddingRing = Array(EMBEDDING_FRAMES) { FloatArray(EMBEDDING_DIM) }
+            var embRingHead = 0
+            var embFramesAccumulated = 0
+            val chunk    = ShortArray(FRAME_SAMPLES)
+            val framePcm = FloatArray(FRAME_SAMPLES)
+            val windowFlat = FloatArray(EMBEDDING_FRAMES * EMBEDDING_DIM)
+            val embedInput4D = FloatArray(MEL_RING_SIZE * MEL_BINS)
+
+            val pcmRing     = if (verifyWindow != null) ShortArray(VERIFY_RING_SAMPLES) else ShortArray(0)
+            var pcmRingHead = 0
+            var pcmFilled   = 0
+            var silenceFrames = 0
+            var voicedFrameStreak = 0
 
             audioRecord.startRecording()
             Log.d(TAG, "WakeWordDetector: recording started")
@@ -536,27 +532,26 @@ class OnnxWakeWordDetector @Inject constructor(
                         }
                     }
 
-                    // Below all thresholds — ignore.
                     else -> Unit
                 }
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
         } catch (e: Exception) {
-            Log.e(TAG, "WakeWordDetector: error in detection loop", e)
+            Log.e(TAG, "WakeWordDetector: fatal error", e)
         } finally {
             activeAudioRecord = null
             runCatching { audioRecord.stop() }
             audioRecord.release()
-            melsSession.close()
-            embedSession.close()
-            classSession.close()
-            cpuOptions.close()
-            embedOptions.close()
+            melsSession?.close()
+            embedSession?.close()
+            classSession?.close()
+            cpuOptions?.close()
+            embedOptions?.close()
+            running.set(false)
             Log.d(TAG, "WakeWordDetector: detection loop exited — " +
                 "inferences=$inferenceCount gatedSkips=$gatedFramesSkipped " +
                 "finalMinRms=${"%.1f".format(minRms)}")
-            running.set(false)
         }
     }
 
