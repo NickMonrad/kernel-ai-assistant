@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-05-28 (PR #989 note-taking skill; PR #980 chat UX overhaul; PR #976 meal planner structured output; PR #972 weather QIR; PR #966 memory/QIR/Wikipedia; PR #946 thinking mode fix; PR #930 TTS normalisation; PR #923 important date day-of notifications; prior: 2026-05-23 meal planner follow-ups: cuisine preferences #971, NZ wording normalization #932, batch multi-day replace/regenerate #931; prior: PR #946 spec sync: thinking-mode/tool-turn hardening, direct native tool wrappers, DirectReply bypass notes, known QIR/anaphora follow-up gaps; PR #934 meal plans browser: recent/favourites tabs, recipe search, list export actions; prior: PR #925 deterministic meal planner architecture, planner status surface, friendly meal-plan IDs, conversation title sync, Room v45; PR #924 conversation management — archive, pin, drag-to-reorder, swipe gestures, multi-select, ArchiveCleanupWorker; PR #834 voice engine, STT hardening, NLU routing hardening, conversation search, bulk delete, skills inventory, import…
+> **Last updated:** 2026-06-01 (PR #1044 Sherpa STT family split — Zipformer, SenseVoice, Whisper tiny.en, Paraformer; offline VAD; wake-word verification isolation)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -1106,14 +1106,51 @@ Sherpa-ONNX VITS replaced Android `TextToSpeech` as the on-device TTS engine, pr
 - **Pitch control** — a pitch slider (0.5–2.0×) is exposed in Settings → Voice (Sherpa only).
 - **Quality evaluation** — Sherpa VITS quality was evaluated against Android TTS on Samsung Galaxy S23 Ultra (#770); Sherpa is measurably better for conversational Kiwi English.
 
-#### 6.2.2 STT Engine — Android Native (#678, #717, PR #714, PR #718)
+#### 6.2.2 STT Engine — Sherpa-ONNX Family (#1022, PR #1044)
 
-Android native on-device STT is available alongside Vosk as a selectable speech-to-text backend, switchable in Settings → Voice. Vosk remains the factory default. Android native offers significantly better accuracy for New Zealand/Kiwi English and te reo Māori words.
+Sherpa-ONNX replaced Android native STT and Vosk as the primary on-device STT engine,
+providing four selectable model families in Settings → Voice. All engines run entirely
+on-device via the Sherpa-ONNX AAR; access is through reflection (no compile-time dependency).
 
-- **Engine:** Android `SpeechRecognizer` with `EXTRA_PREFER_OFFLINE=true` — on-device model, no network calls.
-- **#717 hardening (PR #718):** The on-device recognizer path was hardened against edge cases: recognizer lifecycle bugs, partial-result race conditions, and no-speech detection robustness.
-- **Kiwi accent quality:** Android native STT outperforms Vosk for New Zealand English accents and Māori vocabulary, confirmed on Samsung Galaxy S23 Ultra.
-- **Push-to-talk integration:** The recognizer is wired into `VoiceInputController`, which feeds final transcripts into `QuickIntentRouter` (Actions screen) or the chat input field (Chat voice mode).
+**Sherpa STT family:**
+
+| Engine | Mode | Size | Latency | Quality Notes |
+|--------|------|------|---------|---------------|
+| **Zipformer** (default) | Streaming (online) | ~72 MB | ~200ms end-of-speech | Best NZ English accuracy; also used for wake-word verification via dedicated isolated recognizer |
+| **SenseVoice** | Offline (final only) | ~100 MB | ~500ms after stop | Good multilingual coverage (ZH/EN/JA/KO/YUE); gated HF downloads from `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` |
+| **Whisper tiny.en** | Offline (final only) | ~117 MB | ~1s after stop | Strong single-shot accuracy; pauses until speech ends or timeout |
+| **Paraformer** | Streaming (online) | ~226 MB | ~200ms | Continuous decoding; largest footprint |
+
+**VAD (voice activity detection):** Offline engines (SenseVoice, Whisper) use a local
+silence-based endpointing scheme: audio is buffered in 100ms chunks, speech is detected
+via RMS threshold (0.02), and capture stops after 2.5s of sustained trailing silence.
+The 15s timeout remains as a fallback guard. This avoids the need for Silero VAD as a
+dependency while providing usable end-of-speech detection.
+
+**Transcription normalisation:** All engines pass their raw output through a common
+normalisation pipeline:
+- Trailing punctuation (`?.!,:;`) is stripped so QIR (QuickIntentRouter) patterns match
+- Case is lowered via `Locale.ROOT`
+- Whisper's trailing `?` insertion (e.g. "what's the weather?" → "what's the weather")
+  is handled by the punctuation-strip rule above
+- Zipformer produces live partial results; SenseVoice and Whisper emit one final result
+
+**Wake-word verification:** Zipformer is the designated wake-word verification engine.
+`WakeWordService` uses a dedicated Zipformer recognizer instance with its own mutex and
+method-handle cache, fully isolated from the interactive STT recognizer. This prevents
+races between wake-word verification and concurrent recognizer reinitialisation.
+
+**Architecture:**
+- `VoiceInputEngine` enum maps engine selection (`SherpaZipformer` / `SherpaSenseVoice` / `SherpaWhisper` / `SherpaParaformer`) with `isSherpaFamily` classifiers and storage backward-compatibility (`"SherpaOnnx"` → `SherpaZipformer`)
+- `SherpaSttModelSpec` data class maps each engine to its file paths, Sherpa class names, and `RecognizerKind` (Online / Offline)
+- `SherpaOnnxVoiceInputController` creates recognizer instances via reflection, caching method handles per recognizer kind
+- `SelectableVoiceInputController` routes all Sherpa variants through the shared controller
+- Settings → Voice shows per-engine download state via `VoiceViewModel.SherpaSttDownloadState` with independent progress/cancel/delete controls
+
+**Model files:** Downloaded to `files/models` in the app's external storage. Each engine's required file names include:
+- Encoder, decoder, joiner (Zipformer, Paraformer) or unified model (SenseVoice, Whisper)
+- Tokens file
+- All `KernelModel` entries have `showInModelManagement = false` (download and deletion are managed from the Voice screen)
 
 #### 6.2.3 Quick Actions Voice
 
@@ -1148,9 +1185,7 @@ punctuation is normalised for TTS.
   and Kiwi slang used by Jandal
 - **VITS noise_scale expressiveness (`#788`):** Fine-tuning the noise scale parameter
   for more natural-sounding VITS voices
-- **Custom Piper voice training (`#756`):** Research into training a custom Piper voice
   model with Jandal's Kiwi character
-- **Voice memo skill (`#823`):** Native skill for voice note-taking
 - **VoiceSession architecture (`#588`):** Unified voice session management for slot-fill
   and follow-on assistant mode
 - **QA gate (`#824`):** Real-device voice validation for the current stack on Samsung
@@ -1185,7 +1220,7 @@ Mic button tap
         Plays a brief 200ms boop (ToneGenerator) to signal listening started
         Displays pulsing mic icon + live partial transcript via VoiceInputController
         Tap outside card or ✕ → cancel and finish()
-        On VoiceInputEvent.Transcript (final STT result):
+        On VoiceInputEvent.Transcript (final STT result; normalised — trailing punctuation stripped, case lowered):
   → WidgetNavigator.navigateToActions(context, transcript, isVoice=true)
         Fires explicit Intent to MainActivity:
           extra "quick_action_input"    = <transcript>
@@ -1502,7 +1537,7 @@ for the larger planned coverage matrix.
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM chat + GPU/NPU + GPU alignment fixes + OOM protection | ✅ Complete |
 | 2 | sqlite-vec RAG + EmbeddingGemma + episodic distillation + memory UI | ✅ Complete |
-| 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, voice (Sherpa STT/TTS, streaming, multi-speaker, chat voice), weather/list/date/media skills, important dates, world clock, multi-day forecast, colloquial weather routing, multi-turn slot-fill, memory search quality, and broader multi-turn support | 🔄 In Progress |
+| 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, voice (Sherpa STT family: Zipformer / SenseVoice / Whisper tiny.en / Paraformer, offline VAD, transcription normalisation, wake-word isolation), weather/list/date/media skills, important dates, world clock, multi-day forecast, colloquial weather routing, multi-turn slot-fill, memory search quality, and broader multi-turn support | 🔄 In Progress |
 | 4 | Dreaming Engine (overnight distillation) + Semantic Cache + Self-Healing Identity | ⬜ Planned |
 | 5 | Chicory Wasm Runtime + GitHub Skill Store | ⬜ Planned |
 | 6 | 8GB device optimisation (dynamic weight loading, E2B auto-select) | ⬜ Planned |

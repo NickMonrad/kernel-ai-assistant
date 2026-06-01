@@ -31,10 +31,10 @@ class SelectableVoiceInputController @Inject constructor(
     }
 
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
-        val controller = when (voiceInputPreferences.selectedEngine.first()) {
+        val controller = when (val engine = voiceInputPreferences.selectedEngine.first()) {
             VoiceInputEngine.Vosk -> voskOfflineVoiceInputController
             VoiceInputEngine.AndroidNative -> nativeAndroidVoiceInputController
-            VoiceInputEngine.SherpaOnnx -> sherpaOnnxVoiceInputController
+            else -> sherpaOnnxVoiceInputController // All Sherpa families + any future non-Vosk/AndroidNative.
         }
         activeController.value = controller
         stopInactiveControllers(controller)

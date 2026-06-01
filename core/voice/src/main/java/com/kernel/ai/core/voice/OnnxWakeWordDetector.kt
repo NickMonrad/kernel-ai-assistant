@@ -20,7 +20,7 @@ private const val TAG = "KernelAI"
 
 // ── Audio parameters ─────────────────────────────────────────────────────────
 /** openWakeWord requires 16 kHz, mono, 16-bit PCM — non-negotiable. */
-private const val SAMPLE_RATE = 16_000
+private const val SAMPLE_RATE = WAKE_WORD_SAMPLE_RATE
 private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
 private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
 
@@ -29,7 +29,7 @@ private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
  * openWakeWord processes audio in 80ms frames = 1280 samples at 16kHz.
  * This is the fundamental unit fed to the melspectrogram frontend.
  */
-private const val FRAME_SAMPLES = 1_280 // 80ms × 16 000 Hz
+private const val FRAME_SAMPLES = WAKE_WORD_FRAME_SAMPLES
 
 /**
  * Number of mel-spectrogram rows produced by melspectrogram.onnx for one 1280-sample chunk.
@@ -52,7 +52,7 @@ private const val MEL_RING_SIZE = 76
  *
  * hey_jandal.onnx input shape: [1, 16, 96] — confirmed from model introspection.
  * Each embedding covers ~1.2s of audio (76 mel rows × 80ms / 5 rows per chunk).
- * 16 frames → ~19.5s of context for the classifier.
+ * 16 overlapping frames yield ~2.4s of effective receptive field, not 19.5s.
  */
 private const val EMBEDDING_FRAMES = 16
 private const val EMBEDDING_DIM = 96
@@ -196,7 +196,6 @@ class OnnxWakeWordDetector @Inject constructor(
         }
         if (!running.compareAndSet(false, true)) return
 
-        // Read both thresholds on the caller's thread before entering the detection thread.
         val highThreshold = runBlocking { wakeWordPreferences.confidenceThreshold.first() }
         val lowThreshold  = if (verifyWindow != null) {
             runBlocking { wakeWordPreferences.lowConfidenceThreshold.first() }
@@ -204,13 +203,36 @@ class OnnxWakeWordDetector @Inject constructor(
         } else {
             highThreshold // verifier absent → collapse dual-band to single threshold
         }
+        val silenceRmsThreshold = runBlocking { wakeWordPreferences.silenceRmsThreshold.first() }
+            .coerceAtLeast(0f)
+        val silenceHangoverFrames = secondsToFrames(
+            runBlocking { wakeWordPreferences.silenceHangoverSeconds.first() }
+                .coerceAtLeast(WAKE_WORD_FRAME_DURATION_SECONDS),
+        )
+        val replayFrames = secondsToFrames(
+            runBlocking { wakeWordPreferences.silenceRearmSeconds.first() }
+                .coerceIn(WAKE_WORD_FRAME_DURATION_SECONDS, WAKE_WORD_MAX_REPLAY_SECONDS),
+        )
+        val maxSilenceSkipFrames = secondsToFrames(WAKE_WORD_MAX_SILENCE_SKIP_SECONDS)
 
         Log.i(TAG, "WakeWordDetector: starting 3-stage ONNX pipeline — " +
             "highThreshold=$highThreshold" +
             if (verifyWindow != null) " lowThreshold=$lowThreshold (STT verification active)" else "")
 
         detectionThread = Thread(
-            { runDetectionLoop(bytes, highThreshold, lowThreshold, verifyWindow, onDetected) },
+            {
+                runDetectionLoop(
+                    bytes = bytes,
+                    highThreshold = highThreshold,
+                    lowThreshold = lowThreshold,
+                    silenceRmsThreshold = silenceRmsThreshold,
+                    silenceHangoverFrames = silenceHangoverFrames,
+                    replayFrames = replayFrames,
+                    maxSilenceSkipFrames = maxSilenceSkipFrames,
+                    verifyWindow = verifyWindow,
+                    onDetected = onDetected,
+                )
+            },
             "wake-word-detector",
         ).also {
             it.isDaemon = true
@@ -231,6 +253,10 @@ class OnnxWakeWordDetector @Inject constructor(
         bytes: ModelBytes,
         highThreshold: Float,
         lowThreshold: Float,
+        silenceRmsThreshold: Float,
+        silenceHangoverFrames: Int,
+        replayFrames: Int,
+        maxSilenceSkipFrames: Int,
         verifyWindow: ((ShortArray) -> Boolean)?,
         onDetected: () -> Unit,
     ) {
@@ -307,6 +333,12 @@ class OnnxWakeWordDetector @Inject constructor(
         val pcmRing     = if (verifyWindow != null) ShortArray(VERIFY_RING_SAMPLES) else ShortArray(0)
         var pcmRingHead = 0
         var pcmFilled   = 0
+        val replayChunkRing = Array(replayFrames) { ShortArray(FRAME_SAMPLES) }
+        var replayHead = 0
+        var replayFilled = 0
+        var silenceFrames = 0
+        var fullInferenceDebt = replayFrames
+        var maxObservedReplay = 0
 
         try {
             audioRecord.startRecording()
@@ -328,10 +360,14 @@ class OnnxWakeWordDetector @Inject constructor(
                 }
                 if (totalRead < FRAME_SAMPLES) continue
                 chunkCount++
+                val rms = calculateRms(chunk)
                 if (chunkCount % 100 == 0) {
                     // Log mic activity every ~8s to confirm AudioRecord is delivering data.
-                    val rms = Math.sqrt(chunk.fold(0.0) { acc, s -> acc + s * s } / FRAME_SAMPLES)
-                    Log.d(TAG, "WakeWordDetector: alive chunk=$chunkCount rms=${"%.1f".format(rms)} melFilled=$melRowsFilled embAcc=$embFramesAccumulated")
+                    Log.d(
+                        TAG,
+                        "WakeWordDetector: alive chunk=$chunkCount rms=${"%.1f".format(rms)} " +
+                            "melFilled=$melRowsFilled embAcc=$embFramesAccumulated gated=${fullInferenceDebt == 0}",
+                    )
                 }
 
 
@@ -349,12 +385,42 @@ class OnnxWakeWordDetector @Inject constructor(
                     if (pcmFilled < VERIFY_RING_SAMPLES) pcmFilled += FRAME_SAMPLES
                 }
 
+                // Keep a rolling PCM history so speech onset can replay enough context to rebuild
+                // the mel/embedding/classifier state before live inference resumes.
+                chunk.copyInto(replayChunkRing[replayHead], 0, 0, FRAME_SAMPLES)
+                replayHead = (replayHead + 1) % replayFrames
+                if (replayFilled < replayFrames) replayFilled++
+
+                val voiced = rms >= silenceRmsThreshold
+                if (voiced) {
+                    silenceFrames = 0
+                    if (fullInferenceDebt == 0) {
+                        fullInferenceDebt = replayFilled.coerceAtLeast(1)
+                        if (fullInferenceDebt > maxObservedReplay) maxObservedReplay = fullInferenceDebt
+                    }
+                } else {
+                    silenceFrames++
+                }
+
+                if (!voiced && silenceFrames > silenceHangoverFrames && fullInferenceDebt <= 0) {
+                    fullInferenceDebt = if (chunkCount % maxSilenceSkipFrames.toLong() == 0L) 1 else 0
+                    if (fullInferenceDebt == 0) continue
+                }
+
+                val frameForInference = if (fullInferenceDebt > 0) {
+                    val replayIndex = ((replayHead - fullInferenceDebt) + replayFrames) % replayFrames
+                    fullInferenceDebt--
+                    replayChunkRing[replayIndex]
+                } else {
+                    chunk
+                }
+
                 // openWakeWord's mel model expects raw 16-bit PCM values cast to float32
                 // (range ±32768), NOT normalised to [-1, 1]. Using the wrong scale shifts
                 // the mel output by ~88 units, putting embeddings completely out of the
                 // distribution the classifier was trained on (verified empirically).
                 for (i in 0 until FRAME_SAMPLES) {
-                    framePcm[i] = chunk[i].toFloat()
+                    framePcm[i] = frameForInference[i].toFloat()
                 }
 
                 // ── Stage 1: melspectrogram ───────────────────────────────────────────
@@ -422,7 +488,7 @@ class OnnxWakeWordDetector @Inject constructor(
                 }
 
                 // Accumulate embedding in ring buffer.
-                embedding.copyInto(embeddingRing[embRingHead])
+                embedding.copyInto(embeddingRing[embRingHead], 0, 0, EMBEDDING_DIM)
                 embRingHead = (embRingHead + 1) % EMBEDDING_FRAMES
                 if (embFramesAccumulated < EMBEDDING_FRAMES) embFramesAccumulated++
                 if (embFramesAccumulated < EMBEDDING_FRAMES) continue
@@ -492,7 +558,7 @@ class OnnxWakeWordDetector @Inject constructor(
             classSession.close()
             sessionOptions.close()
             running.set(false)
-            Log.d(TAG, "WakeWordDetector: detection loop exited")
+            Log.d(TAG, "WakeWordDetector: detection loop exited maxReplayFrames=$maxObservedReplay")
         }
     }
 
@@ -519,3 +585,15 @@ class OnnxWakeWordDetector @Inject constructor(
         return out
     }
 }
+
+internal fun calculateRms(chunk: ShortArray): Double {
+    var sum = 0.0
+    for (sample in chunk) {
+        val value = sample.toDouble()
+        sum += value * value
+    }
+    return Math.sqrt(sum / FRAME_SAMPLES)
+}
+
+internal fun secondsToFrames(seconds: Float): Int =
+    kotlin.math.ceil(seconds / WAKE_WORD_FRAME_DURATION_SECONDS).toInt().coerceAtLeast(1)
