@@ -70,6 +70,14 @@ class ModelDownloadManager @Inject constructor(
 
     val downloadStates: StateFlow<Map<KernelModel, DownloadState>> = _downloadStates.asStateFlow()
 
+    /**
+     * Tracks the [DownloadSource] for each model. Populated when [startDownload] is called.
+     * Used by the UI layer to determine whether cancel is allowed.
+     */
+    private val _downloadSources: MutableStateFlow<Map<KernelModel, DownloadSource>> =
+        MutableStateFlow(emptyMap())
+    val downloadSources: StateFlow<Map<KernelModel, DownloadSource>> = _downloadSources.asStateFlow()
+
     val deviceTier: HardwareTier get() = hardwareProfileDetector.profile.tier
 
     init {
@@ -87,8 +95,18 @@ class ModelDownloadManager @Inject constructor(
              }
             .forEach { model ->
                 Log.i(TAG, "Auto-queuing required model: ${model.displayName}")
-                startDownload(model)
-            }
+                startDownload(model, source = DownloadSource.AUTO_QUEUED)
+                // Co-queue SentencePiece tokenizer whenever EmbeddingGemma is queued
+                if (model == KernelModel.EMBEDDING_GEMMA_300M &&
+                    !KernelModel.EMBEDDING_GEMMA_SP_MODEL.isDownloaded(context)
+                ) {
+                    Log.i(TAG, "Co-queuing SentencePiece model with EmbeddingGemma")
+                    startDownload(
+                        KernelModel.EMBEDDING_GEMMA_SP_MODEL,
+                        source = DownloadSource.AUTO_QUEUED
+                    )
+                }
+        }
         // Auto-queue tier-specific optional models (e.g. E-4B on FLAGSHIP)
         // NOTE: tier is already declared above
         KernelModel.entries
@@ -98,7 +116,7 @@ class ModelDownloadManager @Inject constructor(
             }
             .forEach { model ->
                 Log.i(TAG, "Auto-queuing ${model.displayName} for tier ${tier.name}")
-                startDownload(model)
+                startDownload(model, source = DownloadSource.AUTO_QUEUED)
             }
         // Auto-trigger gated required models when user signs in
         scope.launch {
@@ -108,7 +126,7 @@ class ModelDownloadManager @Inject constructor(
                     KernelModel.entries
                         .filter { m -> m.isGated && m.isRequired }
                         .filter { m -> _downloadStates.value[m] is DownloadState.NotDownloaded }
-                        .forEach { m -> startDownload(m) }
+                        .forEach { m -> startDownload(m, source = DownloadSource.AUTO_QUEUED) }
                 }
         }
     }
@@ -127,13 +145,16 @@ class ModelDownloadManager @Inject constructor(
      * - Otherwise → [ExistingWorkPolicy.REPLACE] to unstick any stale ENQUEUED job that
      *   Samsung's battery manager prevented from dispatching, and to restart FAILED jobs.
      */
-    fun startDownload(model: KernelModel, force: Boolean = false) {
+    fun startDownload(model: KernelModel, force: Boolean = false, source: DownloadSource = DownloadSource.USER_INITIATED) {
         if (model.isBundled) return  // bundled assets are always available; nothing to download
         if (!force && model.isDownloaded(context)) {
             updateState(model, DownloadState.Downloaded(model.localFile(context).absolutePath))
             return
         }
 
+
+        // Track the download source for UI layer
+        _downloadSources.value = _downloadSources.value.toMutableMap().apply { put(model, source) }
         Log.i(TAG, "Enqueuing download for ${model.displayName}")
         // updateState moved inside coroutine — don't reset progress to 0 if KEEP is chosen
 
@@ -193,6 +214,13 @@ class ModelDownloadManager @Inject constructor(
 
     /** Cancel an in-progress download. The partial `.tmp` file is preserved for resumption. */
     fun cancelDownload(model: KernelModel) {
+        // Required and auto-queued models cannot be cancelled — the app needs them to function.
+        // This guard protects against both UI callers and programmatic callers that might
+        // bypass the UI's hidden Cancel button.
+        if (model.isRequired) {
+            Log.w(TAG, "Refusing to cancel download for required model: ${model.displayName}")
+            return
+        }
         workManager.cancelUniqueWork(model.workerTag)
         updateState(model, DownloadState.NotDownloaded)
         Log.i(TAG, "Cancelled download for ${model.displayName}")
