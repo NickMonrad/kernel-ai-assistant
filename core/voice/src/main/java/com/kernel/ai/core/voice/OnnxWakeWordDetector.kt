@@ -12,6 +12,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import java.nio.FloatBuffer
+import ai.onnxruntime.providers.NNAPIFlags
+import java.util.EnumSet
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -280,19 +282,23 @@ class OnnxWakeWordDetector @Inject constructor(
 
 
         val env = OrtEnvironment.getEnvironment()
-        val sessionOptions = OrtSession.SessionOptions().apply {
+        val cpuOptions = OrtSession.SessionOptions().apply {
             setIntraOpNumThreads(1)
         }
+        val embedOptions = OrtSession.SessionOptions().apply {
+            setIntraOpNumThreads(1)
+            addNnapi(EnumSet.of(NNAPIFlags.CPU_DISABLED))
+        }
 
-        val melsSession  = runCatching { env.createSession(bytes.melspectrogram, sessionOptions) }
+        val melsSession  = runCatching { env.createSession(bytes.melspectrogram, cpuOptions) }
             .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load melspectrogram.onnx", e); null }
-        val embedSession = runCatching { env.createSession(bytes.embedding, sessionOptions) }
+        val embedSession = runCatching { env.createSession(bytes.embedding, embedOptions) }
             .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load embedding_model.onnx", e); null }
-        val classSession = runCatching { env.createSession(bytes.classifier, sessionOptions) }
+        val classSession = runCatching { env.createSession(bytes.classifier, cpuOptions) }
             .getOrElse { e -> Log.e(TAG, "WakeWordDetector: failed to load hey_jandal.onnx", e); null }
-
         if (melsSession == null || embedSession == null || classSession == null) {
-            sessionOptions.close()
+            cpuOptions.close()
+            embedOptions.close()
             melsSession?.close()
             embedSession?.close()
             classSession?.close()
@@ -300,7 +306,6 @@ class OnnxWakeWordDetector @Inject constructor(
             running.set(false)
             return
         }
-
         // Resolve ONNX node names once at startup (avoids hard-coding strings).
         val melsInputName   = melsSession.inputNames.first()
         val melsOutputName  = melsSession.outputNames.first()
@@ -545,8 +550,8 @@ class OnnxWakeWordDetector @Inject constructor(
             melsSession.close()
             embedSession.close()
             classSession.close()
-            sessionOptions.close()
-            running.set(false)
+            cpuOptions.close()
+            embedOptions.close()
             Log.d(TAG, "WakeWordDetector: detection loop exited — " +
                 "inferences=$inferenceCount gatedSkips=$gatedFramesSkipped " +
                 "finalMinRms=${"%.1f".format(minRms)}")
