@@ -42,7 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -67,7 +67,7 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
     LaunchedEffect(Unit) {
         viewModel.saveError.collect { message ->
             snackbarHostState.showSnackbar(message)
@@ -161,7 +161,7 @@ fun SettingsScreen(
                 username = uiState.hfUsername,
                 onSignIn = { viewModel.startAuth() },
                 onSignOut = { viewModel.signOutHuggingFace() },
-                onViewLicence = { uriHandler.openUri("https://huggingface.co/litert-community/embeddinggemma-300m") },
+                onViewLicence = { openInAppBrowser(context, "https://huggingface.co/litert-community/embeddinggemma-300m") },
             )
             HorizontalDivider()
 
@@ -330,7 +330,7 @@ private fun HuggingFaceAccountRow(
             headlineContent = { Text("Not signed in") },
             supportingContent = {
                 Column {
-                    Text("Required to download EmbeddingGemma (gated). Accept licence before downloading.")
+                    Text("Required to download gated Hugging Face models. Accept licence before downloading.")
                     TextButton(onClick = onViewLicence, contentPadding = PaddingValues(0.dp)) {
                         Text("View licence →", style = MaterialTheme.typography.bodySmall)
                     }
@@ -380,5 +380,6 @@ private fun HuggingFaceAccountRowNotSignedInPreview() {
         )
     }
 }
+
 
 

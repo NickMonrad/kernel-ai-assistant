@@ -15,7 +15,7 @@ package com.kernel.ai.core.voice
  * Pipeline:
  * 1. melspectrogram.onnx  — `float32[1, 1280]` PCM → mel-spectrogram patch
  * 2. embedding_model.onnx — mel patch → `float32[1, 96]` embedding (per 80ms frame)
- * 3. hey_jandal.onnx      — `float32[1, 28, 96]` embedding window → `float32[1, 1]` confidence
+ * 3. hey_jandal.onnx      — `float32[1, 16, 96]` embedding window → `float32[1, 1]` confidence
  *
  * Model files (all in assets/models/wakeword/):
  * - melspectrogram.onnx  — shared preprocessing; download from openWakeWord releases
