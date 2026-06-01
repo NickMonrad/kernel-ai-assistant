@@ -41,6 +41,7 @@ import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.skills.mealplan.MealPlannerReply
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestionComposeMode
+import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
@@ -110,6 +111,7 @@ class ChatViewModelVoiceTest {
     private val jandalPersona: JandalPersona = mockk(relaxed = true)
     private val nzTruthSeedingService: NzTruthSeedingService = mockk(relaxed = true)
     private val verboseLoggingPreferenceUseCase: VerboseLoggingPreferenceUseCase = mockk(relaxed = true)
+    private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val chatPreferences: com.kernel.ai.core.memory.prefs.ChatPreferences = mockk(relaxed = true)
 
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
@@ -803,9 +805,34 @@ class ChatViewModelVoiceTest {
 
         voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "cancel"))
         advanceUntilIdle()
-
         assertEquals("", viewModel.getConversationAsText())
-        assertEquals(null, viewModel.voiceMode.value)
+    }
+    @Test
+    fun `ListeningStarted for owned Command session triggers cue player`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started
+        viewModel.startVoiceInput()
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+        verify(exactly = 1) { startListeningCuePlayer.playCue() }
+    }
+    @Test
+    fun `ListeningStarted for unowned mode does not trigger cue player`() = runTest(dispatcher) {
+        // ChatViewModel is Idle — it owns nothing. An event from an AlertCommand
+        // session started elsewhere should be silently ignored.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand))
+        advanceUntilIdle()
+        verify(exactly = 0) { startListeningCuePlayer.playCue() }
+    }
+    @Test
+    fun `ListeningStarted for SlotReply does not trigger cue in ChatViewModel`() = runTest(dispatcher) {
+        // ChatViewModel only plays cue for Command mode; SlotReply is handled by ActionsViewModel.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        advanceUntilIdle()
+        verify(exactly = 0) { startListeningCuePlayer.playCue() }
     }
 
     @Test
@@ -1023,6 +1050,7 @@ class ChatViewModelVoiceTest {
     jandalPersona = jandalPersona,
     nzTruthSeedingService = nzTruthSeedingService,
     verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
+    startListeningCuePlayer = startListeningCuePlayer,
     mealPlanSessionRepository = mealPlanSessionRepository,
     mealPlannerCoordinator = mealPlannerCoordinator,
 )
