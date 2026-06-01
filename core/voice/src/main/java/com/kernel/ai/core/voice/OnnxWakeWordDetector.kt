@@ -287,7 +287,8 @@ class OnnxWakeWordDetector @Inject constructor(
         }
         val embedOptions = OrtSession.SessionOptions().apply {
             setIntraOpNumThreads(1)
-            addNnapi(EnumSet.of(NNAPIFlags.CPU_DISABLED))
+            runCatching { addNnapi(EnumSet.of(NNAPIFlags.CPU_DISABLED)) }
+                .onFailure { Log.w(TAG, "WakeWordDetector: NNAPI EP unavailable, using CPU", it) }
         }
 
         val melsSession  = runCatching { env.createSession(bytes.melspectrogram, cpuOptions) }
@@ -342,11 +343,10 @@ class OnnxWakeWordDetector @Inject constructor(
         var voicedFrameStreak = 0
         var minRms = 0.0
         var gatedFramesSkipped = 0L
-
         try {
+
             audioRecord.startRecording()
             Log.d(TAG, "WakeWordDetector: recording started")
-
             while (running.get() && !Thread.currentThread().isInterrupted) {
                 // Read exactly one 80ms frame; abort if AudioRecord signals an error.
                 var totalRead = 0
@@ -555,6 +555,7 @@ class OnnxWakeWordDetector @Inject constructor(
             Log.d(TAG, "WakeWordDetector: detection loop exited — " +
                 "inferences=$inferenceCount gatedSkips=$gatedFramesSkipped " +
                 "finalMinRms=${"%.1f".format(minRms)}")
+            running.set(false)
         }
     }
 
