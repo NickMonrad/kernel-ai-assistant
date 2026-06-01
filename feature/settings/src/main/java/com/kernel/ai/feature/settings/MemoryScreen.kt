@@ -56,6 +56,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.ui.CollapsibleSectionHeader
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
 import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
@@ -651,50 +652,6 @@ private fun SectionHeader(title: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     )
-}
-
-@Composable
-private fun CollapsibleSectionHeader(
-    title: String,
-    count: Int? = null,
-    isExpanded: Boolean,
-    onToggle: () -> Unit,
-) {
-    val rotation by animateFloatAsState(targetValue = if (isExpanded) 180f else 0f, label = "chevron")
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onToggle() }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            if (count != null && count > 0) {
-                Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
-                    Text(
-                        text = count.toString(),
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
-            }
-        }
-        Icon(
-            imageVector = Icons.Default.KeyboardArrowDown,
-            contentDescription = if (isExpanded) "Collapse" else "Expand",
-            modifier = Modifier.rotate(rotation),
-            tint = MaterialTheme.colorScheme.primary,
-        )
-    }
 }
 
 /**
