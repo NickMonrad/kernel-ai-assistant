@@ -119,6 +119,33 @@ class TranscriptNormaliserTest {
         )
     }
 
+
+    // ── Edge-case regressions for new patterns ─────────────────────────────────
+
+    @Test
+    fun `capitalized Kumada becomes kumara`() {
+        assertEquals(
+            "I visited kumara-sensei",
+            TranscriptNormaliser.normalise("I visited Kumada-sensei"),
+        )
+    }
+
+    @Test
+    fun `possessive kumada becomes possessive kumara`() {
+        assertEquals(
+            "kumara's texture is smooth",
+            TranscriptNormaliser.normalise("kumada's texture is smooth"),
+        )
+    }
+
+    @Test
+    fun `capitalized Fatty Pucker becomes wharepaku`() {
+        assertEquals(
+            "what is a wharepaku",
+            TranscriptNormaliser.normalise("what is a Fatty Pucker"),
+        )
+    }
+
     // ── #1017 — Mills / mls ───────────────────────────────────────────────────
 
     @Test
