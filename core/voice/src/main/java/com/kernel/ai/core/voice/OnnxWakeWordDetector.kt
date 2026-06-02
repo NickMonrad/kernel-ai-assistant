@@ -384,30 +384,33 @@ class OnnxWakeWordDetector @Inject constructor(
                 // Track the minimum observed RMS for diagnostic logging.
                 if (minRms <= 0.0 || rms < minRms) minRms = rms
 
-                // ── Debounced voice detection ──────────────────────────────────────
-                // Require 3+ consecutive frames with RMS ≥ threshold (240ms) before
-                // treating audio as speech.  A single 80ms transient (door, tap, car
-                // passing) no longer resets the silence timer.
+                // ── Fast-open / slow-close voice detection ───────────────────────
+                // Fast-open: a single frame above threshold immediately resets the
+                // silence counter, un-gating Stage 2/3 so the classifier sees speech
+                // onset within 80ms instead of 240ms.
+                // Slow-close: require 3 consecutive silent frames before the silence
+                // timer starts accumulating, so a single 80ms transient (door, tap,
+                // car passing) doesn't falsely re-enter gated mode.
                 val isFrameVoiced = rms >= silenceRmsThreshold
-                voicedFrameStreak = if (isFrameVoiced) voicedFrameStreak + 1 else 0
-                val voiced = voicedFrameStreak >= 3
-
-                if (voiced) {
+                if (isFrameVoiced) {
+                    // Flush the embedding ring on speech onset after gated silence.
+                    // The ring holds stale silence embeddings from before gating.
+                    // Resetting embFramesAccumulated forces a clean 16-frame refill
+                    // from live audio.  The mel ring slides naturally (Stage 1 runs
+                    // every frame even during gating), so the first speech frame
+                    // already pre-fills it with speech mel data.
+                    // Latency: 80ms + 16-frame ring fill (~1.3s) ≈ ~1.4s.
                     if (wasGated) {
-                        // Flush the embedding ring on speech onset after gated silence.
-                        // The ring holds stale silence embeddings from before gating.
-                        // Resetting embFramesAccumulated forces a clean 16-frame refill
-                        // from live audio.  The mel ring slides naturally (Stage 1 runs
-                        // every frame even during gating), so the debounce frames already
-                        // pre-fill it with speech mel data — no separate mel flush needed.
-                        // Detection latency: 3-frame debounce (~240ms) + 16-frame ring
-                        // fill (~1.3s) ≈ ~1.5s after speech onset.
                         embFramesAccumulated = 0
                         wasGated = false
                     }
                     silenceFrames = 0
+                    voicedFrameStreak = 0
                 } else {
-                    silenceFrames++
+                    voicedFrameStreak++
+                    if (voicedFrameStreak >= 3) {
+                        silenceFrames++
+                    }
                 }
                 // ── Stage 1: mel spectrogram (runs on every frame) ──────────────────
                 // Keeps the mel ring fresh during gated silence so that when speech
@@ -452,8 +455,8 @@ class OnnxWakeWordDetector @Inject constructor(
                 }
                 if (melRowsFilled < MEL_RING_SIZE) continue
 
-                // ── Gating: skip embedding + classifier when silent ─────────────────
-                if (!voiced && silenceFrames > silenceHangoverFrames &&
+                // ── Gating: skip embedding + classifier when confirmed-silent ─────
+                if (silenceFrames > silenceHangoverFrames &&
                     chunkCount % maxSilenceSkipFrames.toLong() != 0L) {
                     gatedFramesSkipped++
                     wasGated = true
@@ -465,9 +468,9 @@ class OnnxWakeWordDetector @Inject constructor(
                         TAG,
                         "WakeWordDetector: alive chunk=$chunkCount rms=${"%.1f".format(rms)} " +
                             "base=${"%.1f".format(minRms)} " +
-                            "thresh=$silenceRmsThreshold voiced=$voiced " +
-                            "melFilled=$melRowsFilled embAcc=$embFramesAccumulated " +
-                            "ongoingSkips=$gatedFramesSkipped",
+                            "thresh=$silenceRmsThreshold isVoiced=$isFrameVoiced " +
+                            "silenceFrames=$silenceFrames melFilled=$melRowsFilled " +
+                            "embAcc=$embFramesAccumulated ongoingSkips=$gatedFramesSkipped",
                     )
                 }
 
