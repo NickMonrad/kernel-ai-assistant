@@ -23,7 +23,7 @@ class WakeWordSilenceGateTest {
     }
 
     @Test
-    fun `default silence skip interval is three seconds`() {
-        assertEquals(38, secondsToFrames(WAKE_WORD_MAX_SILENCE_SKIP_SECONDS))
+    fun `default silence skip interval is one second`() {
+        assertEquals(13, secondsToFrames(WAKE_WORD_MAX_SILENCE_SKIP_SECONDS))
     }
 }

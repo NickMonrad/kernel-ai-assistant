@@ -384,18 +384,22 @@ class OnnxWakeWordDetector @Inject constructor(
                 // Track the minimum observed RMS for diagnostic logging.
                 if (minRms <= 0.0 || rms < minRms) minRms = rms
 
-                // ── Debounced voice detection ──────────────────────────────────────
-                // Require 3+ consecutive frames with RMS ≥ threshold (240ms) before
-                // treating audio as speech.  A single 80ms transient (door, tap, car
-                // passing) no longer resets the silence timer.
+                // ── Fast-open / slow-close voice detection ───────────────────────
+                // Fast-open: a single frame above threshold immediately resets the
+                // silence counter, un-gating Stage 2/3 so the classifier sees speech
+                // onset within 80ms instead of 240ms.
+                // Slow-close: require 3 consecutive silent frames before the silence
+                // timer starts accumulating, so a single 80ms transient (door, tap,
+                // car passing) doesn't falsely re-enter gated mode.
                 val isFrameVoiced = rms >= silenceRmsThreshold
-                voicedFrameStreak = if (isFrameVoiced) voicedFrameStreak + 1 else 0
-                val voiced = voicedFrameStreak >= 3
-
-                if (voiced) {
+                if (isFrameVoiced) {
                     silenceFrames = 0
+                    voicedFrameStreak = 0
                 } else {
-                    silenceFrames++
+                    voicedFrameStreak++
+                    if (voicedFrameStreak >= 3) {
+                        silenceFrames++
+                    }
                 }
                 // ── Stage 1: mel spectrogram (runs on every frame) ──────────────────
                 // Keeps the mel ring fresh during gated silence so that when speech
@@ -439,14 +443,14 @@ class OnnxWakeWordDetector @Inject constructor(
                     melRows.copyInto(melRing, melRowsFilled * MEL_BINS, 0, rowsToInsert * MEL_BINS)
                     melRowsFilled += rowsToInsert
                 }
-                if (melRowsFilled < MEL_RING_SIZE) continue
+            if (melRowsFilled < MEL_RING_SIZE) continue
 
-                // ── Gating: skip embedding + classifier when silent ─────────────────
-                if (!voiced && silenceFrames > silenceHangoverFrames &&
-                    chunkCount % maxSilenceSkipFrames.toLong() != 0L) {
-                    gatedFramesSkipped++
-                    continue  // wake word not expected — skip expensive Stage 2/3
-                }
+            // ── Gating: skip embedding + classifier when confirmed-silent ─────
+            if (silenceFrames > silenceHangoverFrames &&
+                chunkCount % maxSilenceSkipFrames.toLong() != 0L) {
+                gatedFramesSkipped++
+                continue  // wake word not expected — skip expensive Stage 2/3
+            }
 
                 // Log mic activity every ~8s (only when Stage 2/3 runs).
                 if (chunkCount % 100 == 0) {
@@ -454,9 +458,9 @@ class OnnxWakeWordDetector @Inject constructor(
                         TAG,
                         "WakeWordDetector: alive chunk=$chunkCount rms=${"%.1f".format(rms)} " +
                             "base=${"%.1f".format(minRms)} " +
-                            "thresh=$silenceRmsThreshold voiced=$voiced " +
-                            "melFilled=$melRowsFilled embAcc=$embFramesAccumulated " +
-                            "ongoingSkips=$gatedFramesSkipped",
+                            "thresh=$silenceRmsThreshold isVoiced=$isFrameVoiced " +
+                            "silenceFrames=$silenceFrames melFilled=$melRowsFilled " +
+                            "embAcc=$embFramesAccumulated ongoingSkips=$gatedFramesSkipped",
                     )
                 }
 
