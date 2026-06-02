@@ -30,6 +30,14 @@ class TranscriptNormaliserTest {
     }
 
     @Test
+    fun `fattypaku becomes wharepaku`() {
+        assertEquals(
+            "what is a wharepaku",
+            TranscriptNormaliser.normalise("what is a fattypaku"),
+        )
+    }
+
+    @Test
     fun `wharepaku stays wharepaku (idempotent)`() {
         assertEquals(
             "where is the wharepaku",

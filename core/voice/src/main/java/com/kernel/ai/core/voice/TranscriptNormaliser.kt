@@ -31,8 +31,9 @@ object TranscriptNormaliser {
 
     /** Word-level Kiwi/Māori mishear corrections: #935, #939. */
     private val KIWI_PHONETIC_REPLACEMENTS: List<Pair<Regex, String>> = listOf(
-        // #939 — wharepaku <-> fattybaku
+        // #939 — wharepaku <-> fattybaku / fattypaku
         Regex("""\bfattybaku\b""", RegexOption.IGNORE_CASE) to "wharepaku",
+        Regex("""\bfattypaku\b""", RegexOption.IGNORE_CASE) to "wharepaku",
         Regex("""\bfarah\s+paco\b""", RegexOption.IGNORE_CASE) to "wharepaku",
         // #935 / #935-comment — taniwha
         Regex("""\btonifa\b""", RegexOption.IGNORE_CASE) to "taniwha",
