@@ -4,6 +4,11 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.model.availability.ModelAvailabilityState
+import com.kernel.ai.core.model.availability.toAvailability
+import kotlinx.coroutines.flow.collect
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,9 +21,9 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ModelSettingsViewModel @Inject constructor(
+    private val modelDownloadManager: ModelDownloadManager,
     private val modelSettingsRepository: ModelSettingsRepository,
 ) : ViewModel() {
-
     data class ModelSettingsUiState(
         /** Current draft values shown in the UI. Not persisted until [saveSettings] is called. */
         val e2bSettings: ModelSettingsEntity? = null,
@@ -27,6 +32,8 @@ class ModelSettingsViewModel @Inject constructor(
         val persistedE2b: ModelSettingsEntity? = null,
         val persistedE4b: ModelSettingsEntity? = null,
         val isSaving: Boolean = false,
+        val e2bAvailability: ModelAvailabilityState? = null,
+        val e4bAvailability: ModelAvailabilityState? = null,
     ) {
         val hasUnsavedChanges: Boolean
             get() = e2bSettings != persistedE2b || e4bSettings != persistedE4b
@@ -37,6 +44,18 @@ class ModelSettingsViewModel @Inject constructor(
 
     init {
         loadSettings()
+        viewModelScope.launch {
+            modelDownloadManager.downloadStates.collect { states ->
+                _uiState.update { current ->
+                    current.copy(
+                        e2bAvailability = states[KernelModel.GEMMA_4_E2B]
+                            ?.toAvailability(KernelModel.GEMMA_4_E2B, hfAuth = false),
+                        e4bAvailability = states[KernelModel.GEMMA_4_E4B]
+                            ?.toAvailability(KernelModel.GEMMA_4_E4B, hfAuth = false),
+                    )
+                }
+            }
+        }
     }
 
     private fun loadSettings() {
