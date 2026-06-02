@@ -74,12 +74,15 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 Task agents run in **ephemeral, isolated worktrees** that are cleaned up on completion.
 Their file writes never reach your worktree. To extract their changes, use one of:
 
-**Option A — diff output (preferred):** Instruct the agent to output `git diff` at the end.
+**Option A — diff output (preferred):** Add this to the end of every code-changing assignment:
 ```
-# In subagent assignment:
-"Before finishing, run `git diff` and output it. I will apply it manually."
+LAST STEP — output your changes as a patch:
+1. Run `git diff` (do NOT omit this step).
+2. Copy the ENTIRE diff output into your final message verbatim,
+   wrapped in a ```diff code block.
+Do NOT summarise your changes — I need the raw diff to `git apply`.
 ```
-Then apply with `git apply` in your worktree (adjust paths if the agent was deeper in the tree).
+Then apply in your worktree: pipe the diff block into `git apply`.
 
 **Option B — raw file content:** Instruct the agent to `cat` each modified file.
 The artifact output will contain the full content; copy it with `write`.
