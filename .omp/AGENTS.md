@@ -69,6 +69,26 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 
 **Workflow:** Analyse → dispatch (android-developer / llm-engineer) → parallel test-writer + spec-writer → PR with `Closes #N` → parallel code-reviewer + CI → push fixes → owner tests via ADB → owner merges.
 
+### Subagent code changes — recovery pattern
+
+Task agents run in **ephemeral, isolated worktrees** that are cleaned up on completion.
+Their file writes never reach your worktree. To extract their changes, use one of:
+
+**Option A — diff output (preferred):** Instruct the agent to output `git diff` at the end.
+```
+# In subagent assignment:
+"Before finishing, run `git diff` and output it. I will apply it manually."
+```
+Then apply with `git apply` in your worktree (adjust paths if the agent was deeper in the tree).
+
+**Option B — raw file content:** Instruct the agent to `cat` each modified file.
+The artifact output will contain the full content; copy it with `write`.
+
+**Option C — GitHub push:** For larger changes, tell the agent to `git push` its branch,
+then `git fetch` + `git merge` from your worktree.
+
+**Never** assume a `task` agent's file modifications are visible in your worktree.
+
 ## Branch isolation
 
 **Do not modify the main checkout directly.** Every session that touches code must use a dedicated worktree:
