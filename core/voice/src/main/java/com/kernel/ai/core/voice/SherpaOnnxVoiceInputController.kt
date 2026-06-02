@@ -60,16 +60,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         private const val OFFLINE_SPEECH_RMS_THRESHOLD = 0.02f
         private const val OFFLINE_TRAILING_SILENCE_FRAMES = 25 // 2.5 s — tolerate natural speech pauses
         private const val PKG = "com.k2fsa.sherpa.onnx"
-        /**
-         * Returns true when [this] transcript contains a recognisable form of "Hey Jandal".
-         *
-         * Matches across common ASR error modes (Handel/Handal/Jandel) and normalises case.
-         */
-        fun String.containsWakePhrase(): Boolean {
-            val lower = lowercase()
-            val namePattern = Regex("""\b(?:hey|a)\s*(?:jandal|jandel|handel|handal|hando)\b""")
-            return namePattern.containsMatchIn(lower)
-        }
     }
 
     // ── Reflected recogniser state ─────────────────────────────────────────────
@@ -402,10 +392,10 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         return kotlin.math.sqrt(sum / chunk.size).toFloat()
     }
 
-    suspend fun transcribeBlocking(pcm: ShortArray): String {
-        if (pcm.isEmpty()) return ""
+    override suspend fun transcribeBlocking(pcm: ShortArray): String? {
+        if (pcm.isEmpty()) return null
         val spec = SherpaSttModelSpec.WAKE_VERIFICATION_DEFAULT
-        val (rec, methods) = ensureWakeRecognizerBlocking(spec) ?: return ""
+        val (rec, methods) = ensureWakeRecognizerBlocking(spec) ?: return null
         val stream = methods.createStream.invoke(rec, "")
         return try {
             val floats = FloatArray(pcm.size) { pcm[it] / 32768f }
@@ -420,7 +410,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             resultTextFromWakeMethods(rec, stream, methods)
         } catch (e: Exception) {
             Log.e(TAG, "transcribeBlocking failed", e)
-            ""
+            null
         } finally {
             runCatching { methods.streamRelease.invoke(stream) }
         }
