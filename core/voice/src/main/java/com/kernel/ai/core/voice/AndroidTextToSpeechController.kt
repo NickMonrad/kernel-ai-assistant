@@ -19,8 +19,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** If a TTS utterance callback (onDone/onError/onStop) never fires, force SpeakingStopped after this delay. */
+private const val PLAYBACK_TIMEOUT_MS = 30_000L
 
 private const val TAG = "KernelAI"
 
@@ -59,6 +64,13 @@ class AndroidTextToSpeechController @Inject constructor(
     @Volatile
     private var nextPlaybackToken: Long = 0L
 
+    /**
+     * Scheduled when the final chunk is queued; cancelled on natural completion ([SpeakingStopped] emitted)
+     * or when [stop] is called. Prevents the "Speaking response…" stuck state if TTS callbacks drop.
+     */
+    @Volatile
+    private var playbackTimeoutJob: Job? = null
+
     @Volatile
     private var activePlayback: ActivePlayback? = null
 
@@ -80,7 +92,7 @@ class AndroidTextToSpeechController @Inject constructor(
         synchronized(playbackLock) {
             activePlayback = ActivePlayback(token = playbackToken)
         }
-        return enqueuePlaybackChunk(
+        val result = enqueuePlaybackChunk(
             playbackToken = playbackToken,
             text = text,
             locale = request.locale,
@@ -88,6 +100,10 @@ class AndroidTextToSpeechController @Inject constructor(
             queueMode = TextToSpeech.QUEUE_FLUSH,
             isFinal = true,
         )
+        if (result is VoiceOutputResult.Spoken) {
+            schedulePlaybackTimeout()
+        }
+        return result
     }
 
     override suspend fun openStreamingSession(
@@ -111,6 +127,7 @@ class AndroidTextToSpeechController @Inject constructor(
                                 ?.finalChunkQueued = true
                         }
                         completePlaybackIfDrained(playbackToken)
+                        schedulePlaybackTimeout()
                     }
                     return VoiceOutputResult.Spoken
                 }
@@ -133,6 +150,7 @@ class AndroidTextToSpeechController @Inject constructor(
                     hasQueuedChunk = true
                     if (isFinal) {
                         isClosed = true
+                        schedulePlaybackTimeout()
                     }
                 }
                 return result
@@ -142,6 +160,7 @@ class AndroidTextToSpeechController @Inject constructor(
 
     override fun stop() {
         scope.launch {
+            cancelPlaybackTimeout()
             val hadActivePlayback = synchronized(playbackLock) {
                 val hadPlayback = activePlayback != null || activeUtterances.isNotEmpty()
                 activePlayback = null
@@ -307,6 +326,7 @@ class AndroidTextToSpeechController @Inject constructor(
             true
         }
         if (shouldEmitStopped) {
+            cancelPlaybackTimeout()
             releaseAudioFocus()
             _events.tryEmit(VoiceOutputEvent.SpeakingStopped)
         }
@@ -340,5 +360,44 @@ class AndroidTextToSpeechController @Inject constructor(
     private fun releaseAudioFocus() {
         audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         audioFocusRequest = null
+    }
+
+    /**
+     * Schedules a safety-net timeout that forces [VoiceOutputEvent.SpeakingStopped] if TTS
+     * utterance callbacks never arrive after the final chunk was queued.
+     *
+     * Cancelled automatically when [stop] is called or [SpeakingStopped] is naturally emitted
+     * via [completePlaybackIfDrained].
+     */
+    private fun schedulePlaybackTimeout() {
+        cancelPlaybackTimeout()
+        playbackTimeoutJob = scope.launch {
+            delay(PLAYBACK_TIMEOUT_MS)
+            val shouldEmit = synchronized(playbackLock) {
+                val pb = activePlayback ?: return@synchronized false
+                if (pb.finalChunkQueued && pb.utteranceIds.isNotEmpty()) {
+                    Log.w(
+                        TAG,
+                        "AndroidTextToSpeechController: playback timeout — $PLAYBACK_TIMEOUT_MS ms " +
+                            "elapsed with ${pb.utteranceIds.size} pending utterance(s) — " +
+                            "forcing SpeakingStopped",
+                    )
+                    activePlayback = null
+                    activeUtterances.clear()
+                    true
+                } else {
+                    false
+                }
+            }
+            if (shouldEmit) {
+                releaseAudioFocus()
+                _events.tryEmit(VoiceOutputEvent.SpeakingStopped)
+            }
+        }
+    }
+
+    private fun cancelPlaybackTimeout() {
+        playbackTimeoutJob?.cancel()
+        playbackTimeoutJob = null
     }
 }
