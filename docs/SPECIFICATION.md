@@ -1116,7 +1116,7 @@ on-device via the Sherpa-ONNX AAR; access is through reflection (no compile-time
 
 | Engine | Mode | Size | Latency | Quality Notes |
 |--------|------|------|---------|---------------|
-| **Zipformer** (default) | Streaming (online) | ~72 MB | ~200ms end-of-speech | Best NZ English accuracy; also used for wake-word verification via dedicated isolated recognizer |
+| **Zipformer** (default) | Streaming (online) | ~72 MB | ~200ms end-of-speech | Best NZ English accuracy; also used as fallback for wake-word verification when the selected engine is offline-only |
 | **SenseVoice** | Offline (final only) | ~100 MB | ~500ms after stop | Good multilingual coverage (ZH/EN/JA/KO/YUE); gated HF downloads from `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` |
 | **Whisper tiny.en** | Offline (final only) | ~117 MB | ~1s after stop | Strong single-shot accuracy; pauses until speech ends or timeout |
 | **Paraformer** | Streaming (online) | ~226 MB | ~200ms | Continuous decoding; largest footprint |
@@ -1135,12 +1135,12 @@ normalisation pipeline:
   is handled by the punctuation-strip rule above
 - Zipformer produces live partial results; SenseVoice and Whisper emit one final result
 
-**Wake-word verification:** Zipformer is the designated wake-word verification engine.
-`WakeWordService` uses a dedicated Zipformer recognizer instance with its own mutex and
-method-handle cache, fully isolated from the interactive STT recognizer. This prevents
-races between wake-word verification and concurrent recognizer reinitialisation.
-
-**Architecture:**
+**Wake-word verification:** The wake-word verification engine follows the user's selected
+STT engine when it is an online recognizer (Zipformer or Paraformer). When the selected
+engine is offline-only (SenseVoice or Whisper), verification falls back to Zipformer.
+`SherpaOnnxVoiceInputController` maintains a dedicated recognizer instance with its own
+mutex and method-handle cache, fully isolated from the interactive STT recognizer, so
+[transcribeBlocking] can run concurrently with [startListening]/[stopListening].
 - `VoiceInputEngine` enum maps engine selection (`SherpaZipformer` / `SherpaSenseVoice` / `SherpaWhisper` / `SherpaParaformer`) with `isSherpaFamily` classifiers and storage backward-compatibility (`"SherpaOnnx"` → `SherpaZipformer`)
 - `SherpaSttModelSpec` data class maps each engine to its file paths, Sherpa class names, and `RecognizerKind` (Online / Offline)
 - `SherpaOnnxVoiceInputController` creates recognizer instances via reflection, caching method handles per recognizer kind

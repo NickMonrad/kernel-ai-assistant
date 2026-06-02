@@ -13,8 +13,7 @@ import android.os.Looper
 import android.widget.Toast
 import android.util.Log
 import com.kernel.ai.MainActivity
-import com.kernel.ai.core.voice.SherpaOnnxVoiceInputController
-import com.kernel.ai.core.voice.SherpaOnnxVoiceInputController.Companion.containsWakePhrase
+import com.kernel.ai.core.voice.containsWakePhrase
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
@@ -77,8 +76,6 @@ class WakeWordService : Service() {
     @Inject lateinit var wakeWordDetector: WakeWordDetector
     @Inject lateinit var voiceInputController: VoiceInputController
     @Inject lateinit var cuePlayer: StartListeningCuePlayer
-
-    @Inject lateinit var sherpaOnnxVoiceInputController: SherpaOnnxVoiceInputController
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var eventCollectorJob: Job? = null
 
@@ -247,7 +244,7 @@ class WakeWordService : Service() {
             verifyWindow = { pcm ->
                 try {
                     kotlinx.coroutines.runBlocking {
-                        sherpaOnnxVoiceInputController.transcribeBlocking(pcm).containsWakePhrase()
+                        voiceInputController.transcribeBlocking(pcm)?.containsWakePhrase() ?: false
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "WakeWordService: wake word verification failed", e)
