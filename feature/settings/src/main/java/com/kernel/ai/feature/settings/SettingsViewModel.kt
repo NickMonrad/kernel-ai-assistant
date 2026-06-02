@@ -7,6 +7,8 @@ import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.model.availability.AvailabilitySummary
+import com.kernel.ai.core.model.availability.computeAvailabilitySummary
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.prefs.ModelPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -41,14 +43,16 @@ class SettingsViewModel @Inject constructor(
         val hfAuthenticated: Boolean = false,
         /** HuggingFace username from OIDC id_token, or null. */
         val hfUsername: String? = null,
+        val modelAvailabilitySummary: AvailabilitySummary = AvailabilitySummary(total = 0),
     )
 
     val uiState: StateFlow<SettingsUiState> = combine(
         modelPreferences.preferredConversationModel,
         modelDownloadManager.downloadStates,
+        modelDownloadManager.downloadSources,
         authRepository.isAuthenticated,
         authRepository.username,
-    ) { preferredModel, downloadStates, hfAuthenticated, hfUsername ->
+    ) { preferredModel, downloadStates, downloadSources, hfAuthenticated, hfUsername ->
         val profile = hardwareProfileDetector.profile
         val e4bDownloaded = downloadStates[KernelModel.GEMMA_4_E4B] is DownloadState.Downloaded
         val e2bDownloaded = downloadStates[KernelModel.GEMMA_4_E2B] is DownloadState.Downloaded
@@ -64,6 +68,13 @@ class SettingsViewModel @Inject constructor(
             }
         }
 
+        val summary = computeAvailabilitySummary(
+            models = KernelModel.entries.filter { it.showInModelManagement },
+            downloadStates = downloadStates,
+            hfAuth = hfAuthenticated,
+            downloadSources = downloadSources,
+        )
+
         SettingsUiState(
             activeModelLabel = activeModel.displayName,
             activeBackend = profile.recommendedBackend.name,
@@ -73,6 +84,7 @@ class SettingsViewModel @Inject constructor(
             e4bDownloaded = e4bDownloaded,
             hfAuthenticated = hfAuthenticated,
             hfUsername = hfUsername,
+            modelAvailabilitySummary = summary,
         )
     }.stateIn(
         scope = viewModelScope,
