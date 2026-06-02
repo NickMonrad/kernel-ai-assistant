@@ -79,6 +79,46 @@ class TranscriptNormaliserTest {
         )
     }
 
+    @Test
+    fun `kumada becomes kumara`() {
+        assertEquals(
+            "do you know how to cook kumara",
+            TranscriptNormaliser.normalise("do you know how to cook kumada"),
+        )
+    }
+
+    @Test
+    fun `cumbra becomes kumara`() {
+        assertEquals(
+            "how do I cook kumara",
+            TranscriptNormaliser.normalise("how do I cook cumbra"),
+        )
+    }
+
+    @Test
+    fun `cornbra becomes kumara`() {
+        assertEquals(
+            "do you know how to cook kumara",
+            TranscriptNormaliser.normalise("do you know how to cook cornbra"),
+        )
+    }
+
+    @Test
+    fun `fatty pucker becomes wharepaku`() {
+        assertEquals(
+            "what is a wharepaku",
+            TranscriptNormaliser.normalise("what is a fatty pucker"),
+        )
+    }
+
+    @Test
+    fun `fattypucker becomes wharepaku`() {
+        assertEquals(
+            "what is a wharepaku",
+            TranscriptNormaliser.normalise("what is a fattypucker"),
+        )
+    }
+
     // ── #1017 — Mills / mls ───────────────────────────────────────────────────
 
     @Test

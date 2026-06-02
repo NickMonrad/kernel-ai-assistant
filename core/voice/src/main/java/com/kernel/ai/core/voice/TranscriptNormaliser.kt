@@ -42,6 +42,13 @@ object TranscriptNormaliser {
         Regex("""\bcomrade\b""", RegexOption.IGNORE_CASE) to "kumara",
         // #935-comment — chocka
         Regex("""\bchaka\b""", RegexOption.IGNORE_CASE) to "chocka",
+        // #935-comment — kumara (observed device mishears)
+        Regex("""\bkumada\b""", RegexOption.IGNORE_CASE) to "kumara",
+        Regex("""\bcumbra\b""", RegexOption.IGNORE_CASE) to "kumara",
+        Regex("""\bcornbra\b""", RegexOption.IGNORE_CASE) to "kumara",
+        // #939 — wharepaku <-> fatty pucker / fattypucker (observed device mishears)
+        Regex("""\bfatty\s+pucker\b""", RegexOption.IGNORE_CASE) to "wharepaku",
+        Regex("""\bfattypucker\b""", RegexOption.IGNORE_CASE) to "wharepaku",
     )
 
     /** Unit/abbreviation normalisations: #1017. */

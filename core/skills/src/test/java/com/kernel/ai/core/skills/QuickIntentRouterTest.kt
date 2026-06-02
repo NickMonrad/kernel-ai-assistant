@@ -841,6 +841,22 @@ class QuickIntentRouterTest {
         assertEquals("Easter", intent.params["target_date"])
     }
 
+    @Test
+    fun `how to cook kumara falls through to llm not date diff`() {
+        assertFallThrough(
+            regexOnlyRouter.route("how to cook kumara"),
+            "how to cook kumara",
+        )
+    }
+
+    @Test
+    fun `do you know how to cook kumara falls through to llm not date diff`() {
+        assertFallThrough(
+            regexOnlyRouter.route("do you know how to cook kumara"),
+            "do you know how to cook kumara",
+        )
+    }
+
     @Nested
     @DisplayName("Calculator")
     inner class Calculator {
