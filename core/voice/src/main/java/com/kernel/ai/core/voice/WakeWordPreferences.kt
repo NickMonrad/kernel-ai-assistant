@@ -19,7 +19,7 @@ private const val TAG = "WakeWordPrefs"
 private val Context.wakeWordPrefsDataStore by preferencesDataStore(name = "wake_word_preferences")
 
 /** Detection fires immediately when confidence ≥ this value. */
-const val WAKE_WORD_DEFAULT_THRESHOLD = 0.80f
+const val WAKE_WORD_DEFAULT_THRESHOLD = 0.65f
 
 /**
  * Secondary (lower) threshold for the dual-threshold verification path.
