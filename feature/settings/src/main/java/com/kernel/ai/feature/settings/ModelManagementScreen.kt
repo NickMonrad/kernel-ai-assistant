@@ -75,7 +75,6 @@ fun ModelManagementScreen(
     val visibleModelCount = uiState.models.count { it.model != KernelModel.EMBEDDING_GEMMA_300M_SM8550 }
     LaunchedEffect(scrollToConversationModel, visibleModelCount) {
         if (scrollToConversationModel && visibleModelCount > 0) {
-            // Layout: 0=storage, 1=Models header, 2..2+N-1=model rows, 2+N=Conversation model header
             listState.animateScrollToItem(index = 2 + visibleModelCount)
         }
     }
@@ -142,6 +141,8 @@ fun ModelManagementScreen(
                     onPrimaryAction = {
                         when {
                             !uiState.hfAuthenticated && rowState.model.isGated -> viewModel.startAuth()
+                            rowState.downloadState is DownloadState.Downloading -> viewModel.cancelDownload(rowState.model)
+                            rowState.downloadState is DownloadState.Downloaded -> viewModel.updateModel(rowState.model)
                             rowState.downloadState is DownloadState.NotDownloaded -> viewModel.downloadModel(rowState.model)
                             rowState.downloadState is DownloadState.Error -> viewModel.downloadModel(rowState.model)
                         }

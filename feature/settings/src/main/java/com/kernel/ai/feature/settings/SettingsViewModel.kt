@@ -69,7 +69,7 @@ class SettingsViewModel @Inject constructor(
         }
 
         val summary = computeAvailabilitySummary(
-            models = KernelModel.entries.filter { it.showInModelManagement },
+            models = KernelModel.entries.filter { it.showInModelManagement && !it.isDeprecated },
             downloadStates = downloadStates,
             hfAuth = hfAuthenticated,
             downloadSources = downloadSources,
