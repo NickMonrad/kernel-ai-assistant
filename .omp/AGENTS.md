@@ -36,6 +36,7 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 | `:core:voice` | STT, TTS, voice mode, push-to-talk |
 | `:core:memory` | sqlite-vec JNI, EmbeddingGemma, RAG pipeline |
 | `:core:wasm` | Chicory Wasm host, bridge functions, resource limits |
+| `:core:model-availability` | ModelAvailabilityState, StateBadge, ModelCard, GatedModelStatusRepo |
 | `:core:ui` | Shared Compose components, Material 3 theme |
 | `:core:skills` | SkillInterface, SkillRegistry, JSON schema gen |
 | `:feature:chat` | Chat screen, conversation list, ChatViewModel |
@@ -151,9 +152,8 @@ Write to memory (`memory://root/skills/<name>/SKILL.md`) after discovering:
 - Build/debug quirks (tool flags, adb incantations, test setup)
 - Architectural invariants that caused a bug (e.g. "gemma4InitMutex required")
 - Tool invocation patterns that save tokens (rtk, context-mode)
-
 Consult memory via `memory://root` before starting work in an unfamiliar module.
-Existing entries: model_loading_order, test_patterns, branch_isolation, rtk_token_saver, adreno_buffer_workaround, github_api_pagination, meal_planner_state, documentation_sync.
+Existing entries: model_loading_order, test_patterns, branch_isolation, rtk_token_saver, adreno_buffer_workaround, github_api_pagination, meal_planner_state, documentation_sync, model_availability_state.
 
 ## On-demand reference docs
 

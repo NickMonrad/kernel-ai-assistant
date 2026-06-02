@@ -42,6 +42,7 @@ dependencies {
     implementation(project(":core:memory"))
     implementation(project(":core:voice"))
     implementation(project(":core:skills"))
+    implementation(project(":core:model-availability"))
 
     // LiteRT-LM — needed to resolve ToolProvider / ToolSet types at compile time
     implementation(libs.litertlm.android)
