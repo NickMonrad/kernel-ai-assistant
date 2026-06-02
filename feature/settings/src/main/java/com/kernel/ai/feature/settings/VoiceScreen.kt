@@ -28,7 +28,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -69,7 +68,10 @@ import com.kernel.ai.core.voice.VctkSpeakerMetadata
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.model.availability.ModelAvailabilityState
+import com.kernel.ai.core.model.availability.ModelCardCompact
 import kotlin.math.roundToInt
+import com.kernel.ai.core.model.availability.UnavailableReason
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
@@ -90,6 +92,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 @Composable
 fun VoiceScreen(
     onBack: () -> Unit,
+    onNavigateToModelManagement: () -> Unit = {},
     viewModel: VoiceViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -181,19 +184,10 @@ fun VoiceScreen(
         onSherpaGainChanged = viewModel::setSherpaGain,
         onAutoSpeakChanged = viewModel::setAutoSpeak,
         onMaxSpokenSentencesChanged = viewModel::setMaxSpokenSentences,
-        onDownloadVoice = viewModel::downloadSherpaVoice,
-        onCancelVoiceDownload = viewModel::cancelSherpaVoiceDownload,
-        onDeleteVoice = viewModel::deleteSherpaVoice,
         onActiveSpeakerIdChanged = viewModel::setActiveSpeakerId,
         onKokoroVoiceSelected = viewModel::setKokoroVoice,
-        onDownloadKokoroVoice = viewModel::downloadKokoroVoice,
-        onCancelKokoroVoiceDownload = viewModel::cancelKokoroVoiceDownload,
-        onDeleteKokoroVoice = viewModel::deleteKokoroVoice,
         onKokoroActiveSpeakerIdChanged = viewModel::setKokoroActiveSpeakerId,
-        onDownloadSherpaStt = viewModel::downloadSherpaStt,
-        onCancelSherpaSttDownload = viewModel::cancelSherpaSttDownload,
-        onDeleteSherpaStt = viewModel::deleteSherpaStt,
-        onViewSherpaSttLicence = { url -> openInAppBrowser(context, url) },
+        onNavigateToModelManagement = onNavigateToModelManagement,
     )
 }
 
@@ -215,19 +209,10 @@ private fun VoiceScreenContent(
     onSherpaGainChanged: (Float) -> Unit,
     onAutoSpeakChanged: (Boolean) -> Unit,
     onMaxSpokenSentencesChanged: (Int) -> Unit,
-    onDownloadVoice: (SherpaPiperVoice) -> Unit,
-    onCancelVoiceDownload: (SherpaPiperVoice) -> Unit,
-    onDeleteVoice: (SherpaPiperVoice) -> Unit,
     onActiveSpeakerIdChanged: (Int) -> Unit,
     onKokoroVoiceSelected: (SherpaKokoroVoice) -> Unit,
-    onDownloadKokoroVoice: (SherpaKokoroVoice) -> Unit,
-    onCancelKokoroVoiceDownload: (SherpaKokoroVoice) -> Unit,
-    onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit,
     onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
-    onDownloadSherpaStt: (VoiceInputEngine) -> Unit,
-    onCancelSherpaSttDownload: (VoiceInputEngine) -> Unit,
-    onDeleteSherpaStt: (VoiceInputEngine) -> Unit,
-    onViewSherpaSttLicence: (String) -> Unit,
+    onNavigateToModelManagement: () -> Unit,
 ) {
     val context = LocalContext.current
     Scaffold(
@@ -414,22 +399,17 @@ private fun VoiceScreenContent(
                 if (engine.isSherpaFamily) {
                     val state = sttState
                     if (state != null && (!state.isDownloaded || uiState.selectedInputEngine == engine)) {
-                        SherpaOnnxSttDownloadCard(
-                            isDownloaded = state.isDownloaded,
-                            isDownloading = state.isDownloading,
-                            progress = state.progress,
-                            issue = state.issue,
-                            modelSubtitle = when (engine) {
+                        ModelCardCompact(
+                            title = engine.displayName,
+                            description = when (engine) {
                                 VoiceInputEngine.SherpaZipformer -> SherpaSttModelSpec.ZIPFORMER.subtitle
                                 VoiceInputEngine.SherpaSenseVoice -> SherpaSttModelSpec.SENSE_VOICE.subtitle
                                 VoiceInputEngine.SherpaWhisper -> SherpaSttModelSpec.WHISPER.subtitle
                                 VoiceInputEngine.SherpaParaformer -> SherpaSttModelSpec.PARAFORMER.subtitle
                                 else -> ""
                             },
-                            onDownload = { onDownloadSherpaStt(engine) },
-                            onCancel = { onCancelSherpaSttDownload(engine) },
-                            onDelete = { onDeleteSherpaStt(engine) },
-                            onViewLicence = onViewSherpaSttLicence,
+                            state = uiState.sherpaSttAvailability[engine]
+                                ?: ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )
                     }
@@ -674,16 +654,24 @@ private fun VoiceScreenContent(
                     val isMultiSpeaker = voiceRow.voice == SherpaPiperVoice.VctkMedium ||
                         voiceRow.voice == SherpaPiperVoice.SemaineMedium
 
-                    SherpaVoiceRow(
-                        rowState = voiceRow,
-                        isSelected = isSelected,
-                        onSelect = { onSherpaVoiceSelected(voiceRow.voice) },
-                        onDownload = { onDownloadVoice(voiceRow.voice) },
-                        onCancel = { onCancelVoiceDownload(voiceRow.voice) },
-                        onDelete = { onDeleteVoice(voiceRow.voice) },
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ModelCardCompact(
+                            title = voiceRow.voice.displayName,
+                            description = voiceRow.voice.description,
+                            state = uiState.sherpaVoiceAvailability[voiceRow.voice]
+                                ?: ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+                            modifier = Modifier.weight(1f),
+                        )
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = { if (isDownloaded) onSherpaVoiceSelected(voiceRow.voice) },
+                            enabled = isDownloaded,
+                        )
+                    }
                     HorizontalDivider()
-
                     if (isSelected && isDownloaded && isMultiSpeaker) {
                         Row(
                             modifier = Modifier
@@ -728,6 +716,12 @@ private fun VoiceScreenContent(
                             }
                         }
                     }
+                }
+                TextButton(
+                    onClick = onNavigateToModelManagement,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Text("Manage voice models")
                 }
             }
 
@@ -802,14 +796,23 @@ private fun VoiceScreenContent(
                     val isSelected = uiState.selectedKokoroVoice == voiceRow.voice
                     val isDownloaded = voiceRow.downloadState is VoicePackDownloadState.Downloaded
 
-                    KokoroVoiceRow(
-                        rowState = voiceRow,
-                        isSelected = isSelected,
-                        onSelect = { onKokoroVoiceSelected(voiceRow.voice) },
-                        onDownload = { onDownloadKokoroVoice(voiceRow.voice) },
-                        onCancel = { onCancelKokoroVoiceDownload(voiceRow.voice) },
-                        onDelete = { onDeleteKokoroVoice(voiceRow.voice) },
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ModelCardCompact(
+                            title = voiceRow.voice.displayName,
+                            description = voiceRow.voice.description,
+                            state = uiState.kokoroVoiceAvailability[voiceRow.voice]
+                                ?: ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+                            modifier = Modifier.weight(1f),
+                        )
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = { if (isDownloaded) onKokoroVoiceSelected(voiceRow.voice) },
+                            enabled = isDownloaded,
+                        )
+                    }
                     HorizontalDivider()
 
                     if (isSelected && isDownloaded && voiceRow.voice.speakerCount > 1) {
@@ -819,6 +822,12 @@ private fun VoiceScreenContent(
                             onSpeakerSelected = onKokoroActiveSpeakerIdChanged,
                         )
                     }
+                }
+                TextButton(
+                    onClick = onNavigateToModelManagement,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Text("Manage voice models")
                 }
             }
 
@@ -944,255 +953,7 @@ private fun SemaineSpeakerSelector(
     }
 }
 
-/**
- * A single Sherpa Piper voice row with download/cancel/delete controls and progress indicator.
- * Mirrors [ModelRow] in [ModelManagementScreen] for visual consistency.
- */
-@Composable
-private fun SherpaVoiceRow(
-    rowState: SherpaVoiceRowUiState,
-    isSelected: Boolean,
-    onSelect: () -> Unit,
-    onDownload: () -> Unit,
-    onCancel: () -> Unit,
-    onDelete: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val voice = rowState.voice
-    val state = rowState.downloadState
-    val isDownloaded = state is VoicePackDownloadState.Downloaded
 
-    ListItem(
-        modifier = modifier.fillMaxWidth(),
-        headlineContent = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(voice.displayName)
-                Text(
-                    text = when {
-                        isDownloaded && isSelected -> "Selected voice"
-                        isDownloaded -> "Downloaded and ready"
-                        state is VoicePackDownloadState.Downloading -> "Downloading"
-                        state is VoicePackDownloadState.Error -> "Download failed"
-                        else -> "Not downloaded"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = when {
-                        isDownloaded && isSelected -> MaterialTheme.colorScheme.primary
-                        isDownloaded -> Color(0xFF2E7D32)
-                        state is VoicePackDownloadState.Error -> MaterialTheme.colorScheme.error
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-        },
-        supportingContent = {
-            Column {
-                Text(
-                    text = voice.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = formatBytes(voice.approxDownloadBytes),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (!isDownloaded) {
-                    Text(
-                        text = when (state) {
-                            is VoicePackDownloadState.Downloading -> "Selectable after download completes"
-                            is VoicePackDownloadState.Error -> "Retry download before selecting this voice"
-                            else -> "Download to make this voice selectable"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                when (state) {
-                    is VoicePackDownloadState.Downloading -> {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        LinearProgressIndicator(
-                            progress = { state.progress },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        val pct = (state.progress * 100).toInt()
-                        val mbps = state.bytesPerSecond / 1_000_000.0
-                        val etaSec = state.remainingMs / 1000
-                        Text(
-                            text = buildString {
-                                if (pct >= 90) append("Extracting…")
-                                else {
-                                    append("$pct%")
-                                    if (state.bytesPerSecond > 0) append(" · ${"%.1f".format(mbps)} MB/s")
-                                    if (etaSec > 0) append(" · ${etaSec}s remaining")
-                                }
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    is VoicePackDownloadState.Error -> {
-                        Text(
-                            text = state.message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    else -> Unit
-                }
-            }
-        },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                when (state) {
-                    is VoicePackDownloadState.NotDownloaded, is VoicePackDownloadState.Error -> {
-                        TextButton(onClick = onDownload) { Text("Download") }
-                    }
-                    is VoicePackDownloadState.Downloading -> {
-                        TextButton(onClick = onCancel) { Text("Cancel") }
-                    }
-                    is VoicePackDownloadState.Downloaded -> {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = "Downloaded",
-                            tint = Color(0xFF4CAF50),
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        RadioButton(selected = isSelected, onClick = onSelect)
-                        TextButton(onClick = onDelete) {
-                            Text("Delete", color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                }
-            }
-        },
-    )
-}
-
-/**
- * A single Kokoro voice row with download/cancel/delete controls and progress indicator.
- * Mirrors [SherpaVoiceRow] for visual consistency.
- */
-@Composable
-private fun KokoroVoiceRow(
-    rowState: KokoroVoiceRowUiState,
-    isSelected: Boolean,
-    onSelect: () -> Unit,
-    onDownload: () -> Unit,
-    onCancel: () -> Unit,
-    onDelete: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val voice = rowState.voice
-    val state = rowState.downloadState
-    val isDownloaded = state is VoicePackDownloadState.Downloaded
-
-    ListItem(
-        modifier = modifier.fillMaxWidth(),
-        headlineContent = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(voice.displayName)
-                Text(
-                    text = when {
-                        isDownloaded && isSelected -> "Selected voice"
-                        isDownloaded -> "Downloaded and ready"
-                        state is VoicePackDownloadState.Downloading -> "Downloading"
-                        state is VoicePackDownloadState.Error -> "Download failed"
-                        else -> "Not downloaded"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = when {
-                        isDownloaded && isSelected -> MaterialTheme.colorScheme.primary
-                        isDownloaded -> Color(0xFF2E7D32)
-                        state is VoicePackDownloadState.Error -> MaterialTheme.colorScheme.error
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-        },
-        supportingContent = {
-            Column {
-                Text(
-                    text = voice.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = formatBytes(voice.approxDownloadBytes),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (!isDownloaded) {
-                    Text(
-                        text = when (state) {
-                            is VoicePackDownloadState.Downloading -> "Selectable after download completes"
-                            is VoicePackDownloadState.Error -> "Retry download before selecting this voice"
-                            else -> "Download to make this voice selectable"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                when (state) {
-                    is VoicePackDownloadState.Downloading -> {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        LinearProgressIndicator(
-                            progress = { state.progress },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        val pct = (state.progress * 100).toInt()
-                        val mbps = state.bytesPerSecond / 1_000_000.0
-                        val etaSec = state.remainingMs / 1000
-                        Text(
-                            text = buildString {
-                                if (pct >= 90) append("Extracting…")
-                                else {
-                                    append("$pct%")
-                                    if (state.bytesPerSecond > 0) append(" · ${"%.1f".format(mbps)} MB/s")
-                                    if (etaSec > 0) append(" · ${etaSec}s remaining")
-                                }
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    is VoicePackDownloadState.Error -> {
-                        Text(
-                            text = state.message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    else -> Unit
-                }
-            }
-        },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                when (state) {
-                    is VoicePackDownloadState.NotDownloaded, is VoicePackDownloadState.Error -> {
-                        TextButton(onClick = onDownload) { Text("Download") }
-                    }
-                    is VoicePackDownloadState.Downloading -> {
-                        TextButton(onClick = onCancel) { Text("Cancel") }
-                    }
-                    is VoicePackDownloadState.Downloaded -> {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = "Downloaded",
-                            tint = Color(0xFF4CAF50),
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        RadioButton(selected = isSelected, onClick = onSelect)
-                        TextButton(onClick = onDelete) {
-                            Text("Delete", color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                }
-            }
-        },
-    )
-}
 
 /**
  * Speaker selector for Kokoro multi-speaker model (103 speakers, sid 0–102).
@@ -1378,105 +1139,6 @@ private fun VoiceInfoCard(
 }
 
 
-/**
- * Inline card shown under a Sherpa-ONNX STT engine row when the engine is selected.
- * Mirrors the pattern of [SherpaVoiceRow] / [KokoroVoiceRow] but groups the required
- * model files as a single logical unit.
- */
-@Composable
-private fun SherpaOnnxSttDownloadCard(
-    isDownloaded: Boolean,
-    isDownloading: Boolean,
-    progress: Float,
-    issue: SherpaSttDownloadIssue?,
-    modelSubtitle: String,
-    onDownload: () -> Unit,
-    onCancel: () -> Unit,
-    onDelete: () -> Unit,
-    onViewLicence: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isDownloaded)
-                MaterialTheme.colorScheme.primaryContainer
-            else
-                MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (isDownloaded) "STT model ready" else "STT model required",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (isDownloaded)
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (!isDownloaded && !isDownloading) {
-                        Text(
-                            text = modelSubtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (issue != null) {
-                        Text(
-                            text = issue.message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-                when {
-                    isDownloaded -> Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        TextButton(onClick = onDelete) { Text("Delete") }
-                    }
-                    isDownloading -> TextButton(onClick = onCancel) { Text("Cancel") }
-                    issue?.licenceRequired == true && issue.licenceUrl != null -> Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TextButton(onClick = { onViewLicence(issue.licenceUrl) }) { Text("Accept licence") }
-                        TextButton(onClick = onDownload) { Text("Retry") }
-                    }
-                    else -> TextButton(onClick = onDownload) { Text("Download") }
-                }
-            }
-            if (isDownloading) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    text = "${(progress * 100).toInt()}%",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun VoiceOutputSelectionCard(
@@ -1632,19 +1294,10 @@ private fun VoiceScreenPreview() {
             onSherpaGainChanged = {},
             onAutoSpeakChanged = {},
             onMaxSpokenSentencesChanged = {},
-            onDownloadVoice = {},
-            onCancelVoiceDownload = {},
-            onDeleteVoice = {},
             onActiveSpeakerIdChanged = {},
             onKokoroVoiceSelected = {},
-            onDownloadKokoroVoice = {},
-            onCancelKokoroVoiceDownload = {},
-            onDeleteKokoroVoice = {},
             onKokoroActiveSpeakerIdChanged = {},
-            onDownloadSherpaStt = {},
-            onCancelSherpaSttDownload = {},
-            onDeleteSherpaStt = {},
-            onViewSherpaSttLicence = {},
+            onNavigateToModelManagement = {},
         )
     }
 }
