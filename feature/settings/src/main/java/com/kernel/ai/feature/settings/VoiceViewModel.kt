@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -240,8 +241,8 @@ class VoiceViewModel @Inject constructor(
             wakeWordPreferences.heyJandalEnabled.collect { enabled ->
                 _uiState.update { it.copy(heyJandalEnabled = enabled) }
                 if (enabled) {
-                    // Ensure Zipformer is downloaded for wake-word verification.
-                    downloadSherpaStt(VoiceInputEngine.SherpaZipformer)
+                    // Ensure the selected online STT model is downloaded for wake-word verification.
+                    downloadSherpaStt(resolveWakeEngineForDownload())
                 }
             }
         }
@@ -318,6 +319,18 @@ class VoiceViewModel @Inject constructor(
     fun downloadSherpaStt(engine: VoiceInputEngine) {
         val spec = SherpaSttModelSpec.forEngine(engine) ?: return
         modelsForSpec(spec).forEach { modelDownloadManager.startDownload(it) }
+    }
+
+    /**
+     * Resolves the STT engine whose model files should be downloaded for wake-word
+     * verification. Uses the user's selected engine if it's an online recognizer
+     * (Zipformer or Paraformer), otherwise falls back to Zipformer.
+     */
+    private suspend fun resolveWakeEngineForDownload(): VoiceInputEngine {
+        val engine = voiceInputPreferences.selectedEngine.first()
+        val spec = SherpaSttModelSpec.forEngine(engine)
+        return if (spec?.recognizerKind == SherpaSttModelSpec.RecognizerKind.Online) engine
+               else VoiceInputEngine.SherpaZipformer
     }
 
     fun cancelSherpaSttDownload(engine: VoiceInputEngine) {
@@ -468,7 +481,7 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             wakeWordPreferences.setHeyJandalEnabled(enabled)
             if (enabled) {
-                downloadSherpaStt(VoiceInputEngine.SherpaZipformer)
+                downloadSherpaStt(resolveWakeEngineForDownload())
             }
         }
     }
