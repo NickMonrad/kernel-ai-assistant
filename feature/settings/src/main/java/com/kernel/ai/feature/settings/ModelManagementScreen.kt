@@ -54,6 +54,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.model.availability.ModelCard
+import com.kernel.ai.core.model.availability.toAvailability
 
 private val HfOrange = Color(0xFFFF9D00)
 private const val EMBEDDING_GEMMA_LICENCE_URL = "https://huggingface.co/litert-community/embeddinggemma-300m"
@@ -70,12 +72,11 @@ fun ModelManagementScreen(
     val listState = rememberLazyListState()
 
     // Scroll to "Conversation model" section when requested (e.g. from Settings "Preferred model" item).
-    // Wait until models are loaded so the item count is accurate.
     val visibleModelCount = uiState.models.count { it.model != KernelModel.EMBEDDING_GEMMA_300M_SM8550 }
     LaunchedEffect(scrollToConversationModel, visibleModelCount) {
         if (scrollToConversationModel && visibleModelCount > 0) {
-            // Layout: 0=storage, 1=HF account, 2=Models header, 3..3+N-1=model rows, 3+N=Conversation model header
-            listState.animateScrollToItem(index = 3 + visibleModelCount)
+            // Layout: 0=storage, 1=Models header, 2..2+N-1=model rows, 2+N=Conversation model header
+            listState.animateScrollToItem(index = 2 + visibleModelCount)
         }
     }
 
@@ -105,24 +106,14 @@ fun ModelManagementScreen(
                     modifier = Modifier.padding(16.dp),
                 )
             }
-
-            // ── HuggingFace account ───────────────────────────────────────────
+            // ── Model rows ────────────────────────────────────────────────────
             item {
                 Text(
-                    text = "HuggingFace Account",
+                    text = "Models",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
-                HuggingFaceRow(
-                    isAuthenticated = uiState.hfAuthenticated,
-                    username = uiState.hfUsername,
-                    onSignIn = { viewModel.startAuth() },
-                    onSignOut = { viewModel.signOut() },
-                    onViewLicence = { openInAppBrowser(context, EMBEDDING_GEMMA_LICENCE_URL) },
-                )
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(8.dp))
             }
 
             // ── Model rows ────────────────────────────────────────────────────
@@ -135,20 +126,29 @@ fun ModelManagementScreen(
                 )
             }
 
-            // Skip EMBEDDING_GEMMA_300M_SM8550 (disabled variant)
-            val visibleModels = uiState.models.filter { it.model != KernelModel.EMBEDDING_GEMMA_300M_SM8550 }
+            // Skip EMBEDDING_GEMMA_300M_SM8550 (already filtered by isDeprecated in VM)
+            val visibleModels = uiState.models
             items(visibleModels) { rowState ->
-                ModelRow(
-                    rowState = rowState,
-                    isAuthenticated = uiState.hfAuthenticated,
-                    onDownload = { viewModel.downloadModel(rowState.model) },
-                    onCancel = { viewModel.cancelDownload(rowState.model) },
-                    onUpdate = { viewModel.updateModel(rowState.model) },
-                    onDelete = { viewModel.deleteModel(rowState.model) },
-                    onViewLicence = { url -> openInAppBrowser(context, url) },
-                    onRetry = { viewModel.downloadModel(rowState.model) },
+                val availabilityState = rowState.downloadState.toAvailability(
+                    model = rowState.model,
+                    hfAuth = uiState.hfAuthenticated,
+                    source = rowState.downloadSource,
                 )
-                HorizontalDivider()
+                ModelCard(
+                    title = rowState.model.displayName,
+                    description = "%.1f MB".format(rowState.model.approxSizeBytes / 1_000_000f),
+                    state = availabilityState,
+                    showLock = rowState.model.isGated && rowState.downloadState is DownloadState.NotDownloaded,
+                    onPrimaryAction = {
+                        when {
+                            !uiState.hfAuthenticated && rowState.model.isGated -> viewModel.startAuth()
+                            rowState.downloadState is DownloadState.NotDownloaded -> viewModel.downloadModel(rowState.model)
+                            rowState.downloadState is DownloadState.Error -> viewModel.downloadModel(rowState.model)
+                        }
+                    },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                Spacer(modifier = Modifier.height(4.dp))
             }
 
             // ── Preferred model section ───────────────────────────────────────
