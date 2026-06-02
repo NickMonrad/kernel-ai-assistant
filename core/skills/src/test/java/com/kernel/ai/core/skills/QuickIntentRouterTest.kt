@@ -3636,6 +3636,7 @@ class QuickIntentRouterTest {
             Arguments.of("how do I cook pasta"),
             Arguments.of("explain quantum physics"),
             Arguments.of("write me a poem"),
+            Arguments.of("I lost my keys"),
             // Ambiguous — could be many things
             Arguments.of("help me with something"),
             Arguments.of("I'm bored"),
