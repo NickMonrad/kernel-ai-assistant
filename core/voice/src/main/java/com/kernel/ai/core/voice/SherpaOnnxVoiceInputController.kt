@@ -77,10 +77,10 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     private val offlineMethods = OfflineMethods()
 
     /**
-     * Dedicated Zipformer recognizer for wake-word verification.
-     * Lives independently from [recognizer] — never released or replaced by
-     * the interactive STT session, so [transcribeBlocking] is safe to call
-     * concurrently with [startListening]/[stopListening].
+     * Dedicated online recognizer for wake-word verification — loads a separate
+     * instance of the user's selected online STT model (Zipformer or Paraformer)
+     * so [transcribeBlocking] can run concurrently with [startListening]/[stopListening].
+     * For offline models (SenseVoice, Whisper), falls back to Zipformer.
      */
     private val wakeRecognizerMutex = Mutex()
     @Volatile private var wakeRecognizer: Any? = null
@@ -394,7 +394,9 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
     override suspend fun transcribeBlocking(pcm: ShortArray): String? {
         if (pcm.isEmpty()) return null
-        val spec = SherpaSttModelSpec.WAKE_VERIFICATION_DEFAULT
+        val userSpec = resolveSpec()
+        val spec = if (userSpec.recognizerKind == SherpaSttModelSpec.RecognizerKind.Online) userSpec
+                   else SherpaSttModelSpec.WAKE_VERIFICATION_DEFAULT
         val (rec, methods) = ensureWakeRecognizerBlocking(spec) ?: return null
         val stream = methods.createStream.invoke(rec, "")
         return try {
@@ -417,7 +419,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     }
 
     /**
-     * Ensures a dedicated Zipformer recognizer exists for wake-word verification.
+     * Ensures a dedicated online recognizer exists for wake-word verification.
      * Uses its own mutex and dedicated method handles so the interactive STT recognizer
      * can be reinitialized independently.
      */
@@ -431,8 +433,10 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             if (wakeRecognizer != null && wakeSpecValid && wakeSpecEngine == spec.engine && wakeMethods != null) {
                 return@withLock wakeRecognizer!! to wakeMethods!!
             }
+            // Release old recognizer when engine changes to avoid native memory leak.
+            releaseWakeRecognizer()
             if (!isSpecAvailable(spec)) {
-                Log.w(TAG, "Wake-word Zipformer model files missing")
+                Log.w(TAG, "Wake-word STT model files missing for ${spec.engine}")
                 return@withLock null
             }
             try {
@@ -453,8 +457,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             }
         }
     }
-
-    // ── AudioRecord helpers ────────────────────────────────────────────────────
 
     private fun createAudioRecord(): AudioRecord? {
         val minBuf = AudioRecord.getMinBufferSize(
@@ -610,6 +612,21 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         onlineMethods.reset = null
         offlineMethods.decode = null
         offlineMethods.getResult = null
+    }
+
+    /**
+     * Releases the dedicated wake-word recognizer and clears its cached method handles.
+     */
+    private fun releaseWakeRecognizer() {
+        if (wakeRecognizer != null) {
+            try {
+                wakeRecognizer!!.javaClass.getDeclaredMethod("release").invoke(wakeRecognizer)
+            } catch (_: Exception) {}
+            wakeRecognizer = null
+            wakeMethods = null
+            wakeSpecEngine = null
+            wakeSpecValid = false
+        }
     }
 
     /**
