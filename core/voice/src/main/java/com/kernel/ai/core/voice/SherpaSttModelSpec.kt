@@ -105,8 +105,9 @@ data class SherpaSttModelSpec(
         fun forEngine(engine: VoiceInputEngine): SherpaSttModelSpec? = ALL[engine]
 
         /**
-         * Returns the default spec used for wake-word verification.
-         * Uses Zipformer since it is the original/supported streaming model.
+         * Default spec used as fallback when the user's selected STT engine is an
+         * offline-only model (SenseVoice or Whisper) that cannot be used for
+         * streaming wake-word verification.
          */
         val WAKE_VERIFICATION_DEFAULT: SherpaSttModelSpec get() = ZIPFORMER
     }
