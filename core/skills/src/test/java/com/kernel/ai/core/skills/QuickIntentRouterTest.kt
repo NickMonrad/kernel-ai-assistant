@@ -841,6 +841,52 @@ class QuickIntentRouterTest {
         assertEquals("Easter", intent.params["target_date"])
     }
 
+    @Test
+    fun `date diff many weeks to phrases tag direction as until`() {
+        val result = regexOnlyRouter.route("how many weeks to Easter")
+        assertRegexMatch(result, "get_date_diff", "how many weeks to Easter")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("until", intent.params["direction"])
+        assertEquals("Easter", intent.params["target_date"])
+    }
+
+    @Test
+    fun `date diff many months before phrases tag direction as until`() {
+        val result = regexOnlyRouter.route("how many months before July")
+        assertRegexMatch(result, "get_date_diff", "how many months before July")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("until", intent.params["direction"])
+        assertEquals("July", intent.params["target_date"])
+    }
+
+    @Test
+    fun `date diff many days long to phrases tag direction as until`() {
+        val result = regexOnlyRouter.route("how many days long to Christmas")
+        assertRegexMatch(result, "get_date_diff", "how many days long to Christmas")
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("until", intent.params["direction"])
+        assertEquals("Christmas", intent.params["target_date"])
+    }
+
+    @Test
+    fun `how to cook kumara falls through to llm not date diff`() {
+        assertFallThrough(
+            regexOnlyRouter.route("how to cook kumara"),
+            "how to cook kumara",
+        )
+    }
+
+    @Test
+    fun `do you know how to cook kumara falls through to llm not date diff`() {
+        assertFallThrough(
+            regexOnlyRouter.route("do you know how to cook kumara"),
+            "do you know how to cook kumara",
+        )
+    }
+
     @Nested
     @DisplayName("Calculator")
     inner class Calculator {
@@ -3636,6 +3682,7 @@ class QuickIntentRouterTest {
             Arguments.of("how do I cook pasta"),
             Arguments.of("explain quantum physics"),
             Arguments.of("write me a poem"),
+            Arguments.of("I lost my keys"),
             // Ambiguous — could be many things
             Arguments.of("help me with something"),
             Arguments.of("I'm bored"),

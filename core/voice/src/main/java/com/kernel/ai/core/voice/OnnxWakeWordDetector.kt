@@ -343,7 +343,7 @@ class OnnxWakeWordDetector @Inject constructor(
             var pcmFilled   = 0
             var silenceFrames = 0
             var voicedFrameStreak = 0
-
+            var wasGated = false
             audioRecord.startRecording()
             Log.d(TAG, "WakeWordDetector: recording started")
             while (running.get() && !Thread.currentThread().isInterrupted) {
@@ -393,6 +393,17 @@ class OnnxWakeWordDetector @Inject constructor(
                 // car passing) doesn't falsely re-enter gated mode.
                 val isFrameVoiced = rms >= silenceRmsThreshold
                 if (isFrameVoiced) {
+                    // Flush the embedding ring on speech onset after gated silence.
+                    // The ring holds stale silence embeddings from before gating.
+                    // Resetting embFramesAccumulated forces a clean 16-frame refill
+                    // from live audio.  The mel ring slides naturally (Stage 1 runs
+                    // every frame even during gating), so the first speech frame
+                    // already pre-fills it with speech mel data.
+                    // Latency: 80ms + 16-frame ring fill (~1.3s) ≈ ~1.4s.
+                    if (wasGated) {
+                        embFramesAccumulated = 0
+                        wasGated = false
+                    }
                     silenceFrames = 0
                     voicedFrameStreak = 0
                 } else {
@@ -404,7 +415,6 @@ class OnnxWakeWordDetector @Inject constructor(
                 // ── Stage 1: mel spectrogram (runs on every frame) ──────────────────
                 // Keeps the mel ring fresh during gated silence so that when speech
                 // resumes, only the 16-frame embedding ring needs to refill (~1.3s).
-                //
                 // openWakeWord's mel model expects raw 16-bit PCM values cast to float32
                 // (range ±32768), NOT normalised to [-1, 1]. Using the wrong scale shifts
                 // the mel output by ~88 units, putting embeddings completely out of the
@@ -449,9 +459,9 @@ class OnnxWakeWordDetector @Inject constructor(
             if (silenceFrames > silenceHangoverFrames &&
                 chunkCount % maxSilenceSkipFrames.toLong() != 0L) {
                 gatedFramesSkipped++
+                wasGated = true
                 continue  // wake word not expected — skip expensive Stage 2/3
             }
-
                 // Log mic activity every ~8s (only when Stage 2/3 runs).
                 if (chunkCount % 100 == 0) {
                     Log.d(

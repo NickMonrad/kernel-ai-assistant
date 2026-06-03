@@ -54,6 +54,7 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 - Wasm sandboxing is non-negotiable — capabilities via Kotlin host bridge functions only
 - Context window managed, not truncated — recursive summarisation at 80% KV capacity
 - E4B loads eagerly first on GPU (~20s first boot, ~2s with kernel cache)
+- Minimum touch target: 48×48dp. Color contrast: 4.5:1 for body text, 3:1 for large text (18sp+). 8dp spacing grid.
 
 ## Agent working model
 
@@ -156,6 +157,7 @@ Default: `main`. Feature branches: `feature/<short-name>`. Branch from `main` on
 - Unit: JUnit 5 + MockK (`src/test/`). Compose UI: `ui-test-junit4` (`src/androidTest/`)
 - Never load real models in tests — mock at `InferenceEngine` interface
 - CI: lint + unit tests + debug build only (no GPU/NPU, no real models)
+- Coroutine tests: use `MainDispatcherRule` (replaces `Dispatchers.Main` with `TestDispatcher`) to avoid `IllegalStateException`. Use Turbine library for StateFlow/Flow assertion in tests.
 
 ## Working style
 
@@ -163,6 +165,17 @@ Default: `main`. Feature branches: `feature/<short-name>`. Branch from `main` on
 - Use `lsp` for all code intelligence — not grep
 - Reuse existing context; prefer targeted validation
 - Prefer small, reviewable diffs; match surrounding style
+
+
+## Performance targets
+
+| Metric | Target | Max / Threshold |
+|--------|--------|----------------|
+| Cold start | < 1s | 2s (show progress beyond this) |
+| Frame time | ≤ 16ms (60 FPS) | 700ms frozen frame = critical |
+| Crash rate | < 1.09% | Google Play Vitals threshold |
+| ANR rate | < 0.47% | Google Play Vitals threshold |
+| Jank rate | < 1% of frames | Warning level |
 
 ## Hard constraints
 
