@@ -2393,6 +2393,8 @@ class QuickIntentRouterTest {
             Arguments.of("set up a dentist appointment sunday at 3:00 p.m.", "Dentist Appointment", "sunday", "3:00 p.m."),
             Arguments.of("add dentist to my calendar on Friday at 2pm", "Dentist", "friday", "2pm"),
             Arguments.of("put lunch in my calendar tomorrow", "Lunch", "tomorrow", null),
+            Arguments.of("add lunch to my calendar on June 9th at 2pm", "Lunch", "9 June", "2pm"),
+            Arguments.of("add lunch to my calendar on 9th of June", "Lunch", "9 June", null),
         )
 
         @JvmStatic
