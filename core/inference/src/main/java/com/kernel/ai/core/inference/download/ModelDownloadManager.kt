@@ -98,17 +98,7 @@ class ModelDownloadManager @Inject constructor(
             .forEach { model ->
                 Log.i(TAG, "Auto-queuing required model: ${model.displayName}")
                 startDownload(model, source = DownloadSource.AUTO_QUEUED)
-                // Co-queue SentencePiece tokenizer whenever EmbeddingGemma is queued
-                if (model == KernelModel.EMBEDDING_GEMMA_300M &&
-                    !KernelModel.EMBEDDING_GEMMA_SP_MODEL.isDownloaded(context)
-                ) {
-                    Log.i(TAG, "Co-queuing SentencePiece model with EmbeddingGemma")
-                    startDownload(
-                        KernelModel.EMBEDDING_GEMMA_SP_MODEL,
-                        source = DownloadSource.AUTO_QUEUED
-                    )
-                }
-        }
+            }
         // Auto-queue tier-specific optional models (e.g. E-4B on FLAGSHIP)
         // NOTE: tier is already declared above
         KernelModel.entries

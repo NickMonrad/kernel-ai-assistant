@@ -5,10 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.toAvailability
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -45,16 +47,29 @@ class ModelSettingsViewModel @Inject constructor(
     init {
         loadSettings()
         viewModelScope.launch {
-            modelDownloadManager.downloadStates.collect { states ->
+            combine(
+                modelDownloadManager.downloadStates,
+                modelDownloadManager.downloadSources,
+            ) { states, sources ->
                 _uiState.update { current ->
                     current.copy(
                         e2bAvailability = states[KernelModel.GEMMA_4_E2B]
-                            ?.toAvailability(KernelModel.GEMMA_4_E2B, hfAuth = false),
+                            ?.toAvailability(
+                                KernelModel.GEMMA_4_E2B,
+                                hfAuth = false,
+                                source = sources[KernelModel.GEMMA_4_E2B]
+                                    ?: DownloadSource.USER_INITIATED,
+                            ),
                         e4bAvailability = states[KernelModel.GEMMA_4_E4B]
-                            ?.toAvailability(KernelModel.GEMMA_4_E4B, hfAuth = false),
+                            ?.toAvailability(
+                                KernelModel.GEMMA_4_E4B,
+                                hfAuth = false,
+                                source = sources[KernelModel.GEMMA_4_E4B]
+                                    ?: DownloadSource.USER_INITIATED,
+                            ),
                     )
                 }
-            }
+            }.collect()
         }
     }
 
