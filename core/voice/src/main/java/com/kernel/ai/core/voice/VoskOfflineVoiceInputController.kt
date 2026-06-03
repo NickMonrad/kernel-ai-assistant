@@ -202,13 +202,17 @@ class VoskOfflineVoiceInputController @Inject constructor(
 
     private fun parseTranscript(hypothesis: String): String {
         return runCatching {
-            JSONObject(hypothesis).optString("text").trim()
+            TranscriptNormaliser.normalise(
+                JSONObject(hypothesis).optString("text").trim()
+            )
         }.getOrDefault("")
     }
 
     private fun parsePartialTranscript(hypothesis: String): String {
         return runCatching {
-            JSONObject(hypothesis).optString("partial").trim()
+            TranscriptNormaliser.normalise(
+                JSONObject(hypothesis).optString("partial").trim()
+            )
         }.getOrDefault("")
     }
 
