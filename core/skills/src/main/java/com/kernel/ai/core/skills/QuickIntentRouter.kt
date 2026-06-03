@@ -939,6 +939,17 @@ class QuickIntentRouter(
             paramExtractor = { _, _ -> emptyMap() },
         ),
 
+        // "add something to the calendar for June 9th" / "put lunch in my calendar tomorrow"
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """(?:add|create|schedule|put|book)\s+(?!(?:calendar\s+)?voice\s+memo\b)(?!note\b)(.{3,60}?)\s+(?:to|in|on|into)\s+(?:the\s+|my\s+)?calendar\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
+        ),
+
 
 
         // ── Calendar ──
@@ -4322,11 +4333,11 @@ class QuickIntentRouter(
             // Fall back to the noun phrase immediately after the verb+article, stopping
             // before any temporal keyword (e.g. "schedule a dentist appointment Friday").
             val titleFromFor = Regex(
-                """(?:^|\s)for\s+(?:a\s+|an\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:at|from|on|next|this|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d)|$)""",
+                """(?:^|\s)for\s+(?:a\s+|an\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:at|from|on|to|in|into|next|this|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d)|$)""",
                 RegexOption.IGNORE_CASE,
             ).find(raw)
             val titleFromVerb = Regex(
-                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a\s+|an\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:for|at|from|on|next|this|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d)|$)""",
+                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a\s+|an\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:for|at|from|on|to|in|into|next|this|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d)|$)""",
                 RegexOption.IGNORE_CASE,
             ).find(raw)
             val DATE_WORDS = setOf(
@@ -4342,6 +4353,7 @@ class QuickIntentRouter(
                 "booking",
                 "invite",
                 "entry",
+                "something",
             )
             val rawTitle = run {
                 val fromFor = titleFromFor?.groupValues?.get(1)?.trim()
@@ -4372,6 +4384,32 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             )
             dateRegex.find(lower)?.value?.trim()?.let { params["date"] = it }
+
+            // ── Date: ordinal and explicit dates ("9th of june", "June 9th") ──
+            if (!params.containsKey("date")) {
+                val ordinalDateRegex = Regex(
+                    """\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b""",
+                    RegexOption.IGNORE_CASE,
+                )
+                ordinalDateRegex.find(raw)?.let { match ->
+                    val day = match.groupValues[1]
+                    val month = match.groupValues[2].lowercase()
+                        .replaceFirstChar { c -> c.uppercase() }
+                    params["date"] = "$day $month"
+                }
+            }
+            if (!params.containsKey("date")) {
+                val monthFirstRegex = Regex(
+                    """\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b""",
+                    RegexOption.IGNORE_CASE,
+                )
+                monthFirstRegex.find(raw)?.let { match ->
+                    val month = match.groupValues[1].lowercase()
+                        .replaceFirstChar { c -> c.uppercase() }
+                    val day = match.groupValues[2]
+                    params["date"] = "$day $month"
+                }
+            }
 
             // ── Time: "at 2pm", "for 2pm", "at 10:30am", "at 10:30 p.m.", "at noon/midnight", "at 10" ─
             // Bare hours (no am/pm) are normalised to HH:00 so resolveTime() can parse.

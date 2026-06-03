@@ -2312,4 +2312,22 @@ class NativeIntentHandlerTest {
 
         return cursor
     }
+
+    @Test
+    fun `resolveDate strips ordinal suffixes from date strings`() {
+        val method = NativeIntentHandler::class.java.getDeclaredMethod(
+            "resolveDate",
+            String::class.java,
+        ).also { it.isAccessible = true }
+
+        val today = java.time.LocalDate.now()
+
+        // "9th June" → resolveDate should strip "th" and parse "9 June"
+        val result = method.invoke(handler, "9th June")
+        assertNotNull(result, "Expected non-null for '9th June'")
+        val localDate = result as java.time.LocalDate
+        assertEquals(today.year, localDate.year, "Year defaults to current year")
+        assertEquals(6, localDate.monthValue, "Month should be June (6)")
+        assertEquals(9, localDate.dayOfMonth, "Day should be 9")
+    }
 }

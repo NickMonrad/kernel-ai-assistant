@@ -512,7 +512,7 @@ class QuickIntentRouterTest {
             input: String,
             expectedTitle: String,
             expectedDate: String,
-            expectedTime: String,
+            expectedTime: String?,
         ) {
             val result = regexOnlyRouter.route(input)
             assertRegexMatch(result, "create_calendar_event", input)
@@ -2391,6 +2391,8 @@ class QuickIntentRouterTest {
             Arguments.of("set up a dentist appointment tomorrow at 5pm", "Dentist Appointment", "tomorrow", "5pm"),
             Arguments.of("schedule a team meeting on friday at 2pm", "Team Meeting", "friday", "2pm"),
             Arguments.of("set up a dentist appointment sunday at 3:00 p.m.", "Dentist Appointment", "sunday", "3:00 p.m."),
+            Arguments.of("add dentist to my calendar on Friday at 2pm", "Dentist", "friday", "2pm"),
+            Arguments.of("put lunch in my calendar tomorrow", "Lunch", "tomorrow", null),
         )
 
         @JvmStatic
@@ -2401,12 +2403,14 @@ class QuickIntentRouterTest {
             Arguments.of("set an appointment for 3:00 p.m. Sunday"),
             Arguments.of("Appointment for 3:00 p.m. Sunday"),
             Arguments.of("Set an appointment up for 3:00 p.m. On Monday"),
+            Arguments.of("add something to my calendar"),
         )
 
         @JvmStatic
         fun calendarNeedsDatePhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("set up a dentist appointment", "Dentist Appointment"),
             Arguments.of("schedule a budget meeting", "Budget Meeting"),
+            Arguments.of("add dentist appointment to my calendar", "Dentist Appointment"),
         )
 
         // ── DND ───────────────────────────────────────────────────────────────
@@ -3618,7 +3622,6 @@ class QuickIntentRouterTest {
         @JvmStatic
         fun e4bFallthroughPhrases(): Stream<Arguments> = Stream.of(
             // Calendar (needs NLU for date/time/title extraction)
-            Arguments.of("add dentist appointment to my calendar"),
             // Wikipedia / knowledge
             Arguments.of("tell me about the history of New Zealand"),
             Arguments.of("who invented the internet"),

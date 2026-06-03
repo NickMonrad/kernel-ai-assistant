@@ -2791,7 +2791,7 @@ class NativeIntentHandler @Inject constructor(
      * Returns null if the string cannot be resolved to a valid date.
      */
     private fun resolveDate(dateStr: String): LocalDate? {
-        val input = dateStr.trim()
+        val input = dateStr.trim().replace(Regex("""\b(\d{1,2})(?:st|nd|rd|th)\b"""), "$1")
         val normalized = input.lowercase()
         val today = LocalDate.now()
 
