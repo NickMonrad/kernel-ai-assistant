@@ -219,7 +219,7 @@ class ModelDownloadManager @Inject constructor(
         // Only user-initiated downloads can be cancelled — auto-queued models are needed
         // for the app to function. Check the stored source rather than model.isRequired
         // because some required models may be user-initiated (e.g. E2B on FLAGSHIP).
-        val source = _downloadSources.value[model]
+        val source = _downloadSources.value[model] ?: DownloadSource.USER_INITIATED
         if (source == DownloadSource.AUTO_QUEUED) {
             Log.w(TAG, "Refusing to cancel auto-queued download: ${model.displayName}")
             return

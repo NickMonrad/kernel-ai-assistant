@@ -52,6 +52,8 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.VoiceOutputStreamingSession
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.feature.chat.model.ChatUiState
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -112,8 +114,8 @@ class ChatViewModelVoiceTest {
     private val nzTruthSeedingService: NzTruthSeedingService = mockk(relaxed = true)
     private val verboseLoggingPreferenceUseCase: VerboseLoggingPreferenceUseCase = mockk(relaxed = true)
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
-    private val chatPreferences: com.kernel.ai.core.memory.prefs.ChatPreferences = mockk(relaxed = true)
-    private val authRepository: com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository = mockk(relaxed = true)
+    private val chatPreferences: ChatPreferences = mockk(relaxed = true)
+    private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
 
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()

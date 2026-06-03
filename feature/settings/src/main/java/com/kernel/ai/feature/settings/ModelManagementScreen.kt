@@ -115,15 +115,6 @@ fun ModelManagementScreen(
                 )
             }
 
-            // ── Model rows ────────────────────────────────────────────────────
-            item {
-                Text(
-                    text = "Models",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-            }
 
             // Skip EMBEDDING_GEMMA_300M_SM8550 (already filtered by isDeprecated in VM)
             val visibleModels = uiState.models

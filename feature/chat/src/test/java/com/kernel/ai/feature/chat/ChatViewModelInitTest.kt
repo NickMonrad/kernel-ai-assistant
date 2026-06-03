@@ -43,6 +43,8 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.StartListeningCuePlayer
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.memory.prefs.ChatPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -96,8 +98,8 @@ class ChatViewModelInitTest {
     private val nzTruthSeedingService: NzTruthSeedingService = mockk(relaxed = true)
     private val verboseLoggingPreferenceUseCase: VerboseLoggingPreferenceUseCase = mockk(relaxed = true)
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
-    private val authRepository: com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository = mockk(relaxed = true)
-        private val chatPreferences: com.kernel.ai.core.memory.prefs.ChatPreferences = mockk(relaxed = true)
+    private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
+    private val chatPreferences: ChatPreferences = mockk(relaxed = true)
 
     @BeforeEach
     fun setUp() {
