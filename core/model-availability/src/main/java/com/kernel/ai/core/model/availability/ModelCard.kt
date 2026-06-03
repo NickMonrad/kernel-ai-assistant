@@ -2,6 +2,7 @@ package com.kernel.ai.core.model.availability
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -21,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -100,6 +103,18 @@ fun ModelCard(
                 )
             }
 
+            if (state is ModelAvailabilityState.Preparing) {
+                Spacer(Modifier.height(8.dp))
+                val animatedProgress by animateFloatAsState(
+                    targetValue = state.progress.coerceIn(0f, 1f),
+                    label = "downloadProgress",
+                )
+                LinearProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             if (onPrimaryAction != null && actionLabel != null) {
                 Spacer(Modifier.height(12.dp))
                 when (state) {
@@ -150,42 +165,56 @@ fun ModelCardCompact(
     showLock: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp, horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (showLock) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "Gated model",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+    Column(modifier = modifier) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp, horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (showLock) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Gated model",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.width(4.dp))
                 }
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (!description.isNullOrBlank()) {
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-            if (!description.isNullOrBlank()) {
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Spacer(Modifier.width(8.dp))
+            StateBadge(state = state)
         }
-        Spacer(Modifier.width(8.dp))
-        StateBadge(state = state)
+        if (state is ModelAvailabilityState.Preparing) {
+            val animatedProgress by animateFloatAsState(
+                targetValue = state.progress.coerceIn(0f, 1f),
+                label = "downloadProgress",
+            )
+            LinearProgressIndicator(
+                progress = { animatedProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+            )
+        }
     }
 }
 
