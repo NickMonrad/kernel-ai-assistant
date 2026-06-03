@@ -194,7 +194,7 @@ fun ModelCardCompact(
  * Used when [ModelCard] is constructed without [primaryActionLabel].
  */
 fun defaultActionLabel(state: ModelAvailabilityState): String? = when (state) {
-    is ModelAvailabilityState.Ready -> null
+    is ModelAvailabilityState.Ready -> "Update"
     is ModelAvailabilityState.Preparing -> if (state.isAutoQueued) null else "Cancel"
     is ModelAvailabilityState.ActionRequired -> when (state.reason) {
         is ActionReason.SignInRequired -> "Sign in to HuggingFace"

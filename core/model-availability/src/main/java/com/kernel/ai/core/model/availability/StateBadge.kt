@@ -1,17 +1,22 @@
 package com.kernel.ai.core.model.availability
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.WarningAmber
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -72,24 +77,29 @@ fun StateBadge(
         ModelAvailabilityState.NotDisplayed -> return // Don't render a badge
     }
 
-    AssistChip(
-        onClick = {},
-        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-        leadingIcon = {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = containerColor,
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Icon(
                 imageVector = icon,
-                contentDescription = label,
-                modifier = Modifier.padding(end = 2.dp),
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
                 tint = contentColor,
             )
-        },
-        colors = AssistChipDefaults.assistChipColors(
-            containerColor = containerColor,
-            labelColor = contentColor,
-            leadingIconContentColor = contentColor,
-        ),
-        modifier = modifier,
-    )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = contentColor,
+            )
+        }
+    }
 }
 
 private data class BadgeValues(

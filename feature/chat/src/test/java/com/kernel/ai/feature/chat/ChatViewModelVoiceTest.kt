@@ -113,6 +113,7 @@ class ChatViewModelVoiceTest {
     private val verboseLoggingPreferenceUseCase: VerboseLoggingPreferenceUseCase = mockk(relaxed = true)
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val chatPreferences: com.kernel.ai.core.memory.prefs.ChatPreferences = mockk(relaxed = true)
+    private val authRepository: com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository = mockk(relaxed = true)
 
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
@@ -1028,7 +1029,7 @@ class ChatViewModelVoiceTest {
     }
 
 
-    private fun createViewModel(): ChatViewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+    private fun createViewModel(): ChatViewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences, authRepository = authRepository,
     inferenceEngine = inferenceEngine,
     downloadManager = downloadManager,
     conversationRepository = conversationRepository,

@@ -96,7 +96,8 @@ class ChatViewModelInitTest {
     private val nzTruthSeedingService: NzTruthSeedingService = mockk(relaxed = true)
     private val verboseLoggingPreferenceUseCase: VerboseLoggingPreferenceUseCase = mockk(relaxed = true)
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
-    private val chatPreferences: com.kernel.ai.core.memory.prefs.ChatPreferences = mockk(relaxed = true)
+    private val authRepository: com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository = mockk(relaxed = true)
+        private val chatPreferences: com.kernel.ai.core.memory.prefs.ChatPreferences = mockk(relaxed = true)
 
     @BeforeEach
     fun setUp() {
@@ -156,6 +157,7 @@ class ChatViewModelInitTest {
     @Test
     fun `fresh chat initialization resets inherited inference session`() = runTest(dispatcher) {
         ChatViewModel(savedStateHandle = SavedStateHandle(), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -191,6 +193,7 @@ class ChatViewModelInitTest {
     @Test
     fun `restored chat initialization does not reset current inference session`() = runTest(dispatcher) {
         ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -226,6 +229,7 @@ class ChatViewModelInitTest {
     @Test
     fun `closing chat never shuts down process scoped inference engine`() = runTest(dispatcher) {
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -268,6 +272,7 @@ class ChatViewModelInitTest {
         coEvery { mealPlannerCoordinator.activeSessionReply("conv-existing") } returns MealPlannerReply(prompt)
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -315,6 +320,7 @@ class ChatViewModelInitTest {
         coEvery { mealPlannerCoordinator.activeSessionActivity("conv-existing") } returns activity
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -393,6 +399,7 @@ class ChatViewModelInitTest {
         coEvery { mealPlanSessionRepository.getActiveSession("conv-existing") } returns snapshot
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -445,6 +452,7 @@ class ChatViewModelInitTest {
         )
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -514,6 +522,7 @@ class ChatViewModelInitTest {
         )
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -571,6 +580,7 @@ class ChatViewModelInitTest {
         )
 
         val viewModel = ChatViewModel(savedStateHandle = savedStateHandle, chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -630,6 +640,7 @@ class ChatViewModelInitTest {
             QuickIntentRouter.RouteResult.FallThrough(input = "and bred to my last")
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("minimalContext" to true)), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -679,6 +690,7 @@ class ChatViewModelInitTest {
         )
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -744,6 +756,7 @@ class ChatViewModelInitTest {
             ),
         )
         val viewModel = ChatViewModel(savedStateHandle = savedStateHandle, chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -800,6 +813,7 @@ class ChatViewModelInitTest {
         every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(input = "hello")
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -852,6 +866,7 @@ class ChatViewModelInitTest {
         every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(input = "hello")
 
         val viewModel = ChatViewModel(savedStateHandle = SavedStateHandle(), chatPreferences = chatPreferences,
+        authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,

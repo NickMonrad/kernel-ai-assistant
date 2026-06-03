@@ -148,6 +148,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.feature.chat.R
 import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.model.availability.ModelCardCompact
 import com.kernel.ai.core.model.availability.toAvailability
@@ -255,6 +256,8 @@ fun ChatScreen(
             modelProgress = state.modelProgress,
             onRetry = viewModel::retryDownload,
             onNavigateToModelManagement = onNavigateToModelManagement,
+            hfAuthenticated = state.hfAuthenticated,
+            downloadSources = state.downloadSources,
         )
         is ChatUiState.Ready -> {
             val context = LocalContext.current
@@ -1678,9 +1681,11 @@ private fun LoadingContent() {
 @Composable
 private fun OnboardingContent(
     isDownloading: Boolean,
-    modelProgress: List<ModelDownloadProgress>,
+    modelProgress: List<ChatUiState.ModelDownloadProgress>,
     onRetry: (KernelModel) -> Unit,
     onNavigateToModelManagement: () -> Unit,
+    hfAuthenticated: Boolean = false,
+    downloadSources: Map<KernelModel, DownloadSource> = emptyMap(),
 ) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
@@ -1713,13 +1718,24 @@ private fun OnboardingContent(
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     modelProgress.forEach { item ->
+                        val source = downloadSources[item.model]
                         ModelCardCompact(
                             title = item.displayName,
                             description = item.sizeLabel,
-                            state = item.state.toAvailability(item.model, hfAuth = false),
+                            state = item.state.toAvailability(
+                                model = item.model,
+                                hfAuth = hfAuthenticated,
+                                source = source ?: DownloadSource.USER_INITIATED,
+                            ),
                             showLock = item.model.isGated,
                         )
                     }
+                }
+                TextButton(
+                    onClick = onNavigateToModelManagement,
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    Text("Manage models")
                 }
             } else if (isDownloading) {
                 CircularProgressIndicator(modifier = Modifier.padding(top = 24.dp))

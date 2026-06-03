@@ -14,13 +14,18 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.prefs.ModelPreferences
 import com.kernel.ai.core.model.availability.AvailabilitySummary
+import com.kernel.ai.core.model.availability.GatedModelStatus
+import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.model.availability.computeAvailabilitySummary
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -43,22 +48,56 @@ data class ModelManagementUiState(
     val availabilitySummary: AvailabilitySummary = AvailabilitySummary(total = 0),
 )
 
+private data class StorageMetrics(
+    val used: Long = 0,
+    val free: Long = 0,
+)
+
 @HiltViewModel
 class ModelManagementViewModel @Inject constructor(
     private val modelDownloadManager: ModelDownloadManager,
     private val modelPreferences: ModelPreferences,
     private val authRepository: HuggingFaceAuthRepository,
     private val jandalPersona: JandalPersona,
+    private val gatedModelStatusRepository: GatedModelStatusRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
-    val uiState = combine(
+    private val _storageMetrics = MutableStateFlow(StorageMetrics())
+
+    /** Per-model gated status map, collected from DataStore. */
+    private val _gatedStatuses = MutableStateFlow<Map<KernelModel, GatedModelStatus>>(emptyMap())
+
+    init {
+        viewModelScope.launch {
+            val gatedModels = KernelModel.entries.filter {
+                it.showInModelManagement && !it.isDeprecated && it.isGated
+            }
+            gatedModels.forEach { model ->
+                gatedModelStatusRepository.get(model).collect { status ->
+                    _gatedStatuses.update { it.toMutableMap().apply { put(model, status) } }
+                }
+            }
+        }
+        // Compute storage metrics on IO dispatcher, driven by download-state changes
+        viewModelScope.launch(Dispatchers.IO) {
+            modelDownloadManager.downloadStates.collect {
+                val used = calculateStorageUsed()
+                val free = calculateFreeSpace()
+                _storageMetrics.value = StorageMetrics(used = used, free = free)
+            }
+        }
+    }
+
+    val uiState: StateFlow<ModelManagementUiState> = combine(
         modelDownloadManager.downloadStates,
         modelDownloadManager.downloadSources,
         authRepository.isAuthenticated,
         authRepository.username,
         modelPreferences.preferredConversationModel,
         jandalPersona.personaMode,
+        _storageMetrics,
+        _gatedStatuses,
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val downloadStates = array[0] as Map<KernelModel, DownloadState>
@@ -70,6 +109,8 @@ class ModelManagementViewModel @Inject constructor(
         @Suppress("UNCHECKED_CAST")
         val preferredModel = array[4] as KernelModel?
         val personaMode = array[5] as PersonaMode
+        val storage = array[6] as StorageMetrics
+        val gatedStatuses = array[7] as Map<KernelModel, GatedModelStatus>
 
         val filteredModels = KernelModel.entries.filter {
             it.showInModelManagement && !it.isDeprecated
@@ -86,11 +127,12 @@ class ModelManagementViewModel @Inject constructor(
             downloadStates = downloadStates,
             hfAuth = hfAuthenticated,
             downloadSources = downloadSources,
+            gatedStatuses = gatedStatuses,
         )
         ModelManagementUiState(
             models = models,
-            totalStorageUsedBytes = calculateStorageUsed(),
-            freeSpaceBytes = calculateFreeSpace(),
+            totalStorageUsedBytes = storage.used,
+            freeSpaceBytes = storage.free,
             hfAuthenticated = hfAuthenticated,
             hfUsername = hfUsername,
             preferredModel = preferredModel,

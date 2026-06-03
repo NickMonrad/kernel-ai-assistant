@@ -156,7 +156,7 @@ fun SettingsScreen(
                     .clickable { onNavigateToModelManagement(false) },
                 headlineContent = { Text("Model availability") },
                 supportingContent = {
-                    Text("${uiState.modelAvailabilitySummary.ready} of ${uiState.modelAvailabilitySummary.total} models ready")
+                    Text(uiState.modelAvailabilitySummary.displaySummary)
                 },
                 leadingContent = { Icon(Icons.Default.Download, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },

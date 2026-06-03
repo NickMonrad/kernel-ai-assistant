@@ -28,6 +28,7 @@ fun computeAvailabilitySummary(
     downloadStates: Map<KernelModel, DownloadState>,
     hfAuth: Boolean,
     downloadSources: Map<KernelModel, DownloadSource> = emptyMap(),
+    gatedStatuses: Map<KernelModel, GatedModelStatus> = emptyMap(),
 ): AvailabilitySummary {
     var ready = 0
     var preparing = 0
@@ -37,10 +38,12 @@ fun computeAvailabilitySummary(
     for (model in models) {
         val state = downloadStates[model] ?: DownloadState.NotDownloaded
         val source = downloadSources[model] ?: DownloadSource.USER_INITIATED
+        val gatedStatus = gatedStatuses[model] ?: GatedModelStatus.NONE
         val availability = state.toAvailability(
             model = model,
             hfAuth = hfAuth,
             source = source,
+            gated = gatedStatus,
         )
         when (availability) {
             is ModelAvailabilityState.Ready -> ready++

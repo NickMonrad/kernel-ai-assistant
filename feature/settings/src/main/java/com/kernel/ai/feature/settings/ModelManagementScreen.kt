@@ -144,7 +144,16 @@ fun ModelManagementScreen(
                             rowState.downloadState is DownloadState.Downloading -> viewModel.cancelDownload(rowState.model)
                             rowState.downloadState is DownloadState.Downloaded -> viewModel.updateModel(rowState.model)
                             rowState.downloadState is DownloadState.NotDownloaded -> viewModel.downloadModel(rowState.model)
-                            rowState.downloadState is DownloadState.Error -> viewModel.downloadModel(rowState.model)
+                            rowState.downloadState is DownloadState.Error -> {
+                                val error = rowState.downloadState
+                                if (error.licenceRequired) {
+                                    rowState.model.licenceUrl?.let { url ->
+                                        CustomTabsIntent.Builder().build().launchUrl(context, url.toUri())
+                                    }
+                                } else {
+                                    viewModel.downloadModel(rowState.model)
+                                }
+                            }
                         }
                     },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),

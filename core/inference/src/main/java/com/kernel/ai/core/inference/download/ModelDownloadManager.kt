@@ -28,6 +28,8 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+import kotlinx.coroutines.flow.update
+
 private const val TAG = "ModelDownloadManager"
 
 /**
@@ -154,7 +156,7 @@ class ModelDownloadManager @Inject constructor(
 
 
         // Track the download source for UI layer
-        _downloadSources.value = _downloadSources.value.toMutableMap().apply { put(model, source) }
+        _downloadSources.update { it.toMutableMap().apply { put(model, source) } }
         Log.i(TAG, "Enqueuing download for ${model.displayName}")
         // updateState moved inside coroutine — don't reset progress to 0 if KEEP is chosen
 
@@ -214,14 +216,16 @@ class ModelDownloadManager @Inject constructor(
 
     /** Cancel an in-progress download. The partial `.tmp` file is preserved for resumption. */
     fun cancelDownload(model: KernelModel) {
-        // Required and auto-queued models cannot be cancelled — the app needs them to function.
-        // This guard protects against both UI callers and programmatic callers that might
-        // bypass the UI's hidden Cancel button.
-        if (model.isRequired) {
-            Log.w(TAG, "Refusing to cancel download for required model: ${model.displayName}")
+        // Only user-initiated downloads can be cancelled — auto-queued models are needed
+        // for the app to function. Check the stored source rather than model.isRequired
+        // because some required models may be user-initiated (e.g. E2B on FLAGSHIP).
+        val source = _downloadSources.value[model]
+        if (source == DownloadSource.AUTO_QUEUED) {
+            Log.w(TAG, "Refusing to cancel auto-queued download: ${model.displayName}")
             return
         }
         workManager.cancelUniqueWork(model.workerTag)
+        _downloadSources.update { it.toMutableMap().apply { remove(model) } }
         updateState(model, DownloadState.NotDownloaded)
         Log.i(TAG, "Cancelled download for ${model.displayName}")
     }
@@ -233,15 +237,15 @@ class ModelDownloadManager @Inject constructor(
         return if (model.isDownloaded(context)) model.localFile(context).absolutePath else null
     }
 
-    /**
-     * Re-checks the filesystem for [model] and updates [downloadStates] accordingly.
-     * Call this after manually deleting a model file so the UI reflects [DownloadState.NotDownloaded].
-     */
     fun refreshState(model: KernelModel) {
         val newState = if (model.isDownloaded(context)) {
             DownloadState.Downloaded(model.localFile(context).absolutePath)
         } else {
             DownloadState.NotDownloaded
+        }
+        // Clear stale source tracking since the model is no longer actively downloading
+        if (newState !is DownloadState.Downloading) {
+            _downloadSources.update { it.toMutableMap().apply { remove(model) } }
         }
         updateState(model, newState)
         Log.i(TAG, "Refreshed state for ${model.displayName}: $newState")
@@ -295,7 +299,7 @@ class ModelDownloadManager @Inject constructor(
     // -------------------------------------------------------------------------
 
     private fun updateState(model: KernelModel, state: DownloadState) {
-        _downloadStates.value = _downloadStates.value.toMutableMap().apply { put(model, state) }
+        _downloadStates.update { it.toMutableMap().apply { put(model, state) } }
     }
 
     // Issue 3 fix: guard against launching duplicate observeWorkInfo coroutines

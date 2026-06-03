@@ -38,6 +38,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -188,6 +190,15 @@ fun VoiceScreen(
         onKokoroVoiceSelected = viewModel::setKokoroVoice,
         onKokoroActiveSpeakerIdChanged = viewModel::setKokoroActiveSpeakerId,
         onNavigateToModelManagement = onNavigateToModelManagement,
+        onDownloadSherpaStt = viewModel::downloadSherpaStt,
+        onCancelSherpaStt = viewModel::cancelSherpaSttDownload,
+        onDeleteSherpaStt = viewModel::deleteSherpaStt,
+        onDownloadSherpaVoice = viewModel::downloadSherpaVoice,
+        onCancelSherpaVoice = viewModel::cancelSherpaVoiceDownload,
+        onDeleteSherpaVoice = viewModel::deleteSherpaVoice,
+        onDownloadKokoroVoice = viewModel::downloadKokoroVoice,
+        onCancelKokoroVoice = viewModel::cancelKokoroVoiceDownload,
+        onDeleteKokoroVoice = viewModel::deleteKokoroVoice,
     )
 }
 
@@ -213,6 +224,15 @@ private fun VoiceScreenContent(
     onKokoroVoiceSelected: (SherpaKokoroVoice) -> Unit,
     onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
     onNavigateToModelManagement: () -> Unit,
+    onDownloadSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
+    onCancelSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
+    onDeleteSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
+    onDownloadSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
+    onCancelSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
+    onDeleteSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
+    onDownloadKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
+    onCancelKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
+    onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
 ) {
     val context = LocalContext.current
     Scaffold(
@@ -412,6 +432,43 @@ private fun VoiceScreenContent(
                                 ?: ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )
+                        val sttState = state
+                        if (sttState != null) {
+                            when {
+                                sttState.isDownloading -> {
+                                    OutlinedButton(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                        onClick = { onCancelSherpaStt(engine) },
+                                    ) {
+                                        Text("Cancel")
+                                    }
+                                }
+                                sttState.isDownloaded -> {
+                                    OutlinedButton(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                        onClick = { onDeleteSherpaStt(engine) },
+                                    ) {
+                                        Text("Delete")
+                                    }
+                                }
+                                sttState.issue != null -> {
+                                    OutlinedButton(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                        onClick = { onDownloadSherpaStt(engine) },
+                                    ) {
+                                        Text("Retry")
+                                    }
+                                }
+                                else -> {
+                                    Button(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                        onClick = { onDownloadSherpaStt(engine) },
+                                    ) {
+                                        Text("Download")
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -671,6 +728,41 @@ private fun VoiceScreenContent(
                             enabled = isDownloaded,
                         )
                     }
+                    val voiceRowState = voiceRow.downloadState
+                    when (voiceRowState) {
+                        is VoicePackDownloadState.NotDownloaded -> {
+                            Button(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                onClick = { onDownloadSherpaVoice(voiceRow.voice) },
+                            ) {
+                                Text("Download")
+                            }
+                        }
+                        is VoicePackDownloadState.Downloading -> {
+                            OutlinedButton(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                onClick = { onCancelSherpaVoice(voiceRow.voice) },
+                            ) {
+                                Text("Cancel")
+                            }
+                        }
+                        is VoicePackDownloadState.Downloaded -> {
+                            OutlinedButton(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                onClick = { onDeleteSherpaVoice(voiceRow.voice) },
+                            ) {
+                                Text("Delete")
+                            }
+                        }
+                        is VoicePackDownloadState.Error -> {
+                            OutlinedButton(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                onClick = { onDownloadSherpaVoice(voiceRow.voice) },
+                            ) {
+                                Text("Retry")
+                            }
+                        }
+                    }
                     HorizontalDivider()
                     if (isSelected && isDownloaded && isMultiSpeaker) {
                         Row(
@@ -812,6 +904,41 @@ private fun VoiceScreenContent(
                             onClick = { if (isDownloaded) onKokoroVoiceSelected(voiceRow.voice) },
                             enabled = isDownloaded,
                         )
+                    }
+                    val kokoroRowState = voiceRow.downloadState
+                    when (kokoroRowState) {
+                        is VoicePackDownloadState.NotDownloaded -> {
+                            Button(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                onClick = { onDownloadKokoroVoice(voiceRow.voice) },
+                            ) {
+                                Text("Download")
+                            }
+                        }
+                        is VoicePackDownloadState.Downloading -> {
+                            OutlinedButton(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                onClick = { onCancelKokoroVoice(voiceRow.voice) },
+                            ) {
+                                Text("Cancel")
+                            }
+                        }
+                        is VoicePackDownloadState.Downloaded -> {
+                            OutlinedButton(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                onClick = { onDeleteKokoroVoice(voiceRow.voice) },
+                            ) {
+                                Text("Delete")
+                            }
+                        }
+                        is VoicePackDownloadState.Error -> {
+                            OutlinedButton(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                onClick = { onDownloadKokoroVoice(voiceRow.voice) },
+                            ) {
+                                Text("Retry")
+                            }
+                        }
                     }
                     HorizontalDivider()
 
