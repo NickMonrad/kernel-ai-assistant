@@ -297,8 +297,10 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         val getText = streamMethods.getText
             ?: result.javaClass.getDeclaredMethod("getText")
                 .also { it.isAccessible = true; streamMethods.getText = it }
-        return (getText.invoke(result) as String).trim().trimEnd('?', '.', '!', ',', ':', ';')
-            .lowercase(java.util.Locale.ROOT)
+        return TranscriptNormaliser.normalise(
+            (getText.invoke(result) as String).trim().trimEnd('?', '.', '!', ',', ':', ';')
+                .lowercase(java.util.Locale.ROOT)
+        )
     }
 
     // ── Offline audio loop (Whisper / SenseVoice) ──────────────────────────────
@@ -381,8 +383,10 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         val getText = streamMethods.getText
             ?: result.javaClass.getDeclaredMethod("getText")
                 .also { it.isAccessible = true; streamMethods.getText = it }
-        return (getText.invoke(result) as String).trim().trimEnd('?', '.', '!', ',', ':', ';')
-            .lowercase(java.util.Locale.ROOT)
+        return TranscriptNormaliser.normalise(
+            (getText.invoke(result) as String).trim().trimEnd('?', '.', '!', ',', ':', ';')
+                .lowercase(java.util.Locale.ROOT)
+        )
     }
 
     private fun chunkRms(chunk: FloatArray): Float {

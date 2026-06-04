@@ -85,4 +85,15 @@ class QuickIntentRouterListRoutingTest {
         assertEquals("milk", match.intent.params["item"])
         assertEquals("shopping", match.intent.params["list_name"])
     }
+
+    @Test
+    fun `routes add 111 over 70 to my blood pressure lost via list-tail mishear fix`() {
+        // #982 — "lost" at end of list command → "list" by LIST_NAME_TAIL_MISHEAR_RE
+        val result = router.route("add 111 over 70 to my blood pressure lost")
+
+        val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+        assertEquals("add_to_list", match.intent.intentName)
+        assertEquals("111 over 70", match.intent.params["item"])
+        assertEquals("blood pressure", match.intent.params["list_name"])
+    }
 }
