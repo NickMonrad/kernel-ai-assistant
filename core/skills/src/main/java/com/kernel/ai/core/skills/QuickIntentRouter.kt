@@ -119,6 +119,14 @@ class QuickIntentRouter(
         RegexOption.IGNORE_CASE,
     )
 
+    // #982 — "Add 111 over 70 to the blood pressure lost" -> "...list".
+    // Scoped to the regex path only; classifier and LLM fall-through still see
+    // the trimmed original, so chat copy ("I lost my keys") is untouched.
+    private val LIST_NAME_TAIL_MISHEAR_RE = Regex(
+        """\b(list|lust|lost|last)\b\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
+
     private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
         "make_call" to mapOf(
             "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
@@ -3123,7 +3131,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_date_diff",
             regex = Regex(
-                """(?:how\s+(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?(?:until|till|to|before))\s+(.+)""",
+                """(?:how\s+(?!to\s)(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?(?:until|till|to|before))\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("target_date" to match.groupValues[1].trim(), "direction" to "until") }
@@ -4201,12 +4209,16 @@ class QuickIntentRouter(
             },
         )
 
+        // #982 — trailing "lost"/"lust"/"last" → "list" for list-command detection.
+        // Scoped to regex path only; classifier/FallThrough still see the trimmed original.
+        val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(aliasNormalized, "list")
+
         // Written-out fractional cooking quantities are rewritten to decimals (regex-only, like
         // the alias normalisation above) so they reach the deterministic cooking-conversion path.
         // Numeric slash fractions ("2/3 of a cup", "1 1/2 cups") are handled too, since STT often
         // transcribes spoken fractions as glyphs.
         val fractionNormalized = normalizeNumericCookingFractions(
-            normalizeWrittenCookingFractions(aliasNormalized),
+            normalizeWrittenCookingFractions(listTailFixed),
         )
 
         // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.
