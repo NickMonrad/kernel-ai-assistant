@@ -453,15 +453,15 @@ class OnnxWakeWordDetector @Inject constructor(
                     melRows.copyInto(melRing, melRowsFilled * MEL_BINS, 0, rowsToInsert * MEL_BINS)
                     melRowsFilled += rowsToInsert
                 }
-            if (melRowsFilled < MEL_RING_SIZE) continue
+                if (melRowsFilled < MEL_RING_SIZE) continue
 
-            // ── Gating: skip embedding + classifier when confirmed-silent ─────
-            if (silenceFrames > silenceHangoverFrames &&
-                chunkCount % maxSilenceSkipFrames.toLong() != 0L) {
-                gatedFramesSkipped++
-                wasGated = true
-                continue  // wake word not expected — skip expensive Stage 2/3
-            }
+                // ── Gating: skip embedding + classifier when confirmed-silent ─────
+                if (silenceFrames > silenceHangoverFrames &&
+                    chunkCount % maxSilenceSkipFrames.toLong() != 0L) {
+                    gatedFramesSkipped++
+                    wasGated = true
+                    continue  // wake word not expected — skip expensive Stage 2/3
+                }
                 // Log mic activity every ~8s (only when Stage 2/3 runs).
                 if (chunkCount % 100 == 0) {
                     Log.d(

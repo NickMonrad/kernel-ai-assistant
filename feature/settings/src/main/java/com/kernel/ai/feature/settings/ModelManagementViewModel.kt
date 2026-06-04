@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -83,7 +84,9 @@ class ModelManagementViewModel @Inject constructor(
         }
         // Compute storage metrics on IO dispatcher, driven by download-state changes
         viewModelScope.launch(Dispatchers.IO) {
-            modelDownloadManager.downloadStates.collect {
+            modelDownloadManager.downloadStates
+                .debounce(500)
+                .collect {
                 val used = calculateStorageUsed()
                 val free = calculateFreeSpace()
                 _storageMetrics.value = StorageMetrics(used = used, free = free)

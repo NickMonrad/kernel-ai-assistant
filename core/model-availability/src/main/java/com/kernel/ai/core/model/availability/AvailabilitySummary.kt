@@ -15,8 +15,7 @@ data class AvailabilitySummary(
     val unavailable: Int = 0,
 ) {
     val displaySummary: String get() {
-        val readyCount = ready + unavailable // unavailable models are not actionable
-        return "$readyCount of $total models ready"
+        return "$ready of $total models available"
     }
 }
 

@@ -123,14 +123,18 @@ fun ModelManagementScreen(
                     state = availabilityState,
                     showLock = rowState.model.isGated && rowState.downloadState is DownloadState.NotDownloaded,
                     onPrimaryAction = {
-                        when {
-                            !uiState.hfAuthenticated && rowState.model.isGated -> viewModel.startAuth()
-                            rowState.downloadState is DownloadState.Downloading -> viewModel.cancelDownload(rowState.model)
-                            rowState.downloadState is DownloadState.Downloaded -> viewModel.updateModel(rowState.model)
-                            rowState.downloadState is DownloadState.NotDownloaded -> viewModel.downloadModel(rowState.model)
-                            rowState.downloadState is DownloadState.Error -> {
-                                val error = rowState.downloadState
-                                if (error.licenceRequired) {
+                        when (val state = rowState.downloadState) {
+                            is DownloadState.Downloading -> viewModel.cancelDownload(rowState.model)
+                            is DownloadState.Downloaded -> viewModel.updateModel(rowState.model)
+                            is DownloadState.NotDownloaded -> {
+                                if (!uiState.hfAuthenticated && rowState.model.isGated) {
+                                    viewModel.startAuth()
+                                } else {
+                                    viewModel.downloadModel(rowState.model)
+                                }
+                            }
+                            is DownloadState.Error -> {
+                                if (state.licenceRequired) {
                                     rowState.model.licenceUrl?.let { url ->
                                         CustomTabsIntent.Builder().build().launchUrl(context, url.toUri())
                                     }
