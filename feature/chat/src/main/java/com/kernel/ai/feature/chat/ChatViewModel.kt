@@ -1072,6 +1072,7 @@ class ChatViewModel @Inject constructor(
     private fun stripNegationPrefixes(current: String): String {
         return current
             .replace(Regex("no dietary requirements\\s*,?\\s*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("no protein preferences?\\s*,?\\s*", RegexOption.IGNORE_CASE), "")
             .replace(Regex("no cuisine preferences?\\s*,?\\s*", RegexOption.IGNORE_CASE), "")
             .trimEnd(',', ' ')
     }

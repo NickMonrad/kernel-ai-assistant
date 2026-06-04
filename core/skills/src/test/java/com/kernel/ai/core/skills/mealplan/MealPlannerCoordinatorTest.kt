@@ -1319,7 +1319,7 @@ class MealPlannerCoordinatorTest {
                 "2 people", "3 people", "4 people", "6 people", "8 people",
                 "4 days", "7 days",
                 "no dietary requirements", "kid friendly", "gluten free",
-                "chicken", "beef mince", "beef",
+                "no protein preference", "chicken", "beef mince",
                 "help", "cancel plan",
             ),
             activity?.suggestions?.map { it.command },
@@ -1350,7 +1350,7 @@ class MealPlannerCoordinatorTest {
 
         assertEquals(
             listOf(
-                "chicken", "beef mince", "beef", "lamb", "pork", "fish",
+                "no protein preference", "chicken", "beef mince", "beef", "lamb", "pork",
                 "help", "cancel plan",
             ),
             activity?.suggestions?.map { it.command },
@@ -1388,7 +1388,7 @@ class MealPlannerCoordinatorTest {
 
         assertEquals(
             listOf(
-                "tofu", "eggs", "chickpeas", "no protein preference",
+                "no protein preference", "tofu", "eggs", "chickpeas",
                 "help", "cancel plan",
             ),
             activity?.suggestions?.map { it.command },

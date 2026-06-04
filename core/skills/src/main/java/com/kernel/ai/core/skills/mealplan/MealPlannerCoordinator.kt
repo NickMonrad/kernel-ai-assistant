@@ -18,6 +18,7 @@ import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
@@ -403,12 +404,18 @@ class MealPlannerCoordinator @Inject constructor(
                 if (preAttempt.status == MealPlanSessionStatus.CANCELLED) {
                     return@withSessionGeneration MealPlannerReply("Meal planning was cancelled.")
                 }
-                val rawPlan = inferenceEngine.generateStructuredOnce(
-                    prompt = buildPlanUserPrompt(snapshot, recentHistory, favouriteRecipes),
-                    spec = StructuredOutputSpec.MealPlan,
-                    systemPrompt = buildPlanSystemPrompt(),
-                    thinkingEnabled = false,
-                )
+                val rawPlan = try {
+                    inferenceEngine.generateStructuredOnce(
+                        prompt = buildPlanUserPrompt(snapshot, recentHistory, favouriteRecipes),
+                        spec = StructuredOutputSpec.MealPlan,
+                        systemPrompt = buildPlanSystemPrompt(),
+                        thinkingEnabled = false,
+                    )
+                } catch (ce: CancellationException) {
+                    Log.w(TAG, "Plan generation cancelled: sessionId=${snapshot.sessionId}, attempt=$attempt")
+                    sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_CANCELLED", "Generation job was cancelled")
+                    return@withSessionGeneration MealPlannerReply("Meal planning was interrupted. Say 'generate recipes' to try again.")
+                }
                 if (rawPlan.isBlank()) {
                     lastErrorCode = "PLAN_NO_OUTPUT"
                     lastErrorMessage = "The model did not return a plan."
@@ -2153,19 +2160,18 @@ Rules:
             "tofu",
             "eggs",
             "chickpeas",
-            "no protein preference",
         )
         val compatible = allOptions.filter { protein ->
-            protein == "no protein preference" ||
-                detectProteinPreferenceConflicts(dietaryRestrictions, listOf(protein)).isEmpty()
+            detectProteinPreferenceConflicts(dietaryRestrictions, listOf(protein)).isEmpty()
         }
+        add(suggestion("no protein preference", "no protein preference", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         if (isTop) {
-            compatible.take(6).forEach { protein ->
-                add(suggestion(protein.replaceFirstChar { ch -> ch.titlecase() }, protein, composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            compatible.take(5).forEach { protein ->
+                add(suggestion(protein.replaceFirstChar { ch -> ch.titlecase() }, protein, composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
             }
         } else {
-            compatible.take(3).forEach { protein ->
-                add(suggestion(protein.replaceFirstChar { ch -> ch.titlecase() }, protein, composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            compatible.take(2).forEach { protein ->
+                add(suggestion(protein.replaceFirstChar { ch -> ch.titlecase() }, protein, composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
             }
         }
     }
