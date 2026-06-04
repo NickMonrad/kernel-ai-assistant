@@ -24,8 +24,10 @@ import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.capabilities
 import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
@@ -135,6 +137,7 @@ class ChatViewModel @Inject constructor(
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
     private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
+    private val authRepository: HuggingFaceAuthRepository,
     private val startListeningCuePlayer: StartListeningCuePlayer,
     private val chatPreferences: ChatPreferences,
 ) : ViewModel() {
@@ -360,15 +363,27 @@ class ChatViewModel @Inject constructor(
     ) { messages, inputText, error, title, isSpeakingResponse ->
         InputState(messages, inputText, error, title, isSpeakingResponse)
     }
-
-    /** Base uiState without visual prefs (5-input combine). */
+    /** Base uiState without visual prefs (7-input combine). */
     private val baseUiState: StateFlow<ChatUiState> = combine(
         engineState,
         downloadManager.downloadStates,
+        downloadManager.downloadSources,
         inputState,
         _showThinkingProcess,
         isArchived,
-    ) { engine, downloadStates, input, showThinking, archived ->
+        authRepository.isAuthenticated,
+    ) { array ->
+        @Suppress("UNCHECKED_CAST")
+        val engine = array[0] as EngineState
+        @Suppress("UNCHECKED_CAST")
+        val downloadStates = array[1] as Map<KernelModel, DownloadState>
+        @Suppress("UNCHECKED_CAST")
+        val downloadSources = array[2] as Map<KernelModel, DownloadSource>
+        @Suppress("UNCHECKED_CAST")
+        val input = array[3] as InputState
+        val showThinking = array[4] as Boolean
+        val archived = array[5] as Boolean
+        val hfAuth = array[6] as Boolean
         val allDownloaded = downloadManager.areRequiredModelsDownloaded()
         val tier = downloadManager.deviceTier
         val displayModels: List<KernelModel> = if (tier == HardwareTier.FLAGSHIP) {
@@ -389,7 +404,12 @@ class ChatViewModel @Inject constructor(
                         state = downloadStates[model] ?: DownloadState.NotDownloaded,
                     )
                 }
-                ChatUiState.ModelsNotReady(isDownloading = anyDownloading, modelProgress = progress)
+                ChatUiState.ModelsNotReady(
+                    isDownloading = anyDownloading,
+                    modelProgress = progress,
+                    hfAuthenticated = hfAuth,
+                    downloadSources = downloadSources,
+                )
             }
             // Archived conversations are read-only — no engine needed. Skip the isReady gate.
             !archived && (!engine.isReady || !engine.conversationInitialized) -> ChatUiState.Loading
