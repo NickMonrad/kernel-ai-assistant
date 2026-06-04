@@ -396,41 +396,59 @@ class MealPlannerCoordinator @Inject constructor(
             onPlannerActivityChanged(generatingPlanActivity(snapshot))
             val recentHistory = sessionRepository.getRecentMealHistory(RECENT_MEAL_HISTORY_LIMIT)
             val favouriteRecipes = sessionRepository.getFavouriteRecipes(MAX_FAVOURITE_PROMPT_RECIPES)
-            val rawPlan = inferenceEngine.generateStructuredOnce(
-                prompt = buildPlanUserPrompt(snapshot, recentHistory, favouriteRecipes),
-                spec = StructuredOutputSpec.MealPlan,
-                systemPrompt = buildPlanSystemPrompt(),
-                thinkingEnabled = false,
-            )
-            if (rawPlan.isBlank()) {
-                sessionRepository.markGenerationFailure(
-                    snapshot.sessionId,
-                    null,
-                    "PLAN_NO_OUTPUT",
-                    "The model did not return a plan.",
+            var lastErrorCode: String? = null
+            var lastErrorMessage: String? = null
+            for (attempt in 1..MAX_PLAN_GENERATION_ATTEMPTS) {
+                val preAttempt = sessionRepository.getSession(snapshot.sessionId) ?: snapshot
+                if (preAttempt.status == MealPlanSessionStatus.CANCELLED) {
+                    return@withSessionGeneration MealPlannerReply("Meal planning was cancelled.")
+                }
+                val rawPlan = inferenceEngine.generateStructuredOnce(
+                    prompt = buildPlanUserPrompt(snapshot, recentHistory, favouriteRecipes),
+                    spec = StructuredOutputSpec.MealPlan,
+                    systemPrompt = buildPlanSystemPrompt(),
+                    thinkingEnabled = false,
                 )
-                return@withSessionGeneration MealPlannerReply(
-                    "I couldn't finish building the plan because the model didn't return one. Try replying with the same requirements again.",
-                )
+                if (rawPlan.isBlank()) {
+                    lastErrorCode = "PLAN_NO_OUTPUT"
+                    lastErrorMessage = "The model did not return a plan."
+                    Log.w(TAG, "Plan generation failed: sessionId=${snapshot.sessionId}, attempt=$attempt/$MAX_PLAN_GENERATION_ATTEMPTS, errorCode=$lastErrorCode")
+                    if (attempt < MAX_PLAN_GENERATION_ATTEMPTS) continue
+                    sessionRepository.markGenerationFailure(snapshot.sessionId, null, lastErrorCode!!, lastErrorMessage!!)
+                    return@withSessionGeneration MealPlannerReply(planGenerationFailedMessage(snapshot))
+                }
+                val parsedPlan = try {
+                    jsonParser.parsePlanDraft(rawPlan, snapshot.daysCount ?: 0)
+                } catch (e: MealPlanValidationException) {
+                    lastErrorCode = "PLAN_JSON_INVALID"
+                    lastErrorMessage = e.message ?: "Invalid plan JSON"
+                    Log.w(TAG, "Plan generation failed: sessionId=${snapshot.sessionId}, attempt=$attempt/$MAX_PLAN_GENERATION_ATTEMPTS, errorCode=$lastErrorCode")
+                    if (attempt < MAX_PLAN_GENERATION_ATTEMPTS) continue
+                    sessionRepository.markGenerationFailure(snapshot.sessionId, null, lastErrorCode!!, lastErrorMessage!!)
+                    return@withSessionGeneration MealPlannerReply(planGenerationFailedMessage(snapshot))
+                }
+                val planDraft = try {
+                    repairPlanVariety(
+                        snapshot = snapshot,
+                        draft = parsedPlan,
+                        recentHistory = recentHistory,
+                    )
+                } catch (e: MealPlanValidationException) {
+                    sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_VARIETY_REPAIR_FAILED", e.message ?: "Plan was too repetitive")
+                    Log.w(TAG, "Plan generation failed: sessionId=${snapshot.sessionId}, attempt=$attempt/$MAX_PLAN_GENERATION_ATTEMPTS, errorCode=PLAN_VARIETY_REPAIR_FAILED")
+                    return@withSessionGeneration MealPlannerReply(
+                        "I couldn't generate a varied enough high-level plan yet. ${e.message} Try replying with the same requirements again or adjust them.",
+                    )
+                }
+                val preSave = sessionRepository.getSession(snapshot.sessionId) ?: snapshot
+                if (preSave.status == MealPlanSessionStatus.CANCELLED) {
+                    return@withSessionGeneration MealPlannerReply("Meal planning was cancelled.")
+                }
+                val planned = sessionRepository.savePlanDraft(snapshot.sessionId, planDraft.days)
+                return@withSessionGeneration MealPlannerReply(planReviewPrompt(planned))
             }
-            val parsedPlan = try {
-                jsonParser.parsePlanDraft(rawPlan, snapshot.daysCount ?: 0)
-            } catch (e: MealPlanValidationException) {
-                sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_JSON_INVALID", e.message ?: "Invalid plan JSON")
-                return@withSessionGeneration MealPlannerReply("I couldn't generate a valid high-level plan yet. ${e.message} Try replying with the same requirements again or adjust them.")
-            }
-            val planDraft = try {
-                repairPlanVariety(
-                    snapshot = snapshot,
-                    draft = parsedPlan,
-                    recentHistory = recentHistory,
-                )
-            } catch (e: MealPlanValidationException) {
-                sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_VARIETY_REPAIR_FAILED", e.message ?: "Plan was too repetitive")
-                return@withSessionGeneration MealPlannerReply("I couldn't generate a varied enough high-level plan yet. ${e.message} Try replying with the same requirements again or adjust them.")
-            }
-            val planned = sessionRepository.savePlanDraft(snapshot.sessionId, planDraft.days)
-            MealPlannerReply(planReviewPrompt(planned))
+            sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_GENERATION_FAILED", "Exhausted all attempts")
+            return@withSessionGeneration MealPlannerReply(planGenerationFailedMessage(snapshot))
         }
 
     private suspend fun repairPlanVariety(
@@ -1318,6 +1336,13 @@ class MealPlannerCoordinator @Inject constructor(
         MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS -> collectingActivity(snapshot)
         MealPlanSessionStatus.PLAN_REVIEW -> if (generationActive && snapshot.pendingGenerationKind == PendingGenerationKind.PLAN) {
             generatingPlanActivity(snapshot)
+        } else if (snapshot.days.isEmpty()) {
+            MealPlannerActivity(
+                title = "Review your meal plan",
+                subtitle = "The plan couldn't be built. Say 'generate recipes' to try again, or 'change preferences'.",
+                state = MealPlannerActivityState.WAITING,
+                suggestions = planReviewSuggestions(snapshot),
+            )
         } else {
             MealPlannerActivity(
                 title = "Review your meal plan",
@@ -1469,7 +1494,7 @@ class MealPlannerCoordinator @Inject constructor(
         MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS -> collectingHelpPrompt(snapshot)
         MealPlanSessionStatus.PLAN_REVIEW ->
             if (snapshot.days.isEmpty()) {
-                "I still need to rebuild your meal plan draft. You can say 'generate recipes' to try again, 'change preferences' to edit the plan details, 'show current plan' to inspect what I have, or 'cancel' to stop."
+                "I couldn't build the meal plan yet. You can say 'generate recipes' to try again, 'change preferences' to edit the plan details, or 'cancel' to stop."
             } else {
                 "You're reviewing the draft meal plan. You can say 'show current plan' to inspect it again, 'generate recipes' to build the recipe details, 'replace day 1' to swap one meal, 'change preferences' to edit people, days, dietary needs, proteins, or cuisines, or 'cancel' to stop."
             }
@@ -1576,6 +1601,20 @@ class MealPlannerCoordinator @Inject constructor(
         if (snapshot.cuisinePreferences.isEmpty()) add("cuisine")
     }
 
+    private fun planGenerationFailedMessage(snapshot: MealPlanSnapshot): String {
+        if (snapshot.days.isNotEmpty()) {
+            return "I couldn't rebuild the meal plan with your updated preferences. Your previous draft is still shown — say 'generate recipes' to try again with the updated preferences, 'change preferences' to adjust your requirements, or 'help' for more options."
+        }
+        return "I couldn't build the meal plan. Say 'generate recipes' to try again, 'change preferences' to adjust your requirements, or 'help' for more options."
+    }
+
+    private fun planReviewPrompt(snapshot: MealPlanSnapshot): String =
+        if (snapshot.days.isEmpty()) {
+            planGenerationFailedMessage(snapshot)
+        } else {
+            buildPlanSummary(snapshot) + "\n\n" + planReviewActionsPrompt()
+        }
+
     private fun missingSlotPrompt(slot: String): String = when (slot) {
         "people" -> "- How many people are you cooking for?"
         "days" -> "- How many days do you want to plan for?"
@@ -1585,12 +1624,6 @@ class MealPlannerCoordinator @Inject constructor(
         else -> "- $slot"
     }
 
-    private fun planReviewPrompt(snapshot: MealPlanSnapshot): String =
-        if (snapshot.days.isEmpty()) {
-            "I still need to rebuild your meal plan draft. Say 'generate recipes' to try again, 'change preferences', 'help' for more options, or 'cancel'."
-        } else {
-            buildPlanSummary(snapshot) + "\n\n" + planReviewActionsPrompt()
-        }
 
     private fun currentPlanReply(snapshot: MealPlanSnapshot): String =
         if (snapshot.days.isEmpty()) {
@@ -2039,6 +2072,13 @@ Rules:
         else -> slot
     }
     private fun planReviewSuggestions(snapshot: MealPlanSnapshot): List<MealPlannerSuggestion> = buildList {
+        if (snapshot.days.isEmpty()) {
+            add(suggestion("Generate recipes", "generate recipes"))
+            add(suggestion("Change preferences", "change preferences"))
+            add(suggestion("Help", "help"))
+            add(suggestion("Cancel plan", "cancel plan"))
+            return@buildList
+        }
         add(suggestion("Generate recipes", "generate recipes"))
         add(suggestion("Show current plan", "show current plan"))
         primaryEditableDay(snapshot)?.let { dayIndex ->
@@ -2265,6 +2305,7 @@ Rules:
         private const val PENDING_COMPLETED_SUMMARY_LIMIT = 3
         private const val MAX_PLAN_VARIETY_REPAIR_PASSES = 2
         private const val MAX_DAY_VARIETY_REPAIR_ATTEMPTS = 2
+        private const val MAX_PLAN_GENERATION_ATTEMPTS = 2
         private const val MAX_PROMPT_HISTORY_TITLES = 6
         private const val MAX_PROMPT_HISTORY_PATTERNS = 4
         private val COMMON_PROTEINS = listOf(

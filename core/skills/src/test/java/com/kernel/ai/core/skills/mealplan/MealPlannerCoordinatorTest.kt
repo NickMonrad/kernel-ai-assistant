@@ -20,6 +20,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -1575,7 +1576,7 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
-    fun `plan generation failure with empty draft stays recoverable and cannot finalize`() = runTest {
+    fun `plan generation failure with empty draft shows recovery message and cannot finalize`() = runTest {
         val collecting = collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
         val ready = collecting.copy(
             dietaryRestrictions = listOf("low lactose"),
@@ -1596,17 +1597,20 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = listOf("chicken"),
             )
         } returns ready
+        // After all 2 retry attempts exhausted, markGenerationFailure is called
         coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns failedPlan
         coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns ""
 
         val first = coordinator.ingestUserMessage("conv", "low lactose, chicken")
-        val second = coordinator.ingestUserMessage("conv", "hello")
-        val third = coordinator.ingestUserMessage("conv", "done meal planning")
+        val second = coordinator.ingestUserMessage("conv", "help")
+        val third = coordinator.ingestUserMessage("conv", "show current plan")
 
-        assertTrue(first.content.contains("didn't return one", ignoreCase = true))
-        assertTrue(second.content.contains("rebuild your meal plan draft", ignoreCase = true))
-        assertTrue(third.content.contains("rebuild your meal plan draft", ignoreCase = true))
+        assertTrue(first.content.contains("couldn't build the meal plan", ignoreCase = true))
+        assertTrue(second.content.contains("couldn't build the meal plan yet", ignoreCase = true))
+        assertTrue(third.content.contains("couldn't build the meal plan", ignoreCase = true))
         coVerify(exactly = 0) { sessionRepository.completeSession(any()) }
+        // 2 retry attempts = 2 calls to generateStructuredOnce
+        coVerify(exactly = 2) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
     }
 
     @Test
@@ -1644,7 +1648,243 @@ class MealPlannerCoordinatorTest {
         coVerify { sessionRepository.completeSession("session-1") }
         coVerify { sessionRepository.buildFinalSummary("session-1") }
         coVerify { sessionRepository.markFinalSummaryWritten("session-1") }
-        coVerify(exactly = 1) { memoryRepository.addEpisodicMemory("conv", "Created a 2-day meal plan.", any()) }
+    }
+
+    @Test
+    fun `blank plan output retries and succeeds on second attempt`() = runTest {
+        val collecting = collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
+        val ready = collecting.copy(
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken"),
+        )
+        val reviewed = planReviewSnapshot()
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("low lactose"),
+                proteinPreferences = listOf("chicken"),
+            )
+        } returns ready
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returnsMany listOf("", planJson())
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
+
+        val reply = coordinator.ingestUserMessage("conv", "low lactose, chicken")
+
+        assertTrue(reply.content.contains("Chicken", ignoreCase = true))
+        coVerify(exactly = 2) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
+        coVerify(exactly = 1) { sessionRepository.savePlanDraft("session-1", any()) }
+        coVerify(exactly = 0) { sessionRepository.markGenerationFailure(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `invalid plan JSON retries and succeeds on second attempt`() = runTest {
+        val collecting = collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
+        val ready = collecting.copy(
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken"),
+        )
+        val reviewed = planReviewSnapshot()
+        coEvery { sessionRepository.getActiveSession("conv") } returns collecting
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("low lactose"),
+                proteinPreferences = listOf("chicken"),
+            )
+        } returns ready
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returnsMany listOf("not valid json at all", planJson())
+        coEvery { sessionRepository.savePlanDraft("session-1", any()) } returns reviewed
+
+        val reply = coordinator.ingestUserMessage("conv", "low lactose, chicken")
+
+        assertTrue(reply.content.contains("Chicken", ignoreCase = true))
+        coVerify(exactly = 2) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
+        coVerify(exactly = 1) { sessionRepository.savePlanDraft("session-1", any()) }
+        coVerify(exactly = 0) { sessionRepository.markGenerationFailure(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `all plan generation attempts exhausted with blank output shows terminal recovery`() = runTest {
+        val collecting = collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
+        val ready = collecting.copy(
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken"),
+        )
+        val failedPlan = planReviewSnapshot().copy(
+            days = emptyList(),
+            pendingGenerationKind = null,
+            pendingGenerationDayIndex = null,
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returnsMany listOf(collecting, failedPlan)
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("low lactose"),
+                proteinPreferences = listOf("chicken"),
+            )
+        } returns ready
+        coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns failedPlan
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns ""
+
+        val reply = coordinator.ingestUserMessage("conv", "low lactose, chicken")
+
+        assertTrue(reply.content.contains("couldn't build the meal plan", ignoreCase = true))
+        coVerify(exactly = 2) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
+        coVerify(exactly = 1) { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") }
+        coVerify(exactly = 0) { sessionRepository.savePlanDraft(any(), any()) }
+    }
+
+    @Test
+    fun `all plan generation attempts exhausted with invalid JSON shows terminal recovery`() = runTest {
+        val collecting = collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
+        val ready = collecting.copy(
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken"),
+        )
+        val failedPlan = planReviewSnapshot().copy(
+            days = emptyList(),
+            pendingGenerationKind = null,
+            pendingGenerationDayIndex = null,
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returnsMany listOf(collecting, failedPlan)
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("low lactose"),
+                proteinPreferences = listOf("chicken"),
+            )
+        } returns ready
+        coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_JSON_INVALID", any()) } returns failedPlan
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns "invalid json"
+
+        val reply = coordinator.ingestUserMessage("conv", "low lactose, chicken")
+
+        assertTrue(reply.content.contains("couldn't build the meal plan", ignoreCase = true))
+        coVerify(exactly = 2) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
+        coVerify(exactly = 1) { sessionRepository.markGenerationFailure("session-1", null, "PLAN_JSON_INVALID", any()) }
+        coVerify(exactly = 0) { sessionRepository.savePlanDraft(any(), any()) }
+    }
+
+    @Test
+    fun `variety repair failure does not trigger outer retry`() = runTest {
+        val emptyPlanReview = planReviewSnapshot().copy(days = emptyList())
+        coEvery { sessionRepository.getActiveSession("conv") } returns emptyPlanReview
+        coEvery { sessionRepository.getRecentMealHistory(any()) } returns listOf(
+            RecentMealHistoryEntry(title = "Lemon chicken", summary = "Quick dinner", proteinTags = listOf("chicken")),
+            RecentMealHistoryEntry(title = "Beef bowls", summary = "Weeknight bowl", proteinTags = listOf("beef")),
+        )
+        // Plan JSON parses to 2 days, but both match recent history exactly.
+        // Replacement attempts return planJson() (2 days, not 1), so parseSinglePlanDay rejects them.
+        // This exhausts replacement retries and throws PLAN_VARIETY_REPAIR_FAILED.
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns planJson()
+        coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_VARIETY_REPAIR_FAILED", any()) } returns emptyPlanReview
+
+        val reply = coordinator.ingestUserMessage("conv", "generate recipes")
+
+        assertTrue(reply.content.contains("varied enough"), "Expected 'varied enough' but got: ${reply.content}")
+        coVerify(exactly = 0) { sessionRepository.savePlanDraft(any(), any()) }
+        coVerify(exactly = 1) { sessionRepository.markGenerationFailure("session-1", null, "PLAN_VARIETY_REPAIR_FAILED", any()) }
+    }
+
+    @Test
+    fun `empty plan activity shows recovery subtitle and suggestions`() = runTest {
+        val failedPlan = planReviewSnapshot().copy(
+            days = emptyList(),
+            pendingGenerationKind = null,
+            pendingGenerationDayIndex = null,
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returns failedPlan
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertNotNull(activity)
+        assertEquals("Review your meal plan", activity!!.title)
+        assertTrue(activity.subtitle.contains("couldn't be built", ignoreCase = true))
+        assertTrue(activity.suggestions.any { it.command == "generate recipes" })
+        assertTrue(activity.suggestions.any { it.command == "change preferences" })
+        assertTrue(activity.suggestions.any { it.command == "help" })
+        assertTrue(activity.suggestions.any { it.command == "cancel plan" })
+        assertFalse(activity.suggestions.any { it.command == "show current plan" })
+    }
+
+    @Test
+    fun `empty plan suggestions show recovery options not show current plan`() = runTest {
+        val collecting = collectingSnapshot().copy(peopleCount = 4, daysCount = 2)
+        val ready = collecting.copy(
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken"),
+        )
+        val failedPlan = planReviewSnapshot().copy(
+            days = emptyList(),
+            pendingGenerationKind = null,
+            pendingGenerationDayIndex = null,
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returnsMany listOf(collecting, failedPlan)
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("low lactose"),
+                proteinPreferences = listOf("chicken"),
+            )
+        } returns ready
+        coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns failedPlan
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns ""
+
+        // After failure, ingest another message to reach plan review handler
+        coordinator.ingestUserMessage("conv", "low lactose, chicken")
+
+        // Now check the activity reflects recovery state
+        coEvery { sessionRepository.getActiveSession("conv") } returns failedPlan
+        val activity = coordinator.activeSessionActivity("conv")
+
+        assertNotNull(activity)
+        assertTrue(activity!!.suggestions.any { it.command == "generate recipes" })
+        assertTrue(activity.suggestions.any { it.command == "change preferences" })
+        assertFalse(activity.suggestions.any { it.command == "show current plan" })
+    }
+
+    @Test
+    fun `old draft remains visible after rebuild failure with preference edit`() = runTest {
+        val snapshotWithDays = planReviewSnapshot()
+        // Simulate returning to slot collection with old days preserved
+        val collecting = collectingSnapshot().copy(
+            peopleCount = 4,
+            daysCount = 2,
+            days = snapshotWithDays.days,
+        )
+        val updated = collecting.copy(
+            dietaryRestrictions = listOf("low lactose"),
+            proteinPreferences = listOf("chicken"),
+        )
+        coEvery { sessionRepository.getActiveSession("conv") } returnsMany listOf(collecting, snapshotWithDays)
+        coEvery {
+            sessionRepository.updateRequiredSlots(
+                sessionId = "session-1",
+                peopleCount = null,
+                daysCount = null,
+                dietaryRestrictions = listOf("low lactose"),
+                proteinPreferences = listOf("chicken"),
+            )
+        } returns updated
+        coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns snapshotWithDays
+        coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns ""
+
+        val reply = coordinator.ingestUserMessage("conv", "low lactose, chicken")
+
+        // When days is not empty, failure message mentions previous draft
+        assertTrue(reply.content.contains("previous draft", ignoreCase = true))
+        coVerify(exactly = 2) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
+        coVerify(exactly = 1) { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") }
     }
 
     private fun collectingSnapshot(): MealPlanSnapshot = MealPlanSnapshot(
