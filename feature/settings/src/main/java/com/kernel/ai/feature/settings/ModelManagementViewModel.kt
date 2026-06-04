@@ -166,14 +166,14 @@ class ModelManagementViewModel @Inject constructor(
         // Only E2B ↔ E4B can exchange places; infrastructure models (EmbeddingGemma, SP)
         // with isRequired=true are always protected.
         val selected = uiState.value.preferredModel
+        val isConversationSwap = (model == KernelModel.GEMMA_4_E2B && selected == KernelModel.GEMMA_4_E4B) ||
+            (model == KernelModel.GEMMA_4_E4B && selected == KernelModel.GEMMA_4_E2B)
+        if (!isConversationSwap && model.isRequired) return
         // Cancel any in-progress download before deleting the file
         val currentState = modelDownloadManager.downloadStates.value[model]
         if (currentState is DownloadState.Downloading) {
             modelDownloadManager.cancelDownload(model)
         }
-        val isConversationSwap = (model == KernelModel.GEMMA_4_E2B && selected == KernelModel.GEMMA_4_E4B) ||
-            (model == KernelModel.GEMMA_4_E4B && selected == KernelModel.GEMMA_4_E2B)
-        if (!isConversationSwap && model.isRequired) return
         viewModelScope.launch(Dispatchers.IO) {
             model.localFile(context).delete()
             val tmpFile = java.io.File(model.localFile(context).absolutePath + ".tmp")
