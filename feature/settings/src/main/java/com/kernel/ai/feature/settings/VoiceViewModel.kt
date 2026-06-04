@@ -32,6 +32,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.kernel.ai.core.model.availability.ActionReason
+import com.kernel.ai.core.model.availability.ModelAvailabilityState
+import com.kernel.ai.core.model.availability.UnavailableReason
 import javax.inject.Inject
 
 data class SherpaSttDownloadIssue(
@@ -96,10 +99,46 @@ data class VoiceUiState(
     // ── Sherpa-ONNX STT model download states (per family) ──────────────────
     /** Per-family download state for each Sherpa STT engine. */
     val sherpaSttStates: Map<VoiceInputEngine, SherpaSttDownloadState> = emptyMap(),
+    // ── Model availability states (for ModelCardCompact) ────────────────────
+    /** Per-voice availability state for Sherpa Piper voices. */
+    val sherpaVoiceAvailability: Map<SherpaPiperVoice, ModelAvailabilityState> = emptyMap(),
+    /** Per-voice availability state for Kokoro voices. */
+    val kokoroVoiceAvailability: Map<SherpaKokoroVoice, ModelAvailabilityState> = emptyMap(),
+    /** Per-engine availability state for Sherpa STT models. */
+    val sherpaSttAvailability: Map<VoiceInputEngine, ModelAvailabilityState> = emptyMap(),
 )
 internal fun resolveAndroidNativeAvailabilityMessage(
     availability: AndroidNativeRecognitionAvailability,
 ): String? = availability.warningMessage
+
+/**
+ * Maps a [VoicePackDownloadState] to the UI-layer [ModelAvailabilityState].
+ * Used by [ModelCardCompact] in the voice screen.
+ */
+internal fun VoicePackDownloadState.toModelAvailability(): ModelAvailabilityState = when (this) {
+    is VoicePackDownloadState.Downloaded -> ModelAvailabilityState.Ready
+    is VoicePackDownloadState.Downloading -> ModelAvailabilityState.Preparing(
+        progress = progress,
+        isAutoQueued = false,
+    )
+    is VoicePackDownloadState.Error -> ModelAvailabilityState.ActionRequired(
+        ActionReason.DownloadFailed(message)
+    )
+    is VoicePackDownloadState.NotDownloaded -> ModelAvailabilityState.Unavailable(
+        UnavailableReason.NotBundled
+    )
+}
+
+/**
+ * Maps a [SherpaSttDownloadState] to the UI-layer [ModelAvailabilityState].
+ */
+internal fun SherpaSttDownloadState.toModelAvailability(): ModelAvailabilityState = when {
+    isDownloaded -> ModelAvailabilityState.Ready
+    isDownloading -> ModelAvailabilityState.Preparing(progress = progress, isAutoQueued = false)
+    issue?.licenceRequired == true -> ModelAvailabilityState.ActionRequired(ActionReason.LicenseRequired)
+    issue != null -> ModelAvailabilityState.ActionRequired(ActionReason.DownloadFailed(issue.message))
+    else -> ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled)
+}
 
 
 @HiltViewModel
@@ -189,6 +228,9 @@ class VoiceViewModel @Inject constructor(
                         },
                         isSelectedSherpaVoiceDownloaded =
                             states[it.selectedSherpaVoice] is VoicePackDownloadState.Downloaded,
+                        sherpaVoiceAvailability = SherpaPiperVoice.entries.associateWith { voice ->
+                            (states[voice] ?: VoicePackDownloadState.NotDownloaded).toModelAvailability()
+                        },
                     )
                 }
             }
@@ -228,6 +270,9 @@ class VoiceViewModel @Inject constructor(
                         kokoroVoices = rows,
                         isSelectedKokoroVoiceDownloaded =
                             states[state.selectedKokoroVoice] is VoicePackDownloadState.Downloaded,
+                        kokoroVoiceAvailability = SherpaKokoroVoice.entries.associateWith { voice ->
+                            (states[voice] ?: VoicePackDownloadState.NotDownloaded).toModelAvailability()
+                        },
                     )
                 }
             }
@@ -257,7 +302,14 @@ class VoiceViewModel @Inject constructor(
                 val perFamilyStates = SherpaSttModelSpec.ALL.mapValues { (engine, spec) ->
                     computeDownloadState(spec, states)
                 }
-                _uiState.update { it.copy(sherpaSttStates = perFamilyStates) }
+                _uiState.update {
+                    it.copy(
+                        sherpaSttStates = perFamilyStates,
+                        sherpaSttAvailability = perFamilyStates.mapValues { (_, state) ->
+                            state.toModelAvailability()
+                        },
+                    )
+                }
             }
         }
     }

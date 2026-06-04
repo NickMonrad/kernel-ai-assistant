@@ -40,6 +40,7 @@ dependencies {
     implementation(project(":core:memory"))
     implementation(project(":core:voice"))
     implementation(project(":core:skills"))
+    implementation(project(":core:model-availability"))
 
     // Compose
     implementation(platform(libs.compose.bom))
