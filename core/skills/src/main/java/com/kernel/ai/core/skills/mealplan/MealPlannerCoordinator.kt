@@ -412,7 +412,7 @@ class MealPlannerCoordinator @Inject constructor(
                 if (rawPlan.isBlank()) {
                     lastErrorCode = "PLAN_NO_OUTPUT"
                     lastErrorMessage = "The model did not return a plan."
-                    Log.w(TAG, "Plan generation failed: sessionId=${snapshot.sessionId}, attempt=$attempt/$MAX_PLAN_GENERATION_ATTEMPTS, errorCode=$lastErrorCode")
+                    Log.w(TAG, "Plan generation failed: sessionId=${snapshot.sessionId}, attempt=$attempt/$MAX_PLAN_GENERATION_ATTEMPTS, errorCode=$lastErrorCode, responseWasBlank=true")
                     if (attempt < MAX_PLAN_GENERATION_ATTEMPTS) continue
                     sessionRepository.markGenerationFailure(snapshot.sessionId, null, lastErrorCode!!, lastErrorMessage!!)
                     return@withSessionGeneration MealPlannerReply(planGenerationFailedMessage(snapshot))
@@ -422,7 +422,7 @@ class MealPlannerCoordinator @Inject constructor(
                 } catch (e: MealPlanValidationException) {
                     lastErrorCode = "PLAN_JSON_INVALID"
                     lastErrorMessage = e.message ?: "Invalid plan JSON"
-                    Log.w(TAG, "Plan generation failed: sessionId=${snapshot.sessionId}, attempt=$attempt/$MAX_PLAN_GENERATION_ATTEMPTS, errorCode=$lastErrorCode")
+                    Log.w(TAG, "Plan generation failed: sessionId=${snapshot.sessionId}, attempt=$attempt/$MAX_PLAN_GENERATION_ATTEMPTS, errorCode=$lastErrorCode, responsePreview=${rawPlan.take(200)}")
                     if (attempt < MAX_PLAN_GENERATION_ATTEMPTS) continue
                     sessionRepository.markGenerationFailure(snapshot.sessionId, null, lastErrorCode!!, lastErrorMessage!!)
                     return@withSessionGeneration MealPlannerReply(planGenerationFailedMessage(snapshot))
@@ -435,7 +435,7 @@ class MealPlannerCoordinator @Inject constructor(
                     )
                 } catch (e: MealPlanValidationException) {
                     sessionRepository.markGenerationFailure(snapshot.sessionId, null, "PLAN_VARIETY_REPAIR_FAILED", e.message ?: "Plan was too repetitive")
-                    Log.w(TAG, "Plan generation failed: sessionId=${snapshot.sessionId}, attempt=$attempt/$MAX_PLAN_GENERATION_ATTEMPTS, errorCode=PLAN_VARIETY_REPAIR_FAILED")
+                    Log.w(TAG, "Plan generation failed: sessionId=${snapshot.sessionId}, attempt=$attempt/$MAX_PLAN_GENERATION_ATTEMPTS, errorCode=PLAN_VARIETY_REPAIR_FAILED, conflictCount=${e.message?.take(100)}")
                     return@withSessionGeneration MealPlannerReply(
                         "I couldn't generate a varied enough high-level plan yet. ${e.message} Try replying with the same requirements again or adjust them.",
                     )
