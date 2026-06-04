@@ -3,7 +3,6 @@ package com.kernel.ai.feature.settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,24 +16,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -353,211 +345,6 @@ private fun StorageSummaryCard(
     }
 }
 
-@Composable
-private fun HuggingFaceRow(
-    isAuthenticated: Boolean,
-    username: String?,
-    onSignIn: () -> Unit,
-    onSignOut: () -> Unit,
-    onViewLicence: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    if (isAuthenticated) {
-        ListItem(
-            modifier = modifier.fillMaxWidth(),
-            headlineContent = {
-                Text(if (username != null) "@$username" else "Signed in")
-            },
-            supportingContent = {
-                Column {
-                    Text("Gated models unlocked")
-                    TextButton(onClick = onViewLicence, contentPadding = PaddingValues(0.dp)) {
-                        Text("View licence →", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            },
-            leadingContent = {
-                Icon(Icons.Default.AccountCircle, contentDescription = null, tint = HfOrange)
-            },
-            trailingContent = {
-                TextButton(onClick = onSignOut) {
-                    Text("Sign out", color = MaterialTheme.colorScheme.error)
-                }
-            },
-        )
-    } else {
-        ListItem(
-            modifier = modifier.fillMaxWidth(),
-            headlineContent = { Text("Not signed in") },
-            supportingContent = {
-                Column {
-                    Text("Required to download gated Hugging Face models. Accept licence before downloading.")
-                    TextButton(onClick = onViewLicence, contentPadding = PaddingValues(0.dp)) {
-                        Text("View licence →", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            },
-            leadingContent = {
-                Icon(Icons.Default.AccountCircle, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            },
-            trailingContent = {
-                Button(
-                    onClick = onSignIn,
-                    colors = ButtonDefaults.buttonColors(containerColor = HfOrange),
-                ) {
-                    Text("Sign in", color = Color.Black)
-                }
-            },
-        )
-    }
-}
-
-@Composable
-private fun ModelRow(
-    rowState: ModelRowState,
-    isAuthenticated: Boolean,
-    onDownload: () -> Unit,
-    onCancel: () -> Unit,
-    onUpdate: () -> Unit,
-    onDelete: () -> Unit,
-    onViewLicence: (String) -> Unit,
-    onRetry: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val model = rowState.model
-    val state = rowState.downloadState
-
-    ListItem(
-        modifier = modifier.fillMaxWidth(),
-        headlineContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(model.displayName)
-                if (model.isGated) {
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        Icons.Default.Lock,
-                        contentDescription = "Gated",
-                        modifier = Modifier.size(14.dp),
-                        tint = HfOrange,
-                    )
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-                if (model.isRequired) {
-                    SuggestionChip(
-                        onClick = {},
-                        label = { Text("Required", style = MaterialTheme.typography.labelSmall) },
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        ),
-                    )
-                } else {
-                    SuggestionChip(
-                        onClick = {},
-                        label = { Text("Optional", style = MaterialTheme.typography.labelSmall) },
-                    )
-                }
-            }
-        },
-        supportingContent = {
-            Column {
-                Text(
-                    text = formatBytes(model.approxSizeBytes),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                when (state) {
-                    is DownloadState.Downloading -> {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        LinearProgressIndicator(
-                            progress = { state.progress },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        val pct = (state.progress * 100).toInt()
-                        val mbps = state.bytesPerSecond / 1_000_000.0
-                        val etaSec = state.remainingMs / 1000
-                        Text(
-                            text = buildString {
-                                append("$pct%")
-                                if (state.bytesPerSecond > 0) append(" · ${"%.1f".format(mbps)} MB/s")
-                                if (etaSec > 0) append(" · ${etaSec}s remaining")
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    is DownloadState.Error -> {
-                        Text(
-                            text = state.message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    else -> Unit
-                }
-            }
-        },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                when (state) {
-                    is DownloadState.NotDownloaded -> {
-                        val gatedBlocked = model.isGated && !isAuthenticated
-                        TextButton(
-                            onClick = onDownload,
-                            enabled = !gatedBlocked,
-                        ) {
-                            Text("Download")
-                        }
-                    }
-                    is DownloadState.Downloading -> {
-                        TextButton(onClick = onCancel) {
-                            Text("Cancel")
-                        }
-                    }
-                    is DownloadState.Downloaded -> {
-                        if (model.isBundled) {
-                            SuggestionChip(
-                                onClick = {},
-                                label = { Text("Built-in", style = MaterialTheme.typography.labelSmall) },
-                                colors = SuggestionChipDefaults.suggestionChipColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                ),
-                            )
-                        } else {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = "Downloaded",
-                                tint = Color(0xFF4CAF50),
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            TextButton(onClick = onUpdate) {
-                                Text("Update")
-                            }
-                            if (!model.isRequired) {
-                                Spacer(modifier = Modifier.width(4.dp))
-                                TextButton(onClick = onDelete) {
-                                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                                }
-                            }
-                        }
-                    }
-                    is DownloadState.Error -> {
-                        Column(horizontalAlignment = Alignment.End) {
-                            val licenceUrl = model.licenceUrl
-                            if (state.licenceRequired && licenceUrl != null) {
-                                TextButton(onClick = { onViewLicence(licenceUrl) }) {
-                                    Text("Accept licence")
-                                }
-                            }
-                            TextButton(onClick = onRetry) {
-                                Text("Retry")
-                            }
-                        }
-                    }
-                }
-            }
-        },
-    )
-}
 
 private fun formatBytes(bytes: Long): String {
     return when {

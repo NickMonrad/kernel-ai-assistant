@@ -158,8 +158,15 @@ class ModelManagementViewModel @Inject constructor(
     }
 
     fun deleteModel(model: KernelModel) {
-        // Block deletion of bundled models or the currently selected conversation model
-        if (model.isBundled || model == uiState.value.preferredModel) return
+        if (model.isBundled) return
+        // Never delete the currently selected conversation model
+        if (model == uiState.value.preferredModel) return
+        // Only E2B ↔ E4B can exchange places; infrastructure models (EmbeddingGemma, SP)
+        // with isRequired=true are always protected.
+        val selected = uiState.value.preferredModel
+        val isConversationSwap = (model == KernelModel.GEMMA_4_E2B && selected == KernelModel.GEMMA_4_E4B) ||
+            (model == KernelModel.GEMMA_4_E4B && selected == KernelModel.GEMMA_4_E2B)
+        if (!isConversationSwap && model.isRequired) return
         viewModelScope.launch(Dispatchers.IO) {
             model.localFile(context).delete()
             val tmpFile = java.io.File(model.localFile(context).absolutePath + ".tmp")
