@@ -58,8 +58,10 @@ class SettingsViewModel @Inject constructor(
                 it.showInModelManagement && !it.isDeprecated && it.isGated
             }
             gatedModels.forEach { model ->
-                gatedModelStatusRepository.get(model).collect { status ->
-                    _gatedStatuses.update { it.toMutableMap().apply { put(model, status) } }
+                launch {
+                    gatedModelStatusRepository.get(model).collect { status ->
+                        _gatedStatuses.update { it.toMutableMap().apply { put(model, status) } }
+                    }
                 }
             }
         }

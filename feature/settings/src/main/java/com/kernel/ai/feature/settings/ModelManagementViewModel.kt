@@ -74,8 +74,10 @@ class ModelManagementViewModel @Inject constructor(
                 it.showInModelManagement && !it.isDeprecated && it.isGated
             }
             gatedModels.forEach { model ->
-                gatedModelStatusRepository.get(model).collect { status ->
-                    _gatedStatuses.update { it.toMutableMap().apply { put(model, status) } }
+                launch {
+                    gatedModelStatusRepository.get(model).collect { status ->
+                        _gatedStatuses.update { it.toMutableMap().apply { put(model, status) } }
+                    }
                 }
             }
         }
@@ -164,6 +166,11 @@ class ModelManagementViewModel @Inject constructor(
         // Only E2B ↔ E4B can exchange places; infrastructure models (EmbeddingGemma, SP)
         // with isRequired=true are always protected.
         val selected = uiState.value.preferredModel
+        // Cancel any in-progress download before deleting the file
+        val currentState = modelDownloadManager.downloadStates.value[model]
+        if (currentState is DownloadState.Downloading) {
+            modelDownloadManager.cancelDownload(model)
+        }
         val isConversationSwap = (model == KernelModel.GEMMA_4_E2B && selected == KernelModel.GEMMA_4_E4B) ||
             (model == KernelModel.GEMMA_4_E4B && selected == KernelModel.GEMMA_4_E2B)
         if (!isConversationSwap && model.isRequired) return

@@ -38,7 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.net.toUri
 import androidx.browser.customtabs.CustomTabsIntent
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -50,8 +49,6 @@ import com.kernel.ai.core.model.availability.ModelCard
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.toAvailability
 
-private val HfOrange = Color(0xFFFF9D00)
-private const val EMBEDDING_GEMMA_LICENCE_URL = "https://huggingface.co/litert-community/embeddinggemma-300m"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,7 +62,7 @@ fun ModelManagementScreen(
     val listState = rememberLazyListState()
 
     // Scroll to "Conversation model" section when requested (e.g. from Settings "Preferred model" item).
-    val visibleModelCount = uiState.models.count { it.model != KernelModel.EMBEDDING_GEMMA_300M_SM8550 }
+    val visibleModelCount = uiState.models.size
     LaunchedEffect(scrollToConversationModel, visibleModelCount) {
         if (scrollToConversationModel && visibleModelCount > 0) {
             listState.animateScrollToItem(index = 2 + visibleModelCount)
