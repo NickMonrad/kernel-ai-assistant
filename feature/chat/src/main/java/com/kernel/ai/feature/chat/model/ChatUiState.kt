@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.chat.model
 
 import com.kernel.ai.core.inference.ModelCapabilities
+import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 
@@ -51,6 +52,8 @@ sealed interface ChatUiState {
         val isDownloading: Boolean,
         /** Per-model download progress, ordered by priority (required first). */
         val modelProgress: List<ModelDownloadProgress> = emptyList(),
+        val hfAuthenticated: Boolean = false,
+        val downloadSources: Map<KernelModel, DownloadSource> = emptyMap(),
     ) : ChatUiState
 
     data class ModelDownloadProgress(
