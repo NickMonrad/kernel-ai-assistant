@@ -1184,13 +1184,15 @@ class LiteRtInferenceEngine @Inject constructor(
                     }
                 } finally {
                     resetExperimentalFlags()
-                    if (shouldSwapConfig) {
-                        resetConversationForConfig(config)
-                    }
                 }
             } finally {
                 generationMutex.unlock()
+                if (shouldSwapConfig) {
+                    resetConversationForConfig(config)
+                }
             }
+        } catch (ce: CancellationException) {
+            throw ce
         } catch (e: Exception) {
             Log.w(TAG, "generateStructuredOnce: error", e)
             ""
