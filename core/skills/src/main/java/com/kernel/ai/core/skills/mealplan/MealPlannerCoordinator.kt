@@ -1334,15 +1334,15 @@ class MealPlannerCoordinator @Inject constructor(
         generationActive: Boolean = false,
     ): MealPlannerActivity? = when (snapshot.status) {
         MealPlanSessionStatus.COLLECTING_REQUIRED_SLOTS -> collectingActivity(snapshot)
-        MealPlanSessionStatus.PLAN_REVIEW -> if (generationActive && snapshot.pendingGenerationKind == PendingGenerationKind.PLAN) {
-            generatingPlanActivity(snapshot)
-        } else if (snapshot.days.isEmpty()) {
+        MealPlanSessionStatus.PLAN_REVIEW -> if (snapshot.days.isEmpty()) {
             MealPlannerActivity(
-                title = "Review your meal plan",
+                title = "Meal Plan",
                 subtitle = "The plan couldn't be built. Say 'generate recipes' to try again, or 'change preferences'.",
                 state = MealPlannerActivityState.WAITING,
                 suggestions = planReviewSuggestions(snapshot),
             )
+        } else if (generationActive && snapshot.pendingGenerationKind == PendingGenerationKind.PLAN) {
+            generatingPlanActivity(snapshot)
         } else {
             MealPlannerActivity(
                 title = "Review your meal plan",
@@ -2305,7 +2305,7 @@ Rules:
         private const val PENDING_COMPLETED_SUMMARY_LIMIT = 3
         private const val MAX_PLAN_VARIETY_REPAIR_PASSES = 2
         private const val MAX_DAY_VARIETY_REPAIR_ATTEMPTS = 2
-        private const val MAX_PLAN_GENERATION_ATTEMPTS = 2
+        private const val MAX_PLAN_GENERATION_ATTEMPTS = 5
         private const val MAX_PROMPT_HISTORY_TITLES = 6
         private const val MAX_PROMPT_HISTORY_PATTERNS = 4
         private val COMMON_PROTEINS = listOf(

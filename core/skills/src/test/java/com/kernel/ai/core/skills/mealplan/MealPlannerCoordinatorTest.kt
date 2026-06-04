@@ -1597,7 +1597,7 @@ class MealPlannerCoordinatorTest {
                 proteinPreferences = listOf("chicken"),
             )
         } returns ready
-        // After all 2 retry attempts exhausted, markGenerationFailure is called
+        // After all retry attempts exhausted, markGenerationFailure is called
         coEvery { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") } returns failedPlan
         coEvery { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) } returns ""
 
@@ -1609,8 +1609,7 @@ class MealPlannerCoordinatorTest {
         assertTrue(second.content.contains("couldn't build the meal plan yet", ignoreCase = true))
         assertTrue(third.content.contains("couldn't build the meal plan", ignoreCase = true))
         coVerify(exactly = 0) { sessionRepository.completeSession(any()) }
-        // 2 retry attempts = 2 calls to generateStructuredOnce
-        coVerify(exactly = 2) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
+        coVerify(exactly = 5) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
     }
 
     @Test
@@ -1736,7 +1735,7 @@ class MealPlannerCoordinatorTest {
         val reply = coordinator.ingestUserMessage("conv", "low lactose, chicken")
 
         assertTrue(reply.content.contains("couldn't build the meal plan", ignoreCase = true))
-        coVerify(exactly = 2) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
+        coVerify(exactly = 5) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
         coVerify(exactly = 1) { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") }
         coVerify(exactly = 0) { sessionRepository.savePlanDraft(any(), any()) }
     }
@@ -1769,7 +1768,7 @@ class MealPlannerCoordinatorTest {
         val reply = coordinator.ingestUserMessage("conv", "low lactose, chicken")
 
         assertTrue(reply.content.contains("couldn't build the meal plan", ignoreCase = true))
-        coVerify(exactly = 2) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
+        coVerify(exactly = 5) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
         coVerify(exactly = 1) { sessionRepository.markGenerationFailure("session-1", null, "PLAN_JSON_INVALID", any()) }
         coVerify(exactly = 0) { sessionRepository.savePlanDraft(any(), any()) }
     }
@@ -1821,7 +1820,7 @@ class MealPlannerCoordinatorTest {
         val activity = coordinator.activeSessionActivity("conv")
 
         assertNotNull(activity)
-        assertEquals("Review your meal plan", activity!!.title)
+        assertEquals("Meal Plan", activity!!.title)
         assertTrue(activity.subtitle.contains("couldn't be built", ignoreCase = true))
         assertTrue(activity.suggestions.any { it.command == "generate recipes" })
         assertTrue(activity.suggestions.any { it.command == "change preferences" })
@@ -1898,7 +1897,7 @@ class MealPlannerCoordinatorTest {
 
         // When days is not empty, failure message mentions previous draft
         assertTrue(reply.content.contains("previous draft", ignoreCase = true))
-        coVerify(exactly = 2) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
+        coVerify(exactly = 5) { inferenceEngine.generateStructuredOnce(any(), any(), any(), false) }
         coVerify(exactly = 1) { sessionRepository.markGenerationFailure("session-1", null, "PLAN_NO_OUTPUT", "The model did not return a plan.") }
     }
 
