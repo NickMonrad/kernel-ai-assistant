@@ -2102,40 +2102,40 @@ Rules:
     }
 
     private fun MutableList<MealPlannerSuggestion>.addPeopleSuggestions(isTop: Boolean) {
-        add(suggestion("2 people", "2 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        add(suggestion("2 people", "2 people", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         if (isTop) {
-            add(suggestion("3 people", "3 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("4 people", "4 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("6 people", "6 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("8 people", "8 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("3 people", "3 people", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
+            add(suggestion("4 people", "4 people", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
+            add(suggestion("6 people", "6 people", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
+            add(suggestion("8 people", "8 people", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         } else {
-            add(suggestion("4 people", "4 people", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("4 people", "4 people", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         }
     }
 
     private fun MutableList<MealPlannerSuggestion>.addDaysSuggestions(isTop: Boolean) {
-        add(suggestion("4 days", "4 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        add(suggestion("4 days", "4 days", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         if (isTop) {
-            add(suggestion("3 days", "3 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("5 days", "5 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("7 days", "7 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("14 days", "14 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("3 days", "3 days", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
+            add(suggestion("5 days", "5 days", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
+            add(suggestion("7 days", "7 days", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
+            add(suggestion("14 days", "14 days", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         } else {
-            add(suggestion("7 days", "7 days", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("7 days", "7 days", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         }
     }
 
     private fun MutableList<MealPlannerSuggestion>.addDietarySuggestions(isTop: Boolean) {
-        add(suggestion("no dietary requirements", "no dietary requirements", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        add(suggestion("no dietary requirements", "no dietary requirements", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         if (isTop) {
-            add(suggestion("kid friendly", "kid friendly", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("gluten free", "gluten free", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("nut free", "nut free", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("vegetarian", "vegetarian", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("vegan", "vegan", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("kid friendly", "kid friendly", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("gluten free", "gluten free", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("nut free", "nut free", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("vegetarian", "vegetarian", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("vegan", "vegan", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
         } else {
-            add(suggestion("kid friendly", "kid friendly", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("gluten free", "gluten free", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("kid friendly", "kid friendly", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("gluten free", "gluten free", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
         }
     }
 
@@ -2171,16 +2171,16 @@ Rules:
     }
 
     private fun MutableList<MealPlannerSuggestion>.addCuisineSuggestions(isTop: Boolean) {
-        add(suggestion("no cuisine preference", "no cuisine preference", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+        add(suggestion("no cuisine preference", "no cuisine preference", composeMode = MealPlannerSuggestionComposeMode.REPLACE))
         if (isTop) {
-            add(suggestion("italian", "italian", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("mexican", "mexican", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("indian", "indian", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("thai", "thai", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("japanese", "japanese", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("italian", "italian", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("mexican", "mexican", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("indian", "indian", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("thai", "thai", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("japanese", "japanese", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
         } else {
-            add(suggestion("italian", "italian", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
-            add(suggestion("mexican", "mexican", composeMode = MealPlannerSuggestionComposeMode.APPEND_COMMA))
+            add(suggestion("italian", "italian", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
+            add(suggestion("mexican", "mexican", composeMode = MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING))
         }
     }
 
@@ -2348,6 +2348,7 @@ data class MealPlannerSuggestion(
 enum class MealPlannerSuggestionComposeMode {
     REPLACE,
     APPEND_COMMA,
+    STRIP_NEGATION_IF_APPENDING,
 }
 
 data class MealPlannerActivity(

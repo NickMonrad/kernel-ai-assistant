@@ -1049,6 +1049,8 @@ class ChatViewModel @Inject constructor(
             MealPlannerSuggestionComposeMode.REPLACE -> onInputChanged(suggestion.command)
             MealPlannerSuggestionComposeMode.APPEND_COMMA ->
                 onInputChanged(appendSmartReplyValue(_inputText.value, suggestion.command))
+            MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING ->
+                onInputChanged(appendSmartReplyValue(stripNegationPrefixes(_inputText.value), suggestion.command))
         }
     }
 
@@ -1065,6 +1067,13 @@ class ChatViewModel @Inject constructor(
         } else {
             "$trimmedCurrent, $command"
         }
+    }
+
+    private fun stripNegationPrefixes(current: String): String {
+        return current
+            .replace(Regex("no dietary requirements\\s*,?\\s*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("no cuisine preferences?\\s*,?\\s*", RegexOption.IGNORE_CASE), "")
+            .trimEnd(',', ' ')
     }
     /** Starts a one-shot voice capture: user speaks once, reply may be spoken, then loop ends. */
     fun startVoiceInput() = startVoiceInput(VoiceMode.OneShot)
