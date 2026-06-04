@@ -1796,6 +1796,21 @@ class MealPlannerCoordinatorTest {
     }
 
     @Test
+    fun `cancellation during retry loop returns cancellation message`() = runTest {
+        val emptyPlanReview = planReviewSnapshot().copy(days = emptyList())
+        coEvery { sessionRepository.getActiveSession("conv") } returns emptyPlanReview
+        coEvery { sessionRepository.getSession("session-1") } returns emptyPlanReview.copy(
+            status = MealPlanSessionStatus.CANCELLED,
+        )
+
+        val reply = coordinator.ingestUserMessage("conv", "generate recipes")
+
+        assertTrue(reply.content.contains("cancelled", ignoreCase = true))
+        coVerify(exactly = 0) { sessionRepository.savePlanDraft(any(), any()) }
+        coVerify(exactly = 0) { sessionRepository.markGenerationFailure(any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `empty plan activity shows recovery subtitle and suggestions`() = runTest {
         val failedPlan = planReviewSnapshot().copy(
             days = emptyList(),
