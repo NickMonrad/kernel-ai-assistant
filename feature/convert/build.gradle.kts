@@ -60,7 +60,7 @@ dependencies {
     androidTestImplementation("androidx.test:rules:1.5.0")
 
     testImplementation(libs.junit.jupiter)
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
 }

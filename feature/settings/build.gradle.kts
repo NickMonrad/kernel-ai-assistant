@@ -71,7 +71,7 @@ dependencies {
     implementation("sh.calvin.reorderable:reorderable:2.4.3")
 
     testImplementation(libs.junit.jupiter)
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
 }

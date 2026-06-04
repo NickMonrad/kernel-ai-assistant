@@ -7,7 +7,13 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
-val gitSha: String = "unknown"
+val gitSha: String by lazy {
+    val result = providers.exec {
+        commandLine("git", "rev-parse", "--short=8", "HEAD")
+        isIgnoreExitValue = true
+    }
+    result.standardOutput.asText.get().trim().ifEmpty { "unknown" }
+}
 
 android {
     namespace = "com.kernel.ai"
@@ -63,10 +69,11 @@ android {
         unitTests.all { it.useJUnitPlatform() }
     }
 
-    compileOptions {
     lint {
         baseline = file("lint-baseline.xml")
     }
+
+    compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -130,7 +137,7 @@ dependencies {
     implementation(libs.play.services.location)
 
     testImplementation(libs.junit.jupiter)
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
 }
