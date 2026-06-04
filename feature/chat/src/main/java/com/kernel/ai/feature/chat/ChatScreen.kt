@@ -194,6 +194,7 @@ internal fun shouldShowInlineGenerationIndicator(state: ChatUiState.Ready): Bool
 private enum class AttachmentType { Image, Audio, File }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+@Suppress("StateFlowValueCalledInComposition")
 fun ChatScreen(
     conversationId: String? = null,
     initialQuery: String? = null,

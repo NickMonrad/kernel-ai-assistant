@@ -1,23 +1,17 @@
-import java.io.ByteArrayOutputStream
 import java.time.Instant
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
 }
 
+val gitSha: String = "unknown"
+
 android {
     namespace = "com.kernel.ai"
     compileSdk = libs.versions.compileSdk.get().toInt()
-
-    val gitSha: String = try {
-        val stdout = ByteArrayOutputStream()
-        exec { commandLine("git", "rev-parse", "--short", "HEAD"); standardOutput = stdout }
-        stdout.toString().trim()
-    } catch (_: Exception) { "unknown" }
 
     defaultConfig {
         applicationId = "com.kernel.ai"
@@ -70,18 +64,13 @@ android {
     }
 
     compileOptions {
+    lint {
+        baseline = file("lint-baseline.xml")
+    }
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        // LiteRT-LM (transitive) uses internal Kotlin 2.3.x build (metadata 2.3.0)
-        freeCompilerArgs += "-Xskip-metadata-version-check"
-    }
-    // Sherpa-ONNX 1.13.0 bundles libonnxruntime.so (ORT 1.24.3). The wake word
-    // detector uses onnxruntime-android 1.24.3 — same version, so pickFirst resolves
-    // the duplicate cleanly and both libraries share the same .so at runtime.
     packaging {
         jniLibs {
             pickFirsts += setOf(
@@ -95,7 +84,6 @@ android {
 }
 
 dependencies {
-    // Project modules
     implementation(project(":core:inference"))
     implementation(project(":core:memory"))
     implementation(project(":core:voice"))
@@ -107,30 +95,13 @@ dependencies {
     implementation(project(":feature:widget"))
     implementation(project(":feature:convert"))
 
-    // ── Sherpa-ONNX spike — runtime AAR for SherpaOnnxVoiceOutputController ──────────
-    // SherpaOnnxVoiceOutputController (core:voice) uses Class.forName() reflection; no
-    // compile-time dependency is needed in core:voice.  The AAR is added here (:app
-    // produces an APK, not an AAR, so local AAR deps are permitted) so Sherpa classes
-    // are present on the runtime classpath when the APK runs on device.
-    //
-    // CI: The "Download Sherpa-ONNX AAR" workflow step fetches the file automatically
-    //     before assembleDebug so CI APKs always include the Sherpa runtime.
-    // Local dev: Run `bash scripts/setup-sherpa-tts-spike.sh` to obtain the AAR, or
-    //     leave it absent — SherpaOnnxVoiceOutputController returns Unavailable and
-    //     Android TTS is used as the runtime fallback. Voice packs themselves now
-    //     download on device from Settings -> Voice instead of being bundled into the APK.
-    // Absent AAR → SherpaOnnxVoiceOutputController returns Unavailable → Android TTS used.
-    // Prefer the full AAR (with bundled ORT) so libsherpa-onnx-jni.so can resolve OrtGetApiBase
-    // in its own linker namespace. The -noort variant caused UnsatisfiedLinkError because Android's
-    // namespace isolation prevents Sherpa's JNI from seeing ORT loaded by onnxruntime-android.
     val sherpaAar = rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0.aar")
         .takeIf { it.exists() }
         ?: rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar")
     if (sherpaAar.exists()) {
         implementation(files(sherpaAar.absolutePath))
     }
-    // ────────────────────────────────────────────────────────────────────────────────
-    // Compose
+
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.graphics)
@@ -140,29 +111,26 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.navigation.compose)
 
-    // AndroidX
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.lifecycle.runtime.compose)
 
-    // Hilt
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)
     implementation(libs.hilt.work)
+    implementation(libs.work.runtime.ktx)
     ksp(libs.hilt.compiler)
 
-    // Debug
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
     debugImplementation(libs.leakcanary)
 
-    // Auth — AppAuth + EncryptedSharedPreferences
     implementation(libs.appauth)
     implementation(libs.security.crypto)
     implementation(libs.play.services.location)
 
-    // Testing
     testImplementation(libs.junit.jupiter)
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
 }

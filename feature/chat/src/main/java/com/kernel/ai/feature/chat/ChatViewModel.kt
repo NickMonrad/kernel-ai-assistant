@@ -282,6 +282,7 @@ class ChatViewModel @Inject constructor(
 
     private val _showThinkingProcess = MutableStateFlow(true)
     /** Combined visual customisation prefs, updated from ChatPreferences. */
+    @Suppress("UNCHECKED_CAST")
     private val visualPrefs: StateFlow<VisualPrefs> = combine(
         chatPreferences.fontSize,
         chatPreferences.bubbleTheme,
@@ -290,8 +291,8 @@ class ChatViewModel @Inject constructor(
         chatPreferences.wallpaperType,
         chatPreferences.wallpaperColor,
         chatPreferences.wallpaperImageUri,
-    ) { values ->
-        @Suppress("UNCHECKED_CAST")
+    ) { values: kotlin.Array<Any?>
+        ->
         VisualPrefs(
             fontSize = values[0] as Int,
             bubbleTheme = values[1] as String,

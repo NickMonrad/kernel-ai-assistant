@@ -5,9 +5,9 @@ minSdk = "35"
 targetSdk = "36"
 
 # Kotlin & Android
-agp = "8.7.3"
-kotlin = "2.2.21"
-ksp = "2.2.21-2.0.5"
+agp = "9.0.1"
+kotlin = "2.3.21"
+ksp = "2.3.9"
 
 # Compose
 composeBom = "2026.05.00"
@@ -21,7 +21,7 @@ room = "2.7.1"
 datastore = "1.1.4"
 
 # Hilt
-hilt = "2.58"
+hilt = "2.59.2"
 hiltNavigationCompose = "1.2.0"
 
 # Testing
@@ -140,7 +140,6 @@ uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", versi
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }

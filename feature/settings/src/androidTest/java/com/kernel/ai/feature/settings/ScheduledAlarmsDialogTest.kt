@@ -2,6 +2,7 @@ package com.kernel.ai.feature.settings
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.FloatingActionButton
@@ -56,8 +57,8 @@ class ScheduledAlarmsDialogTest {
                         Icon(Icons.Default.Add, contentDescription = "Create alarm")
                     }
                 },
-            ) { _ ->
-                Box(modifier = Modifier.fillMaxSize())
+            ) { paddingValues ->
+                Box(modifier = Modifier.fillMaxSize().padding(paddingValues))
             }
 
             if (showDialog) {

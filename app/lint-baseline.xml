@@ -1,0 +1,462 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<issues format="6" by="lint 9.0.1" type="baseline" client="gradle" dependencies="false" name="AGP (9.0.1)" variant="all" version="9.0.1">
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        NotificationManagerCompat.from(context).notify("
+        errorLine2="        ^">
+        <location
+            file="src/main/java/com/kernel/ai/alarm/AndroidClockStopwatchNotificationSink.kt"
+            line="29"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        NotificationManagerCompat.from(context).notify("
+        errorLine2="        ^">
+        <location
+            file="src/main/java/com/kernel/ai/alarm/AndroidClockTimerNotificationSink.kt"
+            line="29"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="Instantiatable"
+        message="`MainActivity` must extend android.app.Activity"
+        errorLine1="            android:name=&quot;.MainActivity&quot;"
+        errorLine2="                          ~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="73"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="Instantiatable"
+        message="`RedirectUriReceiverActivity` must extend android.app.Activity"
+        errorLine1="            android:name=&quot;net.openid.appauth.RedirectUriReceiverActivity&quot;"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="184"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="Instantiatable"
+        message="`VoiceCommandActivity` must extend android.app.Activity"
+        errorLine1="            android:name=&quot;com.kernel.ai.feature.widget.VoiceCommandActivity&quot;"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="261"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="Instantiatable"
+        message="`VoiceCommandService` must extend android.app.Service"
+        errorLine1="            android:name=&quot;com.kernel.ai.feature.widget.VoiceCommandService&quot;"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="277"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="Instantiatable"
+        message="`WidgetTextInputActivity` must extend android.app.Activity"
+        errorLine1="            android:name=&quot;.feature.widget.WidgetTextInputActivity&quot;"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="305"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="AndroidGradlePluginVersion"
+        message="A newer version of Gradle than 9.1.0 is available: 9.5.1"
+        errorLine1="distributionUrl=https\://services.gradle.org/distributions/gradle-9.1.0-bin.zip"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/wrapper/gradle-wrapper.properties"
+            line="3"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="AndroidGradlePluginVersion"
+        message="A newer version of com.android.application than 9.0.1 is available: 9.2.1"
+        errorLine1="agp = &quot;9.0.1&quot;"
+        errorLine2="      ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="8"
+            column="7"/>
+    </issue>
+
+    <issue
+        id="AndroidGradlePluginVersion"
+        message="A newer version of com.android.library than 9.0.1 is available: 9.2.1"
+        errorLine1="agp = &quot;9.0.1&quot;"
+        errorLine2="      ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="8"
+            column="7"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.compose:compose-bom than 2026.05.00 is available: 2026.05.01"
+        errorLine1="composeBom = &quot;2026.05.00&quot;"
+        errorLine2="             ~~~~~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="13"
+            column="14"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.activity:activity-compose than 1.10.1 is available: 1.13.0"
+        errorLine1="activityCompose = &quot;1.10.1&quot;"
+        errorLine2="                  ~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="14"
+            column="19"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.navigation:navigation-compose than 2.8.9 is available: 2.9.8"
+        errorLine1="navigationCompose = &quot;2.8.9&quot;"
+        errorLine2="                    ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="15"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.core:core-ktx than 1.16.0 is available: 1.19.0"
+        errorLine1="coreKtx = &quot;1.16.0&quot;"
+        errorLine2="          ~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="18"
+            column="11"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.lifecycle:lifecycle-process than 2.8.7 is available: 2.10.0"
+        errorLine1="lifecycleRuntimeKtx = &quot;2.8.7&quot;"
+        errorLine2="                      ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="19"
+            column="23"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.lifecycle:lifecycle-runtime-compose than 2.8.7 is available: 2.10.0"
+        errorLine1="lifecycleRuntimeKtx = &quot;2.8.7&quot;"
+        errorLine2="                      ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="19"
+            column="23"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.lifecycle:lifecycle-runtime-ktx than 2.8.7 is available: 2.10.0"
+        errorLine1="lifecycleRuntimeKtx = &quot;2.8.7&quot;"
+        errorLine2="                      ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="19"
+            column="23"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.lifecycle:lifecycle-viewmodel-compose than 2.8.7 is available: 2.10.0"
+        errorLine1="lifecycleRuntimeKtx = &quot;2.8.7&quot;"
+        errorLine2="                      ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="19"
+            column="23"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.room than 2.7.1 is available: 2.8.4"
+        errorLine1="room = &quot;2.7.1&quot;"
+        errorLine2="       ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="20"
+            column="8"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.room:room-compiler than 2.7.1 is available: 2.8.4"
+        errorLine1="room = &quot;2.7.1&quot;"
+        errorLine2="       ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="20"
+            column="8"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.room:room-ktx than 2.7.1 is available: 2.8.4"
+        errorLine1="room = &quot;2.7.1&quot;"
+        errorLine2="       ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="20"
+            column="8"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.room:room-runtime than 2.7.1 is available: 2.8.4"
+        errorLine1="room = &quot;2.7.1&quot;"
+        errorLine2="       ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="20"
+            column="8"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.room:room-testing than 2.7.1 is available: 2.8.4"
+        errorLine1="room = &quot;2.7.1&quot;"
+        errorLine2="       ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="20"
+            column="8"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.datastore:datastore-preferences than 1.1.4 is available: 1.2.1"
+        errorLine1="datastore = &quot;1.1.4&quot;"
+        errorLine2="            ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="21"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.hilt:hilt-navigation-compose than 1.2.0 is available: 1.3.0"
+        errorLine1="hiltNavigationCompose = &quot;1.2.0&quot;"
+        errorLine2="                        ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="25"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of com.google.ai.edge.litertlm:litertlm-android than 0.11.0 is available: 0.13.0"
+        errorLine1="litertlm = &quot;0.11.0&quot;"
+        errorLine2="           ~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="34"
+            column="12"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of com.google.mediapipe:tasks-text than 0.10.33 is available: 0.20230731"
+        errorLine1="mediapipeTasksText = &quot;0.10.33&quot;"
+        errorLine2="                     ~~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="35"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.security:security-crypto than 1.1.0-alpha06 is available: 1.1.0"
+        errorLine1="securityCrypto = &quot;1.1.0-alpha06&quot;"
+        errorLine2="                 ~~~~~~~~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="48"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.browser:browser than 1.8.0 is available: 1.10.0"
+        errorLine1="browser = { group = &quot;androidx.browser&quot;, name = &quot;browser&quot;, version = &quot;1.8.0&quot; }"
+        errorLine2="                                                                    ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="83"
+            column="69"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of org.jetbrains.kotlin.plugin.compose than 2.3.21 is available: 2.4.0"
+        errorLine1="kotlin = &quot;2.3.21&quot;"
+        errorLine2="         ~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="9"
+            column="10"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of org.junit.jupiter:junit-jupiter than 5.11.4 is available: 6.1.0"
+        errorLine1="junit = &quot;5.11.4&quot;"
+        errorLine2="        ~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="28"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of io.mockk:mockk than 1.13.16 is available: 1.14.11"
+        errorLine1="mockk = &quot;1.13.16&quot;"
+        errorLine2="        ~~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="29"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of org.jetbrains.kotlinx:kotlinx-coroutines-android than 1.10.1 is available: 1.11.0"
+        errorLine1="coroutinesTest = &quot;1.10.1&quot;"
+        errorLine2="                 ~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="30"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of org.jetbrains.kotlinx:kotlinx-coroutines-test than 1.10.1 is available: 1.11.0"
+        errorLine1="coroutinesTest = &quot;1.10.1&quot;"
+        errorLine2="                 ~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="30"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of com.microsoft.onnxruntime:onnxruntime-android than 1.24.3 is available: 1.26.0"
+        errorLine1="onnxruntime = &quot;1.24.3&quot;"
+        errorLine2="              ~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="37"
+            column="15"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of com.squareup.okhttp3:okhttp than 4.12.0 is available: 5.3.2"
+        errorLine1="okhttp = &quot;4.12.0&quot;"
+        errorLine2="         ~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="51"
+            column="10"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of org.apache.commons:commons-compress than 1.27.1 is available: 1.28.0"
+        errorLine1="commonsCompress = &quot;1.27.1&quot;"
+        errorLine2="                  ~~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="54"
+            column="19"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of io.coil-kt.coil3:coil-compose than 3.1.0 is available: 3.4.0"
+        errorLine1="coil = &quot;3.1.0&quot;"
+        errorLine2="       ~~~~~~~">
+        <location
+            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
+            line="57"
+            column="8"/>
+    </issue>
+
+    <issue
+        id="PermissionImpliesUnsupportedChromeOsHardware"
+        message="Permission exists without corresponding hardware `&lt;uses-feature android:name=&quot;android.hardware.telephony&quot; required=&quot;false&quot;>` tag"
+        errorLine1="    &lt;uses-permission android:name=&quot;android.permission.CALL_PHONE&quot; />"
+        errorLine2="     ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="34"
+            column="6"/>
+    </issue>
+
+    <issue
+        id="DataExtractionRules"
+        message="The attribute `android:allowBackup` is deprecated from Android 12 and may be removed in future versions. Consider adding the attribute `android:dataExtractionRules` specifying an `@xml` resource which configures backups and device transfers on Android 12 and higher."
+        errorLine1="        android:allowBackup=&quot;false&quot;"
+        errorLine2="                             ~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="59"
+            column="30"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="This folder configuration (`v26`) is unnecessary; `minSdkVersion` is 35. Merge all the resources in this folder into `mipmap-anydpi`.">
+        <location
+            file="src/main/res/mipmap-anydpi-v26"/>
+    </issue>
+
+    <issue
+        id="UseTomlInstead"
+        message="Use version catalog instead"
+        errorLine1="    testRuntimeOnly(&quot;org.junit.platform:junit-platform-launcher&quot;)"
+        errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="133"
+            column="21"/>
+    </issue>
+
+</issues>

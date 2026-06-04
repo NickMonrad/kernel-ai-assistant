@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
 }
@@ -19,12 +18,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        // LiteRT-LM is compiled with an internal Kotlin build (metadata 2.3.0).
-        // Skip the strict metadata version check to allow compilation.
-        freeCompilerArgs += "-Xskip-metadata-version-check"
-    }
 
     testOptions {
         unitTests.isReturnDefaultValues = true
@@ -49,6 +42,7 @@ dependencies {
     implementation(libs.datastore.preferences)
 
     testImplementation(libs.junit.jupiter)
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
     testImplementation("org.json:json:20240303")
