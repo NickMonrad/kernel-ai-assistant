@@ -45,6 +45,13 @@ enum class KernelModel(
      * Defaults to `true` so existing entries are unaffected.
      */
     val showInModelManagement: Boolean = true,
+    /**
+     * If `true`, this model has been superseded and is hidden from the Model Management
+     * screen and the preferred-model picker. The existing download is not deleted — the
+     * user must manually delete it through the storage settings.
+     * Defaults to `false` so existing entries are unaffected.
+     */
+    val isDeprecated: Boolean = false,
 ) {
     GEMMA_4_E2B(
         displayName = "Gemma 4 E-2B",
@@ -88,6 +95,7 @@ enum class KernelModel(
         preferredForTier = null,
         isGated = true,
         licenceUrl = "https://huggingface.co/litert-community/embeddinggemma-300m",
+        isDeprecated = true,
     ),
 
     EMBEDDING_GEMMA_SP_MODEL(

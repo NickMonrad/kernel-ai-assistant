@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.kernel.ai.feature.chat"
+    namespace = "com.kernel.ai.core.model.availability"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
@@ -26,9 +26,6 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-        // LiteRT-LM (via core:inference) is compiled with Kotlin metadata 2.3.0.
-        // Skip the strict metadata version check to allow compilation.
-        freeCompilerArgs += "-Xskip-metadata-version-check"
     }
 
     testOptions {
@@ -39,42 +36,31 @@ android {
 dependencies {
     implementation(project(":core:ui"))
     implementation(project(":core:inference"))
-    implementation(project(":core:memory"))
-    implementation(project(":core:voice"))
-    implementation(project(":core:skills"))
-    implementation(project(":core:model-availability"))
-
-    // LiteRT-LM — needed to resolve ToolProvider / ToolSet types at compile time
-    implementation(libs.litertlm.android)
 
     // Compose
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons)
+    implementation(libs.compose.foundation)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)
-    implementation(libs.lifecycle.process)
+
+    ksp(libs.hilt.compiler)
 
     // Hilt
     implementation(libs.hilt.android)
-    implementation(libs.hilt.navigation.compose)
-    ksp(libs.hilt.compiler)
+
+    // DataStore
+    implementation(libs.datastore.preferences)
 
     debugImplementation(libs.compose.ui.tooling)
 
-    androidTestImplementation(platform(libs.compose.bom))
-    androidTestImplementation(libs.compose.ui.test.junit4)
-    debugImplementation(libs.compose.ui.test.manifest)
-    androidTestImplementation("androidx.test:runner:1.5.2")
-    androidTestImplementation("androidx.test:rules:1.5.0")
-    androidTestImplementation(libs.compose.material.icons)
+    compileOnly(libs.compose.ui.test.manifest)
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
-    testImplementation("org.json:json:20240303")
-
-    implementation("sh.calvin.reorderable:reorderable:2.4.3")
+    testImplementation(libs.compose.ui.test.junit4)
 }
