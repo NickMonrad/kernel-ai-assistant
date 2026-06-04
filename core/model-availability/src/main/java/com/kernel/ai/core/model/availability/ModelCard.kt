@@ -34,14 +34,12 @@ import androidx.compose.ui.unit.dp
  * - [stateBadge] at top-right
  * - Model name and description
  * - Optional lock icon for gated models
- * - Primary action button (single action — M3 rule)
- *
- * @param title Model display name.
- * @param description Optional model description / file size / tier info.
- * @param state The model's availability state — drives the badge and available actions.
- * @param showLock True to show a lock icon (gated models not yet authenticated).
  * @param onPrimaryAction Click handler for the primary action button. Null = no button.
  * @param primaryActionLabel Label for the primary action button. Null = auto from state.
+ * @param onSecondaryAction Click handler for a secondary action (e.g. Delete) shown beside
+ *   the primary action when the model is downloaded. Null = no secondary button.
+ * @param secondaryActionLabel Label for the secondary action button. Ignored when
+ *   [onSecondaryAction] is null.
  * @param modifier Modifier for the card.
  */
 @Composable
@@ -52,6 +50,8 @@ fun ModelCard(
     showLock: Boolean = false,
     onPrimaryAction: (() -> Unit)? = null,
     primaryActionLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null,
+    secondaryActionLabel: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val actionLabel = primaryActionLabel ?: defaultActionLabel(state)
@@ -139,7 +139,32 @@ fun ModelCard(
                             Text(actionLabel)
                         }
                     }
-                    else -> {
+                    is ModelAvailabilityState.Ready -> {
+                        if (onSecondaryAction != null && secondaryActionLabel != null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Button(
+                                    onClick = onPrimaryAction,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(actionLabel)
+                                }
+                                OutlinedButton(onClick = onSecondaryAction) {
+                                    Text(secondaryActionLabel)
+                                }
+                            }
+                        } else {
+                            Button(
+                                onClick = onPrimaryAction,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(actionLabel)
+                            }
+                        }
+                    }
+                    is ModelAvailabilityState.ActionRequired -> {
                         Button(
                             onClick = onPrimaryAction,
                             modifier = Modifier.fillMaxWidth(),

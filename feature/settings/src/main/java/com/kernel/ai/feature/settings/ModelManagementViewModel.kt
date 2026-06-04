@@ -158,7 +158,8 @@ class ModelManagementViewModel @Inject constructor(
     }
 
     fun deleteModel(model: KernelModel) {
-        if (model.isRequired || model.isBundled) return
+        // Block deletion of bundled models or the currently selected conversation model
+        if (model.isBundled || model == uiState.value.preferredModel) return
         viewModelScope.launch(Dispatchers.IO) {
             model.localFile(context).delete()
             val tmpFile = java.io.File(model.localFile(context).absolutePath + ".tmp")

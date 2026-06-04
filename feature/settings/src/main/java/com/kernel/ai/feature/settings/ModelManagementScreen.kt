@@ -55,6 +55,7 @@ import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.model.availability.ModelCard
+import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.toAvailability
 
 private val HfOrange = Color(0xFFFF9D00)
@@ -124,6 +125,9 @@ fun ModelManagementScreen(
                     hfAuth = uiState.hfAuthenticated,
                     source = rowState.downloadSource,
                 )
+                val canDelete = availabilityState is ModelAvailabilityState.Ready &&
+                    !rowState.model.isBundled &&
+                    rowState.model != uiState.preferredModel
                 ModelCard(
                     title = rowState.model.displayName,
                     description = "%.1f MB".format(rowState.model.approxSizeBytes / 1_000_000f),
@@ -147,6 +151,12 @@ fun ModelManagementScreen(
                             }
                         }
                     },
+                    onSecondaryAction = if (canDelete) {
+                        { viewModel.deleteModel(rowState.model) }
+                    } else {
+                        null
+                    },
+                    secondaryActionLabel = if (canDelete) "Delete" else null,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 Spacer(modifier = Modifier.height(4.dp))
